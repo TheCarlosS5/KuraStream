@@ -1,0 +1,21 @@
+# Credenciales y claves privadas
+apikeys.txt
+
+# Logs y depuración
+*.log
+browser_errors.log
+
+# Archivos de medios gigantes (videos/fotos pesadas)
+# GitHub no acepta archivos mayores a 100MB por defecto
+library/
+*.mp4
+*.mkv
+*.webm
+*.avi
+
+# Dependencias de Node
+node_modules/
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db

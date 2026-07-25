@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <script>
+    (function() {
+      function sendLog(type, msg, stack) {
+        fetch('api/debug-log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: type, message: msg, stack: stack || '' })
+        }).catch(err => {});
+      }
+      window.onerror = function(message, source, lineno, colno, error) {
+        sendLog('WINDOW_ERROR', message + ' at ' + source + ':' + lineno + ':' + colno, error ? error.stack : '');
+        return false;
+      };
+      window.onunhandledrejection = function(event) {
+        sendLog('UNHANDLED_REJECTION', event.reason ? (event.reason.message || event.reason) : 'Promise rejected', event.reason ? event.reason.stack : '');
+      };
+      const originalConsoleError = console.error;
+      console.error = function() {
+        originalConsoleError.apply(console, arguments);
+        const args = Array.prototype.slice.call(arguments).map(a => {
+          if (a instanceof Error) return a.message + '\n' + a.stack;
+          if (typeof a === 'object') return JSON.stringify(a);
+          return String(a);
+        }).join(' ');
+        sendLog('CONSOLE_ERROR', args);
+      };
+    })();
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KuraStream - Entretenimiento Offline</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="header-logo" id="header-logo">
+      <img id="custom-logo" src="/library/logo.png" alt="KuraStream Logo" onerror="this.style.display='none'; document.getElementById('fallback-logo').style.display='flex';" style="height: 40px; width: auto; object-fit: contain;">
+      <div id="fallback-logo" style="display: none; align-items: center; gap: 8px;">
+        <span class="logo-icon">蔵</span>
+        <span class="logo-text">Kura<span class="accent-text">Stream</span></span>
+      </div>
+    </div>
+    <nav class="header-nav">
+      <a href="#/" class="nav-link active" id="nav-home">Inicio</a>
+      <a href="#/movies" class="nav-link" id="nav-movies">Películas</a>
+      <a href="#/settings" class="nav-link" id="nav-settings">Ajustes</a>
+    </nav>
+    <div class="header-right" style="display: flex; align-items: center; gap: 15px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <select id="genre-filter" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 20px; padding: 0 16px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 35px; transition: border-color 0.2s;">
+          <option value="all" style="background: var(--bg-card); color: var(--text-main);">Todos los géneros</option>
+        </select>
+        <div class="header-search">
+          <input type="text" id="search-input" placeholder="Buscar series, películas...">
+          <i data-lucide="search" class="search-icon"></i>
+        </div>
+      </div>
+      <!-- User Account Widget -->
+      <div class="user-account-container" id="user-account-container" style="position: relative;">
+        <button class="btn btn-secondary" id="btn-login-trigger" style="padding: 8px 16px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); border-color: var(--border-color);">
+          <i data-lucide="user" style="width:16px; height:16px;"></i> Iniciar Sesión
+        </button>
+        <div class="user-profile-menu" id="user-profile-menu" style="display: none; position: relative;">
+          <button class="user-profile-trigger" id="user-profile-trigger" style="background: transparent; border: none; color: var(--text-main); font-weight: 600; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; transition: background 0.2s;">
+            <div class="user-avatar-initial" id="user-avatar-initial" style="width: 28px; height: 28px; border-radius: 50%; background: var(--accent-color); color: var(--text-inverse); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; box-shadow: 0 0 10px var(--accent-glow);">U</div>
+            <span id="user-profile-name">Usuario</span>
+            <i data-lucide="chevron-down" style="width: 14px; height: 14px; color: var(--text-muted);"></i>
+          </button>
+          <div class="user-dropdown-card" id="user-dropdown-card" style="display: none; position: absolute; top: 44px; right: 0; background: var(--bg-card, #1c2230); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 99; min-width: 165px; padding: 6px 0; backdrop-filter: blur(10px);">
+            <a href="#/settings" class="user-dropdown-item" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-main); text-decoration: none; font-size: 0.85rem; transition: background 0.2s;"><i data-lucide="settings" style="width: 14px; height: 14px;"></i> Ajustes</a>
+            <a href="javascript:void(0)" id="btn-admin-direct" class="user-dropdown-item" style="display: none; align-items: center; gap: 8px; padding: 8px 16px; color: var(--accent-color); text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: background 0.2s;"><i data-lucide="shield-check" style="width: 14px; height: 14px;"></i> Panel Admin</a>
+            <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 6px 0;">
+            <a href="javascript:void(0)" id="btn-logout" class="user-dropdown-item" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--danger-color); text-decoration: none; font-size: 0.85rem; transition: background 0.2s;"><i data-lucide="log-out" style="width: 14px; height: 14px;"></i> Cerrar Sesión</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Views Container -->
+  <main class="views-container">
+
+    <!-- DASHBOARD VIEW -->
+    <section id="dashboard-view" class="app-view active">
+      <!-- Hero Carousel Section -->
+      <div class="hero-carousel-container" id="hero-carousel-container" style="display: none;">
+        <div class="hero-carousel-wrapper" id="hero-carousel-wrapper">
+          <!-- Slides will be injected dynamically here -->
+        </div>
+        <!-- Left/Right navigation chevrons -->
+        <button class="carousel-nav-btn prev" id="carousel-prev-btn"><i data-lucide="chevron-left"></i></button>
+        <button class="carousel-nav-btn next" id="carousel-next-btn"><i data-lucide="chevron-right"></i></button>
+        <!-- Bottom dot indicators -->
+        <div class="carousel-indicators" id="carousel-indicators"></div>
+      </div>
+
+      <!-- Sections container (loaded dynamically via app.js) -->
+      <div id="dashboard-sections">
+        <!-- populated dynamically -->
+      </div>
+    </section>
+
+    <!-- SHOW DETAIL VIEW -->
+    <section id="detail-view" class="app-view">
+      <!-- Background Ambient Intro Loop Video -->
+      <div class="detail-ambient-bg">
+        <video id="detail-bg-video" loop muted playsinline></video>
+        <div class="ambient-overlay"></div>
+      </div>
+
+      <div class="detail-back-bar">
+        <a href="#/" class="back-link"><i data-lucide="arrow-left" class="detail-back-icon"></i> Volver al Inicio</a>
+      </div>
+
+      <div class="detail-main-layout">
+        <!-- Sidebar: Poster and Technical Quick Info -->
+        <aside class="detail-sidebar">
+          <img id="detail-poster" src="" alt="Poster" class="detail-poster">
+          <div class="quick-stats">
+            <div class="stat-item rating-stars">
+              <i data-lucide="star" class="star-icon"></i>
+              <span id="detail-rating">--</span>
+            </div>
+            <div class="stat-item age-classification">
+              <span class="badge" id="detail-age">TV-14</span>
+            </div>
+            <div class="stat-item detail-year-badge">
+              <span class="badge" id="detail-year">--</span>
+            </div>
+          </div>
+          <button id="detail-favorite-btn" class="btn btn-secondary" style="width: 100%; margin-top: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: var(--font-title); font-size: 0.9rem;">
+            <i data-lucide="heart" id="detail-favorite-icon" style="width: 16px; height: 16px;"></i> <span id="detail-favorite-text">Añadir a mi Lista</span>
+          </button>
+          <div class="sidebar-info-block">
+            <h3>Estudio</h3>
+            <p id="detail-studio">--</p>
+          </div>
+          <div class="sidebar-info-block">
+            <h3>Director</h3>
+            <p id="detail-director">--</p>
+          </div>
+          <div class="sidebar-info-block">
+            <h3>Guionista</h3>
+            <p id="detail-writer">--</p>
+          </div>
+        </aside>
+
+        <!-- Main Info and Episodes -->
+        <div class="detail-content">
+          <h1 id="detail-title" class="detail-title">--</h1>
+          <p id="detail-synopsis" class="detail-synopsis">--</p>
+
+          <!-- Voice Cast Members -->
+          <div class="cast-section">
+            <h3 class="section-subtitle">Reparto de Voces</h3>
+            <div class="cast-row" id="detail-cast">
+              <!-- Cast profiles injected here -->
+            </div>
+          </div>
+
+          <!-- Season / Episodes Selector -->
+          <div class="episodes-section">
+            <div class="episodes-header">
+              <h2 class="section-title">Capítulos</h2>
+              <div class="season-tabs" id="season-tabs">
+                <!-- Season buttons injected here -->
+              </div>
+            </div>
+            <div class="episodes-list" id="episodes-list">
+              <!-- Episode list items injected here -->
+            </div>
+          </div>
+
+          <!-- Comments Section -->
+          <div class="comments-section" style="border-top: 1px solid var(--border-color); padding-top: 30px; margin-top: 40px;">
+            <h2 class="section-title" style="margin-bottom: 20px; font-family: var(--font-title); display: flex; align-items: center; gap: 8px; font-size: 1.35rem; color: var(--text-main);">
+              <i data-lucide="message-square" style="color: var(--accent-color); width: 22px; height: 22px;"></i> Comentarios de la Comunidad
+            </h2>
+            
+            <!-- Comment Input Box -->
+            <div class="comment-input-box" style="display: flex; gap: 15px; margin-bottom: 25px; align-items: flex-start;">
+              <div class="user-avatar-initial" id="comment-user-avatar" style="width: 40px; height: 40px; border-radius: 50%; background: var(--accent-color); color: var(--text-inverse); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; flex-shrink: 0; box-shadow: 0 0 10px var(--accent-glow);">?</div>
+              <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 10px;">
+                <textarea id="comment-textarea" placeholder="Escribe un comentario público..." style="width: 100%; min-height: 80px; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.9rem; resize: vertical; outline: none; transition: border-color 0.2s;"></textarea>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span id="comment-guest-notice" style="font-size: 0.75rem; color: var(--text-muted);">Comentarás como <strong id="comment-author-name" style="color: var(--accent-color);">Invitado</strong>. Inicia sesión para usar tu cuenta.</span>
+                  <button class="btn btn-primary" id="btn-submit-comment" style="padding: 8px 20px; font-size: 0.85rem; font-weight: 600;">Comentar</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Comments List -->
+            <div id="comments-list" style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 30px;">
+              <!-- Comments injected dynamically -->
+            </div>
+          </div>
+        </div>
+        <!-- Sidebar: Popular Shows (Right) -->
+        <aside class="detail-popular-sidebar" id="detail-popular-sidebar" style="display: flex; flex-direction: column; gap: 20px;">
+          <!-- Popular shows injected dynamically -->
+        </aside>
+      </div>
+    </section>
+
+    <!-- CUSTOM VIDEO PLAYER VIEW -->
+    <section id="player-view" class="app-view full-screen-view">
+      <div class="player-container" id="player-container">
+        <!-- Native Video Element (Controls Disabled) -->
+        <video id="video-element" playsinline></video>
+
+        <!-- Subtitles Render Layer (SubtitlesOctopus canvas renders inside here) -->
+        <div id="subtitles-container" class="subtitles-container"></div>
+
+        <!-- Custom Video Player Controls Overlay -->
+        <div class="player-controls-overlay" id="player-controls-overlay">
+          
+          <!-- Top Control Bar -->
+          <div class="player-top-bar">
+            <button class="player-btn" id="player-back-btn"><i data-lucide="arrow-left"></i></button>
+            <div class="player-title-block">
+              <h2 id="player-show-title">--</h2>
+              <p id="player-episode-title">--</p>
+            </div>
+          </div>
+
+          <!-- Center Action / Loading Overlay -->
+          <div class="player-center-block">
+            <div id="player-loader" class="player-loader" style="display: none;">
+              <div class="spinner"></div>
+            </div>
+            <button id="center-play-pause-btn" class="center-action-btn"><i data-lucide="play" id="center-play-icon"></i></button>
+          </div>
+
+          <!-- Bottom Control Bar -->
+          <div class="player-bottom-bar">
+            
+            <!-- Progress Timeline -->
+            <div class="player-timeline-container">
+              <span class="player-time" id="player-time-current">0:00</span>
+              <div class="player-progress-bar" id="player-progress-bar">
+                <div class="player-progress-buffered" id="player-progress-buffered"></div>
+                <div class="player-progress-current" id="player-progress-current"></div>
+                <div class="player-progress-handle" id="player-progress-handle"></div>
+              </div>
+              <span class="player-time" id="player-time-duration">0:00</span>
+            </div>
+
+            <!-- Controls Buttons Grid -->
+            <div class="player-controls-row">
+              <div class="player-controls-left">
+                <button class="player-btn" id="play-pause-btn"><i data-lucide="play" id="play-icon"></i></button>
+                <button class="player-btn" id="next-ep-btn" title="Siguiente capítulo"><i data-lucide="skip-forward"></i></button>
+                
+                <!-- Volume Control -->
+                <div class="player-volume-container">
+                  <button class="player-btn" id="mute-btn"><i data-lucide="volume-2" id="volume-icon"></i></button>
+                  <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="1" class="volume-slider">
+                </div>
+              </div>
+
+              <div class="player-controls-right">
+                <!-- Speed Toggle -->
+                <div class="player-dropdown" id="speed-dropdown">
+                  <button class="player-btn dropdown-trigger" id="speed-btn">1.0x</button>
+                  <div class="dropdown-menu">
+                    <button class="speed-opt" data-speed="0.5">0.5x</button>
+                    <button class="speed-opt" data-speed="0.75">0.75x</button>
+                    <button class="speed-opt active" data-speed="1">1.0x (Normal)</button>
+                    <button class="speed-opt" data-speed="1.25">1.25x</button>
+                    <button class="speed-opt" data-speed="1.5">1.5x</button>
+                    <button class="speed-opt" data-speed="2">2.0x</button>
+                  </div>
+                </div>
+
+                <!-- Audio Tracks -->
+                <div class="player-dropdown" id="audio-dropdown">
+                  <button class="player-btn dropdown-trigger" id="audio-btn" title="Audio"><i data-lucide="headphones"></i></button>
+                  <div class="dropdown-menu" id="audio-menu-list">
+                    <!-- Audio tracks injected here -->
+                  </div>
+                </div>
+
+                <!-- Subtitle Tracks -->
+                <div class="player-dropdown" id="subtitle-dropdown">
+                  <button class="player-btn dropdown-trigger" id="subtitle-btn" title="Subtítulos"><i data-lucide="captions"></i></button>
+                  <div class="dropdown-menu" id="subtitle-menu-list">
+                    <!-- Subtitles injected here -->
+                  </div>
+                </div>
+
+                <!-- Technical File Info (VLC / Nova Player style) -->
+                <button class="player-btn" id="file-info-btn" title="Información del archivo"><i data-lucide="info"></i></button>
+
+                <!-- Fullscreen Toggle -->
+                <button class="player-btn" id="fullscreen-btn"><i data-lucide="maximize" id="fullscreen-icon"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- File Info Modal Panel -->
+        <div class="file-info-modal" id="file-info-modal" style="display: none;">
+          <div class="modal-header">
+            <h3>Información Técnica del Archivo</h3>
+            <button class="modal-close" id="file-info-close"><i data-lucide="x"></i></button>
+          </div>
+          <div class="modal-body" id="file-info-body">
+            <!-- Dynamic technical stats injected here -->
+          </div>
+        </div>
+
+        <!-- Skip Intro Button -->
+        <button class="skip-intro-btn" id="skip-intro-btn" style="display: none;">Omitir Intro <i data-lucide="chevron-right" style="width:16px;height:16px;vertical-align:middle;margin-left:4px;"></i></button>
+
+        <!-- Outro Overlay Container (Siguiente Capítulo & Ver Créditos) -->
+        <div id="outro-overlay-container" style="display: none; position: absolute; bottom: 130px; right: 40px; z-index: 12; flex-direction: column; gap: 8px; align-items: flex-end;">
+          <button class="skip-intro-btn" id="skip-outro-btn" style="position: static; background: rgba(229, 9, 20, 0.85); border-color: rgba(229, 9, 20, 0.5);">Siguiente Capítulo <i data-lucide="chevron-right" style="width:16px;height:16px;vertical-align:middle;margin-left:4px;"></i></button>
+          <button class="skip-intro-btn" id="watch-credits-btn" style="position: static; font-size: 0.75rem; padding: 6px 14px; background: rgba(11, 12, 14, 0.7); border-color: var(--border-color); color: var(--text-muted); font-weight: 500;">Ver Créditos</button>
+        </div>
+
+        <!-- Next Episode Autoplay Countdown -->
+        <div class="autoplay-countdown-overlay" id="autoplay-countdown-overlay" style="display: none;">
+          <div class="countdown-card">
+            <h3>Siguiente capítulo en</h3>
+            <div class="countdown-number" id="countdown-number">5</div>
+            <p id="countdown-next-title">Título del capítulo</p>
+            <div class="countdown-buttons">
+              <button class="btn btn-primary" id="countdown-play-now">Ver ya</button>
+              <button class="btn btn-secondary" id="countdown-cancel">Cancelar</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ADMIN PORTAL (Import & Manage Files) -->
+    <section id="admin-view" class="app-view">
+      <div class="admin-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="admin-sidebar">
+          <div class="admin-sidebar-header">
+            <span class="logo-icon" style="background: var(--accent-color); color: var(--text-inverse); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; font-family: var(--font-title); font-weight: 800; font-size: 1.2rem; margin-right: 8px;">蔵</span>
+            <span style="font-family: var(--font-title); font-weight: 700; font-size: 1.1rem; letter-spacing: -0.5px;">Admin</span>
+          </div>
+          <nav class="admin-nav">
+            <button class="admin-nav-item active" data-target="admin-sub-overview">
+              <i data-lucide="bar-chart-2"></i>
+              <span>Estado</span>
+            </button>
+            <button class="admin-nav-item" data-target="admin-sub-import">
+              <i data-lucide="download"></i>
+              <span>Importar</span>
+            </button>
+            <button class="admin-nav-item" data-target="admin-sub-library">
+              <i data-lucide="tv"></i>
+              <span>Biblioteca</span>
+            </button>
+            <button class="admin-nav-item" data-target="admin-sub-console">
+              <i data-lucide="terminal"></i>
+              <span>Consola</span>
+            </button>
+          </nav>
+        </aside>
+
+        <!-- Content Area -->
+        <div class="admin-content">
+          
+          <!-- SUB-VIEW: OVERVIEW (Stats & Active streams) -->
+          <div id="admin-sub-overview" class="admin-sub-view active">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+              <h2 class="admin-sub-title" style="margin: 0; padding: 0; border: none;">Estado General del Servidor</h2>
+              <button class="btn btn-primary" id="btn-scan-library" style="gap: 8px; height: 38px; font-size: 0.85rem; padding: 0 15px;">
+                <i data-lucide="refresh-cw"></i> Escanear Biblioteca
+              </button>
+            </div>
+            
+            <!-- Statistics Grid -->
+            <div class="admin-stats-grid">
+              <div class="stat-card">
+                <div class="stat-icon-wrapper orange"><i data-lucide="tv"></i></div>
+                <div class="stat-info">
+                  <span class="stat-value" id="stat-shows">--</span>
+                  <span class="stat-label">Animes / Películas</span>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon-wrapper blue"><i data-lucide="play-circle"></i></div>
+                <div class="stat-info">
+                  <span class="stat-value" id="stat-episodes">--</span>
+                  <span class="stat-label">Capítulos Totales</span>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon-wrapper green"><i data-lucide="hard-drive"></i></div>
+                <div class="stat-info">
+                  <span class="stat-value" id="stat-size">--</span>
+                  <span class="stat-label">Tamaño en Disco</span>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon-wrapper gold"><i data-lucide="clock"></i></div>
+                <div class="stat-info">
+                  <span class="stat-value" id="stat-duration">--</span>
+                  <span class="stat-label">Horas de Video</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Active Streams Section -->
+            <div class="admin-card" style="margin-top: 25px;">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+                <span class="live-indicator"></span>
+                <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.2rem;">Transmisiones Activas en la Red Local</h3>
+              </div>
+              <div id="active-streams-list">
+                <!-- Injected dynamically -->
+                <p style="color: var(--text-muted); font-size: 0.9rem; padding: 15px 0;">No hay transmisiones de vídeo activas en este momento.</p>
+              </div>
+            </div>
+
+            <!-- Branding / Logo Upload Card -->
+            <div class="admin-card" style="margin-top: 25px;">
+              <h3 style="font-family: var(--font-title); font-size: 1.2rem; margin-bottom: 5px;">Personalizar Logotipo de KuraStream</h3>
+              <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Arrastra aquí una imagen PNG o JPG para actualizar el logotipo principal del sitio.</p>
+              <form id="logo-upload-form" style="display: flex; flex-direction: column;">
+                <div class="drop-zone" id="logo-drop-zone">
+                  <i data-lucide="upload-cloud" class="drop-zone-icon"></i>
+                  <span class="drop-zone-text">Arrastra tu logotipo aquí o haz clic para subirlo</span>
+                  <input type="file" id="logo-file-input" accept="image/*" style="display: none;">
+                </div>
+                <button type="button" class="btn btn-secondary" id="btn-reset-logo" style="margin-top: 12px; gap: 8px; justify-content: center; width: 100%;">
+                  <i data-lucide="rotate-ccw" style="width: 16px; height: 16px;"></i> Restablecer Logotipo Original
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW: IMPORT -->
+          <div id="admin-sub-import" class="admin-sub-view">
+            <h2 class="admin-sub-title">Importar Nuevo Archivo</h2>
+            
+            <div class="import-two-columns">
+              <!-- Left: Form -->
+              <div class="admin-card">
+                <h3 style="font-family: var(--font-title); font-size: 1.2rem; margin-bottom: 15px;">Detalles del Archivo</h3>
+                <form id="import-form">
+                  <div class="form-group">
+                    <label>Archivo de Video*</label>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                      <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="file" id="import-file" accept=".mkv,.mp4,.avi,.webm" style="display: none;">
+                        <button type="button" class="btn btn-secondary" id="btn-select-file" style="padding: 0 16px; height: 42px; display: inline-flex; align-items: center; gap: 8px;">
+                          <i data-lucide="video" style="width: 18px; height: 18px;"></i>
+                          Seleccionar Archivo...
+                        </button>
+                        <span id="selected-file-label" style="color: var(--text-muted); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px;">Ningún archivo seleccionado</span>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="color: var(--text-muted); font-size: 0.8rem; white-space: nowrap;">O ruta local (opcional):</span>
+                        <input type="text" id="import-filepath" placeholder="Ej: /home/carlossgr/Descargas/OshiNoKo_S01E01.mkv" style="flex-grow: 1; padding: 6px 12px; font-size: 0.8rem; height: 32px;">
+                      </div>
+                    </div>
+                    <small class="form-tip">Puedes subir un archivo de video directamente de tu PC o indicar su ruta absoluta en el servidor.</small>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="import-show-selector">Asociar a Serie / Película Existente</label>
+                    <select id="import-show-selector" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-main); cursor: pointer; height: 42px; outline: none; margin-bottom: 5px;">
+                      <option value="new">-- Crear Nueva Serie / Película --</option>
+                    </select>
+                    <small class="form-tip">Selecciona un anime existente para agregar capítulos o temporadas, o elige "Crear Nueva" para uno nuevo.</small>
+                  </div>
+
+                  <div id="import-new-show-fields">
+                    <div class="form-row">
+                      <div class="form-group col">
+                        <label for="import-title">Título de la Serie / Película*</label>
+                        <div style="display: flex; gap: 8px;">
+                          <input type="text" id="import-title" placeholder="Ej: Oshi no Ko" required style="flex-grow:1;">
+                          <button type="button" class="btn btn-secondary" id="btn-search-tmdb" style="padding: 0 15px; height: 42px; width: 48px; min-width: 48px; justify-content: center;"><i data-lucide="search" style="margin:0;"></i></button>
+                        </div>
+                      </div>
+                      <div class="form-group col">
+                        <label for="import-type">Tipo de Contenido*</label>
+                        <select id="import-type" required>
+                          <option value="anime" selected>Anime / Serie</option>
+                          <option value="movie">Película</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- TV/Anime fields -->
+                  <div id="tv-fields-group">
+                    <div class="form-row">
+                      <div class="form-group col">
+                        <label for="import-season">Temporada</label>
+                        <input type="number" id="import-season" min="1" value="1">
+                      </div>
+                      <div class="form-group col">
+                        <label for="import-episode">Capítulo #</label>
+                        <input type="number" id="import-episode" min="1" value="1">
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label for="import-ep-title">Título del Capítulo (Opcional)</label>
+                      <input type="text" id="import-ep-title" placeholder="Dejar vacío para autodetectar con TMDB">
+                    </div>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="form-group col">
+                      <label for="import-tmdb">TMDB ID (Opcional)</label>
+                      <input type="text" id="import-tmdb" placeholder="Ej: 153070">
+                      <small class="form-tip">Para forzar la coincidencia exacta de metadatos.</small>
+                    </div>
+                    <div class="form-group col">
+                      <label for="import-intro-start">Inicio de Intro (segundos)</label>
+                      <input type="number" id="import-intro-start" placeholder="Ej: 45">
+                      <small class="form-tip">Segundo en el que inicia el Opening.</small>
+                    </div>
+                  </div>
+
+                  <button type="submit" class="btn btn-primary btn-block" id="import-submit-btn" style="margin-top: 15px;"><i data-lucide="download"></i> Importar y Organizar</button>
+                </form>
+
+                <div id="import-status" class="import-status" style="display: none; margin-top: 15px;">
+                  <div class="status-spinner spinner"></div>
+                  <p id="import-status-text">Procesando vídeo, extrayendo pistas y metadatos con ffprobe...</p>
+                </div>
+              </div>
+
+              <!-- Right: TMDB Live Preview -->
+              <div class="admin-card" id="tmdb-preview-card" style="display: flex; flex-direction: column;">
+                <h3 style="font-family: var(--font-title); font-size: 1.2rem; margin-bottom: 15px;">Previsualización de Metadatos (TMDB)</h3>
+                <div class="tmdb-preview-placeholder" id="tmdb-preview-placeholder" style="display: flex; flex-grow: 1; flex-direction: column; align-items: center; justify-content: center; border: 2px dashed var(--border-color); border-radius: 8px; padding: 30px;">
+                  <i data-lucide="film" style="width: 48px; height: 48px; stroke: var(--text-muted); margin-bottom: 12px;"></i>
+                  <p style="color: var(--text-muted); text-align: center; font-size: 0.85rem; line-height: 1.4;">Escribe el título de tu serie y haz clic en la lupa para previsualizar los metadatos oficiales en tiempo real.</p>
+                </div>
+                <div class="tmdb-preview-content" id="tmdb-preview-content" style="display: none; flex-direction: column; gap: 15px;">
+                  <div class="preview-backdrop-wrapper" style="position: relative; width: 100%; height: 160px; border-radius: 8px; overflow: hidden; background: rgba(0,0,0,0.5);">
+                    <img id="preview-backdrop" src="" alt="Backdrop" style="width: 100%; height: 100%; object-fit: cover;">
+                    <div class="preview-backdrop-overlay" style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(18,22,32,1) 0%, rgba(18,22,32,0.4) 100%);"></div>
+                  </div>
+                  <div class="preview-details" style="display: flex; gap: 15px; margin-top: -60px; position: relative; z-index: 2; padding: 0 10px;">
+                    <img id="preview-poster" src="" alt="Poster" class="preview-poster-thumb" style="width: 90px; height: 135px; object-fit: cover; border-radius: 6px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); border: 1px solid var(--border-color);">
+                    <div class="preview-meta" style="flex-grow: 1; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 5px;">
+                      <h4 id="preview-title" style="font-family: var(--font-title); font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">--</h4>
+                      <div class="preview-badges" style="display: flex; gap: 8px;">
+                        <span class="badge" id="preview-year-val">--</span>
+                        <span class="badge" id="preview-rating-val"><i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);display:inline-block;vertical-align:middle;margin-right:2px;"></i> 0.0</span>
+                      </div>
+                    </div>
+                  </div>
+                  <p id="preview-overview" style="color: var(--text-muted); font-size: 0.85rem; line-height: 1.5; margin-top: 5px; max-height: 120px; overflow-y: auto; padding-right: 5px;">--</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW: LIBRARY -->
+          <div id="admin-sub-library" class="admin-sub-view">
+            <h2 class="admin-sub-title">Gestionar Biblioteca Existente</h2>
+            <div class="admin-card">
+              <div class="admin-shows-list" id="admin-shows-list">
+                <!-- Show items with delete buttons will be injected here -->
+              </div>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW: CONSOLE -->
+          <div id="admin-sub-console" class="admin-sub-view">
+            <h2 class="admin-sub-title">Consola y Eventos del Servidor</h2>
+            <div class="admin-card console-container-card" style="display: flex; flex-direction: column; padding: 0 !important; overflow: hidden; background: #000; border: 1px solid var(--border-color); border-radius: 8px;">
+              <div class="console-header" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #111; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <div class="console-dots" style="display: flex; gap: 6px;">
+                  <span class="dot red" style="width: 10px; height: 10px; border-radius: 50%; background: #ff5f56; display: inline-block;"></span>
+                  <span class="dot yellow" style="width: 10px; height: 10px; border-radius: 50%; background: #ffbd2e; display: inline-block;"></span>
+                  <span class="dot green" style="width: 10px; height: 10px; border-radius: 50%; background: #27c93f; display: inline-block;"></span>
+                </div>
+                <span class="console-title" style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">kurastream-backend@logs</span>
+                <button class="btn btn-secondary" id="btn-clear-logs" style="padding: 2px 8px; font-size: 0.75rem; height: auto;">Limpiar pantalla</button>
+              </div>
+              <div class="terminal-box" id="terminal-box" style="padding: 15px; font-family: monospace; font-size: 0.85rem; color: #4af626; height: 350px; overflow-y: auto; line-height: 1.5; background: #000; scroll-behavior: smooth;">
+                <!-- Log entries injected here -->
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS VIEW -->
+    <section id="settings-view" class="app-view">
+      <div class="settings-container">
+        <h2 class="settings-title"><i data-lucide="settings" style="vertical-align: middle; margin-right: 8px;"></i> Ajustes de Reproducción</h2>
+        <p class="settings-description">Configura tu idioma preferido para que se seleccione automáticamente al ver cualquier anime o película.</p>
+        
+        <div class="settings-card">
+          <div class="settings-group">
+            <label for="pref-audio-lang"><i data-lucide="volume-2" style="width: 18px; height: 18px; vertical-align: middle; margin-right: 6px; color: var(--accent-color);"></i> Idioma Preferido del Audio</label>
+            <select id="pref-audio-lang" class="settings-select">
+              <option value="default" selected>Por defecto (Idioma original / Primera pista)</option>
+              <option value="spa">Español / Castellano</option>
+              <option value="jpn">Japonés (Japanese)</option>
+              <option value="eng">Inglés (English)</option>
+            </select>
+            <small class="settings-tip">Si el capítulo dispone de una pista de audio en este idioma, se seleccionará automáticamente al iniciar el reproductor.</small>
+          </div>
+
+          <div class="settings-group" style="margin-top: 25px;">
+            <label for="pref-sub-lang"><i data-lucide="subtitles" style="width: 18px; height: 18px; vertical-align: middle; margin-right: 6px; color: var(--accent-color);"></i> Idioma Preferido de Subtítulos</label>
+            <select id="pref-sub-lang" class="settings-select">
+              <option value="default" selected>Por defecto (Primera pista de subtítulos)</option>
+              <option value="spa">Español / Castellano</option>
+              <option value="eng">Inglés (English)</option>
+              <option value="off">Desactivados por defecto</option>
+            </select>
+            <small class="settings-tip">Si se encuentra una pista de subtítulos en este idioma, se activará de forma automática al reproducir.</small>
+          </div>
+        </div>
+
+        <div id="settings-save-success" class="settings-toast" style="display: none;">
+          <i data-lucide="check-circle" style="width: 16px; height: 16px;"></i> Preferencias guardadas y aplicadas con éxito
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- PASSWORD PIN PROMPT DIALOG (Hidden Easter Egg Triggered) -->
+  <div class="pin-modal-overlay" id="pin-modal-overlay" style="display: none;">
+    <div class="pin-modal">
+      <h3>Acceso de Administrador</h3>
+      <p>Introduce tus credenciales para acceder al panel:</p>
+      <input type="text" id="admin-username-input" placeholder="Usuario" style="margin-bottom: 10px; width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-card, #1c2230); color: var(--text-main, #ffffff);">
+      <input type="password" id="admin-password-input" placeholder="Contraseña" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-card, #1c2230); color: var(--text-main, #ffffff);">
+      <div id="pin-error" class="pin-error" style="display: none;">Usuario o contraseña incorrectos</div>
+      <div class="pin-buttons" style="margin-top: 15px;">
+        <button class="btn btn-primary" id="pin-submit">Entrar</button>
+        <button class="btn btn-secondary" id="pin-cancel">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SHOW MULTIMEDIA EDITOR MODAL -->
+  <div class="pin-modal-overlay" id="media-edit-modal-overlay" style="display: none; z-index: 100;">
+    <div class="pin-modal" style="max-width: 650px; width: 90%; max-height: 85vh; overflow-y: auto;">
+      <h3 id="edit-media-title">Editar Multimedia del Anime</h3>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Cambia las portadas, administra fondos dinámicos y edita miniaturas de capítulos arrastrando los archivos.</p>
+      
+      <!-- Show Poster & Backdrop Drag & Drop Zones -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px;">
+        <input type="hidden" id="edit-show-id">
+        <div>
+          <label style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; display: block;">Portada Poster (Arrastra o selecciona)</label>
+          <div class="drop-zone" id="poster-drop-zone">
+            <i data-lucide="image" class="drop-zone-icon"></i>
+            <span class="drop-zone-text" style="font-size: 0.75rem;">Arrastra póster vertical aquí</span>
+            <input type="file" id="poster-file-input" accept="image/*" style="display: none;">
+          </div>
+        </div>
+        <div>
+          <label style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; display: block;">Fondo Backdrop (Arrastra o selecciona)</label>
+          <div class="drop-zone" id="backdrop-drop-zone">
+            <i data-lucide="image" class="drop-zone-icon"></i>
+            <span class="drop-zone-text" style="font-size: 0.75rem;">Arrastra fondo horizontal aquí</span>
+            <input type="file" id="backdrop-file-input" accept="image/*" style="display: none;">
+          </div>
+        </div>
+      </div>
+
+      <!-- Manage Dynamic Background Video Loops -->
+      <div style="border-top: 1px solid var(--border-color); padding-top: 20px; margin-bottom: 25px;">
+        <h4>Clips de Video de Fondo (Intro/Loops)</h4>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 10px;">Arrastra múltiples recortes de video para que roten en orden como fondo dinámico.</p>
+        
+        <!-- List of existing loop videos -->
+        <div id="edit-show-loops-list" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px; max-height: 150px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px;">
+          <!-- loops list injected here -->
+        </div>
+
+        <div class="drop-zone" id="loop-drop-zone">
+          <i data-lucide="video" class="drop-zone-icon"></i>
+          <span class="drop-zone-text">Arrastra tu clip MP4 recortado aquí o haz clic para subirlo</span>
+          <input type="file" id="loop-file-input" accept="video/mp4,video/*" style="display: none;">
+        </div>
+      </div>
+
+      <!-- Manage Episode Thumbnails -->
+      <div style="border-top: 1px solid var(--border-color); padding-top: 20px; margin-bottom: 20px;">
+        <h4>Miniaturas de Capítulos</h4>
+        <div id="edit-episodes-thumbs-list" style="display: flex; flex-direction: column; gap: 12px; max-height: 250px; overflow-y: auto; padding-right: 5px;">
+          <!-- Episode list with thumb inputs injected here -->
+        </div>
+      </div>
+
+      <div class="pin-buttons" style="border-top: 1px solid var(--border-color); padding-top: 15px; justify-content: flex-end;">
+        <button class="btn btn-secondary" id="edit-media-close">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EPISODE DETAIL MODAL -->
+  <div class="pin-modal-overlay" id="episode-detail-modal" style="display: none; z-index: 105;">
+    <div class="pin-modal" style="max-width: 550px; width: 90%; text-align: left; max-height: 85vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
+        <div>
+          <h3 id="ep-detail-number" style="font-size: 0.85rem; color: var(--accent-color); font-weight: 700; text-transform: uppercase; margin: 0 0 4px 0;">S1E01</h3>
+          <h2 id="ep-detail-title" style="font-family: var(--font-title); font-size: 1.35rem; margin: 0; color: var(--text-main);">Nombre del Capítulo</h2>
+        </div>
+        <button id="ep-detail-close" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center;"><i data-lucide="x" style="width: 24px; height: 24px;"></i></button>
+      </div>
+
+      <!-- Synopsis -->
+      <div style="margin-bottom: 20px;">
+        <h4 style="font-size: 0.9rem; font-weight: 600; margin-bottom: 6px; color: var(--text-main);">Sinopsis</h4>
+        <p id="ep-detail-synopsis" style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin: 0;">Sin descripción disponible.</p>
+      </div>
+
+      <!-- Audio and Subtitle Tracks Grid -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); padding: 15px 0;">
+        <div>
+          <h4 style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;"><i data-lucide="languages" style="width:14px;height:14px;color:var(--accent-color);"></i> Audio disponible</h4>
+          <ul id="ep-detail-audio" style="font-size: 0.8rem; color: var(--text-muted); margin: 0; padding-left: 16px; line-height: 1.4; list-style-type: disc;"></ul>
+        </div>
+        <div>
+          <h4 style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;"><i data-lucide="subtitles" style="width:14px;height:14px;color:var(--accent-color);"></i> Subtítulos</h4>
+          <ul id="ep-detail-subtitles" style="font-size: 0.8rem; color: var(--text-muted); margin: 0; padding-left: 16px; line-height: 1.4; list-style-type: disc;"></ul>
+        </div>
+      </div>
+
+      <!-- Technical Details -->
+      <div style="margin-bottom: 24px;">
+        <h4 style="font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; color: var(--text-main);">Especificaciones Técnicas</h4>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 16px; font-size: 0.8rem; color: var(--text-muted);">
+          <div><span>Duración:</span> <strong id="ep-detail-duration" style="color: var(--text-main);">-- min</strong></div>
+          <div><span>Resolución:</span> <strong id="ep-detail-resolution" style="color: var(--text-main);">--</strong></div>
+          <div><span>Códec de Video:</span> <strong id="ep-detail-codec" style="color: var(--text-main);">--</strong></div>
+          <div><span>Peso de Archivo:</span> <strong id="ep-detail-size" style="color: var(--text-main);">--</strong></div>
+        </div>
+      </div>
+
+      <!-- Play Button -->
+      <button class="btn btn-primary btn-block" id="ep-detail-play-btn" style="height: 48px; font-size: 1rem; display: flex; align-items: center; justify-content: center; gap: 8px;"><i data-lucide="play" style="fill: currentColor; width: 18px; height: 18px;"></i> Reproducir Capítulo</button>
+    </div>
+  </div>
+  <!-- USER LOGIN / REGISTER MODAL -->
+  <div class="pin-modal-overlay" id="login-modal" style="display: none; z-index: 110;">
+    <div class="pin-modal" style="max-width: 400px; width: 90%;">
+      <!-- Tabs -->
+      <div style="display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 20px;">
+        <button id="tab-login" class="login-tab active" style="flex: 1; padding: 10px; background: transparent; border: none; border-bottom: 2px solid var(--accent-color); color: var(--text-main); font-weight: 600; cursor: pointer; text-align: center;">Iniciar Sesión</button>
+        <button id="tab-register" class="login-tab" style="flex: 1; padding: 10px; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-weight: 600; cursor: pointer; text-align: center;">Registrarse</button>
+      </div>
+
+      <h3 id="login-modal-title" style="margin-bottom: 15px; font-family: var(--font-title); font-size: 1.15rem; color: var(--text-main);">Inicia sesión en tu cuenta</h3>
+      
+      <div style="margin-bottom: 12px;">
+        <input type="text" id="login-username-input" placeholder="Nombre de usuario" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.9rem; outline: none;">
+      </div>
+      <div style="margin-bottom: 15px;">
+        <input type="password" id="login-password-input" placeholder="Contraseña" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.9rem; outline: none;">
+      </div>
+      <div id="login-error-msg" style="color: var(--danger-color); font-size: 0.8rem; margin-bottom: 15px; display: none;">Usuario o contraseña incorrectos</div>
+      
+      <div class="pin-buttons" style="justify-content: flex-end; gap: 10px; margin-top: 15px;">
+        <button class="btn btn-secondary" id="login-modal-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="login-modal-submit">Aceptar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- COMMUNITY CHAT FLOATING WIDGET -->
+  <div class="chat-widget-container" id="community-chat-widget" style="position: fixed; bottom: 30px; right: 30px; z-index: 100;">
+    <!-- Trigger Button -->
+    <button class="chat-trigger-btn" id="chat-trigger-btn" title="Chat de la Comunidad" style="width: 56px; height: 56px; border-radius: 50%; background: var(--accent-color); color: var(--text-inverse); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px var(--accent-glow); transition: transform 0.2s;">
+      <i data-lucide="message-square" style="width: 24px; height: 24px; margin: 0;"></i>
+      <span class="chat-unread-badge" id="chat-unread-badge" style="display: none; position: absolute; top: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: var(--danger-color); border: 2px solid var(--bg-main);"></span>
+    </button>
+
+    <!-- Expanded Chat Card -->
+    <div class="chat-window-card" id="chat-window-card" style="display: none; position: absolute; bottom: 70px; right: 0; width: 320px; height: 450px; background: rgba(28, 34, 48, 0.95); border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 99; flex-direction: column; overflow: hidden; backdrop-filter: blur(15px);">
+      <div class="chat-header" style="padding: 12px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <i data-lucide="messages-square" style="color: var(--accent-color); width: 18px; height: 18px;"></i>
+          <span style="font-family: var(--font-title); font-weight: 700; font-size: 0.95rem; color: var(--text-main);">Chat de Comunidad</span>
+        </div>
+        <button id="chat-close-btn" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center;"><i data-lucide="minus" style="width: 16px; height: 16px;"></i></button>
+      </div>
+
+      <!-- Messages Stream -->
+      <div class="chat-messages-body" id="chat-messages-body" style="flex-grow: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+        <!-- Messages loaded dynamically -->
+      </div>
+
+      <!-- Send Input Form -->
+      <div class="chat-input-form" style="border-top: 1px solid var(--border-color); padding: 8px 10px; display: flex; gap: 8px; background: rgba(0,0,0,0.15); align-items: center;">
+        <input type="text" id="chat-input-msg" placeholder="Escribe un mensaje..." style="flex-grow: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); font-size: 0.85rem; outline: none; height: 32px;">
+        <button class="btn btn-primary" id="chat-send-btn" style="width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 6px; min-width: 32px;"><i data-lucide="send" style="width: 14px; height: 14px; margin: 0;"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lucide Icons Bundle (Local Vendor) -->
+  <script src="/vendor/lucide/lucide.min.js"></script>
+  <!-- Global scripts -->
+  <script src="app.js" type="module"></script>
+  <script src="player.js" type="module"></script>
+</body>
+</html>
