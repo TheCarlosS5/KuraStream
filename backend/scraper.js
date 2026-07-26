@@ -118,7 +118,7 @@ export const scraper = {
     
     const details = await tmdbFetch(endpoint, {
       language: 'es-ES',
-      append_to_response: 'credits'
+      append_to_response: 'credits,videos'
     });
     
     // Parse credits to extract Studio, Director, Writer
@@ -155,6 +155,29 @@ export const scraper = {
       }));
       
     const genres = (details.genres || []).map(g => g.name).join(', ');
+
+    // Find trailer key (YouTube video ID)
+    let trailerKey = '';
+    let videoResults = details.videos?.results || [];
+
+    if (videoResults.length === 0) {
+      try {
+        const videoData = await tmdbFetch(isMovie ? `/movie/${tmdbId}/videos` : `/tv/${tmdbId}/videos`);
+        videoResults = videoData.results || [];
+      } catch (e) {
+        console.warn(`Failed to fetch fallback videos for tmdbId ${tmdbId}:`, e);
+      }
+    }
+
+    if (videoResults.length > 0) {
+      const trailer = videoResults.find(v => v.site === 'YouTube' && v.type === 'Trailer') || 
+                      videoResults.find(v => v.site === 'YouTube' && v.type === 'Teaser') ||
+                      videoResults.find(v => v.site === 'YouTube');
+      if (trailer) {
+        trailerKey = trailer.key;
+      }
+    }
+
     return {
       id: String(tmdbId),
       title: details.name || details.title,
@@ -168,7 +191,8 @@ export const scraper = {
       poster_path: details.poster_path,
       backdrop_path: details.backdrop_path,
       media_type: mediaType,
-      genres: genres
+      genres: genres,
+      trailer_key: trailerKey
     };
   },
 

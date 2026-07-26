@@ -24,6 +24,7 @@ db.exec(`
     media_type TEXT NOT NULL DEFAULT 'anime', -- 'anime', 'movie', 'manga'
     backdrop_loops TEXT DEFAULT '[]',
     genres TEXT DEFAULT '',
+    trailer_key TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -100,6 +101,10 @@ try {
 
 try {
   db.exec(`ALTER TABLE shows ADD COLUMN genres TEXT DEFAULT '';`);
+} catch (e) {}
+
+try {
+  db.exec(`ALTER TABLE shows ADD COLUMN trailer_key TEXT;`);
 } catch (e) {}
 
 try {
@@ -204,6 +209,8 @@ export const dbHelper = {
       try { cast = JSON.parse(existing.cast_members); } catch(e) { cast = []; }
     }
 
+    const trailer_key = show.trailer_key !== undefined ? show.trailer_key : (existing ? existing.trailer_key : null);
+
     if (existing) {
       const stmt = db.prepare(`
         UPDATE shows SET 
@@ -219,7 +226,8 @@ export const dbHelper = {
           backdrop_path = ?, 
           media_type = ?, 
           backdrop_loops = ?,
-          genres = ?
+          genres = ?,
+          trailer_key = ?
         WHERE id = ?
       `);
       stmt.run(
@@ -236,12 +244,13 @@ export const dbHelper = {
         show.media_type || 'anime',
         JSON.stringify(loops),
         show.genres || existing.genres || '',
+        trailer_key,
         show.id
       );
     } else {
       const stmt = db.prepare(`
-        INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       stmt.run(
         show.id,
@@ -257,7 +266,8 @@ export const dbHelper = {
         show.backdrop_path || '',
         show.media_type || 'anime',
         JSON.stringify(loops),
-        show.genres || ''
+        show.genres || '',
+        trailer_key
       );
     }
   },
@@ -382,15 +392,52 @@ export const dbHelper = {
       FROM watch_history h
       JOIN episodes e ON h.episode_id = e.id
       JOIN shows s ON e.show_id = s.id
-      WHERE h.username = ? AND h.updated_at = (
-        SELECT MAX(h2.updated_at)
+      WHERE h.username = ? AND h.episode_id = (
+        SELECT h2.episode_id
         FROM watch_history h2
         JOIN episodes e2 ON h2.episode_id = e2.id
         WHERE e2.show_id = s.id AND h2.username = ?
+        ORDER BY h2.updated_at DESC, e2.season_number DESC, e2.episode_number DESC
+        LIMIT 1
       )
       ORDER BY h.updated_at DESC
     `);
-    return stmt.all(username, username);
+    const history = stmt.all(username, username);
+    
+    const nextEpStmt = db.prepare(`
+      SELECT * FROM episodes
+      WHERE show_id = ?
+        AND (season_number > ? OR (season_number = ? AND episode_number > ?))
+      ORDER BY season_number ASC, episode_number ASC
+      LIMIT 1
+    `);
+
+    const processedHistory = [];
+    for (const entry of history) {
+      if (entry.duration && entry.progress_seconds >= 0.95 * entry.duration) {
+        const nextEp = nextEpStmt.get(entry.show_id, entry.season_number, entry.season_number, entry.episode_number);
+        
+        if (nextEp) {
+          processedHistory.push({
+            username: entry.username,
+            episode_id: nextEp.id,
+            progress_seconds: 0,
+            updated_at: entry.updated_at,
+            episode_title: nextEp.title,
+            episode_number: nextEp.episode_number,
+            season_number: nextEp.season_number,
+            show_id: entry.show_id,
+            show_title: entry.show_title,
+            poster_path: entry.poster_path,
+            thumbnail_path: nextEp.thumbnail_path,
+            duration: nextEp.duration
+          });
+        }
+      } else {
+        processedHistory.push(entry);
+      }
+    }
+    return processedHistory;
   },
   getWatchProgress: (username = 'guest', episodeId) => {
     const stmt = db.prepare(`

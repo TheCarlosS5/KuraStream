@@ -9,6 +9,7 @@ import { dbHelper } from './db.js';
 import { probeVideo, extractCover, generateIntroLoop, extractEpisodeThumbnail } from './scanner.js';
 import { scraper, downloadImage } from './scraper.js';
 import { runLibraryScan } from './scan_library.js';
+import { detectIntrosForSeason } from './said.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 3000;
@@ -636,6 +637,30 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
     }
+    return;
+  }
+
+  // SAID Trigger
+  if (pathname === '/api/admin/detect-intros' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk.toString());
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        const { showId, seasonNumber } = data;
+        if (!showId || !seasonNumber) {
+          res.writeHead(400);
+          return res.end(JSON.stringify({error: "showId and seasonNumber required"}));
+        }
+        
+        const result = await detectIntrosForSeason(showId, seasonNumber);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
     return;
   }
 

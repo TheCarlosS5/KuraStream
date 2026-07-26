@@ -1,4 +1,58 @@
-import { initPlayer, destroyPlayer } from './player.js';
+import { initPlayer, destroyPlayer } from './player.js?v=1.5';
+
+// Chameleon UI Engine
+function applyChameleonTheme(imgElement) {
+  if (!imgElement || !imgElement.complete) return;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = 10;
+  canvas.height = 10;
+  try {
+    ctx.drawImage(imgElement, 0, 0, 10, 10);
+    const data = ctx.getImageData(0, 0, 10, 10).data;
+    let r = 0, g = 0, b = 0, count = 0;
+    
+    // Pick the most vivid color by filtering out greys/blacks/whites
+    for (let i = 0; i < data.length; i += 4) {
+      const cr = data[i], cg = data[i+1], cb = data[i+2];
+      const max = Math.max(cr, cg, cb);
+      const min = Math.min(cr, cg, cb);
+      // Filter out low saturation or extreme brightness
+      if ((max - min) > 30 && max > 50 && max < 250) {
+        r += cr; g += cg; b += cb;
+        count++;
+      }
+    }
+    
+    if (count > 0) {
+      r = Math.floor(r / count);
+      g = Math.floor(g / count);
+      b = Math.floor(b / count);
+    } else {
+      // Fallback if image is entirely greyscale
+      r = data[0]; g = data[1]; b = data[2];
+    }
+    
+    const root = document.documentElement.style;
+    const accentColor = `rgb(${r}, ${g}, ${b})`;
+    // slightly lighter for hover
+    const accentHover = `rgb(${Math.min(255, r + 40)}, ${Math.min(255, g + 40)}, ${Math.min(255, b + 40)})`;
+    const accentGlow = `rgba(${r}, ${g}, ${b}, 0.5)`;
+    
+    root.setProperty('--accent-color', accentColor);
+    root.setProperty('--accent-hover', accentHover);
+    root.setProperty('--accent-glow', accentGlow);
+  } catch (e) {
+    console.warn("Chameleon extraction failed", e);
+  }
+}
+
+function resetChameleonTheme() {
+  const root = document.documentElement.style;
+  root.removeProperty('--accent-color');
+  root.removeProperty('--accent-hover');
+  root.removeProperty('--accent-glow');
+}
 
 // Time formatting helpers
 function formatSecondsToMMSS(seconds) {
@@ -83,6 +137,36 @@ function setupRouter() {
     // Stop intervals when leaving admin view
     if (currentView === 'admin') {
       stopAdminPolling();
+    }
+
+    // Reset theme
+    if (!hash.startsWith('#/show/')) {
+      resetChameleonTheme();
+    }
+
+    // Stop background trailers, modals and local loop videos when leaving show details view
+    if (!hash.startsWith('#/show/')) {
+      // 1. YouTube background trailer
+      const bgYoutubeIframe = document.getElementById('detail-bg-youtube-iframe');
+      const bgYoutubeContainer = document.getElementById('detail-bg-youtube-container');
+      if (bgYoutubeIframe) bgYoutubeIframe.src = '';
+      if (bgYoutubeContainer) bgYoutubeContainer.style.display = 'none';
+
+      // 2. Local background video loop
+      const bgVideo = document.getElementById('detail-bg-video');
+      if (bgVideo) {
+        bgVideo.pause();
+        bgVideo.removeAttribute('src');
+        bgVideo.load();
+        bgVideo.onplaying = null;
+        bgVideo.onended = null;
+      }
+
+      // 3. YouTube trailer modal
+      const trailerModal = document.getElementById('trailer-modal');
+      const trailerIframe = document.getElementById('trailer-iframe');
+      if (trailerModal) trailerModal.style.display = 'none';
+      if (trailerIframe) trailerIframe.src = '';
     }
 
     // Hide all views
@@ -669,9 +753,18 @@ async function loadShowDetails(id) {
   seasonTabs.innerHTML = '';
   episodesList.innerHTML = '<div class="spinner"></div>';
   
-  // Stop background video
-  bgVideo.pause();
-  bgVideo.removeAttribute('src');
+  // Stop background video and YouTube iframe
+  if (bgVideo) {
+    bgVideo.pause();
+    bgVideo.removeAttribute('src');
+    bgVideo.load();
+    bgVideo.onplaying = null;
+    bgVideo.onended = null;
+  }
+  const prevBgYoutubeIframe = document.getElementById('detail-bg-youtube-iframe');
+  const prevBgYoutubeContainer = document.getElementById('detail-bg-youtube-container');
+  if (prevBgYoutubeIframe) prevBgYoutubeIframe.src = '';
+  if (prevBgYoutubeContainer) prevBgYoutubeContainer.style.display = 'none';
 
   try {
     const res = await fetch(`/api/shows/${id}`);
@@ -740,7 +833,50 @@ async function loadShowDetails(id) {
     // Populate metadata
     detailTitle.textContent = show.title;
     detailSynopsis.textContent = show.synopsis || 'Sin sinopsis disponible.';
+    
+    detailPoster.crossOrigin = "anonymous";
+    detailPoster.onload = () => applyChameleonTheme(detailPoster);
     detailPoster.src = show.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
+    
+    // Wire Trailer button and modal
+    const trailerBtn = document.getElementById('detail-trailer-btn');
+    const trailerModal = document.getElementById('trailer-modal');
+    const trailerCloseBtn = document.getElementById('trailer-close-btn');
+    const trailerIframe = document.getElementById('trailer-iframe');
+
+    if (trailerBtn && trailerModal && trailerCloseBtn && trailerIframe) {
+      if (show.trailer_key) {
+        trailerBtn.style.display = 'flex';
+        trailerBtn.onclick = () => {
+          // Pause detail ambient video loop to avoid double audio
+          const bgVideo = document.getElementById('detail-bg-video');
+          if (bgVideo) bgVideo.pause();
+          
+          trailerIframe.src = `https://www.youtube.com/embed/${show.trailer_key}?autoplay=1`;
+          trailerModal.style.display = 'flex';
+        };
+
+        trailerCloseBtn.onclick = () => {
+          trailerModal.style.display = 'none';
+          trailerIframe.src = '';
+          
+          // Resume background loop if applicable
+          const bgVideo = document.getElementById('detail-bg-video');
+          if (bgVideo && bgVideo.src) {
+            bgVideo.play().catch(e => {});
+          }
+        };
+
+        trailerModal.onclick = (e) => {
+          if (e.target === trailerModal) {
+            trailerCloseBtn.onclick();
+          }
+        };
+      } else {
+        trailerBtn.style.display = 'none';
+      }
+    }
+
     detailRating.textContent = show.rating ? show.rating.toFixed(1) : 'N/A';
     detailYear.textContent = show.year || 'N/A';
     detailStudio.textContent = show.studio || 'N/A';
@@ -764,10 +900,7 @@ async function loadShowDetails(id) {
     }
     if (!Array.isArray(loops)) loops = [];
 
-    if (loops.length === 0) {
-      // Fallback legacy intro loop filename
-      loops.push(`/library/${showTypeDir}/${sanitizedTitle}/intro_loop.mp4`);
-    }
+    const hasLocalLoops = loops.length > 0;
 
     // Set backdrop image immediately as a fallback
     if (show.backdrop_path) {
@@ -780,36 +913,67 @@ async function loadShowDetails(id) {
       }
     }
 
-    let currentLoopIndex = 0;
-    bgVideo.style.display = 'none'; // Hide initially
+    const bgYoutubeContainer = document.getElementById('detail-bg-youtube-container');
+    const bgYoutubeIframe = document.getElementById('detail-bg-youtube-iframe');
 
-    bgVideo.onplaying = () => {
-      bgVideo.style.display = 'block'; // Show only when video is playing
-    };
-
-    const playLoop = (index) => {
-      if (loops.length === 0) return;
-      if (index >= loops.length) index = 0;
-      currentLoopIndex = index;
-
-      const videoUrl = loops[index];
-      bgVideo.src = videoUrl;
-      bgVideo.load();
-      bgVideo.loop = loops.length === 1; // Native loop if only 1 video
-
-      bgVideo.play().catch(e => {
-        console.log("Auto-play background video failed or blocked.", e);
+    if (!hasLocalLoops && show.trailer_key) {
+      // Show YouTube container and hide/pause local video
+      if (bgYoutubeContainer) bgYoutubeContainer.style.display = 'block';
+      if (bgVideo) {
         bgVideo.style.display = 'none';
-      });
-    };
-
-    bgVideo.onended = () => {
-      if (loops.length > 1) {
-        playLoop(currentLoopIndex + 1);
+        bgVideo.pause();
+        bgVideo.removeAttribute('src');
+        bgVideo.load();
+        bgVideo.onplaying = null;
+        bgVideo.onended = null;
       }
-    };
 
-    playLoop(0);
+      if (bgYoutubeIframe) {
+        bgYoutubeIframe.src = `https://www.youtube.com/embed/${show.trailer_key}?autoplay=1&mute=1&controls=0&loop=1&playlist=${show.trailer_key}&playsinline=1&showinfo=0&rel=0&iv_load_policy=3&enablejsapi=1`;
+      }
+    } else {
+      // Hide YouTube container, clear iframe src, and run local loop playback logic
+      if (bgYoutubeContainer) bgYoutubeContainer.style.display = 'none';
+      if (bgYoutubeIframe) bgYoutubeIframe.src = '';
+
+      if (loops.length === 0) {
+        // Fallback legacy intro loop filename
+        loops.push(`/library/${showTypeDir}/${sanitizedTitle}/intro_loop.mp4`);
+      }
+
+      let currentLoopIndex = 0;
+      if (bgVideo) {
+        bgVideo.style.display = 'none'; // Hide initially
+
+        bgVideo.onplaying = () => {
+          bgVideo.style.display = 'block'; // Show only when video is playing
+        };
+
+        const playLoop = (index) => {
+          if (loops.length === 0) return;
+          if (index >= loops.length) index = 0;
+          currentLoopIndex = index;
+
+          const videoUrl = loops[index];
+          bgVideo.src = videoUrl;
+          bgVideo.load();
+          bgVideo.loop = loops.length === 1; // Native loop if only 1 video
+
+          bgVideo.play().catch(e => {
+            console.log("Auto-play background video failed or blocked.", e);
+            bgVideo.style.display = 'none';
+          });
+        };
+
+        bgVideo.onended = () => {
+          if (loops.length > 1) {
+            playLoop(currentLoopIndex + 1);
+          }
+        };
+
+        playLoop(0);
+      }
+    }
 
     // Populate Cast safely
     let cast = [];
@@ -1397,8 +1561,9 @@ async function loadAdminPanel() {
               <div class="admin-show-meta">${show.media_type === 'movie' ? 'Película' : 'Anime'} • ${show.year || 'N/A'}</div>
             </div>
           </div>
-          <div style="display:flex; gap: 8px;">
+          <div style="display:flex; gap: 8px; flex-wrap: wrap;">
             <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem; height: 32px;" onclick="openMediaEditor('${show.id}')">Editar Multimedia</button>
+            ${show.media_type === 'anime' ? `<button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(39, 201, 63, 0.2); border-color: #27c93f;" onclick="triggerSAID('${show.id}')" id="btn-said-${show.id}"><i data-lucide="scan" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Detectar Intros</button>` : ''}
             <button class="btn-danger-small" onclick="deleteShow('${show.id}', '${show.title}')">Eliminar</button>
           </div>
         </div>
@@ -1412,6 +1577,37 @@ async function loadAdminPanel() {
 }
 
 // Global binding for deleteShow (so inline onclick works)
+window.triggerSAID = async (showId) => {
+  const seasonNum = prompt("Introduce el número de temporada a escanear:", "1");
+  if (!seasonNum) return;
+  const btn = document.getElementById(`btn-said-${showId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:4px;"></div> Procesando...`;
+  }
+  try {
+    const res = await fetch('/api/admin/detect-intros', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ showId, seasonNumber: parseInt(seasonNum, 10) })
+    });
+    const data = await res.json();
+    if (data.success) {
+      alert("¡Detección completada con éxito!");
+    } else {
+      alert("Error: " + (data.message || data.error));
+    }
+  } catch (e) {
+    alert("Error de conexión al detectar intros.");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i data-lucide="scan" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Detectar Intros`;
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+  }
+};
+
 window.deleteShow = async (id, title) => {
   if (!confirm(`¿Estás seguro de que quieres eliminar "${title}" de la biblioteca? Esto borrará físicamente todos sus archivos de vídeo del servidor.`)) {
     return;

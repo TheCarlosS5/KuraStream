@@ -26,6 +26,13 @@ let watchCreditsBtn = null;
 let outroOverlayContainer = null;
 let countdownOverlay = null;
 
+// QR Share elements
+let qrShareBtn = null;
+let qrShareModal = null;
+let qrShareClose = null;
+let qrImage = null;
+let qrUrlText = null;
+
 let isControlsVisible = true;
 let hideControlsTimeout = null;
 let isDraggingProgress = false;
@@ -38,8 +45,24 @@ let selectedSubtitleTrackNum = -1; // -1 = Off
 let currentStreamStartOffset = 0;
 let outroDismissed = false;
 
+let ambilightCanvas = null;
+let ambilightCtx = null;
+let ambilightInterval = null;
+let ambilightActive = false;
+let ambilightToggleBtn = null;
+
+// Sakura Rain Pause Effect
+let sakuraCanvas = null;
+let sakuraCtx = null;
+let sakuraAnimationId = null;
+let sakuraParticles = [];
+let mousePos = { x: -1000, y: -1000 };
+let isSakuraActive = false;
+
 // SubtitlesOctopus Instance
 let octopusInstance = null;
+let subtitleMetadataAbortController = null;
+let isSubtitlesLoadingScript = false;
 
 // Progress Save Interval
 let progressSaveInterval = null;
@@ -49,6 +72,9 @@ let lastSavedTime = 0;
 let isPlayerActive = false;
 
 export async function initPlayer(episodeId) {
+  if (episodeId && episodeId.includes('?')) {
+    episodeId = episodeId.split('?')[0];
+  }
   currentEpisodeId = episodeId;
   selectedAudioTrackNum = 0;
   selectedSubtitleTrackNum = -1;
@@ -80,6 +106,15 @@ export async function initPlayer(episodeId) {
   watchCreditsBtn = document.getElementById('watch-credits-btn');
   outroOverlayContainer = document.getElementById('outro-overlay-container');
   countdownOverlay = document.getElementById('autoplay-countdown-overlay');
+  ambilightToggleBtn = document.getElementById('ambilight-toggle-btn');
+  ambilightCanvas = document.getElementById('player-ambilight-canvas');
+  
+  // Cache QR Share elements
+  qrShareBtn = document.getElementById('qr-share-btn');
+  qrShareModal = document.getElementById('qr-share-modal');
+  qrShareClose = document.getElementById('qr-share-close');
+  qrImage = document.getElementById('qr-image');
+  qrUrlText = document.getElementById('qr-url-text');
   
   outroDismissed = false;
 
@@ -143,19 +178,34 @@ export async function initPlayer(episodeId) {
   // Set up menus for Audio and Subtitles
   setupTracksMenu();
 
-  // Load progress from backend
+  // Load progress from URL if shared via QR, otherwise from backend
   let startProgress = 0;
-  try {
-    let activeUser = 'guest';
-    const sessionStr = localStorage.getItem('kura_user_session');
-    if (sessionStr) {
-      try { activeUser = JSON.parse(sessionStr).username; } catch(e) {}
+  const hashParts = window.location.hash.split('?');
+  let urlTime = null;
+  if (hashParts.length > 1) {
+    const params = new URLSearchParams(hashParts[1]);
+    const tVal = parseFloat(params.get('t'));
+    if (!isNaN(tVal)) {
+      urlTime = tVal;
     }
-    const progressRes = await fetch(`/api/progress/${episodeId}?username=${encodeURIComponent(activeUser)}`);
-    const progressData = await progressRes.json();
-    startProgress = progressData.progress || 0;
-  } catch (e) {
-    console.warn("Could not load watch progress:", e);
+  }
+
+  if (urlTime !== null) {
+    startProgress = urlTime;
+    console.log(`Starting playback from shared QR timestamp: ${startProgress} seconds`);
+  } else {
+    try {
+      let activeUser = 'guest';
+      const sessionStr = localStorage.getItem('kura_user_session');
+      if (sessionStr) {
+        try { activeUser = JSON.parse(sessionStr).username; } catch(e) {}
+      }
+      const progressRes = await fetch(`/api/progress/${episodeId}?username=${encodeURIComponent(activeUser)}`);
+      const progressData = await progressRes.json();
+      startProgress = progressData.progress || 0;
+    } catch (e) {
+      console.warn("Could not load watch progress:", e);
+    }
   }
 
   // Load video source
@@ -163,6 +213,12 @@ export async function initPlayer(episodeId) {
 
   // Set up event listeners
   setupPlayerEventListeners();
+
+  // Setup Ambilight
+  setupAmbilight();
+
+  // Setup Sakura Effect
+  setupSakuraEffect();
 
   // Reset controls timer
   triggerControlsActivity();
@@ -263,11 +319,13 @@ function initSubtitles(trackNum) {
   
   // SubtitlesOctopus library must be loaded in the page
   if (typeof SubtitlesOctopus === 'undefined') {
-    // If not loaded yet, inject worker script
+    if (isSubtitlesLoadingScript) return;
+    isSubtitlesLoadingScript = true;
     const script = document.createElement('script');
     script.src = '/vendor/subtitles-octopus/subtitles-octopus.js';
     script.onload = () => {
-      startOctopusInstance(trackNum);
+      isSubtitlesLoadingScript = false;
+      startOctopusInstance(selectedSubtitleTrackNum);
     };
     document.body.appendChild(script);
   } else {
@@ -276,17 +334,27 @@ function initSubtitles(trackNum) {
 }
 
 function startOctopusInstance(trackNum) {
+  if (trackNum === -1) return;
+
+  if (subtitleMetadataAbortController) {
+    subtitleMetadataAbortController.abort();
+    subtitleMetadataAbortController = null;
+  }
+
   // If the video hasn't loaded metadata yet (dimensions are 0), delay initialization
-  if (!video.videoWidth || !video.videoHeight) {
+  if (!video || !video.videoWidth || !video.videoHeight) {
     console.log("Video metadata not loaded yet. Delaying SubtitlesOctopus initialization...");
+    subtitleMetadataAbortController = new AbortController();
     video.addEventListener('loadedmetadata', () => {
+      subtitleMetadataAbortController = null;
       startOctopusInstance(trackNum);
-    }, { once: true });
+    }, { once: true, signal: subtitleMetadataAbortController.signal });
     return;
   }
 
   try {
-    console.log(`Initializing SubtitlesOctopus with video dimensions: ${video.videoWidth}x${video.videoHeight}`);
+    destroySubtitles();
+    console.log(`Initializing SubtitlesOctopus with video dimensions: ${video.videoWidth}x${video.videoHeight} for track ${trackNum}`);
     octopusInstance = new SubtitlesOctopus({
       video: video,
       subUrl: `/api/subtitle/${currentEpisodeId}/${trackNum}`,
@@ -294,7 +362,10 @@ function startOctopusInstance(trackNum) {
       legacyWorkerUrl: '/vendor/subtitles-octopus/subtitles-octopus-worker-legacy.js',
       fallbackFont: '/vendor/subtitles-octopus/default.ttf', // default fallback font
       timeOffset: currentStreamStartOffset,
-      container: document.getElementById('subtitles-container')
+      container: document.getElementById('subtitles-container'),
+      onError: (err) => {
+        console.error('SubtitlesOctopus critical error:', err);
+      }
     });
   } catch (err) {
     console.error('Failed to launch SubtitlesOctopus WASM worker:', err);
@@ -302,6 +373,10 @@ function startOctopusInstance(trackNum) {
 }
 
 function destroySubtitles() {
+  if (subtitleMetadataAbortController) {
+    subtitleMetadataAbortController.abort();
+    subtitleMetadataAbortController = null;
+  }
   if (octopusInstance) {
     try {
       octopusInstance.dispose();
@@ -324,6 +399,12 @@ export function destroyPlayer() {
   }
 
   destroySubtitles();
+  stopAmbilightLoop();
+  stopSakuraEffect();
+  if (sakuraCanvas) {
+    sakuraCanvas.removeEventListener('mousemove', trackMouse);
+    sakuraCanvas.removeEventListener('mouseleave', resetMouse);
+  }
 
   if (video) {
     video.pause();
@@ -346,6 +427,14 @@ export function destroyPlayer() {
   // Hide overlays
   if (countdownOverlay) countdownOverlay.style.display = 'none';
   if (fileInfoModal) fileInfoModal.style.display = 'none';
+  if (qrShareModal) qrShareModal.style.display = 'none';
+
+  // Clear QR DOM elements
+  qrShareBtn = null;
+  qrShareModal = null;
+  qrShareClose = null;
+  qrImage = null;
+  qrUrlText = null;
 }
 
 function setupTracksMenu() {
@@ -431,6 +520,8 @@ function setupPlayerEventListeners() {
     setTimeout(() => {
       if (!video.paused) centerPlayBtn.style.display = 'none';
     }, 500);
+
+    stopSakuraEffect();
   };
 
   video.onloadedmetadata = () => {
@@ -449,6 +540,8 @@ function setupPlayerEventListeners() {
     
     centerPlayBtn.style.display = 'flex';
     saveWatchProgress();
+
+    startSakuraEffect();
   };
 
   playPauseBtn.onclick = togglePlay;
@@ -673,6 +766,24 @@ function setupPlayerEventListeners() {
     fileInfoModal.style.display = 'none';
   };
 
+  // QR Share overlay modal toggles
+  if (qrShareBtn) {
+    qrShareBtn.onclick = () => {
+      if (qrShareModal.style.display === 'none') {
+        showQRModal();
+      } else {
+        qrShareModal.style.display = 'none';
+      }
+      triggerControlsActivity();
+    };
+  }
+
+  if (qrShareClose) {
+    qrShareClose.onclick = () => {
+      qrShareModal.style.display = 'none';
+    };
+  }
+
   // Skip Intro button listener
   skipIntroBtn.onclick = () => {
     const introEnd = currentEpisodeData.intro_end;
@@ -888,3 +999,212 @@ function formatTime(seconds) {
   }
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
+
+// Ambilight Logic
+function setupAmbilight() {
+  if (ambilightCanvas) {
+    ambilightCanvas.width = 32;
+    ambilightCanvas.height = 18;
+    ambilightCtx = ambilightCanvas.getContext('2d', { willReadFrequently: true, alpha: false });
+  }
+
+  if (ambilightToggleBtn) {
+    ambilightActive = localStorage.getItem('kura_ambilight') === 'true';
+    if (ambilightActive) {
+      ambilightToggleBtn.classList.add('active');
+      if (ambilightCanvas) ambilightCanvas.classList.add('active');
+    }
+    
+    ambilightToggleBtn.onclick = (e) => {
+      e.stopPropagation();
+      ambilightActive = !ambilightActive;
+      localStorage.setItem('kura_ambilight', ambilightActive);
+      ambilightToggleBtn.classList.toggle('active', ambilightActive);
+      if (ambilightCanvas) ambilightCanvas.classList.toggle('active', ambilightActive);
+      
+      if (ambilightActive) {
+        startAmbilightLoop();
+      } else {
+        stopAmbilightLoop();
+        if (ambilightCtx) {
+          ambilightCtx.fillStyle = 'black';
+          ambilightCtx.fillRect(0, 0, 32, 18);
+        }
+      }
+    };
+  }
+
+  if (ambilightActive) {
+    startAmbilightLoop();
+  }
+}
+
+function startAmbilightLoop() {
+  stopAmbilightLoop();
+  ambilightInterval = setInterval(() => {
+    if (!ambilightActive || !video || video.paused || video.ended || document.hidden) return;
+    
+    if (ambilightCtx && video.readyState >= 2) {
+      try {
+        ambilightCtx.drawImage(video, 0, 0, 32, 18);
+      } catch (e) { }
+    }
+  }, 100);
+}
+
+function stopAmbilightLoop() {
+  if (ambilightInterval) {
+    clearInterval(ambilightInterval);
+    ambilightInterval = null;
+  }
+}
+
+// Sakura Rain Pause Effect Logic
+function setupSakuraEffect() {
+  sakuraCanvas = document.getElementById('player-pause-canvas');
+  if (!sakuraCanvas) return;
+  sakuraCtx = sakuraCanvas.getContext('2d');
+  
+  // Setup dimensions
+  resizeSakuraCanvas();
+  window.addEventListener('resize', resizeSakuraCanvas);
+
+  // Initialize particles
+  sakuraParticles = [];
+  const numParticles = 60;
+  for (let i = 0; i < numParticles; i++) {
+    sakuraParticles.push(createSakuraParticle());
+  }
+
+  // Mouse tracking
+  if (container) {
+    container.addEventListener('mousemove', trackMouse);
+    container.addEventListener('mouseleave', resetMouse);
+  }
+}
+
+function resizeSakuraCanvas() {
+  if (!sakuraCanvas) return;
+  sakuraCanvas.width = sakuraCanvas.parentElement.clientWidth;
+  sakuraCanvas.height = sakuraCanvas.parentElement.clientHeight;
+}
+
+function trackMouse(e) {
+  if (!sakuraCanvas) return;
+  const rect = sakuraCanvas.getBoundingClientRect();
+  mousePos.x = e.clientX - rect.left;
+  mousePos.y = e.clientY - rect.top;
+}
+
+function resetMouse() {
+  mousePos.x = -1000;
+  mousePos.y = -1000;
+}
+
+function createSakuraParticle(yPos) {
+  const w = sakuraCanvas ? sakuraCanvas.width : window.innerWidth;
+  const h = sakuraCanvas ? sakuraCanvas.height : window.innerHeight;
+  return {
+    x: Math.random() * w,
+    y: yPos !== undefined ? yPos : Math.random() * h - h,
+    size: Math.random() * 8 + 6,
+    speedY: Math.random() * 1 + 0.5,
+    speedX: Math.random() * 0.5 - 0.25,
+    rotation: Math.random() * Math.PI * 2,
+    rotationSpeed: (Math.random() - 0.5) * 0.02,
+    driftOffset: Math.random() * Math.PI * 2,
+    driftSpeed: Math.random() * 0.02 + 0.01,
+    opacity: Math.random() * 0.5 + 0.3
+  };
+}
+
+function startSakuraEffect() {
+  if (isSakuraActive || !sakuraCanvas) return;
+  isSakuraActive = true;
+  sakuraCanvas.classList.add('active');
+  resizeSakuraCanvas();
+  sakuraAnimationId = requestAnimationFrame(updateSakuraEffect);
+}
+
+function stopSakuraEffect() {
+  if (!isSakuraActive || !sakuraCanvas) return;
+  isSakuraActive = false;
+  sakuraCanvas.classList.remove('active');
+  if (sakuraAnimationId) {
+    cancelAnimationFrame(sakuraAnimationId);
+    sakuraAnimationId = null;
+  }
+}
+
+function updateSakuraEffect() {
+  if (!isSakuraActive || !sakuraCtx || !sakuraCanvas) return;
+  
+  sakuraCtx.clearRect(0, 0, sakuraCanvas.width, sakuraCanvas.height);
+  
+  sakuraParticles.forEach(p => {
+    // Basic movement
+    p.y += p.speedY;
+    p.x += p.speedX + Math.sin(p.driftOffset) * 0.5;
+    p.rotation += p.rotationSpeed;
+    p.driftOffset += p.driftSpeed;
+    
+    // Mouse repelling interaction
+    const dx = p.x - mousePos.x;
+    const dy = p.y - mousePos.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const repelRadius = 100;
+    
+    if (distance < repelRadius) {
+      const force = (repelRadius - distance) / repelRadius;
+      p.x += (dx / distance) * force * 3;
+      p.y += (dy / distance) * force * 3;
+    }
+    
+    // Reset if offscreen
+    if (p.y > sakuraCanvas.height + p.size || p.x > sakuraCanvas.width + p.size || p.x < -p.size) {
+      Object.assign(p, createSakuraParticle(-p.size));
+      p.x = Math.random() * sakuraCanvas.width;
+    }
+    
+    // Draw petal
+    sakuraCtx.save();
+    sakuraCtx.translate(p.x, p.y);
+    sakuraCtx.rotate(p.rotation);
+    sakuraCtx.globalAlpha = p.opacity;
+    
+    sakuraCtx.fillStyle = '#ffb7c5';
+    sakuraCtx.beginPath();
+    // Organic petal shape
+    sakuraCtx.moveTo(0, -p.size/2);
+    sakuraCtx.bezierCurveTo(p.size/2, -p.size/2, p.size/2, p.size/2, 0, p.size/2);
+    sakuraCtx.bezierCurveTo(-p.size/3, p.size/2, -p.size/2, -p.size/3, 0, -p.size/2);
+    sakuraCtx.fill();
+    
+    sakuraCtx.restore();
+  });
+  
+  if (isSakuraActive) {
+    sakuraAnimationId = requestAnimationFrame(updateSakuraEffect);
+  }
+}
+
+// QR Share helper
+function showQRModal() {
+  if (fileInfoModal) fileInfoModal.style.display = 'none';
+
+  const currentStreamSrc = video.src;
+  const parsedUrl = new URL(currentStreamSrc, window.location.origin);
+  const startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
+  const currentTime = Math.floor(startOffset + video.currentTime);
+  
+  const shareUrl = `${window.location.origin}/#/player/${currentEpisodeId}?t=${currentTime}`;
+  
+  if (qrUrlText) qrUrlText.textContent = shareUrl;
+  
+  if (qrImage) {
+    qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(shareUrl)}`;
+  }
+  
+  if (qrShareModal) qrShareModal.style.display = 'block';
+}
+

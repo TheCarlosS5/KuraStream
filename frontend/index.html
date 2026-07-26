@@ -36,19 +36,19 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=1.3">
 </head>
 <body>
 
   <!-- App Header -->
   <header class="app-header">
-    <div class="header-logo" id="header-logo">
+    <a href="#/" class="header-logo" id="header-logo" style="text-decoration: none;">
       <img id="custom-logo" src="/library/logo.png" alt="KuraStream Logo" onerror="this.style.display='none'; document.getElementById('fallback-logo').style.display='flex';" style="height: 40px; width: auto; object-fit: contain;">
       <div id="fallback-logo" style="display: none; align-items: center; gap: 8px;">
         <span class="logo-icon">蔵</span>
         <span class="logo-text">Kura<span class="accent-text">Stream</span></span>
       </div>
-    </div>
+    </a>
     <nav class="header-nav">
       <a href="#/" class="nav-link active" id="nav-home">Inicio</a>
       <a href="#/movies" class="nav-link" id="nav-movies">Películas</a>
@@ -114,6 +114,9 @@
       <!-- Background Ambient Intro Loop Video -->
       <div class="detail-ambient-bg">
         <video id="detail-bg-video" loop muted playsinline></video>
+        <div id="detail-bg-youtube-container" class="detail-bg-youtube-container" style="display: none;">
+          <iframe id="detail-bg-youtube-iframe" src="" allow="autoplay; encrypted-media" title="YouTube Background Video"></iframe>
+        </div>
         <div class="ambient-overlay"></div>
       </div>
 
@@ -139,6 +142,9 @@
           </div>
           <button id="detail-favorite-btn" class="btn btn-secondary" style="width: 100%; margin-top: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: var(--font-title); font-size: 0.9rem;">
             <i data-lucide="heart" id="detail-favorite-icon" style="width: 16px; height: 16px;"></i> <span id="detail-favorite-text">Añadir a mi Lista</span>
+          </button>
+          <button id="detail-trailer-btn" class="btn btn-secondary" style="width: 100%; margin-top: 10px; display: none; align-items: center; justify-content: center; gap: 8px; font-family: var(--font-title); font-size: 0.9rem; background: rgba(255,0,0,0.15); border-color: #ff334b; color: #ff334b;">
+            <i data-lucide="play-circle" style="width: 16px; height: 16px; stroke: #ff334b;"></i> <span>Ver Tráiler</span>
           </button>
           <div class="sidebar-info-block">
             <h3>Estudio</h3>
@@ -214,11 +220,16 @@
     <!-- CUSTOM VIDEO PLAYER VIEW -->
     <section id="player-view" class="app-view full-screen-view">
       <div class="player-container" id="player-container">
+        <!-- Ambilight Canvas -->
+        <canvas id="player-ambilight-canvas"></canvas>
         <!-- Native Video Element (Controls Disabled) -->
         <video id="video-element" playsinline></video>
 
         <!-- Subtitles Render Layer (SubtitlesOctopus canvas renders inside here) -->
         <div id="subtitles-container" class="subtitles-container"></div>
+
+        <!-- Sakura Pause Canvas -->
+        <canvas id="player-pause-canvas"></canvas>
 
         <!-- Custom Video Player Controls Overlay -->
         <div class="player-controls-overlay" id="player-controls-overlay">
@@ -300,6 +311,12 @@
                 <!-- Technical File Info (VLC / Nova Player style) -->
                 <button class="player-btn" id="file-info-btn" title="Información del archivo"><i data-lucide="info"></i></button>
 
+                <!-- Ambilight Toggle -->
+                <button class="player-btn" id="ambilight-toggle-btn" title="Activar/Desactivar Ambilight"><i data-lucide="sparkles"></i></button>
+
+                <!-- QR Share Button -->
+                <button class="player-btn" id="qr-share-btn" title="Compartir con QR (Celular)"><i data-lucide="qr-code"></i></button>
+
                 <!-- Fullscreen Toggle -->
                 <button class="player-btn" id="fullscreen-btn"><i data-lucide="maximize" id="fullscreen-icon"></i></button>
               </div>
@@ -315,6 +332,23 @@
           </div>
           <div class="modal-body" id="file-info-body">
             <!-- Dynamic technical stats injected here -->
+          </div>
+        </div>
+
+        <!-- QR Share Modal Panel -->
+        <div class="file-info-modal" id="qr-share-modal" style="display: none; width: 330px;">
+          <div class="modal-header">
+            <h3>Compartir en Red Local</h3>
+            <button class="modal-close" id="qr-share-close"><i data-lucide="x"></i></button>
+          </div>
+          <div class="modal-body" style="text-align: center; color: var(--text-muted); font-size: 0.85rem; line-height: 1.4;">
+            <p style="margin-bottom: 12px;">Escanea este código QR con tu celular o tablet para continuar la reproducción en este segundo:</p>
+            <div style="background: white; padding: 12px; border-radius: 8px; display: inline-block; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+              <img id="qr-image" style="width: 180px; height: 180px; display: block;" src="" alt="Código QR de Compartido">
+            </div>
+            <div id="qr-url-text" style="word-break: break-all; font-family: monospace; font-size: 0.72rem; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; color: var(--accent-color); margin-top: 6px;">
+              --
+            </div>
           </div>
         </div>
 
@@ -813,10 +847,18 @@
     </div>
   </div>
 
+  <!-- Trailer Modal (Body level to prevent positioning relative to transformed parents) -->
+  <div id="trailer-modal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); z-index: 10000; align-items: center; justify-content: center; backdrop-filter: blur(8px);">
+    <div style="position: relative; width: 90%; max-width: 800px; aspect-ratio: 16/9; background: #000; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.8);">
+      <button id="trailer-close-btn" style="position: absolute; top: 15px; right: 15px; background: rgba(0,0,0,0.6); border: none; color: #fff; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 1.2rem; font-weight: bold; z-index: 10001; transition: var(--transition-fast);">&times;</button>
+      <iframe id="trailer-iframe" style="width: 100%; height: 100%; border: none;" src="" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+    </div>
+  </div>
+
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="app.js" type="module"></script>
-  <script src="player.js" type="module"></script>
+  <script src="app.js?v=1.5" type="module"></script>
+  <script src="player.js?v=1.5" type="module"></script>
 </body>
 </html>
