@@ -31,7 +31,9 @@
   </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="KuraStream - Centro de entretenimiento local offline premium.">
   <title>KuraStream - Entretenimiento Offline</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍁</text></svg>">
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -227,6 +229,18 @@
 
         <!-- Subtitles Render Layer (SubtitlesOctopus canvas renders inside here) -->
         <div id="subtitles-container" class="subtitles-container"></div>
+
+        <!-- Player Error Overlay -->
+        <div id="player-error-overlay" class="player-error-overlay" style="display: none;">
+          <div class="error-card">
+            <i data-lucide="alert-triangle" class="error-icon"></i>
+            <h3>Error de Reproducción</h3>
+            <p id="player-error-message">No se pudo cargar el video. Por favor, comprueba tu conexión o el archivo de origen.</p>
+            <button class="btn btn-primary" id="player-error-retry-btn">
+              <i data-lucide="refresh-cw"></i> Reintentar
+            </button>
+          </div>
+        </div>
 
         <!-- Sakura Pause Canvas -->
         <canvas id="player-pause-canvas"></canvas>

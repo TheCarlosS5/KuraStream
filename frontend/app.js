@@ -1,5 +1,43 @@
 import { initPlayer, destroyPlayer } from './player.js?v=1.5';
 
+const originalFetch = window.fetch;
+window.fetch = function(input, options = {}) {
+  let url = input;
+  if (input instanceof Request) {
+    url = input.url;
+  } else if (input instanceof URL) {
+    url = input.toString();
+  }
+  
+  const method = (input instanceof Request ? input.method : options.method) || 'GET';
+  const isTarget = typeof url === 'string' && (
+    url.includes('/api/admin/') || 
+    url.includes('/api/import') || 
+    (url.includes('/api/shows/') && method.toUpperCase() === 'DELETE')
+  );
+  
+  if (isTarget) {
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('kura_admin_token');
+    if (token) {
+      if (input instanceof Request) {
+        input.headers.set('Authorization', `Bearer ${token}`);
+      } else {
+        options.headers = options.headers || {};
+        if (options.headers instanceof Headers) {
+          options.headers.set('Authorization', `Bearer ${token}`);
+        } else if (Array.isArray(options.headers)) {
+          const authIdx = options.headers.findIndex(h => h[0].toLowerCase() === 'authorization');
+          if (authIdx !== -1) options.headers[authIdx][1] = `Bearer ${token}`;
+          else options.headers.push(['Authorization', `Bearer ${token}`]);
+        } else {
+          options.headers['Authorization'] = `Bearer ${token}`;
+        }
+      }
+    }
+  }
+  return originalFetch(input, options);
+};
+
 // Chameleon UI Engine
 function applyChameleonTheme(imgElement) {
   if (!imgElement || !imgElement.complete) return;
@@ -340,7 +378,20 @@ function showPinPrompt() {
 }
 
 function isAdmin() {
-  return localStorage.getItem('adminToken') === 'kura_admin_token_active';
+  const token = localStorage.getItem('adminToken') || localStorage.getItem('kura_admin_token');
+  if (!token) return false;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+    let body = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (body.length % 4) {
+      body += '=';
+    }
+    const payload = JSON.parse(atob(body));
+    return payload.role === 'admin' && (!payload.exp || Date.now() < payload.exp);
+  } catch (e) {
+    return false;
+  }
 }
 
 // DASHBOARD VIEW

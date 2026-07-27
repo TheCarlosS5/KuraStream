@@ -1,5 +1,8 @@
 # Credenciales y claves privadas
 apikeys.txt
+.env
+.env.example
+! .env.example
 
 # Logs y depuración
 *.log

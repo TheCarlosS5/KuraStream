@@ -2237,3 +2237,54 @@ button, input, select {
   }
 }
 
+/* Player Error Overlay */
+.player-error-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 12, 18, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.player-error-overlay .error-card {
+  text-align: center;
+  background: rgba(25, 29, 41, 0.9);
+  border: 1px solid var(--border-color);
+  padding: 30px 40px;
+  border-radius: 16px;
+  max-width: 400px;
+  box-shadow: 0 15px 45px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+}
+
+.player-error-overlay .error-icon {
+  width: 48px;
+  height: 48px;
+  stroke: var(--danger-color);
+  margin-bottom: 15px;
+}
+
+.player-error-overlay h3 {
+  font-family: var(--font-title);
+  font-size: 1.25rem;
+  margin-bottom: 10px;
+  color: var(--text-main);
+}
+
+.player-error-overlay p {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.player-error-overlay .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+}
+

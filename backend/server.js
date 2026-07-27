@@ -5,14 +5,107 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
-import { dbHelper } from './db.js';
+import crypto from 'node:crypto';
+import { dbHelper, db } from './db.js';
 import { probeVideo, extractCover, generateIntroLoop, extractEpisodeThumbnail } from './scanner.js';
 import { scraper, downloadImage } from './scraper.js';
 import { runLibraryScan } from './scan_library.js';
 import { detectIntrosForSeason } from './said.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+
+// Helper functions for auth
+function hashPassword(password) {
+  const salt = process.env.PASSWORD_SALT || process.env.JWT_SECRET || 'kurasalt';
+  return crypto.scryptSync(password, salt, 64).toString('hex');
+}
+
+function signToken(payload) {
+  const secret = process.env.JWT_SECRET || 'default_secret_key';
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + 24 * 60 * 60 * 1000 })).toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
+  return `${header}.${body}.${signature}`;
+}
+
+function verifyToken(token) {
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [header, body, signature] = parts;
+  const secret = process.env.JWT_SECRET || 'default_secret_key';
+  const expectedSignature = crypto.createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
+  if (signature !== expectedSignature) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (payload.exp && Date.now() > payload.exp) {
+      return null;
+    }
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+
+function authorizeAdmin(req, res) {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Unauthorized', message: 'Token de autenticación requerido' }));
+    return null;
+  }
+  const token = authHeader.substring(7);
+  const payload = verifyToken(token);
+  if (!payload || payload.role !== 'admin') {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Forbidden', message: 'Acceso denegado' }));
+    return null;
+  }
+  return payload;
+}
+
+function isPathSafe(baseDir, targetPath) {
+  const relative = path.relative(baseDir, targetPath);
+  return !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function parseJsonBody(req, limitBytes = 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let chunks = [];
+    let size = 0;
+    req.on('error', err => reject(err));
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > limitBytes) {
+        req.destroy();
+        reject(new Error('Payload Too Large'));
+      } else {
+        chunks.push(chunk);
+      }
+    });
+    req.on('end', () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf8');
+        resolve(JSON.parse(body || '{}'));
+      } catch (e) {
+        reject(new Error('Invalid JSON'));
+      }
+    });
+  });
+}
+
+async function readJsonBody(req, res) {
+  try {
+    return await parseJsonBody(req);
+  } catch (err) {
+    res.writeHead(err.message === 'Payload Too Large' ? 413 : 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: err.message === 'Payload Too Large' ? 'Payload Too Large' : 'Bad Request', message: err.message }));
+    return null;
+  }
+}
+
+export { hashPassword, signToken, verifyToken };
 
 // Global memory state for KuraStream Admin Monitoring
 const logHistory = [];
@@ -127,7 +220,8 @@ async function parseMultipartForm(req) {
 }
 
 const server = http.createServer(async (req, res) => {
-  // CORS Headers
+  try {
+    // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -144,90 +238,119 @@ const server = http.createServer(async (req, res) => {
 
   // Verify Login / Auto-registration
   if (pathname === '/api/login' && req.method === 'POST') {
-    try {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', () => {
-        try {
-          const { username, password } = JSON.parse(body);
-          if (!username || !username.trim()) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ success: false, message: 'El usuario es obligatorio' }));
-          }
+    const body = await readJsonBody(req, res);
+    if (!body) return;
 
-          const existing = dbHelper.getUser(username);
-          if (existing) {
-            if (existing.password === password) {
-              const isAdmin = existing.role === 'admin';
-              dbHelper.transferGuestHistory(existing.username);
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ 
-                success: true, 
-                username: existing.username, 
-                role: existing.role,
-                token: isAdmin ? 'kura_admin_token_active' : 'kura_user_token_active'
-              }));
-            } else {
-              res.writeHead(401, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ success: false, message: 'Contraseña incorrecta para este usuario' }));
-            }
-          } else {
-            // Register automatically
-            dbHelper.createUser(username, password, 'user');
-            dbHelper.transferGuestHistory(username);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ 
-              success: true, 
-              username: username, 
-              role: 'user', 
-              token: 'kura_user_token_active',
-              registered: true 
-            }));
-          }
-        } catch (e) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: false, message: 'JSON inválido' }));
-        }
-      });
+    const { username, password } = body;
+    if (!username || !username.trim()) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'El usuario es obligatorio' }));
+    }
+
+    if (typeof password !== 'string' || !password) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'La contraseña es obligatoria' }));
+    }
+
+    let existing;
+    try {
+      existing = dbHelper.getUser(username);
     } catch (err) {
-      res.writeHead(500);
-      res.end('Error processing login');
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al consultar la base de datos' }));
+    }
+
+    if (existing) {
+      let passwordMatch = false;
+      let needsUpdate = false;
+
+      if (existing.password === hashPassword(password)) {
+        passwordMatch = true;
+      } else if (existing.password === password) {
+        passwordMatch = true;
+        needsUpdate = true;
+      }
+
+      if (passwordMatch) {
+        try {
+          if (needsUpdate) {
+            db.prepare("UPDATE users SET password = ? WHERE username = ?").run(hashPassword(password), existing.username);
+          }
+          dbHelper.transferGuestHistory(existing.username);
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al actualizar el usuario' }));
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+          success: true, 
+          username: existing.username, 
+          role: existing.role,
+          token: signToken({ username: existing.username, role: existing.role })
+        }));
+      } else {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, message: 'Contraseña incorrecta para este usuario' }));
+      }
+    } else {
+      // Register automatically
+      try {
+        const hashedPassword = hashPassword(password);
+        dbHelper.createUser(username, hashedPassword, 'user');
+        dbHelper.transferGuestHistory(username);
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al registrar el usuario' }));
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ 
+        success: true, 
+        username: username, 
+        role: 'user', 
+        token: signToken({ username, role: 'user' }),
+        registered: true 
+      }));
     }
     return;
   }
 
   // Explicit Register
   if (pathname === '/api/register' && req.method === 'POST') {
-    try {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', () => {
-        try {
-          const { username, password } = JSON.parse(body);
-          if (!username || !username.trim() || !password || !password.trim()) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ success: false, message: 'Todos los campos son obligatorios' }));
-          }
+    const body = await readJsonBody(req, res);
+    if (!body) return;
 
-          const existing = dbHelper.getUser(username);
-          if (existing) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ success: false, message: 'El usuario ya existe' }));
-          }
-
-          dbHelper.createUser(username, password, 'user');
-          dbHelper.transferGuestHistory(username);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true, username }));
-        } catch (e) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: false, message: 'JSON inválido' }));
-        }
-      });
-    } catch (err) {
-      res.writeHead(500);
-      res.end('Error processing registration');
+    const { username, password } = body;
+    if (!username || !username.trim() || !password || !password.trim()) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'Todos los campos son obligatorios' }));
     }
+
+    let existing;
+    try {
+      existing = dbHelper.getUser(username);
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al consultar la base de datos' }));
+    }
+
+    if (existing) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'El usuario ya existe' }));
+    }
+
+    try {
+      const hashedPassword = hashPassword(password);
+      dbHelper.createUser(username, hashedPassword, 'user');
+      dbHelper.transferGuestHistory(username);
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al registrar el usuario' }));
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, username }));
     return;
   }
 
@@ -245,28 +368,24 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/chat' && req.method === 'POST') {
-    try {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', () => {
-        try {
-          const { username, message } = JSON.parse(body);
-          if (!username || !message || !message.trim()) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ error: 'Faltan campos' }));
-          }
-          dbHelper.saveChatMessage(username, message);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true }));
-        } catch (e) {
-          res.writeHead(400);
-          res.end('Invalid JSON');
-        }
-      });
-    } catch (err) {
-      res.writeHead(500);
-      res.end('Error sending message');
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+
+    const { username, message } = body;
+    if (!username || !message || !message.trim()) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Faltan campos' }));
     }
+
+    try {
+      dbHelper.saveChatMessage(username, message);
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al guardar el mensaje de chat' }));
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
     return;
   }
 
@@ -289,48 +408,41 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/comments' && req.method === 'POST') {
-    try {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', () => {
-        try {
-          const { showId, username, comment } = JSON.parse(body);
-          if (!showId || !username || !comment || !comment.trim()) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ error: 'Faltan campos' }));
-          }
-          dbHelper.saveComment(showId, username, comment);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true }));
-        } catch (e) {
-          res.writeHead(400);
-          res.end('Invalid JSON');
-        }
-      });
-    } catch (err) {
-      res.writeHead(500);
-      res.end('Error saving comment');
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+
+    const { showId, username, comment } = body;
+    if (!showId || !username || !comment || !comment.trim()) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Faltan campos' }));
     }
+
+    try {
+      dbHelper.saveComment(showId, username, comment);
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al guardar el comentario' }));
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
     return;
   }
 
   // Debug Log from browser
   if (pathname === '/api/debug-log' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', async () => {
-      try {
-        const parsed = JSON.parse(body);
-        console.log(`Browser log: [${parsed.type}] ${parsed.message}`);
-        const logLine = `[${new Date().toISOString()}] ${parsed.type || 'ERROR'}: ${parsed.message} | Stack: ${parsed.stack || 'N/A'}\n`;
-        await fsPromises.appendFile(path.join(__dirname, '..', 'browser_errors.log'), logLine);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
-      } catch (err) {
-        res.writeHead(500);
-        res.end('Error logging');
-      }
-    });
+    const parsed = await readJsonBody(req, res);
+    if (!parsed) return;
+    try {
+      console.log(`Browser log: [${parsed.type}] ${parsed.message}`);
+      const logLine = `[${new Date().toISOString()}] ${parsed.type || 'ERROR'}: ${parsed.message} | Stack: ${parsed.stack || 'N/A'}\n`;
+      await fsPromises.appendFile(path.join(__dirname, '..', 'browser_errors.log'), logLine);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      res.writeHead(500);
+      res.end('Error logging');
+    }
     return;
   }
 
@@ -375,6 +487,8 @@ const server = http.createServer(async (req, res) => {
 
   // Delete a show
   if (pathname.startsWith('/api/shows/') && req.method === 'DELETE') {
+    const admin = authorizeAdmin(req, res);
+    if (!admin) return;
     const id = pathname.split('/').pop();
     const show = dbHelper.getShow(id);
     if (!show) {
@@ -407,15 +521,19 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname.startsWith('/api/progress/') && req.method === 'POST') {
     const episodeId = pathname.split('/').pop();
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', () => {
-      const { progress, username = 'guest' } = JSON.parse(body);
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+
+    const { progress, username = 'guest' } = body;
+    try {
       dbHelper.saveWatchProgress(username, episodeId, progress);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: true }));
-    });
-    return;
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al guardar el progreso' }));
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: true }));
   }
 
   // Get recently watched history
@@ -443,24 +561,26 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/favorites' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', () => {
-      try {
-        const { username, showId, isFavorite } = JSON.parse(body);
-        dbHelper.toggleFavorite(username || 'guest', showId, isFavorite);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
-      } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, message: 'JSON inválido' }));
-      }
-    });
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+
+    const { username, showId, isFavorite } = body;
+    try {
+      dbHelper.toggleFavorite(username || 'guest', showId, isFavorite);
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al actualizar favoritos' }));
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
     return;
   }
 
   // Import media (Local File Import - recommended for offline)
   if (pathname === '/api/import' && req.method === 'POST') {
+    const admin = authorizeAdmin(req, res);
+    if (!admin) return;
     try {
       const formData = await parseMultipartForm(req);
       const videoFile = formData.get('videoFile');
@@ -511,7 +631,12 @@ const server = http.createServer(async (req, res) => {
       // Organize file structure
       const mediaTypeDir = mediaType === 'movie' ? 'Movies' : 'Anime';
       const originalName = videoFile && videoFile.size > 0 ? videoFile.name : path.basename(sourcePath);
-      const ext = path.extname(originalName) || '.mkv';
+      const ext = path.extname(originalName).toLowerCase();
+      const whitelist = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.m4v'];
+      if (!whitelist.includes(ext)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'Bad Request', message: 'Formato de video no soportado' }));
+      }
       
       let destDir = '';
       let destFileName = '';
@@ -624,6 +749,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname.startsWith('/api/admin/')) {
+    const admin = authorizeAdmin(req, res);
+    if (!admin) return;
+  }
+
   // --- New Admin Control REST Endpoints ---
 
   // Trigger library scan
@@ -642,25 +772,23 @@ const server = http.createServer(async (req, res) => {
 
   // SAID Trigger
   if (pathname === '/api/admin/detect-intros' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => body += chunk.toString());
-    req.on('end', async () => {
-      try {
-        const data = JSON.parse(body);
-        const { showId, seasonNumber } = data;
-        if (!showId || !seasonNumber) {
-          res.writeHead(400);
-          return res.end(JSON.stringify({error: "showId and seasonNumber required"}));
-        }
-        
-        const result = await detectIntrosForSeason(showId, seasonNumber);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(result));
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
-      }
-    });
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+
+    const { showId, seasonNumber } = body;
+    if (!showId || !seasonNumber) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'showId and seasonNumber required' }));
+    }
+    
+    try {
+      const result = await detectIntrosForSeason(showId, seasonNumber);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Database/Detection Error', message: e.message }));
+    }
     return;
   }
 
@@ -877,39 +1005,44 @@ const server = http.createServer(async (req, res) => {
 
   // 4. Delete background loop video (References file on disk)
   if (pathname === '/api/admin/delete-backdrop-loop' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', async () => {
-      try {
-        const { showId, videoUrl } = JSON.parse(body);
-        const show = dbHelper.getShow(showId);
-        if (!show) {
-          res.writeHead(404);
-          return res.end('Show not found');
-        }
-        
-        const relativePath = decodeURIComponent(videoUrl.substring(9));
-        const filePath = path.join(__dirname, '..', 'library', relativePath);
-        try {
-          await fsPromises.unlink(filePath);
-        } catch (e) {
-          console.warn(`File already deleted or missing on disk: ${filePath}`);
-        }
-        
-        let loops = show.backdrop_loops ? JSON.parse(show.backdrop_loops) : [];
-        loops = loops.filter(url => url !== videoUrl);
-        
-        show.backdrop_loops = JSON.stringify(loops);
-        dbHelper.saveShow(show);
-        
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, loops }));
-      } catch (err) {
-        console.error(err);
-        res.writeHead(500);
-        res.end(JSON.stringify({ error: err.message }));
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    try {
+      const { showId, videoUrl } = body;
+      const show = dbHelper.getShow(showId);
+      if (!show) {
+        res.writeHead(404);
+        return res.end('Show not found');
       }
-    });
+      
+      const relativePath = decodeURIComponent(videoUrl.substring(9));
+      const libraryDir = path.resolve(__dirname, '..', 'library');
+      const filePath = path.resolve(libraryDir, relativePath);
+      
+      if (!isPathSafe(libraryDir, filePath)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'Forbidden', message: 'Acceso denegado' }));
+      }
+      
+      try {
+        await fsPromises.unlink(filePath);
+      } catch (e) {
+        console.warn(`File already deleted or missing on disk: ${filePath}`);
+      }
+      
+      let loops = show.backdrop_loops ? JSON.parse(show.backdrop_loops) : [];
+      loops = loops.filter(url => url !== videoUrl);
+      
+      show.backdrop_loops = JSON.stringify(loops);
+      dbHelper.saveShow(show);
+      
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, loops }));
+    } catch (err) {
+      console.error(err);
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: err.message }));
+    }
     return;
   }
 
@@ -974,36 +1107,46 @@ const server = http.createServer(async (req, res) => {
 
   // 5b. Update individual episode opening/ending skip times
   if (pathname === '/api/admin/save-episode-timings' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+
+    try {
+      const episodeId = body.episodeId;
+      const introStart = body.introStart !== undefined && body.introStart !== '' && body.introStart !== null ? parseInt(body.introStart, 10) : null;
+      const introEnd = body.introEnd !== undefined && body.introEnd !== '' && body.introEnd !== null ? parseInt(body.introEnd, 10) : null;
+      const outroStart = body.outroStart !== undefined && body.outroStart !== '' && body.outroStart !== null ? parseInt(body.outroStart, 10) : null;
+
+      let episode;
       try {
-        const parsed = JSON.parse(body);
-        const episodeId = parsed.episodeId;
-        const introStart = parsed.introStart !== undefined && parsed.introStart !== '' && parsed.introStart !== null ? parseInt(parsed.introStart, 10) : null;
-        const introEnd = parsed.introEnd !== undefined && parsed.introEnd !== '' && parsed.introEnd !== null ? parseInt(parsed.introEnd, 10) : null;
-        const outroStart = parsed.outroStart !== undefined && parsed.outroStart !== '' && parsed.outroStart !== null ? parseInt(parsed.outroStart, 10) : null;
-
-        const episode = dbHelper.getEpisode(episodeId);
-        if (!episode) {
-          res.writeHead(404);
-          return res.end('Episode not found');
-        }
-
-        episode.intro_start = introStart;
-        episode.intro_end = introEnd;
-        episode.outro_start = outroStart;
-
-        dbHelper.saveEpisode(episode);
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
+        episode = dbHelper.getEpisode(episodeId);
       } catch (err) {
-        console.error(err);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al consultar el episodio' }));
       }
-    });
+
+      if (!episode) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, message: 'Episode not found' }));
+      }
+
+      episode.intro_start = introStart;
+      episode.intro_end = introEnd;
+      episode.outro_start = outroStart;
+
+      try {
+        dbHelper.saveEpisode(episode);
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al guardar los tiempos del episodio' }));
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      console.error(err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Internal Server Error', message: err.message }));
+    }
     return;
   }
 
@@ -1178,6 +1321,14 @@ const server = http.createServer(async (req, res) => {
       'pipe:1'
     ]);
 
+    ffmpegProcess.on('error', (err) => {
+      console.error('Subtitle ffmpeg process error:', err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Internal Server Error', message: 'Error al extraer subtítulos' }));
+      }
+    });
+
     ffmpegProcess.stdout.pipe(res);
 
     req.on('close', () => {
@@ -1186,12 +1337,23 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Catch unmatched API endpoints
+  if (pathname.startsWith('/api/')) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: false, error: 'Not Found', message: 'Endpoint no encontrado' }));
+  }
+
   // --- Static Files Server ---
 
   // Library files access (posters, backdrops, generated intro loops)
   if (pathname.startsWith('/library/')) {
     const relativePath = decodeURIComponent(pathname.substring(9));
-    const filePath = path.join(__dirname, '..', 'library', relativePath);
+    const libraryDir = path.resolve(__dirname, '..', 'library');
+    const filePath = path.resolve(libraryDir, relativePath);
+    if (!isPathSafe(libraryDir, filePath)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Forbidden', message: 'Acceso denegado' }));
+    }
     
     try {
       await fsPromises.access(filePath);
@@ -1199,14 +1361,19 @@ const server = http.createServer(async (req, res) => {
       const contentType = MIME_TYPES[ext] || 'application/octet-stream';
       return serveFileWithRanges(filePath, req, res, contentType);
     } catch (e) {
-      res.writeHead(404);
-      return res.end('File not found in library');
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Not Found', message: 'Archivo no encontrado en la librería' }));
     }
   }
 
   // Frontend files
-  let relativePath = pathname === '/' ? 'index.html' : pathname.substring(1);
-  let filePath = path.join(__dirname, '..', 'frontend', relativePath);
+  let relativePath = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.substring(1));
+  const frontendDir = path.resolve(__dirname, '..', 'frontend');
+  const filePath = path.resolve(frontendDir, relativePath);
+  if (!isPathSafe(frontendDir, filePath)) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: false, error: 'Forbidden', message: 'Acceso denegado' }));
+  }
 
   try {
     await fsPromises.access(filePath);
@@ -1221,14 +1388,25 @@ const server = http.createServer(async (req, res) => {
       await fsPromises.access(indexHtml);
       return serveFileWithRanges(indexHtml, req, res, 'text/html; charset=utf-8');
     } catch (err) {
-      res.writeHead(404);
-      return res.end('Not Found');
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Not Found', message: 'Not Found' }));
+    }
+  }
+  } catch (globalError) {
+    console.error('Global error handler caught:', globalError);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Internal Server Error', message: globalError.message }));
+    } else {
+      res.end();
     }
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`====================================================`);
-  console.log(` KuraStream server running at http://localhost:${PORT}`);
-  console.log(`====================================================`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`====================================================`);
+    console.log(` KuraStream server running at http://localhost:${PORT}`);
+    console.log(`====================================================`);
+  });
+}

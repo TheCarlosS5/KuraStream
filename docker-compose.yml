@@ -1,0 +1,15 @@
+services:
+  kurastream:
+    build: .
+    container_name: kurastream
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - JWT_SECRET=super_kura_secret_key_123!
+      - TMDB_API_KEY=
+      - MEDIA_LIBRARY_PATH=/app/library
+    volumes:
+      - ./library:/app/library
+      - ./backend/kurastream.db:/app/backend/kurastream.db
+    restart: unless-stopped

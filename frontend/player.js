@@ -413,6 +413,7 @@ export function destroyPlayer() {
     video.onended = null;
     video.onplay = null;
     video.onpause = null;
+    video.onerror = null;
     video.onloadedmetadata = null;
     video.removeAttribute('src');
     video.load();
@@ -428,6 +429,8 @@ export function destroyPlayer() {
   if (countdownOverlay) countdownOverlay.style.display = 'none';
   if (fileInfoModal) fileInfoModal.style.display = 'none';
   if (qrShareModal) qrShareModal.style.display = 'none';
+  const errorOverlay = document.getElementById('player-error-overlay');
+  if (errorOverlay) errorOverlay.style.display = 'none';
 
   // Clear QR DOM elements
   qrShareBtn = null;
@@ -507,6 +510,11 @@ function setupPlayerEventListeners() {
       video.pause();
     }
     triggerControlsActivity();
+  };
+
+  video.onerror = () => {
+    console.error("Video element error occurred:", video.error);
+    showPlayerErrorOverlay("Error de reproducción. ¿Reintentar?");
   };
 
   video.onplay = () => {
@@ -1206,5 +1214,40 @@ function showQRModal() {
   }
   
   if (qrShareModal) qrShareModal.style.display = 'block';
+}
+
+function showPlayerErrorOverlay(message) {
+  const errorOverlay = document.getElementById('player-error-overlay');
+  const errorText = document.getElementById('player-error-message');
+  const retryBtn = document.getElementById('player-error-retry-btn');
+  
+  if (errorOverlay && errorText && retryBtn) {
+    errorText.textContent = message || "No se pudo cargar el video. Por favor, comprueba tu conexión o el archivo de origen.";
+    errorOverlay.style.display = 'flex';
+    
+    retryBtn.onclick = () => {
+      errorOverlay.style.display = 'none';
+      
+      const currentStreamSrc = video ? video.src : '';
+      let savedTime = 0;
+      if (currentStreamSrc) {
+        try {
+          const parsedUrl = new URL(currentStreamSrc, window.location.origin);
+          const startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
+          savedTime = startOffset + (video ? video.currentTime : 0);
+        } catch (e) {
+          console.warn("Failed to parse video.src URL during retry:", e);
+        }
+      }
+      
+      if (savedTime > 0) {
+        console.log(`Retrying playback from: ${savedTime} seconds`);
+        loadVideoStream(savedTime);
+      } else {
+        console.log("Retrying playback from start");
+        loadVideoStream(0);
+      }
+    };
+  }
 }
 
