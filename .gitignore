@@ -22,3 +22,17 @@ node_modules/
 # Archivos del sistema
 .DS_Store
 Thumbs.db
+
+# Herramientas del agente
+.superpowers/
+
+# Archivos temporales y de construcción de Android
+.gradle/
+build/
+app/build/
+*.iml
+.idea/
+local.properties
+.cxx/
+.artifacts/
+android/.artifacts/
