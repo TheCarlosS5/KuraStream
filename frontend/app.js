@@ -2894,19 +2894,18 @@ function initCustomCursor() {
       ringX = mouseX;
       ringY = mouseY;
     }
-    
-    dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
-  });
+  }, { passive: true });
 
-  function animateRing() {
+  function animateCursor() {
     if (hasMoved) {
+      dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
       ringX += (mouseX - ringX) * 0.15;
       ringY += (mouseY - ringY) * 0.15;
       ring.style.transform = `translate3d(${ringX}px, ${ringY}px, 0) translate(-50%, -50%)`;
     }
-    requestAnimationFrame(animateRing);
+    requestAnimationFrame(animateCursor);
   }
-  animateRing();
+  animateCursor();
 
   document.addEventListener('mouseover', (e) => {
     const target = e.target;
