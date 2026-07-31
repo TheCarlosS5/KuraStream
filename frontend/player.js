@@ -452,6 +452,16 @@ export function destroyPlayer() {
     document.removeEventListener('fullscreenchange', handleFullscreenChange);
     handleFullscreenChange = null;
   }
+
+  // Restore custom cursor elements back to body if they were inside fullscreen element
+  const dot = document.getElementById('custom-cursor-dot');
+  const ring = document.getElementById('custom-cursor-ring');
+  if (dot && dot.parentElement !== document.body) {
+    document.body.appendChild(dot);
+  }
+  if (ring && ring.parentElement !== document.body) {
+    document.body.appendChild(ring);
+  }
 }
 
 function setupTracksMenu() {
@@ -651,12 +661,25 @@ function setupPlayerEventListeners() {
   }
   handleFullscreenChange = () => {
     const fsIcon = document.getElementById('fullscreen-icon');
+    const dot = document.getElementById('custom-cursor-dot');
+    const ring = document.getElementById('custom-cursor-ring');
+
     if (document.fullscreenElement) {
       if (fsIcon) fsIcon.setAttribute('data-lucide', 'minimize');
       showVideoToast('Pantalla Completa');
+      
+      if (dot && ring) {
+        document.fullscreenElement.appendChild(dot);
+        document.fullscreenElement.appendChild(ring);
+      }
     } else {
       if (fsIcon) fsIcon.setAttribute('data-lucide', 'maximize');
       showVideoToast('Ventana');
+      
+      if (dot && ring) {
+        document.body.appendChild(dot);
+        document.body.appendChild(ring);
+      }
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
   };
