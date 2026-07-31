@@ -2924,6 +2924,9 @@ function initCustomCursor() {
   let mouseY = 0;
   let ringX = 0;
   let ringY = 0;
+  let targetScale = 1;
+  let currentScaleDot = 1;
+  let currentScaleRing = 1;
   let hasMoved = false;
 
   const interactiveSelectors = 'a, button, input, select, textarea, [role="button"], .show-card, .clickable, .episode-item, .player-btn, .nav-link, .dropdown-trigger, .carousel-nav-btn, .carousel-indicators span, .drop-zone, .user-profile-trigger, .user-dropdown-item, .back-link, .header-logo, #btn-login-trigger, #btn-logout, #detail-favorite-btn, #detail-trailer-btn, .play-btn, .next-btn, .back-btn, #trailer-close-btn';
@@ -2943,10 +2946,13 @@ function initCustomCursor() {
 
   function animateCursor() {
     if (hasMoved) {
-      dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
+      currentScaleDot += (targetScale - currentScaleDot) * 0.2;
+      currentScaleRing += (targetScale - currentScaleRing) * 0.15;
+      
+      dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%) scale(${currentScaleDot})`;
       ringX += (mouseX - ringX) * 0.15;
       ringY += (mouseY - ringY) * 0.15;
-      ring.style.transform = `translate3d(${ringX}px, ${ringY}px, 0) translate(-50%, -50%)`;
+      ring.style.transform = `translate3d(${ringX}px, ${ringY}px, 0) translate(-50%, -50%) scale(${currentScaleRing})`;
     }
     requestAnimationFrame(animateCursor);
   }
@@ -2957,6 +2963,7 @@ function initCustomCursor() {
     if (!target) return;
     const isInteractive = target.closest(interactiveSelectors);
     if (isInteractive) {
+      targetScale = 1.5;
       dot.classList.add('hover');
       ring.classList.add('hover');
     }
@@ -2967,6 +2974,7 @@ function initCustomCursor() {
     if (!target) return;
     const isInteractive = target.closest(interactiveSelectors);
     if (isInteractive) {
+      targetScale = 1;
       dot.classList.remove('hover');
       ring.classList.remove('hover');
     }
