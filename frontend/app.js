@@ -398,7 +398,7 @@ function isAdmin() {
 // DASHBOARD VIEW
 async function loadDashboard(mediaType = 'anime') {
   const sectionsContainer = document.getElementById('dashboard-sections');
-  sectionsContainer.innerHTML = '<div class="spinner"></div>';
+  sectionsContainer.innerHTML = renderSkeletonLoaders() + renderSkeletonLoaders();
 
   try {
     // 1. Fetch all shows
@@ -652,7 +652,7 @@ async function loadDashboard(mediaType = 'anime') {
         <div class="row-container" style="margin-bottom: 30px;">
           <h2 class="row-title"><i data-lucide="heart" style="vertical-align: middle; margin-right: 6px; fill: var(--accent-color); stroke: var(--accent-color);"></i> Mi Lista</h2>
           <div class="row-cards" style="display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px; padding-top: 5px;">
-            ${categoryFavorites.map(s => createShowCardHTML(s)).join('')}
+            ${categoryFavorites.map(s => createShowCardHTML(s, history)).join('')}
           </div>
         </div>
       `;
@@ -666,7 +666,7 @@ async function loadDashboard(mediaType = 'anime') {
           <div class="row-container" style="margin-bottom: 35px;">
             <h2 class="row-title"><i data-lucide="clock" style="vertical-align: middle; margin-right: 6px; color: var(--accent-color);"></i> Nuevos Aportes / Recién Subidos</h2>
             <div class="row-cards" style="display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px;">
-              ${recentAnime.map(s => createShowCardHTML(s)).join('')}
+              ${recentAnime.map(s => createShowCardHTML(s, history)).join('')}
             </div>
           </div>
         `;
@@ -679,7 +679,7 @@ async function loadDashboard(mediaType = 'anime') {
           <div class="row-container" style="margin-bottom: 35px;">
             <h2 class="row-title"><i data-lucide="star" style="vertical-align: middle; margin-right: 6px; fill: var(--rating-color); stroke: var(--rating-color);"></i> Destacados / Más Valorados</h2>
             <div class="row-cards" style="display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px;">
-              ${popularAnime.map(s => createShowCardHTML(s)).join('')}
+              ${popularAnime.map(s => createShowCardHTML(s, history)).join('')}
             </div>
           </div>
         `;
@@ -696,7 +696,7 @@ async function loadDashboard(mediaType = 'anime') {
           <div class="grid-container" style="margin-top: 20px; margin-bottom: 40px;">
             <h2 class="row-title"><i data-lucide="grid" style="vertical-align: middle; margin-right: 6px;"></i> Todos los Animes (${animeShows.length})</h2>
             <div class="shows-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 24px;">
-              ${paginatedAnime.map(s => createShowCardHTML(s)).join('')}
+              ${paginatedAnime.map(s => createShowCardHTML(s, history)).join('')}
             </div>
             ${paginationHTML}
           </div>
@@ -716,7 +716,7 @@ async function loadDashboard(mediaType = 'anime') {
           <div class="row-container" style="margin-bottom: 35px;">
             <h2 class="row-title"><i data-lucide="film" style="vertical-align: middle; margin-right: 6px;"></i> Películas Destacadas</h2>
             <div class="row-cards" style="display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px;">
-              ${movieShows.map(s => createShowCardHTML(s)).join('')}
+              ${movieShows.map(s => createShowCardHTML(s, history)).join('')}
             </div>
           </div>
         `;
@@ -730,7 +730,7 @@ async function loadDashboard(mediaType = 'anime') {
           <div class="grid-container" style="margin-top: 20px; margin-bottom: 40px;">
             <h2 class="row-title"><i data-lucide="grid" style="vertical-align: middle; margin-right: 6px;"></i> Catálogo de Películas</h2>
             <div class="shows-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 24px;">
-              ${paginatedMovies.map(s => createShowCardHTML(s)).join('')}
+              ${paginatedMovies.map(s => createShowCardHTML(s, history)).join('')}
             </div>
             ${paginationHTML}
           </div>
@@ -753,17 +753,53 @@ async function loadDashboard(mediaType = 'anime') {
   }
 }
 
-function createShowCardHTML(show) {
+function renderSkeletonLoaders() {
+  return `
+    <div class="row-container skeleton-row" style="margin-bottom: 30px;">
+      <div class="skeleton-title" style="width: 150px; height: 24px; background: var(--surface-muted); border-radius: 4px; margin-bottom: 20px; animation: skeleton-pulse 1.5s infinite;"></div>
+      <div class="row-cards" style="display: flex; gap: 20px; overflow: hidden;">
+        ${Array(6).fill().map(() => `
+          <div class="skeleton-card" style="width: 180px; height: 320px; background: var(--surface-color); border-radius: 12px; overflow: hidden; border: 1px solid var(--border-color); flex-shrink: 0; display: flex; flex-direction: column;">
+            <div class="skeleton-img" style="height: 220px; background: var(--surface-muted); animation: skeleton-pulse 1.5s infinite;"></div>
+            <div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+              <div class="skeleton-text" style="height: 14px; background: var(--surface-muted); border-radius: 3px; width: 80%; animation: skeleton-pulse 1.5s infinite;"></div>
+              <div class="skeleton-text" style="height: 12px; background: var(--surface-muted); border-radius: 3px; width: 50%; animation: skeleton-pulse 1.5s infinite;"></div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function createShowCardHTML(show, history = []) {
   const poster = show.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
   const rating = show.rating ? show.rating.toFixed(1) : 'N/A';
+  
+  const historyItem = history.find(h => String(h.show_id) === String(show.id));
+  let progressHTML = '';
+  if (historyItem && historyItem.duration) {
+    const progressPercent = Math.min(100, Math.max(0, (historyItem.progress_seconds / historyItem.duration) * 100));
+    progressHTML = `
+      <div class="card-progress-bar-container" style="position: absolute; bottom: 0; left: 0; right: 0; height: 5px; background: rgba(255,255,255,0.2); z-index: 2;">
+        <div class="card-progress-bar" style="width: ${progressPercent}%; height: 100%; background: var(--accent-color);"></div>
+      </div>
+      <div class="card-continue-watching-indicator" style="position: absolute; top: 10px; left: 10px; background: rgba(168, 85, 247, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; padding: 2px 6px; font-size: 0.65rem; font-family: var(--font-title); font-weight: 700; color: white; display: flex; align-items: center; gap: 3px; z-index: 2; box-shadow: 0 2px 8px rgba(0,0,0,0.5);">
+        <i data-lucide="play" style="width: 8px; height: 8px; fill: white; stroke: white;"></i>
+        ${Math.round(progressPercent)}% visto
+      </div>
+    `;
+  }
+
   return `
     <div class="show-card" onclick="location.hash='#/show/${show.id}'" style="flex: 0 0 auto; width: 180px; height: 320px;">
-      <div class="card-img-wrapper" style="height: 220px;">
+      <div class="card-img-wrapper" style="height: 220px; position: relative;">
         <img src="${poster}" alt="${show.title}" loading="lazy">
         <div class="card-rating-badge">
           <i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);margin-right:2px;display:inline-block;vertical-align:middle;"></i> 
           ${rating}
         </div>
+        ${progressHTML}
       </div>
       <div class="card-info">
         <h3 class="card-title" style="font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${show.title}</h3>
@@ -776,6 +812,7 @@ function createShowCardHTML(show) {
     </div>
   `;
 }
+
 
 // SHOW DETAIL VIEW
 async function loadShowDetails(id) {

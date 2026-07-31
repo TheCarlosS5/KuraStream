@@ -509,10 +509,17 @@ button, input, select {
 }
 
 .show-card:hover {
-  transform: translateY(-8px);
+  transform: translateY(-8px) scale(1.04);
   border-color: var(--accent-color);
-  box-shadow: 0 8px 25px rgba(255, 107, 0, 0.25);
+  box-shadow: 0 12px 30px rgba(168, 85, 247, 0.25);
 }
+
+@keyframes skeleton-pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 0.3; }
+  100% { opacity: 0.6; }
+}
+
 
 .card-img-wrapper {
   position: relative;
