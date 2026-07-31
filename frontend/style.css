@@ -59,22 +59,8 @@ a, button, select, input[type="submit"], input[type="button"],
 }
 
 @media (pointer: fine) {
-  body.js-cursor-enabled {
-    cursor: none;
-  }
-  
-  body.js-cursor-enabled a,
-  body.js-cursor-enabled button,
-  body.js-cursor-enabled input,
-  body.js-cursor-enabled select,
-  body.js-cursor-enabled textarea,
-  body.js-cursor-enabled [role="button"],
-  body.js-cursor-enabled .show-card,
-  body.js-cursor-enabled .clickable,
-  body.js-cursor-enabled .nav-link,
-  body.js-cursor-enabled .episode-item,
-  body.js-cursor-enabled .player-btn,
-  body.js-cursor-enabled .settings-card {
+  body.js-cursor-enabled,
+  body.js-cursor-enabled * {
     cursor: none !important;
   }
 
