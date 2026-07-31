@@ -20,6 +20,7 @@ let fileInfoModal = null;
 let fileInfoBody = null;
 let fileInfoClose = null;
 let fullscreenBtn = null;
+let pipBtn = null;
 let skipIntroBtn = null;
 let skipOutroBtn = null;
 let watchCreditsBtn = null;
@@ -101,6 +102,7 @@ export async function initPlayer(episodeId) {
   fileInfoBody = document.getElementById('file-info-body');
   fileInfoClose = document.getElementById('file-info-close');
   fullscreenBtn = document.getElementById('fullscreen-btn');
+  pipBtn = document.getElementById('pip-btn');
   skipIntroBtn = document.getElementById('skip-intro-btn');
   skipOutroBtn = document.getElementById('skip-outro-btn');
   watchCreditsBtn = document.getElementById('watch-credits-btn');
@@ -567,30 +569,57 @@ function setupPlayerEventListeners() {
   const handleKeyboard = (e) => {
     if (!isPlayerActive) return;
     
-    if (e.code === 'Space') {
+    // Ignore hotkeys when typing in search or inputs
+    if (document.activeElement && (
+      document.activeElement.tagName === 'INPUT' || 
+      document.activeElement.tagName === 'TEXTAREA' || 
+      document.activeElement.isContentEditable
+    )) {
+      return;
+    }
+    
+    if (e.code === 'Space' || e.code === 'KeyK') {
       e.preventDefault();
       togglePlay();
+      showVideoToast(video.paused ? 'Pausa' : 'Reproducir');
     } else if (e.code === 'ArrowRight') {
-      // Seek forward 10 seconds
       seekRelative(10);
+      showSeekIndicator('right');
+      showVideoToast('+10s');
     } else if (e.code === 'ArrowLeft') {
-      // Seek backward 10 seconds
       seekRelative(-10);
+      showSeekIndicator('left');
+      showVideoToast('-10s');
     } else if (e.code === 'ArrowUp') {
-      // Volume up
       e.preventDefault();
       video.volume = Math.min(1, video.volume + 0.1);
       volumeSlider.value = video.volume;
       updateVolumeIcon(video.volume);
+      showVideoToast(`Volumen: ${Math.round(video.volume * 100)}%`);
     } else if (e.code === 'ArrowDown') {
-      // Volume down
       e.preventDefault();
       video.volume = Math.max(0, video.volume - 0.1);
       volumeSlider.value = video.volume;
       updateVolumeIcon(video.volume);
+      showVideoToast(`Volumen: ${Math.round(video.volume * 100)}%`);
     } else if (e.code === 'KeyF') {
-      // Toggle fullscreen
       toggleFullscreen();
+      setTimeout(() => {
+        showVideoToast(document.fullscreenElement ? 'Pantalla Completa' : 'Ventana');
+      }, 100);
+    } else if (e.code === 'KeyM') {
+      if (video.muted) {
+        video.muted = false;
+        const vol = parseFloat(volumeSlider.value) || 1.0;
+        video.volume = vol;
+        updateVolumeIcon(vol);
+        showVideoToast(`Volumen: ${Math.round(vol * 100)}%`);
+      } else {
+        video.muted = true;
+        updateVolumeIcon(0);
+        showVideoToast('Silenciado');
+      }
+      triggerControlsActivity();
     } else if (e.code === 'Escape') {
       if (document.fullscreenElement) {
         document.exitFullscreen();
@@ -759,6 +788,29 @@ function setupPlayerEventListeners() {
 
   // Fullscreen controller
   fullscreenBtn.onclick = toggleFullscreen;
+
+  // Picture-in-Picture controller
+  if (pipBtn) {
+    if (document.pictureInPictureEnabled || (video && video.webkitSupportsPresentationMode && typeof video.webkitSetPresentationMode === 'function')) {
+      pipBtn.style.display = 'flex';
+      pipBtn.onclick = async (e) => {
+        e.stopPropagation();
+        try {
+          if (document.pictureInPictureElement) {
+            await document.exitPictureInPicture();
+            showVideoToast('PiP Desactivado');
+          } else {
+            await video.requestPictureInPicture();
+            showVideoToast('PiP Activado');
+          }
+        } catch (err) {
+          console.error("Failed to toggle Picture-in-Picture:", err);
+        }
+      };
+    } else {
+      pipBtn.style.display = 'none';
+    }
+  }
 
   // Technical file info overlay modal toggles
   fileInfoBtn.onclick = () => {
@@ -1249,5 +1301,56 @@ function showPlayerErrorOverlay(message) {
       }
     };
   }
+}
+
+// Visual feedback helpers
+let toastTimeout = null;
+function showVideoToast(message) {
+  const playerContainer = document.querySelector('.player-container');
+  if (!playerContainer) return;
+  
+  let toast = playerContainer.querySelector('.video-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.className = 'video-toast';
+    playerContainer.appendChild(toast);
+  }
+  
+  toast.textContent = message;
+  toast.classList.add('show');
+  
+  if (toastTimeout) clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => {
+    toast.classList.remove('show');
+  }, 1000);
+}
+
+function showSeekIndicator(direction) {
+  const playerContainer = document.querySelector('.player-container');
+  if (!playerContainer) return;
+  
+  let indicator = playerContainer.querySelector(`.seek-arc-indicator.${direction}`);
+  if (!indicator) {
+    indicator = document.createElement('div');
+    indicator.className = `seek-arc-indicator ${direction}`;
+    const isLeft = direction === 'left';
+    indicator.innerHTML = isLeft 
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg>';
+    playerContainer.appendChild(indicator);
+  }
+  
+  indicator.classList.remove('show');
+  void indicator.offsetWidth; // Force layout recalculation to re-trigger transition
+  indicator.classList.add('show');
+  
+  if (indicator.dataset.timeoutId) {
+    clearTimeout(parseInt(indicator.dataset.timeoutId, 10));
+  }
+  
+  const timeoutId = setTimeout(() => {
+    indicator.classList.remove('show');
+  }, 400);
+  indicator.dataset.timeoutId = timeoutId.toString();
 }
 

@@ -2355,3 +2355,71 @@ button, input, select {
   padding: 10px 24px;
 }
 
+/* Video Player Overlay Toasts and Seek Arcs */
+.video-toast {
+  position: absolute;
+  top: 15%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.9);
+  background: rgba(18, 22, 32, 0.85);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  padding: 12px 24px;
+  border-radius: 30px;
+  font-family: var(--font-title);
+  font-size: 1.1rem;
+  font-weight: 700;
+  pointer-events: none;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.video-toast.show {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.seek-arc-indicator {
+  position: absolute;
+  top: 50%;
+  width: 100px;
+  height: 100px;
+  background: rgba(255, 107, 0, 0.15);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-50%) scale(0.5);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 9999;
+  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s;
+}
+
+.seek-arc-indicator.left {
+  left: 15%;
+}
+
+.seek-arc-indicator.right {
+  right: 15%;
+}
+
+.seek-arc-indicator.show {
+  transform: translateY(-50%) scale(1.2);
+  opacity: 1;
+}
+
+.seek-arc-indicator svg {
+  width: 40px;
+  height: 40px;
+  color: var(--accent-color);
+  filter: drop-shadow(0 0 8px var(--accent-color));
+}
+
