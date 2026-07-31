@@ -1246,11 +1246,13 @@ const server = http.createServer(async (req, res) => {
 
       // Dynamic video copy, audio transcode and format selection
       ffmpegArgs.push('-c:v', 'copy');
+      ffmpegArgs.push('-avoid_negative_ts', 'make_zero');
       
       if (isWebmCompatible) {
         ffmpegArgs.push(
           '-c:a', 'libopus',
           '-b:a', '128k',
+          '-af', 'aresample=async=1',
           '-f', 'webm',
           '-deadline', 'realtime'
         );
@@ -1258,6 +1260,7 @@ const server = http.createServer(async (req, res) => {
         ffmpegArgs.push(
           '-c:a', 'aac',
           '-b:a', '128k',
+          '-af', 'aresample=async=1',
           '-f', 'mp4',
           '-movflags', 'frag_keyframe+empty_moov+default_base_moof'
         );
