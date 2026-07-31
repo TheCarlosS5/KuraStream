@@ -423,6 +423,14 @@ async function loadDashboard(mediaType = 'anime') {
       console.warn("History fetch failed:", e);
     }
 
+    const historyMap = new Map();
+    history.forEach(item => {
+      const existing = historyMap.get(String(item.show_id));
+      if (!existing || new Date(item.updated_at || item.watched_at || 0) > new Date(existing.updated_at || existing.watched_at || 0)) {
+        historyMap.set(String(item.show_id), item);
+      }
+    });
+
     // Fetch favorites
     let favorites = [];
     try {
@@ -652,7 +660,7 @@ async function loadDashboard(mediaType = 'anime') {
         <div class="row-container" style="margin-bottom: 30px;">
           <h2 class="row-title"><i data-lucide="heart" style="vertical-align: middle; margin-right: 6px; fill: var(--accent-color); stroke: var(--accent-color);"></i> Mi Lista</h2>
           <div class="row-cards" style="display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px; padding-top: 5px;">
-            ${categoryFavorites.map(s => createShowCardHTML(s, history)).join('')}
+            ${categoryFavorites.map(s => createShowCardHTML(s, historyMap)).join('')}
           </div>
         </div>
       `;
@@ -666,7 +674,7 @@ async function loadDashboard(mediaType = 'anime') {
           <div class="row-container" style="margin-bottom: 35px;">
             <h2 class="row-title"><i data-lucide="clock" style="vertical-align: middle; margin-right: 6px; color: var(--accent-color);"></i> Nuevos Aportes / Recién Subidos</h2>
             <div class="row-cards" style="display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px;">
-              ${recentAnime.map(s => createShowCardHTML(s, history)).join('')}
+              ${recentAnime.map(s => createShowCardHTML(s, historyMap)).join('')}
             </div>
           </div>
         `;
@@ -679,7 +687,7 @@ async function loadDashboard(mediaType = 'anime') {
           <div class="row-container" style="margin-bottom: 35px;">
             <h2 class="row-title"><i data-lucide="star" style="vertical-align: middle; margin-right: 6px; fill: var(--rating-color); stroke: var(--rating-color);"></i> Destacados / Más Valorados</h2>
             <div class="row-cards" style="display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px;">
-              ${popularAnime.map(s => createShowCardHTML(s, history)).join('')}
+              ${popularAnime.map(s => createShowCardHTML(s, historyMap)).join('')}
             </div>
           </div>
         `;
@@ -696,7 +704,7 @@ async function loadDashboard(mediaType = 'anime') {
           <div class="grid-container" style="margin-top: 20px; margin-bottom: 40px;">
             <h2 class="row-title"><i data-lucide="grid" style="vertical-align: middle; margin-right: 6px;"></i> Todos los Animes (${animeShows.length})</h2>
             <div class="shows-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 24px;">
-              ${paginatedAnime.map(s => createShowCardHTML(s, history)).join('')}
+              ${paginatedAnime.map(s => createShowCardHTML(s, historyMap)).join('')}
             </div>
             ${paginationHTML}
           </div>
@@ -716,7 +724,7 @@ async function loadDashboard(mediaType = 'anime') {
           <div class="row-container" style="margin-bottom: 35px;">
             <h2 class="row-title"><i data-lucide="film" style="vertical-align: middle; margin-right: 6px;"></i> Películas Destacadas</h2>
             <div class="row-cards" style="display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px;">
-              ${movieShows.map(s => createShowCardHTML(s, history)).join('')}
+              ${movieShows.map(s => createShowCardHTML(s, historyMap)).join('')}
             </div>
           </div>
         `;
@@ -730,7 +738,7 @@ async function loadDashboard(mediaType = 'anime') {
           <div class="grid-container" style="margin-top: 20px; margin-bottom: 40px;">
             <h2 class="row-title"><i data-lucide="grid" style="vertical-align: middle; margin-right: 6px;"></i> Catálogo de Películas</h2>
             <div class="shows-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 24px;">
-              ${paginatedMovies.map(s => createShowCardHTML(s, history)).join('')}
+              ${paginatedMovies.map(s => createShowCardHTML(s, historyMap)).join('')}
             </div>
             ${paginationHTML}
           </div>
@@ -755,7 +763,7 @@ async function loadDashboard(mediaType = 'anime') {
 
 function renderSkeletonLoaders() {
   return `
-    <div class="row-container skeleton-row" style="margin-bottom: 30px;">
+    <div class="row-container skeleton-row" style="margin-bottom: 30px;" aria-hidden="true">
       <div class="skeleton-title" style="width: 150px; height: 24px; background: var(--surface-muted); border-radius: 4px; margin-bottom: 20px; animation: skeleton-pulse 1.5s infinite;"></div>
       <div class="row-cards" style="display: flex; gap: 20px; overflow: hidden;">
         ${Array(6).fill().map(() => `
@@ -772,11 +780,11 @@ function renderSkeletonLoaders() {
   `;
 }
 
-function createShowCardHTML(show, history = []) {
+function createShowCardHTML(show, historyMap = new Map()) {
   const poster = show.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
   const rating = show.rating ? show.rating.toFixed(1) : 'N/A';
   
-  const historyItem = history.find(h => String(h.show_id) === String(show.id));
+  const historyItem = historyMap && historyMap.get ? historyMap.get(String(show.id)) : null;
   let progressHTML = '';
   if (historyItem && historyItem.duration) {
     const progressPercent = Math.min(100, Math.max(0, (historyItem.progress_seconds / historyItem.duration) * 100));
