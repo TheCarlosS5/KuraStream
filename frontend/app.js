@@ -141,6 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSettingsView();
   setupUserAuth();
   setupCommunityChat();
+  initCustomCursor();
 
   // Add search and filter listeners
   const sInput = document.getElementById('search-input');
@@ -2860,4 +2861,60 @@ async function loadPopularSidebar(currentShowId) {
 }
 
 window.loadPopularSidebar = loadPopularSidebar;
+
+function initCustomCursor() {
+  const dot = document.getElementById('custom-cursor-dot');
+  const ring = document.getElementById('custom-cursor-ring');
+  if (!dot || !ring) return;
+
+  if (!window.matchMedia('(pointer: fine)').matches) {
+    dot.style.display = 'none';
+    ring.style.display = 'none';
+    return;
+  }
+
+  document.body.classList.add('js-cursor-enabled');
+
+  let mouseX = 0;
+  let mouseY = 0;
+  let ringX = 0;
+  let ringY = 0;
+
+  window.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+    dot.style.left = mouseX + 'px';
+    dot.style.top = mouseY + 'px';
+  });
+
+  function animateRing() {
+    ringX += (mouseX - ringX) * 0.15;
+    ringY += (mouseY - ringY) * 0.15;
+    ring.style.left = ringX + 'px';
+    ring.style.top = ringY + 'px';
+    requestAnimationFrame(animateRing);
+  }
+  animateRing();
+
+  document.addEventListener('mouseover', (e) => {
+    const target = e.target;
+    if (!target) return;
+    const isInteractive = target.closest('a, button, input, select, textarea, [role="button"], .show-card, .clickable, .episode-item, .player-btn, .nav-link, .dropdown-trigger, .carousel-nav-btn, .carousel-indicators span, .drop-zone, .user-profile-trigger, .user-dropdown-item, .back-link, .header-logo, #btn-login-trigger, #btn-logout, #detail-favorite-btn, #detail-trailer-btn, .play-btn, .next-btn, .back-btn, #trailer-close-btn');
+    if (isInteractive) {
+      dot.classList.add('hover');
+      ring.classList.add('hover');
+    }
+  });
+
+  document.addEventListener('mouseout', (e) => {
+    const target = e.target;
+    if (!target) return;
+    const isInteractive = target.closest('a, button, input, select, textarea, [role="button"], .show-card, .clickable, .episode-item, .player-btn, .nav-link, .dropdown-trigger, .carousel-nav-btn, .carousel-indicators span, .drop-zone, .user-profile-trigger, .user-dropdown-item, .back-link, .header-logo, #btn-login-trigger, #btn-logout, #detail-favorite-btn, #detail-trailer-btn, .play-btn, .next-btn, .back-btn, #trailer-close-btn');
+    if (isInteractive) {
+      dot.classList.remove('hover');
+      ring.classList.remove('hover');
+    }
+  });
+}
+
 
