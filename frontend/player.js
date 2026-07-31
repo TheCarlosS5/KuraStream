@@ -827,9 +827,13 @@ function setupPlayerEventListeners() {
           if (document.pictureInPictureElement) {
             await document.exitPictureInPicture();
             showVideoToast('PiP Desactivado');
-          } else {
+          } else if (document.pictureInPictureEnabled) {
             await video.requestPictureInPicture();
             showVideoToast('PiP Activado');
+          } else if (video && video.webkitSupportsPresentationMode && typeof video.webkitSetPresentationMode === 'function') {
+            const nextMode = video.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture';
+            video.webkitSetPresentationMode(nextMode);
+            showVideoToast(nextMode === 'picture-in-picture' ? 'PiP Activado' : 'PiP Desactivado');
           }
         } catch (err) {
           console.error("Failed to toggle Picture-in-Picture:", err);
