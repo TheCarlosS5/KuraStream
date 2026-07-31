@@ -58,6 +58,49 @@ a, button, select, input[type="submit"], input[type="button"],
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4.5,1.5 L19.5,10.5 L12,12 L10.5,19.5 Z' fill='%23ff334b' stroke='%23ffffff' stroke-width='1.5' stroke-linejoin='miter'/%3E%3C/svg%3E") 4 1, pointer !important;
 }
 
+@media (pointer: fine) {
+  body {
+    cursor: none;
+  }
+  
+  a, button, input, select, textarea, [role="button"], .show-card, .clickable, .nav-link, .episode-item, .player-btn, .settings-card {
+    cursor: none !important;
+  }
+
+  .custom-cursor-dot {
+    width: 8px;
+    height: 8px;
+    background-color: #a855f7;
+    border-radius: 50%;
+    position: fixed;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 99999;
+    transition: width 0.2s, height 0.2s, background-color 0.2s;
+  }
+
+  .custom-cursor-ring {
+    width: 40px;
+    height: 40px;
+    border: 2px solid rgba(168, 85, 247, 0.4);
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.6);
+    border-radius: 50%;
+    position: fixed;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 99998;
+    transition: transform 0.08s ease-out, width 0.2s, height 0.2s, border-color 0.2s, background-color 0.2s;
+  }
+
+  .custom-cursor-ring.hover {
+    width: 60px;
+    height: 60px;
+    border-color: rgba(168, 85, 247, 0.8);
+    background-color: rgba(168, 85, 247, 0.1);
+    box-shadow: 0 0 20px rgba(168, 85, 247, 0.8);
+  }
+}
+
 /* Lucide SVG Icon styling */
 .lucide, svg {
   display: inline-block;
@@ -209,8 +252,8 @@ button, input, select {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background-color: rgba(11, 12, 14, 0.85);
-  backdrop-filter: blur(15px);
+  background-color: rgba(11, 12, 14, 0.7);
+  backdrop-filter: blur(24px) saturate(180%);
   border-bottom: 1px solid var(--border-color);
   position: fixed;
   top: 0;
@@ -1558,21 +1601,22 @@ button, input, select {
   position: fixed;
   inset: 0;
   z-index: 200;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(10px);
+  background: rgba(11, 12, 14, 0.65);
+  backdrop-filter: blur(12px) saturate(180%);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .pin-modal {
-  background-color: var(--surface-color);
-  border: 1px solid var(--border-color);
+  background-color: rgba(18, 22, 32, 0.65);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   padding: 30px;
   text-align: center;
   width: 320px;
-  box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+  box-shadow: 0 15px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
   animation: scaleUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
