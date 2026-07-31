@@ -398,7 +398,7 @@ function isAdmin() {
 // DASHBOARD VIEW
 async function loadDashboard(mediaType = 'anime') {
   const sectionsContainer = document.getElementById('dashboard-sections');
-  sectionsContainer.innerHTML = renderSkeletonLoaders() + renderSkeletonLoaders();
+  sectionsContainer.innerHTML = renderSkeletonLoaders(2);
 
   try {
     // 1. Fetch all shows
@@ -761,8 +761,8 @@ async function loadDashboard(mediaType = 'anime') {
   }
 }
 
-function renderSkeletonLoaders() {
-  return `
+function renderSkeletonLoaders(rowCount = 2) {
+  return Array(rowCount).fill().map(() => `
     <div class="row-container skeleton-row" style="margin-bottom: 30px;" aria-hidden="true">
       <div class="skeleton-title" style="width: 150px; height: 24px; background: var(--surface-muted); border-radius: 4px; margin-bottom: 20px; animation: skeleton-pulse 1.5s infinite;"></div>
       <div class="row-cards" style="display: flex; gap: 20px; overflow: hidden;">
@@ -777,7 +777,7 @@ function renderSkeletonLoaders() {
         `).join('')}
       </div>
     </div>
-  `;
+  `).join('');
 }
 
 function createShowCardHTML(show, historyMap = new Map()) {
@@ -787,7 +787,7 @@ function createShowCardHTML(show, historyMap = new Map()) {
   const historyItem = historyMap && historyMap.get ? historyMap.get(String(show.id)) : null;
   let progressHTML = '';
   if (historyItem && historyItem.duration) {
-    const progressPercent = Math.min(100, Math.max(0, (historyItem.progress_seconds / historyItem.duration) * 100));
+    const progressPercent = Math.min(100, Math.max(0, ((historyItem.progress_seconds || 0) / historyItem.duration) * 100));
     progressHTML = `
       <div class="card-progress-bar-container" style="position: absolute; bottom: 0; left: 0; right: 0; height: 5px; background: rgba(255,255,255,0.2); z-index: 2;">
         <div class="card-progress-bar" style="width: ${progressPercent}%; height: 100%; background: var(--accent-color);"></div>
