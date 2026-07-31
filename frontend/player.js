@@ -37,6 +37,8 @@ let qrUrlText = null;
 let isControlsVisible = true;
 let hideControlsTimeout = null;
 let isDraggingProgress = false;
+let handleKeyboard = null;
+let handleFullscreenChange = null;
 let currentEpisodeId = null;
 let currentEpisodeData = null;
 let currentShowData = null;
@@ -440,6 +442,16 @@ export function destroyPlayer() {
   qrShareClose = null;
   qrImage = null;
   qrUrlText = null;
+
+  // Clean up global listeners
+  if (handleKeyboard) {
+    document.removeEventListener('keydown', handleKeyboard);
+    handleKeyboard = null;
+  }
+  if (handleFullscreenChange) {
+    document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    handleFullscreenChange = null;
+  }
 }
 
 function setupTracksMenu() {
@@ -566,7 +578,7 @@ function setupPlayerEventListeners() {
   };
 
   // Keyboard controls
-  const handleKeyboard = (e) => {
+  handleKeyboard = (e) => {
     if (!isPlayerActive) return;
     
     // Ignore hotkeys when typing in search or inputs
@@ -583,10 +595,12 @@ function setupPlayerEventListeners() {
       togglePlay();
       showVideoToast(video.paused ? 'Pausa' : 'Reproducir');
     } else if (e.code === 'ArrowRight') {
+      e.preventDefault();
       seekRelative(10);
       showSeekIndicator('right');
       showVideoToast('+10s');
     } else if (e.code === 'ArrowLeft') {
+      e.preventDefault();
       seekRelative(-10);
       showSeekIndicator('left');
       showVideoToast('-10s');
@@ -603,10 +617,8 @@ function setupPlayerEventListeners() {
       updateVolumeIcon(video.volume);
       showVideoToast(`Volumen: ${Math.round(video.volume * 100)}%`);
     } else if (e.code === 'KeyF') {
+      e.preventDefault();
       toggleFullscreen();
-      setTimeout(() => {
-        showVideoToast(document.fullscreenElement ? 'Pantalla Completa' : 'Ventana');
-      }, 100);
     } else if (e.code === 'KeyM') {
       if (video.muted) {
         video.muted = false;
@@ -631,6 +643,22 @@ function setupPlayerEventListeners() {
   
   document.removeEventListener('keydown', handleKeyboard);
   document.addEventListener('keydown', handleKeyboard);
+
+  // Fullscreen change listener
+  handleFullscreenChange = () => {
+    const fsIcon = document.getElementById('fullscreen-icon');
+    if (document.fullscreenElement) {
+      if (fsIcon) fsIcon.setAttribute('data-lucide', 'minimize');
+      showVideoToast('Pantalla Completa');
+    } else {
+      if (fsIcon) fsIcon.setAttribute('data-lucide', 'maximize');
+      showVideoToast('Ventana');
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  };
+
+  document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  document.addEventListener('fullscreenchange', handleFullscreenChange);
 
   // Time Updates & Progress scrubber
   video.ontimeupdate = () => {
@@ -924,17 +952,13 @@ function seekRelative(seconds) {
 }
 
 function toggleFullscreen() {
-  const fsIcon = document.getElementById('fullscreen-icon');
   if (!document.fullscreenElement) {
     container.requestFullscreen().catch(err => {
       console.error(`Error attempting to enable full-screen mode: ${err.message}`);
     });
-    if (fsIcon) fsIcon.setAttribute('data-lucide', 'minimize');
   } else {
     document.exitFullscreen();
-    if (fsIcon) fsIcon.setAttribute('data-lucide', 'maximize');
   }
-  if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 function updateVolumeIcon(vol) {
