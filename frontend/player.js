@@ -578,6 +578,9 @@ function setupPlayerEventListeners() {
   };
 
   // Keyboard controls
+  if (handleKeyboard) {
+    document.removeEventListener('keydown', handleKeyboard);
+  }
   handleKeyboard = (e) => {
     if (!isPlayerActive) return;
     
@@ -640,11 +643,12 @@ function setupPlayerEventListeners() {
       }
     }
   };
-  
-  document.removeEventListener('keydown', handleKeyboard);
   document.addEventListener('keydown', handleKeyboard);
 
   // Fullscreen change listener
+  if (handleFullscreenChange) {
+    document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }
   handleFullscreenChange = () => {
     const fsIcon = document.getElementById('fullscreen-icon');
     if (document.fullscreenElement) {
@@ -656,8 +660,6 @@ function setupPlayerEventListeners() {
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
   };
-
-  document.removeEventListener('fullscreenchange', handleFullscreenChange);
   document.addEventListener('fullscreenchange', handleFullscreenChange);
 
   // Time Updates & Progress scrubber
@@ -1334,7 +1336,7 @@ function showPlayerErrorOverlay(message) {
 // Visual feedback helpers
 let toastTimeout = null;
 function showVideoToast(message) {
-  const playerContainer = document.querySelector('.player-container');
+  const playerContainer = container || document.querySelector('.player-container');
   if (!playerContainer) return;
   
   let toast = playerContainer.querySelector('.video-toast');
@@ -1354,7 +1356,7 @@ function showVideoToast(message) {
 }
 
 function showSeekIndicator(direction) {
-  const playerContainer = document.querySelector('.player-container');
+  const playerContainer = container || document.querySelector('.player-container');
   if (!playerContainer) return;
   
   let indicator = playerContainer.querySelector(`.seek-arc-indicator.${direction}`);
