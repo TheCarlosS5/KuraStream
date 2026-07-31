@@ -2926,6 +2926,18 @@ function initCustomCursor() {
       ring.classList.remove('hover');
     }
   });
+
+  document.addEventListener('mouseleave', () => {
+    dot.style.opacity = '0';
+    ring.style.opacity = '0';
+  });
+
+  document.addEventListener('mouseenter', () => {
+    if (hasMoved) {
+      dot.style.opacity = '1';
+      ring.style.opacity = '1';
+    }
+  });
 }
 
 
