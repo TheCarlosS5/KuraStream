@@ -59,11 +59,22 @@ a, button, select, input[type="submit"], input[type="button"],
 }
 
 @media (pointer: fine) {
-  body {
+  body.js-cursor-enabled {
     cursor: none;
   }
   
-  a, button, input, select, textarea, [role="button"], .show-card, .clickable, .nav-link, .episode-item, .player-btn, .settings-card {
+  body.js-cursor-enabled a,
+  body.js-cursor-enabled button,
+  body.js-cursor-enabled input,
+  body.js-cursor-enabled select,
+  body.js-cursor-enabled textarea,
+  body.js-cursor-enabled [role="button"],
+  body.js-cursor-enabled .show-card,
+  body.js-cursor-enabled .clickable,
+  body.js-cursor-enabled .nav-link,
+  body.js-cursor-enabled .episode-item,
+  body.js-cursor-enabled .player-btn,
+  body.js-cursor-enabled .settings-card {
     cursor: none !important;
   }
 
@@ -73,10 +84,14 @@ a, button, select, input[type="submit"], input[type="button"],
     background-color: #a855f7;
     border-radius: 50%;
     position: fixed;
-    transform: translate(-50%, -50%);
+    transform: translate(-50%, -50%) scale(1);
     pointer-events: none;
     z-index: 99999;
-    transition: width 0.2s, height 0.2s, background-color 0.2s;
+    transition: transform 0.2s, background-color 0.2s;
+  }
+
+  .custom-cursor-dot.hover {
+    transform: translate(-50%, -50%) scale(1.5);
   }
 
   .custom-cursor-ring {
@@ -86,15 +101,14 @@ a, button, select, input[type="submit"], input[type="button"],
     box-shadow: 0 0 12px rgba(168, 85, 247, 0.6);
     border-radius: 50%;
     position: fixed;
-    transform: translate(-50%, -50%);
+    transform: translate(-50%, -50%) scale(1);
     pointer-events: none;
     z-index: 99998;
-    transition: transform 0.08s ease-out, width 0.2s, height 0.2s, border-color 0.2s, background-color 0.2s;
+    transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), border-color 0.2s, background-color 0.2s;
   }
 
   .custom-cursor-ring.hover {
-    width: 60px;
-    height: 60px;
+    transform: translate(-50%, -50%) scale(1.5);
     border-color: rgba(168, 85, 247, 0.8);
     background-color: rgba(168, 85, 247, 0.1);
     box-shadow: 0 0 20px rgba(168, 85, 247, 0.8);
@@ -253,6 +267,7 @@ button, input, select {
   align-items: center;
   justify-content: space-between;
   background-color: rgba(11, 12, 14, 0.7);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
   border-bottom: 1px solid var(--border-color);
   position: fixed;
@@ -1602,6 +1617,7 @@ button, input, select {
   inset: 0;
   z-index: 200;
   background: rgba(11, 12, 14, 0.65);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
   backdrop-filter: blur(12px) saturate(180%);
   display: flex;
   align-items: center;
@@ -1610,6 +1626,7 @@ button, input, select {
 
 .pin-modal {
   background-color: rgba(18, 22, 32, 0.65);
+  -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
