@@ -2879,19 +2879,31 @@ function initCustomCursor() {
   let mouseY = 0;
   let ringX = 0;
   let ringY = 0;
+  let hasMoved = false;
+
+  const interactiveSelectors = 'a, button, input, select, textarea, [role="button"], .show-card, .clickable, .episode-item, .player-btn, .nav-link, .dropdown-trigger, .carousel-nav-btn, .carousel-indicators span, .drop-zone, .user-profile-trigger, .user-dropdown-item, .back-link, .header-logo, #btn-login-trigger, #btn-logout, #detail-favorite-btn, #detail-trailer-btn, .play-btn, .next-btn, .back-btn, #trailer-close-btn';
 
   window.addEventListener('mousemove', (e) => {
     mouseX = e.clientX;
     mouseY = e.clientY;
-    dot.style.left = mouseX + 'px';
-    dot.style.top = mouseY + 'px';
+    
+    if (!hasMoved) {
+      hasMoved = true;
+      dot.style.opacity = '1';
+      ring.style.opacity = '1';
+      ringX = mouseX;
+      ringY = mouseY;
+    }
+    
+    dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
   });
 
   function animateRing() {
-    ringX += (mouseX - ringX) * 0.15;
-    ringY += (mouseY - ringY) * 0.15;
-    ring.style.left = ringX + 'px';
-    ring.style.top = ringY + 'px';
+    if (hasMoved) {
+      ringX += (mouseX - ringX) * 0.15;
+      ringY += (mouseY - ringY) * 0.15;
+      ring.style.transform = `translate3d(${ringX}px, ${ringY}px, 0) translate(-50%, -50%)`;
+    }
     requestAnimationFrame(animateRing);
   }
   animateRing();
@@ -2899,7 +2911,7 @@ function initCustomCursor() {
   document.addEventListener('mouseover', (e) => {
     const target = e.target;
     if (!target) return;
-    const isInteractive = target.closest('a, button, input, select, textarea, [role="button"], .show-card, .clickable, .episode-item, .player-btn, .nav-link, .dropdown-trigger, .carousel-nav-btn, .carousel-indicators span, .drop-zone, .user-profile-trigger, .user-dropdown-item, .back-link, .header-logo, #btn-login-trigger, #btn-logout, #detail-favorite-btn, #detail-trailer-btn, .play-btn, .next-btn, .back-btn, #trailer-close-btn');
+    const isInteractive = target.closest(interactiveSelectors);
     if (isInteractive) {
       dot.classList.add('hover');
       ring.classList.add('hover');
@@ -2909,7 +2921,7 @@ function initCustomCursor() {
   document.addEventListener('mouseout', (e) => {
     const target = e.target;
     if (!target) return;
-    const isInteractive = target.closest('a, button, input, select, textarea, [role="button"], .show-card, .clickable, .episode-item, .player-btn, .nav-link, .dropdown-trigger, .carousel-nav-btn, .carousel-indicators span, .drop-zone, .user-profile-trigger, .user-dropdown-item, .back-link, .header-logo, #btn-login-trigger, #btn-logout, #detail-favorite-btn, #detail-trailer-btn, .play-btn, .next-btn, .back-btn, #trailer-close-btn');
+    const isInteractive = target.closest(interactiveSelectors);
     if (isInteractive) {
       dot.classList.remove('hover');
       ring.classList.remove('hover');

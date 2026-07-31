@@ -67,17 +67,25 @@ html {
   .custom-cursor-dot {
     width: 8px;
     height: 8px;
+  .custom-cursor-dot {
+    width: 8px;
+    height: 8px;
     background-color: #a855f7;
     border-radius: 50%;
     position: fixed;
-    transform: translate(-50%, -50%) scale(1);
+    left: 0;
+    top: 0;
+    transform: translate3d(0, 0, 0) translate(-50%, -50%);
+    scale: 1;
     pointer-events: none;
     z-index: 99999;
-    transition: transform 0.2s, background-color 0.2s;
+    transition: scale 0.2s, background-color 0.2s, opacity 0.15s ease;
+    will-change: transform;
+    opacity: 0;
   }
 
   .custom-cursor-dot.hover {
-    transform: translate(-50%, -50%) scale(1.5);
+    scale: 1.5;
   }
 
   .custom-cursor-ring {
@@ -87,14 +95,19 @@ html {
     box-shadow: 0 0 12px rgba(168, 85, 247, 0.6);
     border-radius: 50%;
     position: fixed;
-    transform: translate(-50%, -50%) scale(1);
+    left: 0;
+    top: 0;
+    transform: translate3d(0, 0, 0) translate(-50%, -50%);
+    scale: 1;
     pointer-events: none;
     z-index: 99998;
-    transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), border-color 0.2s, background-color 0.2s;
+    transition: scale 0.2s cubic-bezier(0.25, 1, 0.5, 1), border-color 0.2s, background-color 0.2s, opacity 0.15s ease;
+    will-change: transform;
+    opacity: 0;
   }
 
   .custom-cursor-ring.hover {
-    transform: translate(-50%, -50%) scale(1.5);
+    scale: 1.5;
     border-color: rgba(168, 85, 247, 0.8);
     background-color: rgba(168, 85, 247, 0.1);
     box-shadow: 0 0 20px rgba(168, 85, 247, 0.8);
