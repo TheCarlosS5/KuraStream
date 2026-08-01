@@ -699,5 +699,45 @@ export const dbHelper = {
       const stmt = db.prepare("DELETE FROM favorites WHERE username = ? AND profile_name = ? AND show_id = ?");
       stmt.run(username, profileName, showId);
     }
+  },
+
+  // Profiles
+  getProfiles: (username) => {
+    const stmt = db.prepare("SELECT * FROM profiles WHERE username = ?");
+    return stmt.all(username);
+  },
+  getProfileByName: (username, profileName) => {
+    const stmt = db.prepare("SELECT * FROM profiles WHERE username = ? AND profile_name = ?");
+    return stmt.get(username, profileName);
+  },
+  createProfile: (profile) => {
+    const stmt = db.prepare(`
+      INSERT INTO profiles (username, profile_name, avatar_color, is_kids, pin)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      profile.username,
+      profile.profile_name,
+      profile.avatar_color || '#a855f7',
+      profile.is_kids ? 1 : 0,
+      profile.pin || null
+    );
+  },
+  updateProfile: (profile) => {
+    const stmt = db.prepare(`
+      UPDATE profiles SET avatar_color = ?, is_kids = ?, pin = ?
+      WHERE username = ? AND profile_name = ?
+    `);
+    stmt.run(
+      profile.avatar_color || '#a855f7',
+      profile.is_kids ? 1 : 0,
+      profile.pin || null,
+      profile.username,
+      profile.profile_name
+    );
+  },
+  deleteProfile: (username, profileName) => {
+    const stmt = db.prepare("DELETE FROM profiles WHERE username = ? AND profile_name = ?");
+    stmt.run(username, profileName);
   }
 };

@@ -65,6 +65,23 @@ function authorizeAdmin(req, res) {
   return payload;
 }
 
+function authorizeUser(req, res) {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Unauthorized', message: 'Token de autenticación requerido' }));
+    return null;
+  }
+  const token = authHeader.substring(7);
+  const payload = verifyToken(token);
+  if (!payload) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Unauthorized', message: 'Token inválido' }));
+    return null;
+  }
+  return payload;
+}
+
 function isPathSafe(baseDir, targetPath) {
   const relative = path.relative(baseDir, targetPath);
   return !relative.startsWith('..') && !path.isAbsolute(relative);
@@ -575,6 +592,141 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true }));
     return;
+  }
+
+  // Profiles routes
+  if (pathname === '/api/profiles' && req.method === 'GET') {
+    const user = authorizeUser(req, res);
+    if (!user) return;
+    try {
+      const profiles = dbHelper.getProfiles(user.username);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, profiles }));
+    } catch (err) {
+      console.error(err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'Internal Server Error' }));
+    }
+  }
+
+  if (pathname === '/api/profiles' && req.method === 'POST') {
+    const user = authorizeUser(req, res);
+    if (!user) return;
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    const { profile_name, avatar_color, is_kids, pin } = body;
+
+    if (typeof profile_name !== 'string' || profile_name.trim() === '' || profile_name.length > 25) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'Invalid profile_name: must be a non-empty string max 25 characters' }));
+    }
+    if (pin && (typeof pin !== 'string' || !/^\d{4}$/.test(pin))) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'Invalid PIN: must be 4 digits' }));
+    }
+
+    try {
+      dbHelper.createProfile({
+        username: user.username,
+        profile_name,
+        avatar_color,
+        is_kids,
+        pin
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      if (err.message && err.message.includes('UNIQUE constraint failed')) {
+        console.warn(`Profile creation failed, name already exists: ${profile_name}`);
+        res.writeHead(409, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, message: 'El nombre de perfil ya está en uso.' }));
+      }
+      console.error(err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'Internal Server Error' }));
+    }
+  }
+
+  if (pathname === '/api/profiles/select' && req.method === 'POST') {
+    const user = authorizeUser(req, res);
+    if (!user) return;
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    const { profile_name, pin } = body;
+    try {
+      const profile = dbHelper.getProfileByName(user.username, profile_name);
+      if (!profile) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, message: 'Profile not found' }));
+      }
+      if (profile.pin && profile.pin !== pin) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, message: 'Invalid PIN' }));
+      }
+      const token = signToken({
+        username: user.username,
+        profile_name: profile.profile_name,
+        role: user.role,
+        is_kids: !!profile.is_kids
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, token, profile }));
+    } catch (err) {
+      console.error(err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'Internal Server Error' }));
+    }
+  }
+
+  if (pathname.startsWith('/api/profiles/') && pathname !== '/api/profiles/select' && req.method === 'PUT') {
+    const user = authorizeUser(req, res);
+    if (!user) return;
+    const profile_name = decodeURIComponent(pathname.split('/').pop());
+
+    if (typeof profile_name !== 'string' || profile_name.trim() === '' || profile_name.length > 25) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'Invalid profile_name: must be a non-empty string max 25 characters' }));
+    }
+
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    const { avatar_color, is_kids, pin } = body;
+
+    if (pin && (typeof pin !== 'string' || !/^\d{4}$/.test(pin))) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'Invalid PIN: must be 4 digits' }));
+    }
+
+    try {
+      dbHelper.updateProfile({
+        username: user.username,
+        profile_name,
+        avatar_color,
+        is_kids,
+        pin
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      console.error(err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'Internal Server Error' }));
+    }
+  }
+
+  if (pathname.startsWith('/api/profiles/') && pathname !== '/api/profiles/select' && req.method === 'DELETE') {
+    const user = authorizeUser(req, res);
+    if (!user) return;
+    const profile_name = decodeURIComponent(pathname.split('/').pop());
+    try {
+      dbHelper.deleteProfile(user.username, profile_name);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      console.error(err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, message: 'Internal Server Error' }));
+    }
   }
 
   // Import media (Local File Import - recommended for offline)
