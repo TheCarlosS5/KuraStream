@@ -51,10 +51,11 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS watch_history (
     username TEXT NOT NULL,
+    profile_name TEXT NOT NULL DEFAULT 'Principal',
     episode_id TEXT NOT NULL,
     progress_seconds REAL NOT NULL,
     updated_at TEXT NOT NULL,
-    PRIMARY KEY (username, episode_id)
+    PRIMARY KEY (username, profile_name, episode_id)
   );
 
   CREATE TABLE IF NOT EXISTS settings (
@@ -66,6 +67,18 @@ db.exec(`
     username TEXT PRIMARY KEY,
     password TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user'
+  );
+
+  CREATE TABLE IF NOT EXISTS profiles (
+    username TEXT NOT NULL,
+    profile_name TEXT NOT NULL,
+    avatar_color TEXT NOT NULL DEFAULT '#a855f7',
+    is_kids INTEGER NOT NULL DEFAULT 0,
+    pin TEXT,
+    pref_audio_lang TEXT NOT NULL DEFAULT 'default',
+    pref_sub_lang TEXT NOT NULL DEFAULT 'default',
+    PRIMARY KEY (username, profile_name),
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS chat_messages (
@@ -85,8 +98,9 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS favorites (
     username TEXT NOT NULL,
+    profile_name TEXT NOT NULL DEFAULT 'Principal',
     show_id TEXT NOT NULL,
-    PRIMARY KEY (username, show_id)
+    PRIMARY KEY (username, profile_name, show_id)
   );
 `);
 
@@ -132,15 +146,16 @@ try {
     db.exec(`
       CREATE TABLE watch_history (
         username TEXT NOT NULL,
+        profile_name TEXT NOT NULL DEFAULT 'Principal',
         episode_id TEXT NOT NULL,
         progress_seconds REAL NOT NULL,
         updated_at TEXT NOT NULL,
-        PRIMARY KEY (username, episode_id)
+        PRIMARY KEY (username, profile_name, episode_id)
       )
     `);
     db.exec(`
-      INSERT OR IGNORE INTO watch_history (username, episode_id, progress_seconds, updated_at)
-      SELECT 'guest', episode_id, progress_seconds, updated_at FROM watch_history_old
+      INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
+      SELECT 'guest', 'Principal', episode_id, progress_seconds, updated_at FROM watch_history_old
     `);
     db.exec("DROP TABLE watch_history_old");
     console.log("watch_history migrated to multi-user successfully.");
@@ -148,6 +163,33 @@ try {
 } catch (e) {
   console.error("Watch history migration failed:", e);
 }
+
+// Run migrations for profiles, watch_history and favorites to support multi-profiles
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS profiles (
+      username TEXT NOT NULL,
+      profile_name TEXT NOT NULL,
+      avatar_color TEXT NOT NULL DEFAULT '#a855f7',
+      is_kids INTEGER NOT NULL DEFAULT 0,
+      pin TEXT,
+      pref_audio_lang TEXT NOT NULL DEFAULT 'default',
+      pref_sub_lang TEXT NOT NULL DEFAULT 'default',
+      PRIMARY KEY (username, profile_name),
+      FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+    );
+  `);
+} catch (e) {
+  console.error("Profiles table migration failed:", e);
+}
+
+try {
+  db.exec("ALTER TABLE watch_history ADD COLUMN profile_name TEXT NOT NULL DEFAULT 'Principal';");
+} catch (e) {}
+
+try {
+  db.exec("ALTER TABLE favorites ADD COLUMN profile_name TEXT NOT NULL DEFAULT 'Principal';");
+} catch (e) {}
 
 // Insert default setting for admin password PIN if not exists
 try {
