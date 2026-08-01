@@ -41,6 +41,14 @@ test('Kids Profile Filtration API Tests', async (t) => {
     age_rating: 'TV-MA'
   });
   
+  const rShowId = `r_show_${Date.now()}`;
+  dbHelper.saveShow({
+    id: rShowId,
+    title: 'R Rated Show',
+    media_type: 'anime',
+    age_rating: 'R'
+  });
+  
   // Create an episode for TV-MA show for stream test
   const tvmaEpId = `tvma_ep_${Date.now()}`;
   dbHelper.saveEpisode({
@@ -49,6 +57,15 @@ test('Kids Profile Filtration API Tests', async (t) => {
     season_number: 1,
     episode_number: 1,
     filepath: '/tmp/dummy.mp4'
+  });
+
+  const rEpId = `r_ep_${Date.now()}`;
+  dbHelper.saveEpisode({
+    id: rEpId,
+    show_id: rShowId,
+    season_number: 1,
+    episode_number: 1,
+    filepath: '/tmp/dummy2.mp4'
   });
 
   // Start Server
@@ -69,42 +86,64 @@ test('Kids Profile Filtration API Tests', async (t) => {
     const adultShows = await adultShowsRes.json();
     assert.ok(adultShows.find(s => s.id === tv14ShowId), 'Adult should see TV-14 show');
     assert.ok(adultShows.find(s => s.id === tvmaShowId), 'Adult should see TV-MA show');
+    assert.ok(adultShows.find(s => s.id === rShowId), 'Adult should see R show');
 
-    // Test 2: GET /api/shows with kids token -> should exclude TV-MA
+    // Test 2: GET /api/shows with kids token -> should exclude TV-MA and R
     const kidsShowsRes = await fetch(`${serverUrl}/api/shows?type=all`, {
       headers: { 'Authorization': `Bearer ${kidsToken}` }
     });
     const kidsShows = await kidsShowsRes.json();
     assert.ok(kidsShows.find(s => s.id === tv14ShowId), 'Kids should see TV-14 show');
     assert.strictEqual(kidsShows.find(s => s.id === tvmaShowId), undefined, 'Kids should NOT see TV-MA show');
+    assert.strictEqual(kidsShows.find(s => s.id === rShowId), undefined, 'Kids should NOT see R show');
 
-    // Test 3: GET /api/shows/:id for TV-MA with kids token -> 403 Forbidden
+    // Test 3: GET /api/shows/:id for TV-MA and R with kids token -> 403 Forbidden
     const tvmaDetailRes = await fetch(`${serverUrl}/api/shows/${tvmaShowId}`, {
       headers: { 'Authorization': `Bearer ${kidsToken}` }
     });
     assert.strictEqual(tvmaDetailRes.status, 403);
 
-    // Test 4: GET /api/shows/:id for TV-MA with adult token -> 200 OK
+    const rDetailRes = await fetch(`${serverUrl}/api/shows/${rShowId}`, {
+      headers: { 'Authorization': `Bearer ${kidsToken}` }
+    });
+    assert.strictEqual(rDetailRes.status, 403);
+
+    // Test 4: GET /api/shows/:id for TV-MA and R with adult token -> 200 OK
     const tvmaDetailAdultRes = await fetch(`${serverUrl}/api/shows/${tvmaShowId}`, {
       headers: { 'Authorization': `Bearer ${adultToken}` }
     });
     assert.strictEqual(tvmaDetailAdultRes.status, 200);
 
-    // Test 5: GET /api/stream/:episode_id for TV-MA with kids token -> 403 Forbidden
+    const rDetailAdultRes = await fetch(`${serverUrl}/api/shows/${rShowId}`, {
+      headers: { 'Authorization': `Bearer ${adultToken}` }
+    });
+    assert.strictEqual(rDetailAdultRes.status, 200);
+
+    // Test 5: GET /api/stream/:episode_id for TV-MA and R with kids token -> 403 Forbidden
     const streamRes = await fetch(`${serverUrl}/api/stream/${tvmaEpId}`, {
       headers: { 'Authorization': `Bearer ${kidsToken}` }
     });
     assert.strictEqual(streamRes.status, 403);
     
+    const streamResR = await fetch(`${serverUrl}/api/stream/${rEpId}`, {
+      headers: { 'Authorization': `Bearer ${kidsToken}` }
+    });
+    assert.strictEqual(streamResR.status, 403);
+    
     // Alternative streaming auth test: pass token in query
     const streamQueryRes = await fetch(`${serverUrl}/api/stream/${tvmaEpId}?token=${kidsToken}`);
     assert.strictEqual(streamQueryRes.status, 403);
+    
+    const streamQueryResR = await fetch(`${serverUrl}/api/stream/${rEpId}?token=${kidsToken}`);
+    assert.strictEqual(streamQueryResR.status, 403);
     
   } finally {
     serverProcess.kill();
     // Cleanup DB
     dbHelper.deleteShow(tv14ShowId);
     dbHelper.deleteShow(tvmaShowId);
+    dbHelper.deleteShow(rShowId);
     db.prepare("DELETE FROM episodes WHERE id = ?").run(tvmaEpId);
+    db.prepare("DELETE FROM episodes WHERE id = ?").run(rEpId);
   }
 });
