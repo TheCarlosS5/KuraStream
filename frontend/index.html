@@ -78,6 +78,7 @@
             <i data-lucide="chevron-down" style="width: 14px; height: 14px; color: var(--text-muted);"></i>
           </button>
           <div class="user-dropdown-card" id="user-dropdown-card" style="display: none; position: absolute; top: 44px; right: 0; background: var(--bg-card, #1c2230); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 99; min-width: 165px; padding: 6px 0; backdrop-filter: blur(10px);">
+            <a href="javascript:void(0)" id="btn-switch-profile" class="user-dropdown-item" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-main); text-decoration: none; font-size: 0.85rem; transition: background 0.2s;"><i data-lucide="users" style="width: 14px; height: 14px;"></i> Cambiar Perfil</a>
             <a href="#/settings" class="user-dropdown-item" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-main); text-decoration: none; font-size: 0.85rem; transition: background 0.2s;"><i data-lucide="settings" style="width: 14px; height: 14px;"></i> Ajustes</a>
             <a href="javascript:void(0)" id="btn-admin-direct" class="user-dropdown-item" style="display: none; align-items: center; gap: 8px; padding: 8px 16px; color: var(--accent-color); text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: background 0.2s;"><i data-lucide="shield-check" style="width: 14px; height: 14px;"></i> Panel Admin</a>
             <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 6px 0;">
@@ -90,6 +91,17 @@
 
   <!-- Views Container -->
   <main class="views-container">
+
+    <!-- PROFILE SWITCHER VIEW -->
+    <section id="profile-switcher-view" class="app-view" style="display: none; height: 100vh; display: flex; align-items: center; justify-content: center;">
+      <div class="profile-switcher-container" style="text-align: center;">
+        <h2 class="switcher-title" style="font-size: 3rem; margin-bottom: 40px; font-weight: 500;">¿Quién está viendo?</h2>
+        <div class="profile-grid" id="profile-grid" style="display: flex; gap: 30px; justify-content: center; flex-wrap: wrap;">
+          <!-- Profiles injected via JS -->
+        </div>
+        <button class="btn" id="btn-manage-profiles" style="margin-top: 50px; background: transparent; border: 1px solid var(--text-muted); color: var(--text-muted); font-size: 1.1rem; padding: 10px 30px; letter-spacing: 2px; text-transform: uppercase; transition: all 0.3s; cursor: pointer;">Administrar perfiles</button>
+      </div>
+    </section>
 
     <!-- DASHBOARD VIEW -->
     <section id="dashboard-view" class="app-view active">
@@ -807,6 +819,66 @@
       <button class="btn btn-primary btn-block" id="ep-detail-play-btn" style="height: 48px; font-size: 1rem; display: flex; align-items: center; justify-content: center; gap: 8px;"><i data-lucide="play" style="fill: currentColor; width: 18px; height: 18px;"></i> Reproducir Capítulo</button>
     </div>
   </div>
+  <!-- PROFILE MODALS -->
+  <div class="pin-modal-overlay" id="profile-edit-modal" style="display: none; z-index: 120;">
+    <div class="pin-modal" style="max-width: 450px; width: 90%;">
+      <h3 id="profile-edit-title" style="margin-bottom: 15px; font-family: var(--font-title); font-size: 1.15rem; color: var(--text-main);">Agregar Perfil</h3>
+      
+      <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 20px;">
+        <div id="profile-edit-avatar" style="width: 80px; height: 80px; border-radius: 12px; background: var(--accent-color); display: flex; align-items: center; justify-content: center; font-size: 2rem; font-family: var(--font-title); font-weight: 700; color: #fff;">?</div>
+        
+        <div style="flex: 1;">
+          <input type="text" id="profile-name-input" placeholder="Nombre (máx 25)" maxlength="25" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.9rem; outline: none; margin-bottom: 15px;">
+          
+          <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <div class="color-swatch active" data-color="Purple" style="width: 25px; height: 25px; border-radius: 50%; background: #9d00ff; cursor: pointer; border: 2px solid #fff;"></div>
+            <div class="color-swatch" data-color="Green" style="width: 25px; height: 25px; border-radius: 50%; background: #00e08f; cursor: pointer; border: 2px solid transparent;"></div>
+            <div class="color-swatch" data-color="Blue" style="width: 25px; height: 25px; border-radius: 50%; background: #007bff; cursor: pointer; border: 2px solid transparent;"></div>
+            <div class="color-swatch" data-color="Red" style="width: 25px; height: 25px; border-radius: 50%; background: #ff3366; cursor: pointer; border: 2px solid transparent;"></div>
+            <div class="color-swatch" data-color="Orange" style="width: 25px; height: 25px; border-radius: 50%; background: #ff8800; cursor: pointer; border: 2px solid transparent;"></div>
+          </div>
+
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem; cursor: pointer; margin-bottom: 15px;">
+            <input type="checkbox" id="profile-kids-input"> Perfil Infantil
+          </label>
+          
+          <input type="password" id="profile-pin-input" placeholder="PIN de 4 dígitos (Opcional)" maxlength="4" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.9rem; outline: none;">
+        </div>
+      </div>
+      
+      <div id="profile-edit-error" style="color: var(--danger-color); font-size: 0.8rem; margin-bottom: 15px; display: none;">Error</div>
+      
+      <div class="pin-buttons" style="display: flex; justify-content: space-between; gap: 10px; margin-top: 15px;">
+        <button class="btn btn-secondary" id="btn-delete-profile" style="display: none; background: rgba(255, 51, 102, 0.2); color: #ff3366;">Borrar</button>
+        <div style="display: flex; gap: 10px; margin-left: auto;">
+          <button class="btn btn-secondary" id="btn-cancel-profile">Cancelar</button>
+          <button class="btn btn-primary" id="btn-save-profile">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PIN Entry Modal -->
+  <div class="pin-modal-overlay" id="pin-entry-modal" style="display: none; z-index: 120;">
+    <div class="pin-modal" style="max-width: 320px; width: 90%; text-align: center;">
+      <h3 style="margin-bottom: 15px; font-family: var(--font-title); font-size: 1.15rem; color: var(--text-main);">Ingresa el PIN</h3>
+      <p id="pin-entry-profile-name" style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;"></p>
+      
+      <div style="display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;">
+        <input type="password" id="pin-digit-1" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
+        <input type="password" id="pin-digit-2" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
+        <input type="password" id="pin-digit-3" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
+        <input type="password" id="pin-digit-4" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
+      </div>
+      
+      <div id="pin-entry-error" style="color: var(--danger-color); font-size: 0.8rem; margin-bottom: 15px; display: none;">PIN incorrecto</div>
+      
+      <div class="pin-buttons" style="justify-content: center; gap: 10px;">
+        <button class="btn btn-secondary" id="btn-cancel-pin">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- USER LOGIN / REGISTER MODAL -->
   <div class="pin-modal-overlay" id="login-modal" style="display: none; z-index: 110;">
     <div class="pin-modal" style="max-width: 400px; width: 90%;">
