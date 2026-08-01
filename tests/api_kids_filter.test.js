@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import { spawn } from 'node:child_process';
 import { dbHelper, runMigrations, db } from '../backend/db.js';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 
 function signToken(payload) {
   const secret = process.env.JWT_SECRET || 'default_secret_key';
@@ -72,6 +73,10 @@ test('Kids Profile Filtration API Tests', async (t) => {
   const serverProcess = spawn('node', ['backend/server.js'], { env });
   await delay(1000); // wait for server to start
 
+  // Create dummy files for stream tests
+  fs.writeFileSync('/tmp/dummy.mp4', 'dummy content');
+  fs.writeFileSync('/tmp/dummy2.mp4', 'dummy content 2');
+
   try {
     // Standard User Token (Adult)
     const adultToken = signToken({ username: 'tester', is_kids: false, role: 'user' });
@@ -137,6 +142,17 @@ test('Kids Profile Filtration API Tests', async (t) => {
     const streamQueryResR = await fetch(`${serverUrl}/api/stream/${rEpId}?token=${kidsToken}`);
     assert.strictEqual(streamQueryResR.status, 403);
     
+    // Test 6: GET /api/stream/:episode_id for TV-MA and R with adult token -> 200 or 206 OK
+    const streamAdultRes = await fetch(`${serverUrl}/api/stream/${tvmaEpId}`, {
+      headers: { 'Authorization': `Bearer ${adultToken}` }
+    });
+    assert.ok(streamAdultRes.status === 200 || streamAdultRes.status === 206, `Adult stream TV-MA returned ${streamAdultRes.status}`);
+
+    const streamAdultResR = await fetch(`${serverUrl}/api/stream/${rEpId}`, {
+      headers: { 'Authorization': `Bearer ${adultToken}` }
+    });
+    assert.ok(streamAdultResR.status === 200 || streamAdultResR.status === 206, `Adult stream R returned ${streamAdultResR.status}`);
+
   } finally {
     serverProcess.kill();
     // Cleanup DB
@@ -145,5 +161,8 @@ test('Kids Profile Filtration API Tests', async (t) => {
     dbHelper.deleteShow(rShowId);
     db.prepare("DELETE FROM episodes WHERE id = ?").run(tvmaEpId);
     db.prepare("DELETE FROM episodes WHERE id = ?").run(rEpId);
+    
+    try { fs.unlinkSync('/tmp/dummy.mp4'); } catch(e){}
+    try { fs.unlinkSync('/tmp/dummy2.mp4'); } catch(e){}
   }
 });

@@ -1343,7 +1343,7 @@ const server = http.createServer(async (req, res) => {
       if (token) {
         const payload = verifyToken(token);
         if (payload && payload.is_kids && (show.age_rating === 'TV-MA' || show.age_rating === 'R')) {
-          res.writeHead(403);
+          res.writeHead(403, { 'Content-Type': 'text/plain' });
           return res.end('Forbidden: Kids profile cannot stream this content');
         }
       }
