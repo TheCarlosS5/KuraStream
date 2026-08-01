@@ -465,8 +465,17 @@ const server = http.createServer(async (req, res) => {
 
   // Get all shows
   if (pathname === '/api/shows' && req.method === 'GET') {
+    let isKids = false;
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token);
+      if (payload && payload.is_kids) {
+        isKids = true;
+      }
+    }
     const type = parsedUrl.searchParams.get('type') || 'all';
-    const shows = dbHelper.getShows(type);
+    const shows = dbHelper.getShows(type, isKids);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(shows));
   }
@@ -497,6 +506,17 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(404);
       return res.end('Show not found');
     }
+
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token);
+      if (payload && payload.is_kids && (show.age_rating === 'TV-MA' || show.age_rating === 'R')) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, message: 'Forbidden' }));
+      }
+    }
+
     const episodes = dbHelper.getEpisodes(id);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ show, episodes }));
@@ -1313,6 +1333,21 @@ const server = http.createServer(async (req, res) => {
     }
 
     const show = dbHelper.getShow(episode.show_id);
+    if (show) {
+      const tokenParam = parsedUrl.searchParams.get('token');
+      const authHeader = req.headers['authorization'];
+      let token = tokenParam;
+      if (!token && authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+      }
+      if (token) {
+        const payload = verifyToken(token);
+        if (payload && payload.is_kids && (show.age_rating === 'TV-MA' || show.age_rating === 'R')) {
+          res.writeHead(403);
+          return res.end('Forbidden: Kids profile cannot stream this content');
+        }
+      }
+    }
     const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     const sessionId = `${clientIp}_${episodeId}_${Date.now()}`;
     const start = parsedUrl.searchParams.get('start'); // seek timestamp in seconds

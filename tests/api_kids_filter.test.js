@@ -1,0 +1,110 @@
+import test from 'node:test';
+import assert from 'node:assert';
+import { spawn } from 'node:child_process';
+import { dbHelper, runMigrations, db } from '../backend/db.js';
+import crypto from 'node:crypto';
+
+function signToken(payload) {
+  const secret = process.env.JWT_SECRET || 'default_secret_key';
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + 24 * 60 * 60 * 1000 })).toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
+  return `${header}.${body}.${signature}`;
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test('Kids Profile Filtration API Tests', async (t) => {
+  const testPort = '3099';
+  const serverUrl = `http://localhost:${testPort}`;
+  process.env.JWT_SECRET = 'test_secret';
+  const env = { ...process.env, PORT: testPort };
+  
+  // Ensure migration is run
+  runMigrations(db);
+
+  // Seed DB with TV-14 and TV-MA shows
+  const tv14ShowId = `tv14_show_${Date.now()}`;
+  const tvmaShowId = `tvma_show_${Date.now()}`;
+  
+  dbHelper.saveShow({
+    id: tv14ShowId,
+    title: 'Safe Show',
+    media_type: 'anime',
+    age_rating: 'TV-14'
+  });
+  
+  dbHelper.saveShow({
+    id: tvmaShowId,
+    title: 'Adult Show',
+    media_type: 'anime',
+    age_rating: 'TV-MA'
+  });
+  
+  // Create an episode for TV-MA show for stream test
+  const tvmaEpId = `tvma_ep_${Date.now()}`;
+  dbHelper.saveEpisode({
+    id: tvmaEpId,
+    show_id: tvmaShowId,
+    season_number: 1,
+    episode_number: 1,
+    filepath: '/tmp/dummy.mp4'
+  });
+
+  // Start Server
+  const serverProcess = spawn('node', ['backend/server.js'], { env });
+  await delay(1000); // wait for server to start
+
+  try {
+    // Standard User Token (Adult)
+    const adultToken = signToken({ username: 'tester', is_kids: false, role: 'user' });
+    
+    // Kids Profile Token
+    const kidsToken = signToken({ username: 'tester', is_kids: true, role: 'user' });
+
+    // Test 1: GET /api/shows with adult token -> should include both
+    const adultShowsRes = await fetch(`${serverUrl}/api/shows?type=all`, {
+      headers: { 'Authorization': `Bearer ${adultToken}` }
+    });
+    const adultShows = await adultShowsRes.json();
+    assert.ok(adultShows.find(s => s.id === tv14ShowId), 'Adult should see TV-14 show');
+    assert.ok(adultShows.find(s => s.id === tvmaShowId), 'Adult should see TV-MA show');
+
+    // Test 2: GET /api/shows with kids token -> should exclude TV-MA
+    const kidsShowsRes = await fetch(`${serverUrl}/api/shows?type=all`, {
+      headers: { 'Authorization': `Bearer ${kidsToken}` }
+    });
+    const kidsShows = await kidsShowsRes.json();
+    assert.ok(kidsShows.find(s => s.id === tv14ShowId), 'Kids should see TV-14 show');
+    assert.strictEqual(kidsShows.find(s => s.id === tvmaShowId), undefined, 'Kids should NOT see TV-MA show');
+
+    // Test 3: GET /api/shows/:id for TV-MA with kids token -> 403 Forbidden
+    const tvmaDetailRes = await fetch(`${serverUrl}/api/shows/${tvmaShowId}`, {
+      headers: { 'Authorization': `Bearer ${kidsToken}` }
+    });
+    assert.strictEqual(tvmaDetailRes.status, 403);
+
+    // Test 4: GET /api/shows/:id for TV-MA with adult token -> 200 OK
+    const tvmaDetailAdultRes = await fetch(`${serverUrl}/api/shows/${tvmaShowId}`, {
+      headers: { 'Authorization': `Bearer ${adultToken}` }
+    });
+    assert.strictEqual(tvmaDetailAdultRes.status, 200);
+
+    // Test 5: GET /api/stream/:episode_id for TV-MA with kids token -> 403 Forbidden
+    const streamRes = await fetch(`${serverUrl}/api/stream/${tvmaEpId}`, {
+      headers: { 'Authorization': `Bearer ${kidsToken}` }
+    });
+    assert.strictEqual(streamRes.status, 403);
+    
+    // Alternative streaming auth test: pass token in query
+    const streamQueryRes = await fetch(`${serverUrl}/api/stream/${tvmaEpId}?token=${kidsToken}`);
+    assert.strictEqual(streamQueryRes.status, 403);
+    
+  } finally {
+    serverProcess.kill();
+    // Cleanup DB
+    dbHelper.deleteShow(tv14ShowId);
+    dbHelper.deleteShow(tvmaShowId);
+    db.prepare("DELETE FROM episodes WHERE id = ?").run(tvmaEpId);
+  }
+});

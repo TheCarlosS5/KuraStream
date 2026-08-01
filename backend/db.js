@@ -26,7 +26,8 @@ db.exec(`
     backdrop_loops TEXT DEFAULT '[]',
     genres TEXT DEFAULT '',
     trailer_key TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    age_rating TEXT DEFAULT 'TV-14'
   );
 
   CREATE TABLE IF NOT EXISTS episodes (
@@ -140,6 +141,10 @@ try {
 
 // Migration for user-specific watch_history
 export function runMigrations(databaseInstance) {
+  try {
+    databaseInstance.exec(`ALTER TABLE shows ADD COLUMN age_rating TEXT DEFAULT 'TV-14';`);
+  } catch (e) {}
+
   try {
     const tableInfo = databaseInstance.prepare("PRAGMA table_info(watch_history)").all();
     const hasUsername = tableInfo.some(col => col.name === 'username');
@@ -294,13 +299,20 @@ try {
 // Database helper functions
 export const dbHelper = {
   // Shows
-  getShows: (type = 'anime') => {
-    if (type === 'all') {
-      const stmt = db.prepare("SELECT * FROM shows");
-      return stmt.all();
+  getShows: (type = 'anime', isKids = false) => {
+    let query = type === 'all' ? "SELECT * FROM shows" : "SELECT * FROM shows WHERE media_type = ?";
+    let params = type === 'all' ? [] : [type];
+
+    if (isKids) {
+      if (type === 'all') {
+        query += " WHERE age_rating NOT IN ('TV-MA', 'R')";
+      } else {
+        query += " AND age_rating NOT IN ('TV-MA', 'R')";
+      }
     }
-    const stmt = db.prepare("SELECT * FROM shows WHERE media_type = ?");
-    return stmt.all(type);
+
+    const stmt = db.prepare(query);
+    return stmt.all(...params);
   },
   getShow: (id) => {
     const stmt = db.prepare("SELECT * FROM shows WHERE id = ?");
@@ -334,6 +346,7 @@ export const dbHelper = {
     }
 
     const trailer_key = show.trailer_key !== undefined ? show.trailer_key : (existing ? existing.trailer_key : null);
+    const age_rating = show.age_rating !== undefined ? show.age_rating : (existing && existing.age_rating !== undefined ? existing.age_rating : 'TV-14');
 
     if (existing) {
       const stmt = db.prepare(`
@@ -351,7 +364,8 @@ export const dbHelper = {
           media_type = ?, 
           backdrop_loops = ?,
           genres = ?,
-          trailer_key = ?
+          trailer_key = ?,
+          age_rating = ?
         WHERE id = ?
       `);
       stmt.run(
@@ -369,12 +383,13 @@ export const dbHelper = {
         JSON.stringify(loops),
         show.genres || existing.genres || '',
         trailer_key,
+        age_rating,
         show.id
       );
     } else {
       const stmt = db.prepare(`
-        INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       stmt.run(
         show.id,
@@ -391,7 +406,8 @@ export const dbHelper = {
         show.media_type || 'anime',
         JSON.stringify(loops),
         show.genres || '',
-        trailer_key
+        trailer_key,
+        age_rating
       );
     }
   },
