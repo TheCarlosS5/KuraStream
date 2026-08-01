@@ -1224,7 +1224,7 @@ const server = http.createServer(async (req, res) => {
       
       // Fast seek input if start time provided
       if (start) {
-        ffmpegArgs.push('-ss', String(parseFloat(start)));
+        ffmpegArgs.push('-noaccurate_seek', '-ss', String(parseFloat(start)));
       }
       
       ffmpegArgs.push('-i', filePath);
