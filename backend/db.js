@@ -189,7 +189,8 @@ try {
   const profileNameCol = tableInfo.find(col => col.name === 'profile_name');
   const isPrimaryKeyComposite = profileNameCol && profileNameCol.pk > 0;
   if (!isPrimaryKeyComposite) {
-    db.exec("ALTER TABLE watch_history RENAME TO watch_history_old");
+    db.exec("BEGIN TRANSACTION;");
+    db.exec("ALTER TABLE watch_history RENAME TO watch_history_old;");
     db.exec(`
       CREATE TABLE watch_history (
         username TEXT NOT NULL,
@@ -198,24 +199,30 @@ try {
         progress_seconds REAL NOT NULL,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (username, profile_name, episode_id)
-      )
+      );
     `);
     const hasProfileNameInOld = profileNameCol !== undefined;
     if (hasProfileNameInOld) {
       db.exec(`
         INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
-        SELECT username, COALESCE(profile_name, 'Principal'), episode_id, progress_seconds, updated_at FROM watch_history_old
+        SELECT username, COALESCE(profile_name, 'Principal'), episode_id, progress_seconds, updated_at FROM watch_history_old;
       `);
     } else {
       db.exec(`
         INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
-        SELECT username, 'Principal', episode_id, progress_seconds, updated_at FROM watch_history_old
+        SELECT username, 'Principal', episode_id, progress_seconds, updated_at FROM watch_history_old;
       `);
     }
-    db.exec("DROP TABLE watch_history_old");
+    db.exec("DROP TABLE watch_history_old;");
+    db.exec("COMMIT;");
     console.log("watch_history migrated to composite primary key with profile_name successfully.");
   }
 } catch (e) {
+  try {
+    db.exec("ROLLBACK;");
+  } catch (rollbackErr) {
+    // Ignore if no active transaction
+  }
   console.error("Watch history multi-profile migration failed:", e);
 }
 
@@ -225,31 +232,38 @@ try {
   const profileNameCol = tableInfo.find(col => col.name === 'profile_name');
   const isPrimaryKeyComposite = profileNameCol && profileNameCol.pk > 0;
   if (!isPrimaryKeyComposite) {
-    db.exec("ALTER TABLE favorites RENAME TO favorites_old");
+    db.exec("BEGIN TRANSACTION;");
+    db.exec("ALTER TABLE favorites RENAME TO favorites_old;");
     db.exec(`
       CREATE TABLE favorites (
         username TEXT NOT NULL,
         profile_name TEXT NOT NULL DEFAULT 'Principal',
         show_id TEXT NOT NULL,
         PRIMARY KEY (username, profile_name, show_id)
-      )
+      );
     `);
     const hasProfileNameInOld = profileNameCol !== undefined;
     if (hasProfileNameInOld) {
       db.exec(`
         INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
-        SELECT username, COALESCE(profile_name, 'Principal'), show_id FROM favorites_old
+        SELECT username, COALESCE(profile_name, 'Principal'), show_id FROM favorites_old;
       `);
     } else {
       db.exec(`
         INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
-        SELECT username, 'Principal', show_id FROM favorites_old
+        SELECT username, 'Principal', show_id FROM favorites_old;
       `);
     }
-    db.exec("DROP TABLE favorites_old");
+    db.exec("DROP TABLE favorites_old;");
+    db.exec("COMMIT;");
     console.log("favorites migrated to composite primary key with profile_name successfully.");
   }
 } catch (e) {
+  try {
+    db.exec("ROLLBACK;");
+  } catch (rollbackErr) {
+    // Ignore if no active transaction
+  }
   console.error("Favorites multi-profile migration failed:", e);
 }
 
@@ -490,23 +504,23 @@ export const dbHelper = {
   },
 
   // Watch History
-  getHistory: (username = 'guest') => {
+  getHistory: (username = 'guest', profileName = 'Principal') => {
     const stmt = db.prepare(`
       SELECT h.*, e.title as episode_title, e.episode_number, e.season_number, s.id as show_id, s.title as show_title, s.poster_path, e.thumbnail_path, e.duration
       FROM watch_history h
       JOIN episodes e ON h.episode_id = e.id
       JOIN shows s ON e.show_id = s.id
-      WHERE h.username = ? AND h.episode_id = (
+      WHERE h.username = ? AND h.profile_name = ? AND h.episode_id = (
         SELECT h2.episode_id
         FROM watch_history h2
         JOIN episodes e2 ON h2.episode_id = e2.id
-        WHERE e2.show_id = s.id AND h2.username = ?
+        WHERE e2.show_id = s.id AND h2.username = ? AND h2.profile_name = ?
         ORDER BY h2.updated_at DESC, e2.season_number DESC, e2.episode_number DESC
         LIMIT 1
       )
       ORDER BY h.updated_at DESC
     `);
-    const history = stmt.all(username, username);
+    const history = stmt.all(username, profileName, username, profileName);
     
     const nextEpStmt = db.prepare(`
       SELECT * FROM episodes
@@ -524,6 +538,7 @@ export const dbHelper = {
         if (nextEp) {
           processedHistory.push({
             username: entry.username,
+            profile_name: entry.profile_name,
             episode_id: nextEp.id,
             progress_seconds: 0,
             updated_at: entry.updated_at,
@@ -543,14 +558,14 @@ export const dbHelper = {
     }
     return processedHistory;
   },
-  getWatchProgress: (username = 'guest', episodeId) => {
+  getWatchProgress: (username = 'guest', episodeId, profileName = 'Principal') => {
     const stmt = db.prepare(`
       SELECT h.progress_seconds, e.duration
       FROM watch_history h
       LEFT JOIN episodes e ON h.episode_id = e.id
-      WHERE h.username = ? AND h.episode_id = ?
+      WHERE h.username = ? AND h.profile_name = ? AND h.episode_id = ?
     `);
-    const result = stmt.get(username, episodeId);
+    const result = stmt.get(username, profileName, episodeId);
     if (!result) return 0;
     
     // Reset to 0 if progress is >= 95% of duration
@@ -559,22 +574,22 @@ export const dbHelper = {
     }
     return result.progress_seconds;
   },
-  saveWatchProgress: (username = 'guest', episodeId, progressSeconds) => {
+  saveWatchProgress: (username = 'guest', episodeId, progressSeconds, profileName = 'Principal') => {
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO watch_history (username, episode_id, progress_seconds, updated_at)
-      VALUES (?, ?, ?, datetime('now'))
+      INSERT OR REPLACE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
     `);
-    stmt.run(username, episodeId, progressSeconds);
+    stmt.run(username, profileName, episodeId, progressSeconds);
   },
-  transferGuestHistory: (username) => {
+  transferGuestHistory: (username, profileName = 'Principal') => {
     if (!username || username === 'guest') return;
     try {
-      // Find all guest watch history records
-      const guestRecords = db.prepare("SELECT * FROM watch_history WHERE username = 'guest'").all();
+      // Find guest watch history records for the target profileName
+      const guestRecords = db.prepare("SELECT * FROM watch_history WHERE username = 'guest' AND profile_name = ?").all(profileName);
       
       for (const record of guestRecords) {
-        // Check if user already has progress for this episode
-        const userRecord = db.prepare("SELECT progress_seconds FROM watch_history WHERE username = ? AND episode_id = ?").get(username, record.episode_id);
+        // Check if user already has progress for this episode and profile
+        const userRecord = db.prepare("SELECT progress_seconds FROM watch_history WHERE username = ? AND profile_name = ? AND episode_id = ?").get(username, profileName, record.episode_id);
         
         if (userRecord) {
           // Keep the record with maximum progress
@@ -582,20 +597,20 @@ export const dbHelper = {
             db.prepare(`
               UPDATE watch_history 
               SET progress_seconds = ?, updated_at = datetime('now')
-              WHERE username = ? AND episode_id = ?
-            `).run(record.progress_seconds, username, record.episode_id);
+              WHERE username = ? AND profile_name = ? AND episode_id = ?
+            `).run(record.progress_seconds, username, profileName, record.episode_id);
           }
         } else {
           // Transfer the record directly by creating a new one
           db.prepare(`
-            INSERT INTO watch_history (username, episode_id, progress_seconds, updated_at)
-            VALUES (?, ?, ?, ?)
-          `).run(username, record.episode_id, record.progress_seconds, record.updated_at);
+            INSERT INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(username, profileName, record.episode_id, record.progress_seconds, record.updated_at);
         }
       }
       
       // Delete guest records after transfer
-      db.prepare("DELETE FROM watch_history WHERE username = 'guest'").run();
+      db.prepare("DELETE FROM watch_history WHERE username = 'guest' AND profile_name = ?").run(profileName);
     } catch (e) {
       console.error("Failed to transfer guest watch history:", e);
     }
@@ -653,30 +668,30 @@ export const dbHelper = {
   },
 
   // Favorites (My List)
-  getFavorites: (username) => {
+  getFavorites: (username, profileName = 'Principal') => {
     if (!username) return [];
     const stmt = db.prepare(`
       SELECT s.*
       FROM favorites f
       JOIN shows s ON f.show_id = s.id
-      WHERE f.username = ?
+      WHERE f.username = ? AND f.profile_name = ?
       ORDER BY s.title ASC
     `);
-    return stmt.all(username);
+    return stmt.all(username, profileName);
   },
-  isFavorite: (username, showId) => {
+  isFavorite: (username, showId, profileName = 'Principal') => {
     if (!username || !showId) return false;
-    const stmt = db.prepare("SELECT 1 FROM favorites WHERE username = ? AND show_id = ?");
-    return !!stmt.get(username, showId);
+    const stmt = db.prepare("SELECT 1 FROM favorites WHERE username = ? AND profile_name = ? AND show_id = ?");
+    return !!stmt.get(username, profileName, showId);
   },
-  toggleFavorite: (username, showId, isFav) => {
+  toggleFavorite: (username, showId, isFav, profileName = 'Principal') => {
     if (!username || !showId) return;
     if (isFav) {
-      const stmt = db.prepare("INSERT OR IGNORE INTO favorites (username, show_id) VALUES (?, ?)");
-      stmt.run(username, showId);
+      const stmt = db.prepare("INSERT OR IGNORE INTO favorites (username, profile_name, show_id) VALUES (?, ?, ?)");
+      stmt.run(username, profileName, showId);
     } else {
-      const stmt = db.prepare("DELETE FROM favorites WHERE username = ? AND show_id = ?");
-      stmt.run(username, showId);
+      const stmt = db.prepare("DELETE FROM favorites WHERE username = ? AND profile_name = ? AND show_id = ?");
+      stmt.run(username, profileName, showId);
     }
   }
 };
