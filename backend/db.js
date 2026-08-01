@@ -6,6 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = path.join(__dirname, 'kurastream.db');
 
 export const db = new DatabaseSync(dbPath);
+db.exec("PRAGMA foreign_keys = ON;");
 
 // Initialize schema
 db.exec(`
@@ -138,134 +139,139 @@ try {
 } catch (e) {}
 
 // Migration for user-specific watch_history
-try {
-  const tableInfo = db.prepare("PRAGMA table_info(watch_history)").all();
-  const hasUsername = tableInfo.some(col => col.name === 'username');
-  if (!hasUsername) {
-    db.exec("ALTER TABLE watch_history RENAME TO watch_history_old");
-    db.exec(`
-      CREATE TABLE watch_history (
-        username TEXT NOT NULL,
-        profile_name TEXT NOT NULL DEFAULT 'Principal',
-        episode_id TEXT NOT NULL,
-        progress_seconds REAL NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY (username, profile_name, episode_id)
-      )
-    `);
-    db.exec(`
-      INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
-      SELECT 'guest', 'Principal', episode_id, progress_seconds, updated_at FROM watch_history_old
-    `);
-    db.exec("DROP TABLE watch_history_old");
-    console.log("watch_history migrated to multi-user successfully.");
+export function runMigrations(databaseInstance) {
+  try {
+    const tableInfo = databaseInstance.prepare("PRAGMA table_info(watch_history)").all();
+    const hasUsername = tableInfo.some(col => col.name === 'username');
+    if (!hasUsername) {
+      databaseInstance.exec("ALTER TABLE watch_history RENAME TO watch_history_old");
+      databaseInstance.exec(`
+        CREATE TABLE watch_history (
+          username TEXT NOT NULL,
+          profile_name TEXT NOT NULL DEFAULT 'Principal',
+          episode_id TEXT NOT NULL,
+          progress_seconds REAL NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (username, profile_name, episode_id)
+        )
+      `);
+      databaseInstance.exec(`
+        INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
+        SELECT 'guest', 'Principal', episode_id, progress_seconds, updated_at FROM watch_history_old
+      `);
+      databaseInstance.exec("DROP TABLE watch_history_old");
+      console.log("watch_history migrated to multi-user successfully.");
+    }
+  } catch (e) {
+    console.error("Watch history migration failed:", e);
   }
-} catch (e) {
-  console.error("Watch history migration failed:", e);
-}
 
-// Run migrations for profiles, watch_history and favorites to support multi-profiles
-try {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS profiles (
-      username TEXT NOT NULL,
-      profile_name TEXT NOT NULL,
-      avatar_color TEXT NOT NULL DEFAULT '#a855f7',
-      is_kids INTEGER NOT NULL DEFAULT 0,
-      pin TEXT,
-      pref_audio_lang TEXT NOT NULL DEFAULT 'default',
-      pref_sub_lang TEXT NOT NULL DEFAULT 'default',
-      PRIMARY KEY (username, profile_name),
-      FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
-    );
-  `);
-} catch (e) {
-  console.error("Profiles table migration failed:", e);
-}
-
-// Migration for adding profile_name to watch_history composite primary key
-try {
-  const tableInfo = db.prepare("PRAGMA table_info(watch_history)").all();
-  const profileNameCol = tableInfo.find(col => col.name === 'profile_name');
-  const isPrimaryKeyComposite = profileNameCol && profileNameCol.pk > 0;
-  if (!isPrimaryKeyComposite) {
-    db.exec("BEGIN TRANSACTION;");
-    db.exec("ALTER TABLE watch_history RENAME TO watch_history_old;");
-    db.exec(`
-      CREATE TABLE watch_history (
+  // Run migrations for profiles, watch_history and favorites to support multi-profiles
+  try {
+    databaseInstance.exec(`
+      CREATE TABLE IF NOT EXISTS profiles (
         username TEXT NOT NULL,
-        profile_name TEXT NOT NULL DEFAULT 'Principal',
-        episode_id TEXT NOT NULL,
-        progress_seconds REAL NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY (username, profile_name, episode_id)
+        profile_name TEXT NOT NULL,
+        avatar_color TEXT NOT NULL DEFAULT '#a855f7',
+        is_kids INTEGER NOT NULL DEFAULT 0,
+        pin TEXT,
+        pref_audio_lang TEXT NOT NULL DEFAULT 'default',
+        pref_sub_lang TEXT NOT NULL DEFAULT 'default',
+        PRIMARY KEY (username, profile_name),
+        FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
       );
     `);
-    const hasProfileNameInOld = profileNameCol !== undefined;
-    if (hasProfileNameInOld) {
-      db.exec(`
-        INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
-        SELECT username, COALESCE(profile_name, 'Principal'), episode_id, progress_seconds, updated_at FROM watch_history_old;
-      `);
-    } else {
-      db.exec(`
-        INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
-        SELECT username, 'Principal', episode_id, progress_seconds, updated_at FROM watch_history_old;
-      `);
-    }
-    db.exec("DROP TABLE watch_history_old;");
-    db.exec("COMMIT;");
-    console.log("watch_history migrated to composite primary key with profile_name successfully.");
+  } catch (e) {
+    console.error("Profiles table migration failed:", e);
   }
-} catch (e) {
+
+  // Migration for adding profile_name to watch_history composite primary key
   try {
-    db.exec("ROLLBACK;");
-  } catch (rollbackErr) {
-    // Ignore if no active transaction
+    const tableInfo = databaseInstance.prepare("PRAGMA table_info(watch_history)").all();
+    const profileNameCol = tableInfo.find(col => col.name === 'profile_name');
+    const isPrimaryKeyComposite = profileNameCol && profileNameCol.pk > 0;
+    if (!isPrimaryKeyComposite) {
+      databaseInstance.exec("BEGIN TRANSACTION;");
+      databaseInstance.exec("ALTER TABLE watch_history RENAME TO watch_history_old;");
+      databaseInstance.exec(`
+        CREATE TABLE watch_history (
+          username TEXT NOT NULL,
+          profile_name TEXT NOT NULL DEFAULT 'Principal',
+          episode_id TEXT NOT NULL,
+          progress_seconds REAL NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (username, profile_name, episode_id)
+        );
+      `);
+      const hasProfileNameInOld = profileNameCol !== undefined;
+      if (hasProfileNameInOld) {
+        databaseInstance.exec(`
+          INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
+          SELECT username, COALESCE(profile_name, 'Principal'), episode_id, progress_seconds, updated_at FROM watch_history_old;
+        `);
+      } else {
+        databaseInstance.exec(`
+          INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
+          SELECT username, 'Principal', episode_id, progress_seconds, updated_at FROM watch_history_old;
+        `);
+      }
+      databaseInstance.exec("DROP TABLE watch_history_old;");
+      databaseInstance.exec("COMMIT;");
+      console.log("watch_history migrated to composite primary key with profile_name successfully.");
+    }
+  } catch (e) {
+    try {
+      databaseInstance.exec("ROLLBACK;");
+    } catch (rollbackErr) {
+      // Ignore if no active transaction
+    }
+    console.error("Watch history multi-profile migration failed:", e);
   }
-  console.error("Watch history multi-profile migration failed:", e);
+
+  // Migration for adding profile_name to favorites composite primary key
+  try {
+    const tableInfo = databaseInstance.prepare("PRAGMA table_info(favorites)").all();
+    const profileNameCol = tableInfo.find(col => col.name === 'profile_name');
+    const isPrimaryKeyComposite = profileNameCol && profileNameCol.pk > 0;
+    if (!isPrimaryKeyComposite) {
+      databaseInstance.exec("BEGIN TRANSACTION;");
+      databaseInstance.exec("ALTER TABLE favorites RENAME TO favorites_old;");
+      databaseInstance.exec(`
+        CREATE TABLE favorites (
+          username TEXT NOT NULL,
+          profile_name TEXT NOT NULL DEFAULT 'Principal',
+          show_id TEXT NOT NULL,
+          PRIMARY KEY (username, profile_name, show_id)
+        );
+      `);
+      const hasProfileNameInOld = profileNameCol !== undefined;
+      if (hasProfileNameInOld) {
+        databaseInstance.exec(`
+          INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
+          SELECT username, COALESCE(profile_name, 'Principal'), show_id FROM favorites_old;
+        `);
+      } else {
+        databaseInstance.exec(`
+          INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
+          SELECT username, 'Principal', show_id FROM favorites_old;
+        `);
+      }
+      databaseInstance.exec("DROP TABLE favorites_old;");
+      databaseInstance.exec("COMMIT;");
+      console.log("favorites migrated to composite primary key with profile_name successfully.");
+    }
+  } catch (e) {
+    try {
+      databaseInstance.exec("ROLLBACK;");
+    } catch (rollbackErr) {
+      // Ignore if no active transaction
+    }
+    console.error("Favorites multi-profile migration failed:", e);
+  }
 }
 
-// Migration for adding profile_name to favorites composite primary key
-try {
-  const tableInfo = db.prepare("PRAGMA table_info(favorites)").all();
-  const profileNameCol = tableInfo.find(col => col.name === 'profile_name');
-  const isPrimaryKeyComposite = profileNameCol && profileNameCol.pk > 0;
-  if (!isPrimaryKeyComposite) {
-    db.exec("BEGIN TRANSACTION;");
-    db.exec("ALTER TABLE favorites RENAME TO favorites_old;");
-    db.exec(`
-      CREATE TABLE favorites (
-        username TEXT NOT NULL,
-        profile_name TEXT NOT NULL DEFAULT 'Principal',
-        show_id TEXT NOT NULL,
-        PRIMARY KEY (username, profile_name, show_id)
-      );
-    `);
-    const hasProfileNameInOld = profileNameCol !== undefined;
-    if (hasProfileNameInOld) {
-      db.exec(`
-        INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
-        SELECT username, COALESCE(profile_name, 'Principal'), show_id FROM favorites_old;
-      `);
-    } else {
-      db.exec(`
-        INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
-        SELECT username, 'Principal', show_id FROM favorites_old;
-      `);
-    }
-    db.exec("DROP TABLE favorites_old;");
-    db.exec("COMMIT;");
-    console.log("favorites migrated to composite primary key with profile_name successfully.");
-  }
-} catch (e) {
-  try {
-    db.exec("ROLLBACK;");
-  } catch (rollbackErr) {
-    // Ignore if no active transaction
-  }
-  console.error("Favorites multi-profile migration failed:", e);
-}
+// Run migrations on active DB connection
+runMigrations(db);
 
 // Insert default setting for admin password PIN if not exists
 try {

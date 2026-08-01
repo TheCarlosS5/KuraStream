@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import { DatabaseSync } from 'node:sqlite';
-import { db } from '../backend/db.js';
+import { db, runMigrations } from '../backend/db.js';
 
 test('Database Schema Verification', () => {
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
@@ -76,73 +76,8 @@ test('Data Migration Flow Verification', () => {
     VALUES ('user1', 'show99');
   `);
   
-  // 4. Run the exact migration logic on the mockDb
-  
-  // --- Start of watch_history migration code replication ---
-  const watchHistoryInfo = mockDb.prepare("PRAGMA table_info(watch_history)").all();
-  const whProfileNameCol = watchHistoryInfo.find(col => col.name === 'profile_name');
-  const whIsPrimaryKeyComposite = whProfileNameCol && whProfileNameCol.pk > 0;
-  if (!whIsPrimaryKeyComposite) {
-    mockDb.exec("BEGIN TRANSACTION;");
-    mockDb.exec("ALTER TABLE watch_history RENAME TO watch_history_old;");
-    mockDb.exec(`
-      CREATE TABLE watch_history (
-        username TEXT NOT NULL,
-        profile_name TEXT NOT NULL DEFAULT 'Principal',
-        episode_id TEXT NOT NULL,
-        progress_seconds REAL NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY (username, profile_name, episode_id)
-      );
-    `);
-    const hasProfileNameInOld = whProfileNameCol !== undefined;
-    if (hasProfileNameInOld) {
-      mockDb.exec(`
-        INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
-        SELECT username, COALESCE(profile_name, 'Principal'), episode_id, progress_seconds, updated_at FROM watch_history_old;
-      `);
-    } else {
-      mockDb.exec(`
-        INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
-        SELECT username, 'Principal', episode_id, progress_seconds, updated_at FROM watch_history_old;
-      `);
-    }
-    mockDb.exec("DROP TABLE watch_history_old;");
-    mockDb.exec("COMMIT;");
-  }
-  // --- End of watch_history migration code replication ---
-
-  // --- Start of favorites migration code replication ---
-  const favoritesInfo = mockDb.prepare("PRAGMA table_info(favorites)").all();
-  const favProfileNameCol = favoritesInfo.find(col => col.name === 'profile_name');
-  const favIsPrimaryKeyComposite = favProfileNameCol && favProfileNameCol.pk > 0;
-  if (!favIsPrimaryKeyComposite) {
-    mockDb.exec("BEGIN TRANSACTION;");
-    mockDb.exec("ALTER TABLE favorites RENAME TO favorites_old;");
-    mockDb.exec(`
-      CREATE TABLE favorites (
-        username TEXT NOT NULL,
-        profile_name TEXT NOT NULL DEFAULT 'Principal',
-        show_id TEXT NOT NULL,
-        PRIMARY KEY (username, profile_name, show_id)
-      );
-    `);
-    const hasProfileNameInOld = favProfileNameCol !== undefined;
-    if (hasProfileNameInOld) {
-      mockDb.exec(`
-        INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
-        SELECT username, COALESCE(profile_name, 'Principal'), show_id FROM favorites_old;
-      `);
-    } else {
-      mockDb.exec(`
-        INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
-        SELECT username, 'Principal', show_id FROM favorites_old;
-      `);
-    }
-    mockDb.exec("DROP TABLE favorites_old;");
-    mockDb.exec("COMMIT;");
-  }
-  // --- End of favorites migration code replication ---
+  // 4. Run the migrated function on the mockDb
+  runMigrations(mockDb);
 
   // 5. Assert database schema state
   const whColsAfter = mockDb.prepare("PRAGMA table_info(watch_history)").all();
