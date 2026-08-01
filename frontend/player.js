@@ -964,6 +964,13 @@ function setupPlayerEventListeners() {
     if (!video) return;
     if (!video.paused) {
       controlsOverlay.classList.add('hide');
+      
+      const dot = document.getElementById('custom-cursor-dot');
+      const ring = document.getElementById('custom-cursor-ring');
+      if (dot && ring) {
+        dot.style.opacity = '0';
+        ring.style.opacity = '0';
+      }
     }
   };
 }
@@ -1040,6 +1047,14 @@ function triggerControlsActivity() {
   controlsOverlay.classList.remove('hide');
   isControlsVisible = true;
   document.body.style.cursor = 'default';
+
+  // Show custom cursor elements
+  const dot = document.getElementById('custom-cursor-dot');
+  const ring = document.getElementById('custom-cursor-ring');
+  if (dot && ring) {
+    dot.style.opacity = '1';
+    ring.style.opacity = '1';
+  }
   
   clearTimeout(hideControlsTimeout);
   
@@ -1049,6 +1064,13 @@ function triggerControlsActivity() {
       controlsOverlay.classList.add('hide');
       isControlsVisible = false;
       document.body.style.cursor = 'none';
+
+      // Hide custom cursor elements
+      if (dot && ring) {
+        dot.style.opacity = '0';
+        ring.style.opacity = '0';
+      }
+
       // Close open dropdowns
       document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
       fileInfoModal.style.display = 'none';
