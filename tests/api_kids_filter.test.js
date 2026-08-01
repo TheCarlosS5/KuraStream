@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
-import { dbHelper, runMigrations, db } from '../backend/db.js';
+
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
@@ -15,11 +15,21 @@ function signToken(payload) {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 test('Kids Profile Filtration API Tests', async (t) => {
-  const testPort = '3099';
+  const testPort = '3095';
   const serverUrl = `http://localhost:${testPort}`;
   process.env.JWT_SECRET = 'test_secret';
-  const env = { ...process.env, PORT: testPort };
+  const testDbPath = path.join(__dirname, '../backend/kurastream_test_kids.db');
+  process.env.DB_PATH = testDbPath;
+  const env = { ...process.env, PORT: testPort, DB_PATH: testDbPath };
+  
+  const { dbHelper, db, runMigrations } = await import(`../backend/db.js?bust=${Date.now()}_${Math.random()}`);
   
   // Ensure migration is run
   runMigrations(db);
@@ -164,5 +174,11 @@ test('Kids Profile Filtration API Tests', async (t) => {
     
     try { fs.unlinkSync('/tmp/dummy.mp4'); } catch(e){}
     try { fs.unlinkSync('/tmp/dummy2.mp4'); } catch(e){}
+    
+    // Cleanup DB files
+    try { fs.unlinkSync(process.env.DB_PATH); } catch(e){}
+    try { fs.unlinkSync(process.env.DB_PATH + '-journal'); } catch(e){}
+    try { fs.unlinkSync(process.env.DB_PATH + '-shm'); } catch(e){}
+    try { fs.unlinkSync(process.env.DB_PATH + '-wal'); } catch(e){}
   }
 });

@@ -1,18 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
-import { dbHelper } from '../backend/db.js';
+import fs from 'node:fs';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('Profiles API Integration Tests', async (t) => {
   const testPort = '3097';
   const serverUrl = `http://localhost:${testPort}`;
 
+  const testDbPath = path.join(__dirname, '../backend/kurastream_test_profiles.db');
+  process.env.DB_PATH = testDbPath;
+  const { dbHelper, runMigrations, db } = await import(`../backend/db.js?bust=${Date.now()}_${Math.random()}`);
+  runMigrations(db);
+
   const env = {
     ...process.env,
     PORT: testPort,
-    JWT_SECRET: 'test_secret'
+    JWT_SECRET: 'test_secret',
+    DB_PATH: testDbPath
   };
 
   const serverProcess = spawn('node', ['backend/server.js'], { env });
@@ -21,6 +33,13 @@ test('Profiles API Integration Tests', async (t) => {
   let token = '';
 
   try {
+    // 0. Register user explicitly
+    await fetch(`${serverUrl}/api/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'profile_tester', password: 'password123' })
+    });
+
     // 1. Create a user and get token
     const loginRes = await fetch(`${serverUrl}/api/login`, {
       method: 'POST',
@@ -140,5 +159,9 @@ test('Profiles API Integration Tests', async (t) => {
 
   } finally {
     serverProcess.kill();
+    try { fs.unlinkSync(process.env.DB_PATH); } catch(e){}
+    try { fs.unlinkSync(process.env.DB_PATH + '-journal'); } catch(e){}
+    try { fs.unlinkSync(process.env.DB_PATH + '-shm'); } catch(e){}
+    try { fs.unlinkSync(process.env.DB_PATH + '-wal'); } catch(e){}
   }
 });
