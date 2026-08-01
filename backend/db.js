@@ -183,13 +183,75 @@ try {
   console.error("Profiles table migration failed:", e);
 }
 
+// Migration for adding profile_name to watch_history composite primary key
 try {
-  db.exec("ALTER TABLE watch_history ADD COLUMN profile_name TEXT NOT NULL DEFAULT 'Principal';");
-} catch (e) {}
+  const tableInfo = db.prepare("PRAGMA table_info(watch_history)").all();
+  const profileNameCol = tableInfo.find(col => col.name === 'profile_name');
+  const isPrimaryKeyComposite = profileNameCol && profileNameCol.pk > 0;
+  if (!isPrimaryKeyComposite) {
+    db.exec("ALTER TABLE watch_history RENAME TO watch_history_old");
+    db.exec(`
+      CREATE TABLE watch_history (
+        username TEXT NOT NULL,
+        profile_name TEXT NOT NULL DEFAULT 'Principal',
+        episode_id TEXT NOT NULL,
+        progress_seconds REAL NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (username, profile_name, episode_id)
+      )
+    `);
+    const hasProfileNameInOld = profileNameCol !== undefined;
+    if (hasProfileNameInOld) {
+      db.exec(`
+        INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
+        SELECT username, COALESCE(profile_name, 'Principal'), episode_id, progress_seconds, updated_at FROM watch_history_old
+      `);
+    } else {
+      db.exec(`
+        INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
+        SELECT username, 'Principal', episode_id, progress_seconds, updated_at FROM watch_history_old
+      `);
+    }
+    db.exec("DROP TABLE watch_history_old");
+    console.log("watch_history migrated to composite primary key with profile_name successfully.");
+  }
+} catch (e) {
+  console.error("Watch history multi-profile migration failed:", e);
+}
 
+// Migration for adding profile_name to favorites composite primary key
 try {
-  db.exec("ALTER TABLE favorites ADD COLUMN profile_name TEXT NOT NULL DEFAULT 'Principal';");
-} catch (e) {}
+  const tableInfo = db.prepare("PRAGMA table_info(favorites)").all();
+  const profileNameCol = tableInfo.find(col => col.name === 'profile_name');
+  const isPrimaryKeyComposite = profileNameCol && profileNameCol.pk > 0;
+  if (!isPrimaryKeyComposite) {
+    db.exec("ALTER TABLE favorites RENAME TO favorites_old");
+    db.exec(`
+      CREATE TABLE favorites (
+        username TEXT NOT NULL,
+        profile_name TEXT NOT NULL DEFAULT 'Principal',
+        show_id TEXT NOT NULL,
+        PRIMARY KEY (username, profile_name, show_id)
+      )
+    `);
+    const hasProfileNameInOld = profileNameCol !== undefined;
+    if (hasProfileNameInOld) {
+      db.exec(`
+        INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
+        SELECT username, COALESCE(profile_name, 'Principal'), show_id FROM favorites_old
+      `);
+    } else {
+      db.exec(`
+        INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
+        SELECT username, 'Principal', show_id FROM favorites_old
+      `);
+    }
+    db.exec("DROP TABLE favorites_old");
+    console.log("favorites migrated to composite primary key with profile_name successfully.");
+  }
+} catch (e) {
+  console.error("Favorites multi-profile migration failed:", e);
+}
 
 // Insert default setting for admin password PIN if not exists
 try {

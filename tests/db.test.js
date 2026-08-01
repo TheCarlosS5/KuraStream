@@ -18,13 +18,29 @@ test('Database Schema Verification', () => {
   assert.ok(colNames.includes('pref_audio_lang'), 'profiles table should have pref_audio_lang column');
   assert.ok(colNames.includes('pref_sub_lang'), 'profiles table should have pref_sub_lang column');
 
-  // Verify watch_history
-  const historyCols = db.prepare("PRAGMA table_info(watch_history)").all();
-  const hasProfileCol = historyCols.some(c => c.name === 'profile_name');
-  assert.ok(hasProfileCol, 'watch_history should have profile_name column');
+  // Verify foreign key constraints on profiles
+  const foreignKeys = db.prepare("PRAGMA foreign_key_list(profiles)").all();
+  const hasUserFK = foreignKeys.some(fk => 
+    fk.table === 'users' && 
+    fk.from === 'username' && 
+    fk.to === 'username' && 
+    fk.on_delete === 'CASCADE'
+  );
+  assert.ok(hasUserFK, 'profiles should have a foreign key referencing users(username) ON DELETE CASCADE');
 
-  // Verify favorites
+  // Verify watch_history composite primary key
+  const historyCols = db.prepare("PRAGMA table_info(watch_history)").all();
+  const historyPKCols = historyCols.filter(c => c.pk > 0).map(c => c.name);
+  assert.ok(historyPKCols.includes('username'), 'watch_history PK should include username');
+  assert.ok(historyPKCols.includes('profile_name'), 'watch_history PK should include profile_name');
+  assert.ok(historyPKCols.includes('episode_id'), 'watch_history PK should include episode_id');
+  assert.strictEqual(historyPKCols.length, 3, 'watch_history PK should have exactly 3 columns');
+
+  // Verify favorites composite primary key
   const favoritesCols = db.prepare("PRAGMA table_info(favorites)").all();
-  const hasFavProfileCol = favoritesCols.some(c => c.name === 'profile_name');
-  assert.ok(hasFavProfileCol, 'favorites should have profile_name column');
+  const favoritesPKCols = favoritesCols.filter(c => c.pk > 0).map(c => c.name);
+  assert.ok(favoritesPKCols.includes('username'), 'favorites PK should include username');
+  assert.ok(favoritesPKCols.includes('profile_name'), 'favorites PK should include profile_name');
+  assert.ok(favoritesPKCols.includes('show_id'), 'favorites PK should include show_id');
+  assert.strictEqual(favoritesPKCols.length, 3, 'favorites PK should have exactly 3 columns');
 });
