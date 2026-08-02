@@ -3395,17 +3395,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Call the check on initial load after a short delay to let views initialize
   setTimeout(checkAndShowProfileSwitcher, 100);
+  window.addEventListener('hashchange', checkAndShowProfileSwitcher);
 });
-
-// Hook into the original handleRoute to keep checking if we need to show switcher
-const originalHandleRouteHook = window.addEventListener;
-window.addEventListener = function(type, listener, options) {
-  if (type === 'hashchange' && listener.name === 'handleRoute') {
-    const wrapped = function(...args) {
-      listener.apply(this, args);
-      checkAndShowProfileSwitcher();
-    };
-    return originalHandleRouteHook.call(this, type, wrapped, options);
-  }
-  return originalHandleRouteHook.call(this, type, listener, options);
-};
