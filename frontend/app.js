@@ -3284,11 +3284,14 @@ function renderProfiles(profiles) {
       <div class="profile-name">${name}</div>
     `;
     
-    // Add dynamic hover shadow
+    // Add dynamic hover shadow and scale
     card.addEventListener('mouseenter', () => {
-      card.querySelector('.profile-avatar').style.boxShadow = isImg ? '0 0 30px rgba(255,255,255,0.4)' : `0 0 30px ${color}`;
+      card.style.transform = 'scale(1.08)';
+      const shadowColor = isImg ? '#a855f7' : color;
+      card.querySelector('.profile-avatar').style.boxShadow = `0 0 30px ${shadowColor}`;
     });
     card.addEventListener('mouseleave', () => {
+      card.style.transform = '';
       card.querySelector('.profile-avatar').style.boxShadow = `0 10px 20px rgba(0,0,0,0.4)`;
     });
 
