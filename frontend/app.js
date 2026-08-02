@@ -2414,18 +2414,27 @@ function setupUserAuth() {
               localStorage.setItem('kura_user_session', JSON.stringify(logData));
               localStorage.setItem('kura_base_user_session', JSON.stringify(logData));
               updateUserInterface(logData);
+              if (loginModal) {
+                loginModal.classList.remove('lockout');
+                loginModal.style.display = 'none';
+              }
+              window.dispatchEvent(new Event('hashchange'));
+            } else {
+              errorMsg.textContent = logData.message || 'Error al iniciar sesión automáticamente';
+              errorMsg.style.display = 'block';
+              return;
             }
           } else {
             // Standard login success
             localStorage.setItem('kura_user_session', JSON.stringify(data));
             localStorage.setItem('kura_base_user_session', JSON.stringify(data));
             updateUserInterface(data);
+            if (loginModal) {
+              loginModal.classList.remove('lockout');
+              loginModal.style.display = 'none';
+            }
+            window.dispatchEvent(new Event('hashchange'));
           }
-          if (loginModal) {
-            loginModal.classList.remove('lockout');
-            loginModal.style.display = 'none';
-          }
-          window.dispatchEvent(new Event('hashchange'));
           
           // Refresh views to apply identity (update comments user info)
           if (currentView === 'show' && window.location.hash.startsWith('#/show/')) {
@@ -2433,7 +2442,7 @@ function setupUserAuth() {
             loadShowComments(showId);
           }
         } else {
-          errorMsg.textContent = data.message || 'Error al procesar la solicitud';
+          errorMsg.textContent = data.message || 'Error al registrar el usuario';
           errorMsg.style.display = 'block';
         }
       } catch (err) {
@@ -3257,7 +3266,7 @@ function renderProfiles(profiles) {
     }
   });
   
-  if (profiles.length < 5) {
+  if (isProfileManagementMode && profiles.length < 5) {
     const addCard = document.createElement('div');
     addCard.className = 'profile-card add-profile';
     addCard.innerHTML = `

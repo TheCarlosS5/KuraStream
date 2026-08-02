@@ -2484,6 +2484,7 @@ button, input, select {
   border: 2px dashed var(--text-muted);
   color: var(--text-muted);
   box-shadow: none;
+  border-radius: 50% !important;
 }
 .profile-card.add-profile:hover .profile-avatar {
   border-color: #fff;

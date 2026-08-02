@@ -7,6 +7,7 @@ const dbPath = process.env.DB_PATH || path.join(__dirname, 'kurastream.db');
 
 export const db = new DatabaseSync(dbPath);
 db.exec("PRAGMA foreign_keys = ON;");
+db.exec("PRAGMA journal_mode = WAL;");
 
 // Initialize schema
 db.exec(`
