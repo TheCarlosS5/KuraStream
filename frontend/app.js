@@ -3175,6 +3175,28 @@ async function loadProfilesView() {
     if (!res.ok) throw new Error('Failed to load profiles');
     const data = await res.json();
     if (data && data.success) {
+      if (data.profiles.length === 0) {
+        const decoded = getDecodedToken(session.token);
+        const username = decoded ? decoded.username : 'User';
+        const colors = ['#e50914', '#54b4e5', '#56ccf2', '#a855f7', '#27ae60'];
+        const randomColor = colors[Math.floor(Math.random() * colors.length)];
+        const createRes = await fetch('/api/profiles', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.token}`
+          },
+          body: JSON.stringify({
+            profile_name: username,
+            avatar_color: randomColor,
+            is_kids: false,
+            pin: ''
+          })
+        });
+        if (createRes.ok) {
+          return loadProfilesView();
+        }
+      }
       renderProfiles(data.profiles);
     }
   } catch(err) {
