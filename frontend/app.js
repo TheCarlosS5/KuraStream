@@ -2294,7 +2294,6 @@ function setupUserAuth() {
 
   // Load session from localStorage
   const sessionStr = localStorage.getItem('kura_user_session');
-  const loginModal = document.getElementById('login-modal');
   if (!sessionStr) {
     if (loginModal) {
       loginModal.classList.add('lockout');
@@ -2413,11 +2412,13 @@ function setupUserAuth() {
             const logData = await logRes.json();
             if (logRes.ok) {
               localStorage.setItem('kura_user_session', JSON.stringify(logData));
+              localStorage.setItem('kura_base_user_session', JSON.stringify(logData));
               updateUserInterface(logData);
             }
           } else {
             // Standard login success
             localStorage.setItem('kura_user_session', JSON.stringify(data));
+            localStorage.setItem('kura_base_user_session', JSON.stringify(data));
             updateUserInterface(data);
           }
           if (loginModal) {
@@ -2451,6 +2452,7 @@ function setupUserAuth() {
     logoutBtn.onclick = (e) => {
       e.preventDefault();
       localStorage.removeItem('kura_user_session');
+      localStorage.removeItem('kura_base_user_session');
       updateUserInterface(null);
       window.dispatchEvent(new Event('hashchange'));
       // Refresh details comments if open
@@ -2470,12 +2472,13 @@ function setupUserAuth() {
   }
 }
 
-function updateUserInterface(session) {
+async function updateUserInterface(session) {
   const loginTrigger = document.getElementById('btn-login-trigger');
   const userProfileMenu = document.getElementById('user-profile-menu');
   const userProfileName = document.getElementById('user-profile-name');
   const userAvatarInitial = document.getElementById('user-avatar-initial');
   const adminDirectBtn = document.getElementById('btn-admin-direct');
+  const listEl = document.getElementById('dropdown-profiles-list');
 
   if (session && session.success) {
     if (loginTrigger) loginTrigger.style.display = 'none';
@@ -2490,7 +2493,42 @@ function updateUserInterface(session) {
       localStorage.removeItem('kura_admin_token');
       if (adminDirectBtn) adminDirectBtn.style.display = 'none';
     }
+
+    if (listEl && session.token) {
+      const decoded = getDecodedToken(session.token);
+      try {
+        const res = await fetch('/api/profiles');
+        const data = await res.json();
+        if (data && data.success) {
+          listEl.innerHTML = '';
+          data.profiles.forEach(p => {
+            if (decoded && p.profile_name === decoded.profile_name) return;
+            const pColor = p.avatar_color || '#a855f7';
+            const isImg = pColor.startsWith('/');
+            const avatarBg = isImg ? `background-image: url('${pColor}'); background-size: cover; background-position: center;` : `background: ${pColor};`;
+            const item = document.createElement('div');
+            item.className = 'dropdown-profile-item';
+            item.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; cursor: pointer; transition: background 0.2s;';
+            item.innerHTML = `
+              <div style="width: 24px; height: 24px; border-radius: 4px; ${avatarBg} display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: #fff;">${isImg ? '' : p.profile_name[0].toUpperCase()}</div>
+              <span style="font-size: 0.85rem; color: var(--text-main); font-weight: 500;">${p.profile_name}</span>
+            `;
+            item.onclick = (e) => {
+              e.stopPropagation();
+              const userDropdownCard = document.getElementById('user-dropdown-card');
+              if (userDropdownCard) userDropdownCard.style.display = 'none';
+              if (p.pin) openPinModal(p);
+              else selectProfile(p.profile_name, '');
+            };
+            listEl.appendChild(item);
+          });
+        }
+      } catch(err) {
+        console.error('Error loading dropdown profiles:', err);
+      }
+    }
   } else {
+    if (listEl) listEl.innerHTML = '';
     if (loginTrigger) loginTrigger.style.display = 'flex';
     if (userProfileMenu) userProfileMenu.style.display = 'none';
     if (adminDirectBtn) adminDirectBtn.style.display = 'none';
@@ -2504,11 +2542,35 @@ function updateUserInterface(session) {
   }
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
+
+// Inactivity Auto-Lock Timer
+let lastActivityTime = Date.now();
+const resetActivityTimer = () => {
+  lastActivityTime = Date.now();
+};
+
+['mousemove', 'mousedown', 'keydown', 'click', 'scroll', 'touchstart'].forEach(evt => {
+  window.addEventListener(evt, resetActivityTimer, { passive: true });
+});
+
+setInterval(() => {
+  const sessionStr = localStorage.getItem('kura_user_session');
+  if (!sessionStr) return;
+  const session = JSON.parse(sessionStr);
+  const decoded = getDecodedToken(session.token);
   
-  if (typeof checkAndShowProfileSwitcher === 'function') {
-    checkAndShowProfileSwitcher();
+  if (decoded && decoded.profile_name) {
+    const elapsed = Date.now() - lastActivityTime;
+    if (elapsed > 30 * 60 * 1000) { // 30 minutes
+      // Deselect profile: restore baseline user token
+      const baseSessionStr = localStorage.getItem('kura_base_user_session');
+      if (baseSessionStr) {
+        localStorage.setItem('kura_user_session', baseSessionStr);
+        window.location.reload();
+      }
+    }
   }
-}
+}, 10000);
 
 // --- COMMUNITY CHAT CLIENT ---
 let chatPollInterval = null;

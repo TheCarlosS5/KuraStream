@@ -77,8 +77,11 @@
             <span id="user-profile-name">Usuario</span>
             <i data-lucide="chevron-down" style="width: 14px; height: 14px; color: var(--text-muted);"></i>
           </button>
-          <div class="user-dropdown-card" id="user-dropdown-card" style="display: none; position: absolute; top: 44px; right: 0; background: var(--bg-card, #1c2230); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 99; min-width: 165px; padding: 6px 0; backdrop-filter: blur(10px);">
-            <a href="javascript:void(0)" id="btn-switch-profile" class="user-dropdown-item" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-main); text-decoration: none; font-size: 0.85rem; transition: background 0.2s;"><i data-lucide="users" style="width: 14px; height: 14px;"></i> Cambiar Perfil</a>
+          <div class="user-dropdown-card" id="user-dropdown-card" style="display: none; position: absolute; top: 44px; right: 0; background: var(--bg-card, #1c2230); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 99; min-width: 220px; padding: 12px 0; backdrop-filter: blur(10px);">
+            <div id="dropdown-profiles-list" style="padding: 0 8px 8px 8px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--border-color); margin-bottom: 8px;">
+              <!-- Dynamic list of other profiles -->
+            </div>
+            <a href="javascript:void(0)" id="btn-switch-profile" class="user-dropdown-item" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-main); text-decoration: none; font-size: 0.85rem; transition: background 0.2s;"><i data-lucide="users" style="width: 14px; height: 14px;"></i> Administrar Perfiles</a>
             <a href="#/settings" class="user-dropdown-item" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-main); text-decoration: none; font-size: 0.85rem; transition: background 0.2s;"><i data-lucide="settings" style="width: 14px; height: 14px;"></i> Ajustes</a>
             <a href="javascript:void(0)" id="btn-admin-direct" class="user-dropdown-item" style="display: none; align-items: center; gap: 8px; padding: 8px 16px; color: var(--accent-color); text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: background 0.2s;"><i data-lucide="shield-check" style="width: 14px; height: 14px;"></i> Panel Admin</a>
             <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 6px 0;">

@@ -52,7 +52,7 @@ html {
 :where(a, button, select, input[type="submit"], input[type="button"], 
 .show-card, .episode-item, .nav-link, .dropdown-trigger, .player-btn, 
 .carousel-nav-btn, .carousel-indicators span, .drop-zone, 
-.user-profile-trigger, .user-dropdown-item, .back-link, .header-logo,
+.user-profile-trigger, .user-dropdown-item, .dropdown-profile-item, .back-link, .header-logo,
 #btn-login-trigger, #btn-logout, #detail-favorite-btn, #detail-trailer-btn,
 .play-btn, .next-btn, .back-btn, #trailer-close-btn) {
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4.5,1.5 L19.5,10.5 L12,12 L10.5,19.5 Z' fill='%23ff334b' stroke='%23ffffff' stroke-width='1.5' stroke-linejoin='miter'/%3E%3C/svg%3E") 4 1, pointer !important;
@@ -2072,6 +2072,10 @@ button, input, select {
 }
 
 /* User Account Dropdown Hover styling */
+.dropdown-profile-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .user-dropdown-item:hover {
   background: rgba(255, 255, 255, 0.05);
 }
