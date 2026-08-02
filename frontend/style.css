@@ -10,9 +10,9 @@
   --surface-glass: rgba(18, 22, 32, 0.7);
   --border-color: rgba(255, 255, 255, 0.08);
   
-  --accent-color: #ff6b00; /* Crunchyroll Orange */
-  --accent-hover: #e05e00;
-  --accent-glow: rgba(255, 107, 0, 0.35);
+  --accent-color: #a855f7; /* Electric Violet */
+  --accent-hover: #c084fc;
+  --accent-glow: rgba(168, 85, 247, 0.35);
   
   --text-main: #f5f6f8;
   --text-muted: #9ba3b2;
@@ -42,11 +42,11 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4.5,1.5 L19.5,10.5 L12,12 L10.5,19.5 Z' fill='%23ff6b00' stroke='%23ffffff' stroke-width='1.5' stroke-linejoin='miter'/%3E%3C/svg%3E") 4 1, auto;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4.5,1.5 L19.5,10.5 L12,12 L10.5,19.5 Z' fill='%23a855f7' stroke='%23ffffff' stroke-width='1.5' stroke-linejoin='miter'/%3E%3C/svg%3E") 4 1, auto;
 }
 
 html {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4.5,1.5 L19.5,10.5 L12,12 L10.5,19.5 Z' fill='%23ff6b00' stroke='%23ffffff' stroke-width='1.5' stroke-linejoin='miter'/%3E%3C/svg%3E") 4 1, auto;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4.5,1.5 L19.5,10.5 L12,12 L10.5,19.5 Z' fill='%23a855f7' stroke='%23ffffff' stroke-width='1.5' stroke-linejoin='miter'/%3E%3C/svg%3E") 4 1, auto;
 }
 
 :where(a, button, select, input[type="submit"], input[type="button"], 
@@ -55,7 +55,7 @@ html {
 .user-profile-trigger, .user-dropdown-item, .dropdown-profile-item, .back-link, .header-logo,
 #btn-login-trigger, #btn-logout, #detail-favorite-btn, #detail-trailer-btn,
 .play-btn, .next-btn, .back-btn, #trailer-close-btn) {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4.5,1.5 L19.5,10.5 L12,12 L10.5,19.5 Z' fill='%23ff334b' stroke='%23ffffff' stroke-width='1.5' stroke-linejoin='miter'/%3E%3C/svg%3E") 4 1, pointer !important;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4.5,1.5 L19.5,10.5 L12,12 L10.5,19.5 Z' fill='%23c084fc' stroke='%23ffffff' stroke-width='1.5' stroke-linejoin='miter'/%3E%3C/svg%3E") 4 1, pointer !important;
 }
 
 @media (pointer: fine) {
