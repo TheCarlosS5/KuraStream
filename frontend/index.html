@@ -95,6 +95,39 @@
   <!-- Views Container -->
   <main class="views-container">
 
+    <!-- LANDING VIEW -->
+    <section id="landing-view" class="app-view">
+      <header class="landing-header" style="display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 50px;">
+        <div class="landing-logo" style="display: flex; align-items: center; gap: 10px;">
+          <img src="/library/logo.png" alt="KuraStream Logo" onerror="this.style.display='none'; document.getElementById('landing-fallback-logo').style.display='flex';" style="height: 40px; width: auto; object-fit: contain;">
+          <div id="landing-fallback-logo" style="display: none; align-items: center; gap: 8px; font-family: var(--font-title); font-size: 1.5rem; font-weight: 800;">
+            <span class="logo-icon">蔵</span>
+            <span class="logo-text" style="color: var(--text-main);">Kura<span style="color: var(--accent-color);">Stream</span></span>
+          </div>
+        </div>
+        <button id="landing-signin-btn" class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; background: rgba(255,255,255,0.05); border-color: var(--border-color);">
+          Iniciar Sesión
+        </button>
+      </header>
+
+      <div class="landing-hero" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 60px 20px; max-width: 800px; margin: 0 auto;">
+        <h1 class="landing-hero-title" style="font-family: var(--font-title); font-size: 3.5rem; font-weight: 800; line-height: 1.15; margin-bottom: 20px; color: var(--text-main);">
+          Entretenimiento sin límites, <span style="color: var(--accent-color);">donde quieras</span>
+        </h1>
+        <p class="landing-hero-subtitle" style="font-size: 1.25rem; color: var(--text-muted); margin-bottom: 40px; line-height: 1.6;">
+          Tu centro de streaming local y offline preferido. Disfruta de películas, series, anime y chat en tiempo real sin necesidad de Internet.
+        </p>
+        <div class="landing-cta-container" style="display: flex; gap: 20px; flex-wrap: wrap; justify-content: center;">
+          <button id="landing-cta-start" class="btn btn-primary" style="padding: 14px 28px; font-size: 1rem; font-weight: 600;">
+            Comenzar Ahora
+          </button>
+          <button id="landing-cta-info" class="btn btn-secondary" style="padding: 14px 28px; font-size: 1rem; font-weight: 600; background: rgba(255,255,255,0.05); border-color: var(--border-color);">
+            Saber Más
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- PROFILE SWITCHER VIEW -->
     <section id="profile-switcher-view" class="app-view">
       <div class="profile-switcher-container" style="text-align: center;">

@@ -176,17 +176,25 @@ function setupRouter() {
     const sessionStr = localStorage.getItem('kura_user_session');
     if (!sessionStr) {
       document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
-      const loginModal = document.getElementById('login-modal');
-      if (loginModal) loginModal.classList.add('lockout');
+      const landingView = document.getElementById('landing-view');
+      if (landingView) landingView.classList.add('active');
+      const mainHeader = document.querySelector('.app-header');
+      if (mainHeader) mainHeader.style.display = 'none';
       return;
     }
 
     const hash = window.location.hash || '#/';
+
+    // Default main header visibility for logged-in users
+    const mainHeader = document.querySelector('.app-header');
+    if (mainHeader && !hash.startsWith('#/player/')) {
+      mainHeader.style.display = 'flex';
+    }
     
     // Stop player when leaving player view
     if (currentView === 'player') {
       destroyPlayer();
-      document.querySelector('.app-header').style.display = 'flex';
+      if (mainHeader) mainHeader.style.display = 'flex';
     }
 
     // Stop intervals when leaving admin view
@@ -312,6 +320,45 @@ function setupRouter() {
       }
     }
   };
+
+  // Click listeners for landing page buttons to trigger #login-modal
+  const landingSigninBtn = document.getElementById('landing-signin-btn');
+  const landingCtaStart = document.getElementById('landing-cta-start');
+  const loginModal = document.getElementById('login-modal');
+
+  if (landingSigninBtn && loginModal) {
+    landingSigninBtn.addEventListener('click', () => {
+      loginModal.style.display = 'flex';
+      // Reset form fields
+      const usernameInput = document.getElementById('login-username-input');
+      const passwordInput = document.getElementById('login-password-input');
+      const errorMsg = document.getElementById('login-error-msg');
+      if (usernameInput) usernameInput.value = '';
+      if (passwordInput) passwordInput.value = '';
+      if (errorMsg) errorMsg.style.display = 'none';
+      
+      // Select the login tab
+      const tabLogin = document.getElementById('tab-login');
+      if (tabLogin) tabLogin.click();
+    });
+  }
+
+  if (landingCtaStart && loginModal) {
+    landingCtaStart.addEventListener('click', () => {
+      loginModal.style.display = 'flex';
+      // Reset form fields
+      const usernameInput = document.getElementById('login-username-input');
+      const passwordInput = document.getElementById('login-password-input');
+      const errorMsg = document.getElementById('login-error-msg');
+      if (usernameInput) usernameInput.value = '';
+      if (passwordInput) passwordInput.value = '';
+      if (errorMsg) errorMsg.style.display = 'none';
+
+      // Select the register tab (since CTA is "Comenzar Ahora")
+      const tabRegister = document.getElementById('tab-register');
+      if (tabRegister) tabRegister.click();
+    });
+  }
 
   window.addEventListener('hashchange', handleRoute);
   handleRoute(); // Run initially
@@ -2294,12 +2341,7 @@ function setupUserAuth() {
 
   // Load session from localStorage
   const sessionStr = localStorage.getItem('kura_user_session');
-  if (!sessionStr) {
-    if (loginModal) {
-      loginModal.classList.add('lockout');
-      loginModal.style.display = 'flex';
-    }
-  }
+  // With the landing page enabled, we do not automatically show the login modal on startup if there is no session
 
   if (sessionStr) {
     try {
