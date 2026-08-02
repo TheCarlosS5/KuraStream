@@ -3037,6 +3037,8 @@ function initCustomCursor() {
 // --- PROFILE SWITCHER LOGIC ---
 let isProfileManagementMode = false;
 let currentProfileSession = null;
+let customAvatarBase64 = null;
+let currentEditingProfileColor = null;
 const colorsMap = {
   Purple: '#9d00ff',
   Green: '#00e08f',
@@ -3084,11 +3086,19 @@ function checkAndShowProfileSwitcher() {
 function applyProfileUI(decoded) {
   const userAvatarInitial = document.getElementById('user-avatar-initial');
   if (userAvatarInitial && decoded.profile_name) {
-    userAvatarInitial.textContent = decoded.profile_name.charAt(0).toUpperCase();
-    if (decoded.profile_color) {
-      userAvatarInitial.style.background = decoded.profile_color;
-      userAvatarInitial.style.boxShadow = `0 0 10px ${decoded.profile_color}80`;
+    const color = decoded.profile_color || '#a855f7';
+    const isImg = color.startsWith('/');
+    if (isImg) {
+      userAvatarInitial.textContent = '';
+      userAvatarInitial.style.backgroundImage = `url('${color}')`;
+      userAvatarInitial.style.backgroundSize = 'cover';
+      userAvatarInitial.style.backgroundPosition = 'center';
+    } else {
+      userAvatarInitial.textContent = decoded.profile_name.charAt(0).toUpperCase();
+      userAvatarInitial.style.backgroundImage = 'none';
+      userAvatarInitial.style.background = color;
     }
+    userAvatarInitial.style.boxShadow = isImg ? 'none' : `0 0 10px ${color}80`;
   }
 }
 
@@ -3124,9 +3134,15 @@ function renderProfiles(profiles) {
     const hasPin = !!p.pin;
     const lockIconHTML = hasPin ? `<div class="profile-lock-indicator" style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;"><i data-lucide="lock" style="width: 12px; height: 12px; color: #fff;"></i></div>` : '';
 
+    const isImg = color.startsWith('/');
+    const bgStyle = isImg 
+      ? `background-image: url('${color}'); background-size: cover; background-position: center;`
+      : `background: ${color};`;
+    const avatarText = isImg ? '' : name.charAt(0).toUpperCase();
+
     card.innerHTML = `
-      <div class="profile-avatar" style="background: ${color}; position: relative; box-shadow: 0 10px 20px rgba(0,0,0,0.4);" data-color="${color}">
-        ${name.charAt(0).toUpperCase()}
+      <div class="profile-avatar" style="${bgStyle} position: relative; box-shadow: 0 10px 20px rgba(0,0,0,0.4);" data-color="${color}">
+        ${avatarText}
         ${lockIconHTML}
       </div>
       <div class="profile-name">${name}</div>
@@ -3134,7 +3150,7 @@ function renderProfiles(profiles) {
     
     // Add dynamic hover shadow
     card.addEventListener('mouseenter', () => {
-      card.querySelector('.profile-avatar').style.boxShadow = `0 0 30px ${color}`;
+      card.querySelector('.profile-avatar').style.boxShadow = isImg ? '0 0 30px rgba(255,255,255,0.4)' : `0 0 30px ${color}`;
     });
     card.addEventListener('mouseleave', () => {
       card.querySelector('.profile-avatar').style.boxShadow = `0 10px 20px rgba(0,0,0,0.4)`;
@@ -3230,6 +3246,9 @@ function openPinModal(profile) {
 }
 
 function openProfileEditModal(profile) {
+  customAvatarBase64 = null;
+  currentEditingProfileColor = profile ? (profile.avatar_color || null) : null;
+
   const modal = document.getElementById('profile-edit-modal');
   const title = document.getElementById('profile-edit-title');
   const nameInput = document.getElementById('profile-name-input');
@@ -3237,7 +3256,45 @@ function openProfileEditModal(profile) {
   const pinInput = document.getElementById('profile-pin-input');
   const delBtn = document.getElementById('btn-delete-profile');
   const errEl = document.getElementById('profile-edit-error');
-  
+  const avatarPreview = document.getElementById('profile-edit-avatar');
+  const fileInput = document.getElementById('profile-avatar-file-input');
+  const uploadBtn = document.getElementById('btn-upload-avatar');
+
+  if (fileInput) fileInput.value = '';
+
+  if (uploadBtn && fileInput) {
+    uploadBtn.onclick = () => fileInput.click();
+    fileInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 200;
+          canvas.height = 200;
+          const ctx = canvas.getContext('2d');
+          const size = Math.min(img.width, img.height);
+          const sx = (img.width - size) / 2;
+          const sy = (img.height - size) / 2;
+          ctx.drawImage(img, sx, sy, size, size, 0, 0, 200, 200);
+          customAvatarBase64 = canvas.toDataURL('image/jpeg', 0.8);
+          avatarPreview.style.background = `url('${customAvatarBase64}')`;
+          avatarPreview.style.backgroundSize = 'cover';
+          avatarPreview.style.backgroundPosition = 'center';
+          avatarPreview.textContent = '';
+          document.querySelectorAll('.color-swatch').forEach(s => {
+            s.classList.remove('active');
+            s.style.borderColor = 'transparent';
+          });
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    };
+  }
+
   errEl.style.display = 'none';
   
   if (profile) {
@@ -3249,16 +3306,24 @@ function openProfileEditModal(profile) {
     pinInput.value = profile.pin || '';
     delBtn.style.display = 'block';
     
-    // Select color swatch
+    const color = profile.avatar_color || '#a855f7';
     document.querySelectorAll('.color-swatch').forEach(s => {
       s.classList.remove('active');
       s.style.borderColor = 'transparent';
-      if (colorsMap[s.dataset.color] === profile.avatar_color) {
+      if (colorsMap[s.dataset.color] === color) {
         s.classList.add('active');
         s.style.borderColor = '#fff';
       }
     });
-    updateAvatarPreview();
+
+    if (color.startsWith('/')) {
+      avatarPreview.style.background = `url('${color}')`;
+      avatarPreview.style.backgroundSize = 'cover';
+      avatarPreview.style.backgroundPosition = 'center';
+      avatarPreview.textContent = '';
+    } else {
+      updateAvatarPreview();
+    }
   } else {
     title.textContent = 'Agregar Perfil';
     nameInput.value = '';
@@ -3289,6 +3354,14 @@ function updateAvatarPreview() {
   const activeSwatch = document.querySelector('.color-swatch.active');
   const color = activeSwatch ? colorsMap[activeSwatch.dataset.color] : '#9d00ff';
   
+  if (customAvatarBase64) {
+    avatar.style.background = `url('${customAvatarBase64}')`;
+    avatar.style.backgroundSize = 'cover';
+    avatar.style.backgroundPosition = 'center';
+    avatar.textContent = '';
+    return;
+  }
+
   avatar.textContent = name ? name.charAt(0).toUpperCase() : '?';
   avatar.style.background = color;
 }
@@ -3322,6 +3395,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   document.querySelectorAll('.color-swatch').forEach(s => {
     s.addEventListener('click', () => {
+      customAvatarBase64 = null;
       document.querySelectorAll('.color-swatch').forEach(el => {
         el.classList.remove('active');
         el.style.borderColor = 'transparent';
@@ -3347,7 +3421,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const isKids = document.getElementById('profile-kids-input').checked;
     const pin = document.getElementById('profile-pin-input').value;
     const activeSwatch = document.querySelector('.color-swatch.active');
-    const color = activeSwatch ? colorsMap[activeSwatch.dataset.color] : '#9d00ff';
+    let color = activeSwatch ? colorsMap[activeSwatch.dataset.color] : '#9d00ff';
+    if (!activeSwatch && currentEditingProfileColor) {
+      color = currentEditingProfileColor;
+    }
     const errEl = document.getElementById('profile-edit-error');
     
     if (!name) {
@@ -3364,7 +3441,8 @@ document.addEventListener('DOMContentLoaded', () => {
       profile_name: name,
       avatar_color: color,
       is_kids: isKids,
-      pin: pin || null
+      pin: pin || null,
+      avatar_image: customAvatarBase64
     };
 
     try {

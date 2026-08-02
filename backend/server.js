@@ -688,7 +688,7 @@ const server = http.createServer(async (req, res) => {
     if (!user) return;
     const body = await readJsonBody(req, res);
     if (!body) return;
-    const { profile_name, avatar_color, is_kids, pin } = body;
+    const { profile_name, avatar_color, is_kids, pin, avatar_image } = body;
 
     if (typeof profile_name !== 'string' || profile_name.trim() === '' || profile_name.length > 25) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -699,11 +699,25 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ success: false, message: 'Invalid PIN: must be 4 digits' }));
     }
 
+    let finalAvatarColor = avatar_color;
+
+    if (avatar_image && avatar_image.startsWith('data:image/')) {
+      const base64Data = avatar_image.split(';base64,').pop();
+      const filename = `${user.username}_${profile_name.replace(/\s+/g, '_')}_${Date.now()}.jpg`;
+      const avatarsDir = path.resolve(__dirname, '..', 'library', 'avatars');
+      if (!fs.existsSync(avatarsDir)) {
+        fs.mkdirSync(avatarsDir, { recursive: true });
+      }
+      const filePath = path.join(avatarsDir, filename);
+      fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+      finalAvatarColor = `/library/avatars/${filename}`;
+    }
+
     try {
       dbHelper.createProfile({
         username: user.username,
         profile_name,
-        avatar_color,
+        avatar_color: finalAvatarColor,
         is_kids,
         pin
       });
@@ -765,18 +779,32 @@ const server = http.createServer(async (req, res) => {
 
     const body = await readJsonBody(req, res);
     if (!body) return;
-    const { avatar_color, is_kids, pin } = body;
+    const { avatar_color, is_kids, pin, avatar_image } = body;
 
     if (pin && (typeof pin !== 'string' || !/^\d{4}$/.test(pin))) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, message: 'Invalid PIN: must be 4 digits' }));
     }
 
+    let finalAvatarColor = avatar_color;
+
+    if (avatar_image && avatar_image.startsWith('data:image/')) {
+      const base64Data = avatar_image.split(';base64,').pop();
+      const filename = `${user.username}_${profile_name.replace(/\s+/g, '_')}_${Date.now()}.jpg`;
+      const avatarsDir = path.resolve(__dirname, '..', 'library', 'avatars');
+      if (!fs.existsSync(avatarsDir)) {
+        fs.mkdirSync(avatarsDir, { recursive: true });
+      }
+      const filePath = path.join(avatarsDir, filename);
+      fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+      finalAvatarColor = `/library/avatars/${filename}`;
+    }
+
     try {
       dbHelper.updateProfile({
         username: user.username,
         profile_name,
-        avatar_color,
+        avatar_color: finalAvatarColor,
         is_kids,
         pin
       });

@@ -15,6 +15,7 @@ test('Profiles API Integration Tests', async (t) => {
   const testPort = '3097';
   const serverUrl = `http://localhost:${testPort}`;
 
+  const origDbPath = process.env.DB_PATH;
   const testDbPath = path.join(__dirname, '../backend/kurastream_test_profiles.db');
   process.env.DB_PATH = testDbPath;
   const { dbHelper, runMigrations, db } = await import(`../backend/db.js?bust=${Date.now()}_${Math.random()}`);
@@ -140,6 +141,37 @@ test('Profiles API Integration Tests', async (t) => {
     assert.strictEqual(payload.profile_name, profileName);
     assert.strictEqual(payload.is_kids, false);
 
+    // 6b. Test uploading custom avatar base64 image (POST /api/profiles)
+    const customAvatarName = `Avatar_${Date.now()}`;
+    const dummyBase64Image = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP8AAQFR';
+    const customAvatarRes = await fetch(`${serverUrl}/api/profiles`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        profile_name: customAvatarName,
+        avatar_color: '#a855f7',
+        avatar_image: dummyBase64Image
+      })
+    });
+    const customAvatarData = await customAvatarRes.json();
+    assert.strictEqual(customAvatarData.success, true, `Failed to create profile with avatar_image: ${JSON.stringify(customAvatarData)}`);
+
+    const listCustomRes = await fetch(`${serverUrl}/api/profiles`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const listCustomData = await listCustomRes.json();
+    const customProfile = listCustomData.profiles.find(p => p.profile_name === customAvatarName);
+    assert.ok(customProfile, 'Custom avatar profile not found');
+    assert.ok(customProfile.avatar_color.startsWith('/library/avatars/'), 'Avatar color should be /library/avatars/ path');
+
+    const createdAvatarFile = path.resolve(__dirname, '..', customProfile.avatar_color.slice(1));
+    assert.ok(fs.existsSync(createdAvatarFile), 'Avatar image file should exist on disk');
+    try { fs.unlinkSync(createdAvatarFile); } catch(e){}
+
     // 7. Delete a profile (DELETE /api/profiles/:profile_name)
     const delRes = await fetch(`${serverUrl}/api/profiles/${profileName}`, {
       method: 'DELETE',
@@ -158,10 +190,12 @@ test('Profiles API Integration Tests', async (t) => {
     assert.strictEqual(deletedProfile, undefined, 'Profile should have been deleted');
 
   } finally {
+    if (origDbPath !== undefined) process.env.DB_PATH = origDbPath;
+    else delete process.env.DB_PATH;
     serverProcess.kill();
-    try { fs.unlinkSync(process.env.DB_PATH); } catch(e){}
-    try { fs.unlinkSync(process.env.DB_PATH + '-journal'); } catch(e){}
-    try { fs.unlinkSync(process.env.DB_PATH + '-shm'); } catch(e){}
-    try { fs.unlinkSync(process.env.DB_PATH + '-wal'); } catch(e){}
+    try { fs.unlinkSync(testDbPath); } catch(e){}
+    try { fs.unlinkSync(testDbPath + '-journal'); } catch(e){}
+    try { fs.unlinkSync(testDbPath + '-shm'); } catch(e){}
+    try { fs.unlinkSync(testDbPath + '-wal'); } catch(e){}
   }
 });
