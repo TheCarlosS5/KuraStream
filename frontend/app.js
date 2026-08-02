@@ -3109,6 +3109,7 @@ function initCustomCursor() {
 let isProfileManagementMode = false;
 let currentProfileSession = null;
 let customAvatarBase64 = null;
+let selectedPresetPath = null;
 let currentEditingProfileColor = null;
 const colorsMap = {
   Purple: '#9d00ff',
@@ -3358,6 +3359,7 @@ function openPinModal(profile) {
 
 function openProfileEditModal(profile) {
   customAvatarBase64 = null;
+  selectedPresetPath = null;
   currentEditingProfileColor = profile ? (profile.avatar_color || null) : null;
 
   const modal = document.getElementById('profile-edit-modal');
@@ -3391,6 +3393,10 @@ function openProfileEditModal(profile) {
           const sy = (img.height - size) / 2;
           ctx.drawImage(img, sx, sy, size, size, 0, 0, 200, 200);
           customAvatarBase64 = canvas.toDataURL('image/jpeg', 0.8);
+          selectedPresetPath = null;
+          document.querySelectorAll('.preset-avatar-option').forEach(opt => {
+            opt.style.borderColor = 'transparent';
+          });
           avatarPreview.style.background = `url('${customAvatarBase64}')`;
           avatarPreview.style.backgroundSize = 'cover';
           avatarPreview.style.backgroundPosition = 'center';
@@ -3408,6 +3414,10 @@ function openProfileEditModal(profile) {
 
   errEl.style.display = 'none';
   
+  document.querySelectorAll('.preset-avatar-option').forEach(opt => {
+    opt.style.borderColor = 'transparent';
+  });
+
   if (profile) {
     title.textContent = 'Editar Perfil';
     nameInput.value = profile.profile_name;
@@ -3424,6 +3434,13 @@ function openProfileEditModal(profile) {
       if (colorsMap[s.dataset.color] === color) {
         s.classList.add('active');
         s.style.borderColor = '#fff';
+      }
+    });
+
+    document.querySelectorAll('.preset-avatar-option').forEach(opt => {
+      if (opt.dataset.preset === color) {
+        opt.style.borderColor = 'var(--accent-color)';
+        selectedPresetPath = color;
       }
     });
 
@@ -3472,6 +3489,14 @@ function updateAvatarPreview() {
     avatar.textContent = '';
     return;
   }
+  
+  if (selectedPresetPath) {
+    avatar.style.background = `url('${selectedPresetPath}')`;
+    avatar.style.backgroundSize = 'cover';
+    avatar.style.backgroundPosition = 'center';
+    avatar.textContent = '';
+    return;
+  }
 
   avatar.textContent = name ? name.charAt(0).toUpperCase() : '?';
   avatar.style.background = color;
@@ -3507,12 +3532,32 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.color-swatch').forEach(s => {
     s.addEventListener('click', () => {
       customAvatarBase64 = null;
+      selectedPresetPath = null;
+      document.querySelectorAll('.preset-avatar-option').forEach(opt => {
+        opt.style.borderColor = 'transparent';
+      });
       document.querySelectorAll('.color-swatch').forEach(el => {
         el.classList.remove('active');
         el.style.borderColor = 'transparent';
       });
       s.classList.add('active');
       s.style.borderColor = '#fff';
+      updateAvatarPreview();
+    });
+  });
+
+  document.querySelectorAll('.preset-avatar-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      customAvatarBase64 = null;
+      selectedPresetPath = opt.dataset.preset;
+      document.querySelectorAll('.color-swatch').forEach(el => {
+        el.classList.remove('active');
+        el.style.borderColor = 'transparent';
+      });
+      document.querySelectorAll('.preset-avatar-option').forEach(el => {
+        el.style.borderColor = 'transparent';
+      });
+      opt.style.borderColor = 'var(--accent-color)';
       updateAvatarPreview();
     });
   });
@@ -3535,6 +3580,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let color = activeSwatch ? colorsMap[activeSwatch.dataset.color] : '#9d00ff';
     if (!activeSwatch && currentEditingProfileColor) {
       color = currentEditingProfileColor;
+    }
+    if (selectedPresetPath) {
+      color = selectedPresetPath;
     }
     const errEl = document.getElementById('profile-edit-error');
     
