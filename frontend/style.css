@@ -2512,3 +2512,41 @@ button, input, select {
   border-color: var(--accent-color) !important;
   box-shadow: 0 0 10px var(--accent-glow);
 }
+
+/* Netflix-style Profile Selection Animations */
+.profile-grid.animating .profile-card:not(.selected) {
+  opacity: 0 !important;
+  transform: scale(0.8) !important;
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.profile-grid.animating #btn-manage-profiles,
+.profile-grid.animating .switcher-title,
+.profile-grid.animating ~ #btn-manage-profiles,
+.profile-switcher-container:has(.profile-grid.animating) .switcher-title {
+  opacity: 0 !important;
+  transition: opacity 0.5s ease;
+}
+.profile-card.selected .profile-avatar {
+  transform: scale(1.25);
+  border-color: #fff !important;
+  box-shadow: 0 0 40px rgba(255, 255, 255, 0.4) !important;
+  transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.netflix-loader {
+  display: none;
+  position: absolute;
+  top: 55%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 50px;
+  height: 50px;
+  border: 3px solid rgba(255, 255, 255, 0.05);
+  border-top-color: var(--accent-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  z-index: 10005;
+}
+@keyframes spin {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+

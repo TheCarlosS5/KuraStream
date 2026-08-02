@@ -3205,7 +3205,25 @@ async function selectProfile(profileName, pin) {
     if (res.ok) {
       session.token = data.token;
       localStorage.setItem('kura_user_session', JSON.stringify(session));
-      document.getElementById('pin-entry-modal').style.display = 'none';
+      const pinModal = document.getElementById('pin-entry-modal');
+      if (pinModal) pinModal.style.display = 'none';
+      
+      const grid = document.getElementById('profile-grid');
+      if (grid) {
+        grid.classList.add('animating');
+        const selectedCard = Array.from(grid.querySelectorAll('.profile-card')).find(c => {
+          const nameEl = c.querySelector('.profile-name');
+          return nameEl && nameEl.textContent === profileName;
+        });
+        if (selectedCard) {
+          selectedCard.classList.add('selected');
+        }
+      }
+      const loader = document.getElementById('profile-netflix-loader');
+      if (loader) loader.style.display = 'block';
+      
+      // Wait 1.2s for transition to complete before reloading
+      await new Promise(r => setTimeout(r, 1200));
       window.location.reload();
     } else {
       const errEl = document.getElementById('pin-entry-error');
