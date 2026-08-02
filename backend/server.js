@@ -551,7 +551,16 @@ const server = http.createServer(async (req, res) => {
   if (pathname.startsWith('/api/progress/') && req.method === 'GET') {
     const episodeId = pathname.split('/').pop();
     const username = parsedUrl.searchParams.get('username') || 'guest';
-    const progress = dbHelper.getWatchProgress(username, episodeId);
+    let profileName = 'Principal';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token);
+      if (payload && payload.profile_name) {
+        profileName = payload.profile_name;
+      }
+    }
+    const progress = dbHelper.getWatchProgress(username, episodeId, profileName);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ progress }));
   }
@@ -562,8 +571,17 @@ const server = http.createServer(async (req, res) => {
     if (!body) return;
 
     const { progress, username = 'guest' } = body;
+    let profileName = 'Principal';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token);
+      if (payload && payload.profile_name) {
+        profileName = payload.profile_name;
+      }
+    }
     try {
-      dbHelper.saveWatchProgress(username, episodeId, progress);
+      dbHelper.saveWatchProgress(username, episodeId, progress, profileName);
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al guardar el progreso' }));
@@ -576,7 +594,16 @@ const server = http.createServer(async (req, res) => {
   // Get recently watched history
   if (pathname === '/api/history' && req.method === 'GET') {
     const username = parsedUrl.searchParams.get('username') || 'guest';
-    const history = dbHelper.getHistory(username);
+    let profileName = 'Principal';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token);
+      if (payload && payload.profile_name) {
+        profileName = payload.profile_name;
+      }
+    }
+    const history = dbHelper.getHistory(username, profileName);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(history));
   }
@@ -584,7 +611,16 @@ const server = http.createServer(async (req, res) => {
   // Favorites (My List) routes
   if (pathname === '/api/favorites' && req.method === 'GET') {
     const username = parsedUrl.searchParams.get('username') || 'guest';
-    const favorites = dbHelper.getFavorites(username);
+    let profileName = 'Principal';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token);
+      if (payload && payload.profile_name) {
+        profileName = payload.profile_name;
+      }
+    }
+    const favorites = dbHelper.getFavorites(username, profileName);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(favorites));
   }
@@ -592,7 +628,16 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/favorites/check' && req.method === 'GET') {
     const username = parsedUrl.searchParams.get('username') || 'guest';
     const showId = parsedUrl.searchParams.get('showId');
-    const isFav = dbHelper.isFavorite(username, showId);
+    let profileName = 'Principal';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token);
+      if (payload && payload.profile_name) {
+        profileName = payload.profile_name;
+      }
+    }
+    const isFav = dbHelper.isFavorite(username, showId, profileName);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ isFavorite: isFav }));
   }
@@ -602,8 +647,17 @@ const server = http.createServer(async (req, res) => {
     if (!body) return;
 
     const { username, showId, isFavorite } = body;
+    let profileName = 'Principal';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token);
+      if (payload && payload.profile_name) {
+        profileName = payload.profile_name;
+      }
+    }
     try {
-      dbHelper.toggleFavorite(username || 'guest', showId, isFavorite);
+      dbHelper.toggleFavorite(username || 'guest', showId, isFavorite, profileName);
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: 'Database Error', message: 'Error al actualizar favoritos' }));
@@ -687,7 +741,8 @@ const server = http.createServer(async (req, res) => {
         username: user.username,
         profile_name: profile.profile_name,
         role: user.role,
-        is_kids: !!profile.is_kids
+        is_kids: !!profile.is_kids,
+        profile_color: profile.avatar_color
       });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, token, profile }));

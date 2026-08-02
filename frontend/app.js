@@ -9,15 +9,23 @@ window.fetch = function(input, options = {}) {
     url = input.toString();
   }
   
-  const method = (input instanceof Request ? input.method : options.method) || 'GET';
-  const isTarget = typeof url === 'string' && (
-    url.includes('/api/admin/') || 
-    url.includes('/api/import') || 
-    (url.includes('/api/shows/') && method.toUpperCase() === 'DELETE')
-  );
+  const urlStr = typeof url === 'string' ? url : '';
+  const isApiTarget = urlStr.includes('/api/');
   
-  if (isTarget) {
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('kura_admin_token');
+  if (isApiTarget) {
+    // Determine active token (user session token or fallback to admin token)
+    const sessionStr = localStorage.getItem('kura_user_session');
+    let token = null;
+    if (sessionStr) {
+      try {
+        const session = JSON.parse(sessionStr);
+        token = session ? session.token : null;
+      } catch(e) {}
+    }
+    if (!token) {
+      token = localStorage.getItem('adminToken') || localStorage.getItem('kura_admin_token');
+    }
+
     if (token) {
       if (input instanceof Request) {
         input.headers.set('Authorization', `Bearer ${token}`);
@@ -2452,7 +2460,6 @@ function updateUserInterface(session) {
     if (loginTrigger) loginTrigger.style.display = 'none';
     if (userProfileMenu) userProfileMenu.style.display = 'block';
     if (userProfileName) userProfileName.textContent = session.username;
-    if (userAvatarInitial) userAvatarInitial.textContent = session.username[0].toUpperCase();
     
     // Set token for admin panel auth checks
     if (session.role === 'admin') {
@@ -2467,8 +2474,15 @@ function updateUserInterface(session) {
     if (userProfileMenu) userProfileMenu.style.display = 'none';
     if (adminDirectBtn) adminDirectBtn.style.display = 'none';
     localStorage.removeItem('kura_admin_token');
+    
+    // Hide profile switcher and show dashboard when logging out
+    const switcher = document.getElementById('profile-switcher-view');
+    if (switcher) switcher.classList.remove('active');
+    const dashboard = document.getElementById('dashboard-view');
+    if (dashboard) dashboard.classList.add('active');
   }
   if (typeof lucide !== 'undefined') lucide.createIcons();
+}
   
   if (typeof checkAndShowProfileSwitcher === 'function') {
     checkAndShowProfileSwitcher();
@@ -3012,7 +3026,12 @@ const colorsMap = {
 
 function getDecodedToken(token) {
   try {
-    return JSON.parse(atob(token.split('.')[1]));
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(c => {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    return JSON.parse(jsonPayload);
   } catch(e) {
     return null;
   }
@@ -3020,7 +3039,11 @@ function getDecodedToken(token) {
 
 function checkAndShowProfileSwitcher() {
   const sessionStr = localStorage.getItem('kura_user_session');
-  if (!sessionStr) return; // not logged in
+  if (!sessionStr) {
+    // If not logged in, ensure we are not stuck in profile switcher
+    document.getElementById('profile-switcher-view').classList.remove('active');
+    return;
+  }
   
   const session = JSON.parse(sessionStr);
   if (!session || !session.token) return;
@@ -3057,8 +3080,10 @@ async function loadProfilesView() {
       headers: { 'Authorization': `Bearer ${session.token}` }
     });
     if (!res.ok) throw new Error('Failed to load profiles');
-    const profiles = await res.json();
-    renderProfiles(profiles);
+    const data = await res.json();
+    if (data && data.success) {
+      renderProfiles(data.profiles);
+    }
   } catch(err) {
     console.error(err);
   }
@@ -3069,18 +3094,26 @@ function renderProfiles(profiles) {
   grid.innerHTML = '';
   
   profiles.forEach(p => {
+    const color = p.avatar_color || '#a855f7';
+    const name = p.profile_name || 'Principal';
     const card = document.createElement('div');
     card.className = 'profile-card' + (isProfileManagementMode ? ' edit-mode' : '');
+    
+    // Check if it has PIN
+    const hasPin = !!p.pin;
+    const lockIconHTML = hasPin ? `<div class="profile-lock-indicator" style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;"><i data-lucide="lock" style="width: 12px; height: 12px; color: #fff;"></i></div>` : '';
+
     card.innerHTML = `
-      <div class="profile-avatar" style="background: ${p.color}; box-shadow: 0 10px 20px rgba(0,0,0,0.4);" data-color="${p.color}">
-        ${p.name.charAt(0).toUpperCase()}
+      <div class="profile-avatar" style="background: ${color}; position: relative; box-shadow: 0 10px 20px rgba(0,0,0,0.4);" data-color="${color}">
+        ${name.charAt(0).toUpperCase()}
+        ${lockIconHTML}
       </div>
-      <div class="profile-name">${p.name}</div>
+      <div class="profile-name">${name}</div>
     `;
     
     // Add dynamic hover shadow
     card.addEventListener('mouseenter', () => {
-      card.querySelector('.profile-avatar').style.boxShadow = `0 0 30px ${p.color}`;
+      card.querySelector('.profile-avatar').style.boxShadow = `0 0 30px ${color}`;
     });
     card.addEventListener('mouseleave', () => {
       card.querySelector('.profile-avatar').style.boxShadow = `0 10px 20px rgba(0,0,0,0.4)`;
@@ -3090,14 +3123,17 @@ function renderProfiles(profiles) {
       if (isProfileManagementMode) {
         openProfileEditModal(p);
       } else {
-        if (p.has_pin) {
+        if (hasPin) {
           openPinModal(p);
         } else {
-          selectProfile(p.name, '');
+          selectProfile(name, '');
         }
       }
     });
     grid.appendChild(card);
+    if (hasPin && typeof lucide !== 'undefined') {
+      lucide.createIcons({ root: card });
+    }
   });
   
   if (profiles.length < 5) {
@@ -3137,7 +3173,7 @@ async function selectProfile(profileName, pin) {
     } else {
       const errEl = document.getElementById('pin-entry-error');
       if (errEl) {
-        errEl.textContent = data.error || 'PIN incorrecto';
+        errEl.textContent = data.message || 'PIN incorrecto';
         errEl.style.display = 'block';
       }
     }
@@ -3147,7 +3183,8 @@ async function selectProfile(profileName, pin) {
 }
 
 function openPinModal(profile) {
-  document.getElementById('pin-entry-profile-name').textContent = `Perfil: ${profile.name}`;
+  const name = profile.profile_name;
+  document.getElementById('pin-entry-profile-name').textContent = `Perfil: ${name}`;
   document.getElementById('pin-entry-error').style.display = 'none';
   document.getElementById('pin-entry-modal').style.display = 'flex';
   const digits = document.querySelectorAll('.pin-digit-input');
@@ -3156,10 +3193,11 @@ function openPinModal(profile) {
   // handle auto focus & submit
   digits.forEach((d, idx) => {
     d.oninput = (e) => {
+      d.value = d.value.replace(/\D/g, ''); // only allow digits
       if (d.value && idx < digits.length - 1) digits[idx+1].focus();
       if (idx === digits.length - 1 && d.value) {
         const pin = Array.from(digits).map(el => el.value).join('');
-        if (pin.length === 4) selectProfile(profile.name, pin);
+        if (pin.length === 4) selectProfile(name, pin);
       }
     };
     d.onkeydown = (e) => {
@@ -3183,17 +3221,18 @@ function openProfileEditModal(profile) {
   
   if (profile) {
     title.textContent = 'Editar Perfil';
-    nameInput.value = profile.name;
-    nameInput.dataset.originalName = profile.name;
-    kidsInput.checked = profile.is_kids;
-    pinInput.value = '';
+    nameInput.value = profile.profile_name;
+    nameInput.dataset.originalName = profile.profile_name;
+    nameInput.disabled = true; // Name is primary key, cannot edit it
+    kidsInput.checked = !!profile.is_kids;
+    pinInput.value = profile.pin || '';
     delBtn.style.display = 'block';
     
     // Select color swatch
     document.querySelectorAll('.color-swatch').forEach(s => {
       s.classList.remove('active');
       s.style.borderColor = 'transparent';
-      if (colorsMap[s.dataset.color] === profile.color) {
+      if (colorsMap[s.dataset.color] === profile.avatar_color) {
         s.classList.add('active');
         s.style.borderColor = '#fff';
       }
@@ -3202,6 +3241,7 @@ function openProfileEditModal(profile) {
   } else {
     title.textContent = 'Agregar Perfil';
     nameInput.value = '';
+    nameInput.disabled = false;
     delete nameInput.dataset.originalName;
     kidsInput.checked = false;
     pinInput.value = '';
@@ -3212,8 +3252,10 @@ function openProfileEditModal(profile) {
       s.style.borderColor = 'transparent';
     });
     const firstSwatch = document.querySelector('.color-swatch');
-    firstSwatch.classList.add('active');
-    firstSwatch.style.borderColor = '#fff';
+    if (firstSwatch) {
+      firstSwatch.classList.add('active');
+      firstSwatch.style.borderColor = '#fff';
+    }
     updateAvatarPreview();
   }
   
@@ -3224,7 +3266,7 @@ function updateAvatarPreview() {
   const avatar = document.getElementById('profile-edit-avatar');
   const name = document.getElementById('profile-name-input').value;
   const activeSwatch = document.querySelector('.color-swatch.active');
-  const color = activeSwatch ? colorsMap[activeSwatch.dataset.color] : colorsMap['Purple'];
+  const color = activeSwatch ? colorsMap[activeSwatch.dataset.color] : '#9d00ff';
   
   avatar.textContent = name ? name.charAt(0).toUpperCase() : '?';
   avatar.style.background = color;
@@ -3246,9 +3288,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnSwitchProfile) {
     btnSwitchProfile.addEventListener('click', () => {
       document.getElementById('user-dropdown-card').style.display = 'none';
-      const session = JSON.parse(localStorage.getItem('kura_user_session'));
-      // Optional: you could make an API call to deselect or just clear the token's profile part 
-      // but since the endpoint doesn't exist, we just show the switcher.
       document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
       document.getElementById('profile-switcher-view').classList.add('active');
       isProfileManagementMode = false;
@@ -3287,7 +3326,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const isKids = document.getElementById('profile-kids-input').checked;
     const pin = document.getElementById('profile-pin-input').value;
     const activeSwatch = document.querySelector('.color-swatch.active');
-    const color = activeSwatch ? activeSwatch.dataset.color : 'Purple';
+    const color = activeSwatch ? colorsMap[activeSwatch.dataset.color] : '#9d00ff';
     const errEl = document.getElementById('profile-edit-error');
     
     if (!name) {
@@ -3300,6 +3339,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const method = originalName ? 'PUT' : 'POST';
     const url = originalName ? `/api/profiles/${encodeURIComponent(originalName)}` : '/api/profiles';
     
+    const bodyPayload = {
+      profile_name: name,
+      avatar_color: color,
+      is_kids: isKids,
+      pin: pin || null
+    };
+
     try {
       const res = await fetch(url, {
         method,
@@ -3307,7 +3353,7 @@ document.addEventListener('DOMContentLoaded', () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.token}`
         },
-        body: JSON.stringify({ name, color, is_kids: isKids, pin })
+        body: JSON.stringify(bodyPayload)
       });
       
       if (res.ok) {
@@ -3315,7 +3361,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loadProfilesView();
       } else {
         const data = await res.json();
-        errEl.textContent = data.error || 'Error al guardar el perfil';
+        errEl.textContent = data.message || 'Error al guardar el perfil';
         errEl.style.display = 'block';
       }
     } catch(err) {
@@ -3340,6 +3386,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (res.ok) {
         document.getElementById('profile-edit-modal').style.display = 'none';
         loadProfilesView();
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Error al borrar el perfil');
       }
     } catch(err) {}
   });
@@ -3360,5 +3409,3 @@ window.addEventListener = function(type, listener, options) {
   }
   return originalHandleRouteHook.call(this, type, listener, options);
 };
-
-
