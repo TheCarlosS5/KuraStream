@@ -173,6 +173,14 @@ document.addEventListener('DOMContentLoaded', () => {
 // ROUTER
 function setupRouter() {
   const handleRoute = () => {
+    const sessionStr = localStorage.getItem('kura_user_session');
+    if (!sessionStr) {
+      document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
+      const loginModal = document.getElementById('login-modal');
+      if (loginModal) loginModal.classList.add('lockout');
+      return;
+    }
+
     const hash = window.location.hash || '#/';
     
     // Stop player when leaving player view
@@ -2286,6 +2294,14 @@ function setupUserAuth() {
 
   // Load session from localStorage
   const sessionStr = localStorage.getItem('kura_user_session');
+  const loginModal = document.getElementById('login-modal');
+  if (!sessionStr) {
+    if (loginModal) {
+      loginModal.classList.add('lockout');
+      loginModal.style.display = 'flex';
+    }
+  }
+
   if (sessionStr) {
     try {
       const session = JSON.parse(sessionStr);
@@ -2404,7 +2420,11 @@ function setupUserAuth() {
             localStorage.setItem('kura_user_session', JSON.stringify(data));
             updateUserInterface(data);
           }
-          loginModal.style.display = 'none';
+          if (loginModal) {
+            loginModal.classList.remove('lockout');
+            loginModal.style.display = 'none';
+          }
+          window.dispatchEvent(new Event('hashchange'));
           
           // Refresh views to apply identity (update comments user info)
           if (currentView === 'show' && window.location.hash.startsWith('#/show/')) {
@@ -2432,6 +2452,7 @@ function setupUserAuth() {
       e.preventDefault();
       localStorage.removeItem('kura_user_session');
       updateUserInterface(null);
+      window.dispatchEvent(new Event('hashchange'));
       // Refresh details comments if open
       if (currentView === 'show' && window.location.hash.startsWith('#/show/')) {
         const showId = window.location.hash.split('/').pop();
