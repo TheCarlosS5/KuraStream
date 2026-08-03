@@ -11,6 +11,7 @@ import { probeVideo, extractCover, generateIntroLoop, extractEpisodeThumbnail } 
 import { scraper, downloadImage } from './scraper.js';
 import { runLibraryScan } from './scan_library.js';
 import { detectIntrosForSeason } from './said.js';
+import { downloadAndSetShowCover } from './anime_scraper.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -1017,6 +1018,29 @@ const server = http.createServer(async (req, res) => {
       await runLibraryScan();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      console.error(err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Scrape and download show cover
+  if (pathname === '/api/admin/scrape-show-cover' && req.method === 'POST') {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+
+    const { showId, query } = body;
+    if (!showId || !query) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'showId and query are required' }));
+    }
+
+    try {
+      const show = await downloadAndSetShowCover(showId, query);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, show }));
     } catch (err) {
       console.error(err);
       res.writeHead(500, { 'Content-Type': 'application/json' });

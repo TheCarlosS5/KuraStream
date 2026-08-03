@@ -97,34 +97,93 @@
 
     <!-- LANDING VIEW -->
     <section id="landing-view" class="app-view">
-      <header class="landing-header" style="display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 50px;">
-        <div class="landing-logo" style="display: flex; align-items: center; gap: 10px;">
-          <img src="/library/logo.png" alt="KuraStream Logo" onerror="this.style.display='none'; document.getElementById('landing-fallback-logo').style.display='flex';" style="height: 40px; width: auto; object-fit: contain;">
-          <div id="landing-fallback-logo" style="display: none; align-items: center; gap: 8px; font-family: var(--font-title); font-size: 1.5rem; font-weight: 800;">
-            <span class="logo-icon">蔵</span>
-            <span class="logo-text" style="color: var(--text-main);">Kura<span style="color: var(--accent-color);">Stream</span></span>
+      <div class="landing-mosaic-bg" id="landing-mosaic-bg"></div>
+      <div class="landing-gradient-overlay"></div>
+      
+      <div class="landing-content-wrapper">
+        <header class="landing-header" style="display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 50px; position: relative; z-index: 10;">
+          <div class="landing-logo" style="display: flex; align-items: center; gap: 10px;">
+            <img src="/library/logo.png" alt="KuraStream Logo" onerror="this.style.display='none'; document.getElementById('landing-fallback-logo').style.display='flex';" style="height: 40px; width: auto; object-fit: contain;">
+            <div id="landing-fallback-logo" style="display: none; align-items: center; gap: 8px; font-family: var(--font-title); font-size: 1.5rem; font-weight: 800;">
+              <span class="logo-icon">蔵</span>
+              <span class="logo-text" style="color: var(--text-main);">Kura<span style="color: var(--accent-color);">Stream</span></span>
+            </div>
+          </div>
+          <button id="landing-signin-btn" class="btn btn-primary" style="padding: 8px 20px; font-size: 0.9rem; z-index: 10;">
+            Iniciar Sesión
+          </button>
+        </header>
+
+        <div class="landing-hero" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 60px 20px; max-width: 800px; margin: 0 auto; position: relative; z-index: 10;">
+          <h1 class="landing-hero-title" style="font-family: var(--font-title); font-size: 3.5rem; font-weight: 800; line-height: 1.15; margin-bottom: 20px; color: var(--text-main);">
+            Entretenimiento sin límites, <span style="color: var(--accent-color); text-shadow: 0 0 20px var(--accent-glow);">donde quieras</span>
+          </h1>
+          <p class="landing-hero-subtitle" style="font-size: 1.25rem; color: var(--text-muted); margin-bottom: 40px; line-height: 1.6;">
+            Tu centro de streaming local y offline preferido. Disfruta de películas, series, anime y chat en tiempo real sin necesidad de Internet.
+          </p>
+          <div class="landing-cta-container" style="display: flex; gap: 20px; flex-wrap: wrap; justify-content: center;">
+            <button id="landing-cta-start" class="btn btn-primary" style="padding: 14px 36px; font-size: 1.1rem; font-weight: 600; border-radius: 30px; box-shadow: 0 0 30px var(--accent-glow);">
+              Comenzar Ahora
+            </button>
+            <button id="landing-cta-info" class="btn btn-secondary" style="padding: 14px 36px; font-size: 1.1rem; font-weight: 600; border-radius: 30px; background: rgba(255,255,255,0.05); border-color: var(--border-color);">
+              Saber Más
+            </button>
           </div>
         </div>
-        <button id="landing-signin-btn" class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; background: rgba(255,255,255,0.05); border-color: var(--border-color);">
-          Iniciar Sesión
-        </button>
-      </header>
 
-      <div class="landing-hero" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 60px 20px; max-width: 800px; margin: 0 auto;">
-        <h1 class="landing-hero-title" style="font-family: var(--font-title); font-size: 3.5rem; font-weight: 800; line-height: 1.15; margin-bottom: 20px; color: var(--text-main);">
-          Entretenimiento sin límites, <span style="color: var(--accent-color);">donde quieras</span>
-        </h1>
-        <p class="landing-hero-subtitle" style="font-size: 1.25rem; color: var(--text-muted); margin-bottom: 40px; line-height: 1.6;">
-          Tu centro de streaming local y offline preferido. Disfruta de películas, series, anime y chat en tiempo real sin necesidad de Internet.
-        </p>
-        <div class="landing-cta-container" style="display: flex; gap: 20px; flex-wrap: wrap; justify-content: center;">
-          <button id="landing-cta-start" class="btn btn-primary" style="padding: 14px 28px; font-size: 1rem; font-weight: 600;">
-            Comenzar Ahora
-          </button>
-          <button id="landing-cta-info" class="btn btn-secondary" style="padding: 14px 28px; font-size: 1rem; font-weight: 600; background: rgba(255,255,255,0.05); border-color: var(--border-color);">
-            Saber Más
-          </button>
+        <!-- Features Grid -->
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon-wrapper"><i data-lucide="users"></i></div>
+            <h3>Perfiles Personalizados</h3>
+            <p>Crea hasta 5 perfiles para toda tu familia. Configura avatares con presets de tus personajes favoritos de anime, asigna códigos PIN personales y guarda tu historial por separado.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon-wrapper"><i data-lucide="lock"></i></div>
+            <h3>Control Parental</h3>
+            <p>Filtra títulos clasificados como TV-MA o R de manera instantánea en perfiles configurados para niños. Control total de la visualización para proteger a los más pequeños.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon-wrapper"><i data-lucide="tv"></i></div>
+            <h3>Reproductor Avanzado</h3>
+            <p>Transmisión de vídeo en alta definición a través de tu red local. Selección dinámica de múltiples pistas de audio, doblajes y subtítulos integrados en el archivo.</p>
+          </div>
         </div>
+
+        <!-- FAQ Section -->
+        <div class="faq-section" id="faq-section">
+          <h2 class="faq-title">Preguntas Frecuentes</h2>
+          <div class="faq-accordion">
+            <div class="faq-item">
+              <button class="faq-question-btn">
+                <span>¿Qué es KuraStream?</span>
+                <i data-lucide="chevron-down"></i>
+              </button>
+              <div class="faq-answer">
+                <p>KuraStream es un centro de entretenimiento local y multimedia premium. Permite escanear y organizar tus series de anime y películas favoritas en un disco local, permitiendo transmitirlas directamente a cualquier dispositivo (TV, teléfono, PC) conectado a tu red WiFi, sin consumir ancho de banda de internet.</p>
+              </div>
+            </div>
+            <div class="faq-item">
+              <button class="faq-question-btn">
+                <span>¿Cómo funciona el Control Parental y el PIN de perfil?</span>
+                <i data-lucide="chevron-down"></i>
+              </button>
+              <div class="faq-answer">
+                <p>Al crear o editar cualquier perfil, puedes activar la opción de "Perfil Infantil" (Kids profile) para ocultar automáticamente todas las series clasificadas para mayores de edad (como TV-MA o R). Además, puedes asignar un PIN opcional de 4 dígitos para que otros miembros del hogar no puedan entrar a tu perfil.</p>
+              </div>
+            </div>
+            <div class="faq-item">
+              <button class="faq-question-btn">
+                <span>¿Cómo descargo las carátulas HD de mis animes?</span>
+                <i data-lucide="chevron-down"></i>
+              </button>
+              <div class="faq-answer">
+                <p>Como administrador de KuraStream, puedes ir al panel de control, dirigirte a la pestaña "Biblioteca" y hacer clic en el botón "Buscar Carátula HD" de cualquier anime. La plataforma buscará automáticamente en internet las portadas en la más alta resolución y las descargará a tu almacenamiento local.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </section>
 

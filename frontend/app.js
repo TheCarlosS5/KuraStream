@@ -180,6 +180,7 @@ function setupRouter() {
       if (landingView) landingView.classList.add('active');
       const mainHeader = document.querySelector('.app-header');
       if (mainHeader) mainHeader.style.display = 'none';
+      initLandingView();
       return;
     }
 
@@ -1722,6 +1723,7 @@ async function loadAdminPanel() {
             </div>
           </div>
           <div style="display:flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(168, 85, 247, 0.2); border-color: #a855f7;" onclick="scrapeShowCover('${show.id}', '${show.title.replace(/'/g, "\\'")}')" id="btn-scrape-${show.id}"><i data-lucide="search" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Buscar Carátula HD</button>
             <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem; height: 32px;" onclick="openMediaEditor('${show.id}')">Editar Multimedia</button>
             ${show.media_type === 'anime' ? `<button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(39, 201, 63, 0.2); border-color: #27c93f;" onclick="triggerSAID('${show.id}')" id="btn-said-${show.id}"><i data-lucide="scan" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Detectar Intros</button>` : ''}
             <button class="btn-danger-small" onclick="deleteShow('${show.id}', '${show.title}')">Eliminar</button>
@@ -3696,7 +3698,111 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch(err) {}
   });
 
+  // FAQ accordion toggling
+  document.querySelectorAll('.faq-question-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.faq-item');
+      const isActive = item.classList.contains('active');
+      
+      // Close other accordion items
+      document.querySelectorAll('.faq-item').forEach(el => {
+        el.classList.remove('active');
+      });
+      
+      if (!isActive) {
+        item.classList.add('active');
+      }
+    });
+  });
+
   // Call the check on initial load after a short delay to let views initialize
   setTimeout(checkAndShowProfileSwitcher, 100);
   window.addEventListener('hashchange', checkAndShowProfileSwitcher);
 });
+
+// Dynamic mosaic background rendering
+async function initLandingView() {
+  const mosaicBg = document.getElementById('landing-mosaic-bg');
+  if (!mosaicBg) return;
+  if (mosaicBg.children.length > 0) return; // Already initialized
+  
+  let shows = [];
+  try {
+    const res = await fetch('/api/shows');
+    if (res.ok) {
+      shows = await res.json();
+    }
+  } catch (err) {
+    console.error('Error fetching shows for landing mosaic:', err);
+  }
+  
+  const defaultPosters = [
+    'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80',
+    'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=500&q=80',
+    'https://images.unsplash.com/photo-1580477667995-2b94f01c9516?w=500&q=80',
+    'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=500&q=80',
+    'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=500&q=80',
+    'https://images.unsplash.com/photo-1560169897-fc0cdbdfa4d5?w=500&q=80',
+    'https://images.unsplash.com/photo-1618336753974-aae8e04506aa?w=500&q=80',
+    'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?w=500&q=80'
+  ];
+  
+  let posterUrls = shows.map(s => s.poster_path).filter(p => p);
+  if (posterUrls.length < 8) {
+    posterUrls = [...posterUrls, ...defaultPosters];
+  }
+  
+  const colsData = [[], [], [], []];
+  for (let i = 0; i < 24; i++) {
+    const url = posterUrls[i % posterUrls.length];
+    colsData[i % 4].push(url);
+  }
+  
+  mosaicBg.innerHTML = colsData.map((col, idx) => {
+    const isUp = idx % 2 === 0;
+    const colClass = isUp ? 'col-up' : 'col-down';
+    const imgs = [...col, ...col].map(url => `<img src="${url}" alt="Anime Cover">`).join('');
+    return `<div class="landing-mosaic-column ${colClass}">${imgs}</div>`;
+  }).join('');
+}
+
+// Scrape cover button globally
+window.scrapeShowCover = async (showId, currentTitle) => {
+  const query = prompt("Escribe el nombre del anime para buscar la carátula en internet (MyAnimeList / Kitsu):", currentTitle);
+  if (!query) return;
+  
+  const btn = document.getElementById(`btn-scrape-${showId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:4px;"></div> Descargando...`;
+  }
+  
+  try {
+    const session = JSON.parse(localStorage.getItem('kura_user_session'));
+    const res = await fetch('/api/admin/scrape-show-cover', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.token}`
+      },
+      body: JSON.stringify({ showId, query })
+    });
+    
+    const data = await res.json();
+    if (res.ok && data.success) {
+      alert("Carátula y metadatos actualizados con éxito.");
+      loadAdminPanel();
+    } else {
+      alert("Error: " + (data.error || "No se encontró ninguna carátula."));
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Error de conexión al buscar carátula.");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i data-lucide="search" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Buscar Carátula HD`;
+      if (typeof lucide !== 'undefined') lucide.createIcons({ root: btn });
+    }
+  }
+};
