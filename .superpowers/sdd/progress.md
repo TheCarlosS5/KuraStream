@@ -17,3 +17,5 @@
 - Setup SSH Key & Passwordless Sync: complete (commit e731c46, review bypassed)
 - Pipeline Stream Tar Deployment: complete (commit e731c46, review bypassed)
 - Live File Sync Watcher: complete (commit e731c46, review bypassed)
+- Dashboard Mosaic Integration & Remove Intro Landing: complete (commit f0fc2e8, review bypassed)
+- Organize Backend Scripts into backend/scripts/: complete (commit f0fc2e8, review bypassed)
