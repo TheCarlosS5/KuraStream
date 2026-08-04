@@ -712,7 +712,63 @@ export const dbHelper = {
     const episodesCount = db.prepare("SELECT COUNT(*) as count FROM episodes").get().count;
     const totalSize = db.prepare("SELECT SUM(size) as size FROM episodes").get().size || 0;
     const totalDuration = db.prepare("SELECT SUM(duration) as duration FROM episodes").get().duration || 0;
-    return { showsCount, animeCount, movieCount, episodesCount, totalSize, totalDuration };
+
+    let libraryDiskSizeBytes = 0;
+    const libraryDir = path.resolve(__dirname, '..', 'library');
+    if (fs.existsSync(libraryDir)) {
+      function walkDir(dirPath) {
+        try {
+          const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+          for (const entry of entries) {
+            const full = path.join(dirPath, entry.name);
+            if (entry.isDirectory()) walkDir(full);
+            else if (entry.isFile()) {
+              try { libraryDiskSizeBytes += fs.statSync(full).size; } catch(e) {}
+            }
+          }
+        } catch(e) {}
+      }
+      walkDir(libraryDir);
+    }
+
+    let diskTotalBytes = 0, diskFreeBytes = 0, diskUsedBytes = 0, diskUsagePercentage = '0%';
+    try {
+      const stats = fs.statfsSync(libraryDir);
+      diskFreeBytes = Number(stats.bavail) * Number(stats.bsize);
+      diskTotalBytes = Number(stats.blocks) * Number(stats.bsize);
+      diskUsedBytes = diskTotalBytes - diskFreeBytes;
+      if (diskTotalBytes > 0) {
+        diskUsagePercentage = ((diskUsedBytes / diskTotalBytes) * 100).toFixed(1) + '%';
+      }
+    } catch(e) {}
+
+    const formatBytes = (bytes) => {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
+    return {
+      showsCount,
+      animeCount,
+      movieCount,
+      episodesCount,
+      totalSize,
+      totalDuration,
+      libraryDiskSizeBytes,
+      libraryDiskSizeFormatted: formatBytes(libraryDiskSizeBytes),
+      diskTotalBytes,
+      diskFreeBytes,
+      diskUsedBytes,
+      diskTotalFormatted: formatBytes(diskTotalBytes),
+      diskFreeFormatted: formatBytes(diskFreeBytes),
+      diskUsedFormatted: formatBytes(diskUsedBytes),
+      diskUsagePercentage,
+      uptimeSeconds: Math.floor(process.uptime()),
+      nodeVersion: process.version
+    };
   },
 
   // Favorites (My List)

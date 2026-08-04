@@ -471,7 +471,42 @@
                   <span class="stat-value" id="stat-duration">--</span>
                   <span class="stat-label">Horas de Video</span>
                 </div>
+            </div>
+
+            <!-- System Storage & Disk Space Card -->
+            <div class="admin-card" style="margin-top: 25px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <i data-lucide="hard-drive" style="color: var(--accent-color); width: 22px; height: 22px;"></i>
+                  <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.2rem;">Almacenamiento y Disco del Servidor</h3>
+                </div>
+                <span id="disk-usage-badge" class="badge" style="background: var(--accent-color); color: #fff; font-weight: 700;">--</span>
               </div>
+              
+              <!-- Storage Progress Bar -->
+              <div style="width: 100%; height: 12px; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; margin-bottom: 15px; position: relative;">
+                <div id="disk-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #a855f7 0%, #00e08f 100%); transition: width 0.5s ease;"></div>
+              </div>
+              
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; font-size: 0.9rem;">
+                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                  <div style="color: var(--text-muted); font-size: 0.75rem;">Capacidad de Biblioteca</div>
+                  <div id="stat-library-folder-size" style="font-weight: 700; font-size: 1.1rem; color: var(--accent-color); margin-top: 4px;">--</div>
+                </div>
+                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                  <div style="color: var(--text-muted); font-size: 0.75rem;">Espacio Usado en Disco</div>
+                  <div id="stat-disk-used" style="font-weight: 700; font-size: 1.1rem; color: var(--text-main); margin-top: 4px;">--</div>
+                </div>
+                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                  <div style="color: var(--text-muted); font-size: 0.75rem;">Espacio Libre Disponible</div>
+                  <div id="stat-disk-free" style="font-weight: 700; font-size: 1.1rem; color: #00e08f; margin-top: 4px;">--</div>
+                </div>
+                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                  <div style="color: var(--text-muted); font-size: 0.75rem;">Capacidad Total Disco</div>
+                  <div id="stat-disk-total" style="font-weight: 700; font-size: 1.1rem; color: var(--text-main); margin-top: 4px;">--</div>
+                </div>
+              </div>
+            </div>
             </div>
 
             <!-- Active Streams Section -->

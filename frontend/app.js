@@ -1264,14 +1264,27 @@ function startAdminStatsPolling() {
         if (statEpisodes) statEpisodes.textContent = stats.episodesCount || 0;
         
         if (statSize) {
-          const sizeGb = (stats.totalSize / (1024 * 1024 * 1024)).toFixed(2);
-          statSize.textContent = `${sizeGb} GB`;
+          statSize.textContent = stats.libraryDiskSizeFormatted || `${(stats.totalSize / (1024 * 1024 * 1024)).toFixed(2)} GB`;
         }
         
         if (statDuration) {
           const durationHours = (stats.totalDuration / 3600).toFixed(1);
           statDuration.textContent = `${durationHours} h`;
         }
+
+        const diskUsageBadge = document.getElementById('disk-usage-badge');
+        const diskProgressBar = document.getElementById('disk-progress-bar');
+        const statLibraryFolderSize = document.getElementById('stat-library-folder-size');
+        const statDiskUsed = document.getElementById('stat-disk-used');
+        const statDiskFree = document.getElementById('stat-disk-free');
+        const statDiskTotal = document.getElementById('stat-disk-total');
+
+        if (diskUsageBadge && stats.diskUsagePercentage) diskUsageBadge.textContent = `${stats.diskUsagePercentage} Usado`;
+        if (diskProgressBar && stats.diskUsagePercentage) diskProgressBar.style.width = stats.diskUsagePercentage;
+        if (statLibraryFolderSize) statLibraryFolderSize.textContent = stats.libraryDiskSizeFormatted || '--';
+        if (statDiskUsed) statDiskUsed.textContent = stats.diskUsedFormatted || '--';
+        if (statDiskFree) statDiskFree.textContent = stats.diskFreeFormatted || '--';
+        if (statDiskTotal) statDiskTotal.textContent = stats.diskTotalFormatted || '--';
       }
 
       const resStreams = await fetch('/api/admin/active-streams');
