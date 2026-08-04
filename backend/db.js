@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -413,8 +414,32 @@ export const dbHelper = {
     }
   },
   deleteShow: (id) => {
-    const stmt = db.prepare("DELETE FROM shows WHERE id = ?");
-    stmt.run(id);
+    db.prepare("DELETE FROM watch_history WHERE episode_id IN (SELECT id FROM episodes WHERE show_id = ?)").run(id);
+    db.prepare("DELETE FROM episodes WHERE show_id = ?").run(id);
+    db.prepare("DELETE FROM favorites WHERE show_id = ?").run(id);
+    db.prepare("DELETE FROM shows WHERE id = ?").run(id);
+  },
+  syncDatabaseWithDisk: () => {
+    try {
+      const shows = db.prepare("SELECT * FROM shows").all();
+      const libraryDir = path.resolve(__dirname, '..', 'library');
+      for (const show of shows) {
+        if (show.poster_path && show.poster_path.startsWith('/library/')) {
+          const relativePath = show.poster_path.replace(/^\/library\//, '');
+          const fullPath = path.join(libraryDir, relativePath);
+          if (!fs.existsSync(fullPath)) {
+            const episodes = db.prepare("SELECT * FROM episodes WHERE show_id = ?").all(show.id);
+            const hasValidVideo = episodes.some(ep => ep.filepath && fs.existsSync(ep.filepath));
+            if (!hasValidVideo) {
+              console.log(`[Auto-Sync] Cleaning orphaned DB record: ${show.title} (${show.id})`);
+              dbHelper.deleteShow(show.id);
+            }
+          }
+        }
+      }
+    } catch(err) {
+      console.error("[Auto-Sync] Error syncing DB with disk:", err);
+    }
   },
 
   // Episodes

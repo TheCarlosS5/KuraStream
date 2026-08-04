@@ -1701,6 +1701,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
+  dbHelper.syncDatabaseWithDisk();
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`====================================================`);
     console.log(` KuraStream server running at http://localhost:${PORT}`);
