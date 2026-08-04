@@ -3245,6 +3245,24 @@ async function loadProfilesView() {
           })
         });
         if (createRes.ok) {
+          const selectRes = await fetch('/api/profiles/select', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.token}`
+            },
+            body: JSON.stringify({ profile_name: username, pin: '' })
+          });
+          if (selectRes.ok) {
+            const selectData = await selectRes.json();
+            session.token = selectData.token;
+            localStorage.setItem('kura_user_session', JSON.stringify(session));
+            applyProfileUI(getDecodedToken(selectData.token));
+            document.getElementById('profile-switcher-view').classList.remove('active');
+            document.getElementById('dashboard-view').classList.add('active');
+            loadDashboard('anime');
+            return;
+          }
           return loadProfilesView();
         }
       }
