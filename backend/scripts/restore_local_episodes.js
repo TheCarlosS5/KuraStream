@@ -1,14 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dbHelper } from './db.js';
-import { probeVideo } from './scanner.js';
-import { scraper } from './scraper.js';
+import { dbHelper } from '../db.js';
+import { probeVideo } from '../scanner.js';
+import { scraper } from '../scraper.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const showId = '203737'; // Oshi no Ko
 const showTitle = 'Oshi no Ko';
-const animeFolder = path.join(__dirname, '..', 'library', 'Anime', 'Oshi_no_Ko');
+const animeFolder = path.join(__dirname, '../..', 'library', 'Anime', 'Oshi_no_Ko');
 
 async function main() {
   console.log("==============================================");
@@ -65,7 +65,7 @@ async function main() {
         
         let localThumbUrl = '';
         for (const pPath of possibleThumbPaths) {
-          const absPath = path.join(__dirname, '..', pPath);
+          const absPath = path.join(__dirname, '../..', pPath);
           try {
             await fs.access(absPath);
             localThumbUrl = pPath;

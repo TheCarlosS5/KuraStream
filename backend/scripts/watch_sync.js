@@ -4,7 +4,7 @@ import { exec } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(__dirname, '..');
+const projectRoot = path.resolve(__dirname, '../..');
 const remoteHost = "dserver-calos@192.168.18.38";
 const remoteDir = "/home/dserver-calos/KuraStream";
 

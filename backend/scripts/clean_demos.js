@@ -1,10 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db } from './db.js';
+import { db } from '../db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const libraryDir = path.resolve(__dirname, '..', 'library');
+const libraryDir = path.resolve(__dirname, '../..', 'library');
 
 async function cleanDemos() {
   console.log('--- Cleaning Demo Shows and Files ---');

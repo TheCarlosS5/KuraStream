@@ -1,4 +1,4 @@
-import { db } from './db.js';
+import { db } from '../db.js';
 
 const stmt = db.prepare("SELECT id, title, filepath FROM episodes");
 const rows = stmt.all();

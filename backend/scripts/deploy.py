@@ -1,5 +1,8 @@
 import sys
 import subprocess
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 def run_local_command(cmd_list):
     print(f"\n[RUNNING LOCAL] {' '.join(cmd_list)}")
@@ -60,7 +63,7 @@ def main():
         f"--exclude=backend/kurastream.db-journal "
         f"--exclude=backend/kurastream.db-wal "
         f"--exclude=backend/kurastream.db-shm "
-        f"-C /home/carlossgr/Escritorio/KuraStream . | "
+        f"-C {REPO_ROOT} . | "
         f"ssh -o StrictHostKeyChecking=no {remote_host} \"mkdir -p {remote_dir} && tar -xf - -C {remote_dir}\""
     )
     

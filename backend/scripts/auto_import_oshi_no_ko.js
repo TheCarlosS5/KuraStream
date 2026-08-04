@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dbHelper } from './db.js';
-import { probeVideo, extractCover, generateIntroLoop } from './scanner.js';
-import { scraper, downloadImage } from './scraper.js';
+import { dbHelper } from '../db.js';
+import { probeVideo, extractCover, generateIntroLoop } from '../scanner.js';
+import { scraper, downloadImage } from '../scraper.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TMDB_ID = 203737; // Oshi no Ko TMDB ID
@@ -13,7 +13,7 @@ async function main() {
   console.log(" KuraStream Auto-Importer: Oshi no Ko");
   console.log("==============================================");
 
-  const workspaceDir = path.join(__dirname, '..');
+  const workspaceDir = path.resolve(__dirname, '../..');
   const libraryDir = path.join(workspaceDir, 'library');
 
   // Folders containing the seasons

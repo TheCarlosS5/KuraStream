@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, 'kurastream.db');
+const dbPath = path.join(__dirname, '..', 'kurastream.db');
 const db = new DatabaseSync(dbPath);
 
 function runCommand(file, args) {
@@ -68,7 +68,7 @@ async function main() {
     
     const mediaTypeDir = show.media_type === 'movie' ? 'Movies' : 'Anime';
     const sanitizedTitle = show.title.replace(/[\\/:*?"<>|]/g, '_');
-    const showFolder = path.join(__dirname, '..', 'library', mediaTypeDir, sanitizedTitle);
+    const showFolder = path.join(__dirname, '../..', 'library', mediaTypeDir, sanitizedTitle);
     
     const thumbFilename = `ep_${ep.season_number}_${ep.episode_number}_thumb.jpg`;
     const thumbDest = path.join(showFolder, thumbFilename);
