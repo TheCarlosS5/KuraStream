@@ -26,6 +26,9 @@ Thumbs.db
 # Herramientas del agente
 .superpowers/
 
+# Proyectos externos
+android/
+
 # Archivos temporales y de construcción de Android
 .gradle/
 build/
@@ -35,4 +38,4 @@ app/build/
 local.properties
 .cxx/
 .artifacts/
-android/.artifacts/
+
