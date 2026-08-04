@@ -3174,10 +3174,11 @@ function getDecodedToken(token) {
 }
 
 function checkAndShowProfileSwitcher() {
+  const profileSwitcherView = document.getElementById('profile-switcher-view');
   const sessionStr = localStorage.getItem('kura_user_session');
   if (!sessionStr) {
     // If not logged in, ensure we are not stuck in profile switcher
-    document.getElementById('profile-switcher-view').classList.remove('active');
+    if (profileSwitcherView) profileSwitcherView.classList.remove('active');
     return;
   }
   
@@ -3188,7 +3189,7 @@ function checkAndShowProfileSwitcher() {
   if (decoded && !decoded.profile_name) {
     // Show switcher, hide other views
     document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
-    document.getElementById('profile-switcher-view').classList.add('active');
+    if (profileSwitcherView) profileSwitcherView.classList.add('active');
     loadProfilesView();
   } else if (decoded && decoded.profile_name) {
     // Apply profile UI
