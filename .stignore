@@ -1,0 +1,11 @@
+// Ignorar biblioteca pesada de medios (vídeos e imágenes pesadas)
+library/
+
+// Ignorar dependencias y archivos temporales
+node_modules/
+.git/
+.superpowers/
+*.log
+backend/kurastream.db-journal
+backend/kurastream.db-wal
+backend/kurastream.db-shm
