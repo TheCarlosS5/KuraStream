@@ -2559,23 +2559,22 @@ button, input, select {
   to { transform: translate(-50%, -50%) rotate(360deg); }
 }
 
-/* --- LANDING VIEW STYLES --- */
-#landing-view {
+/* --- DASHBOARD MOSAIC BG STYLES --- */
+#dashboard-view {
   position: relative;
-  min-height: 100vh;
-  background: #0b0c0e;
-  overflow-y: auto;
-  overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
-.landing-mosaic-bg {
+#dashboard-view > *:not(.dashboard-mosaic-bg):not(.dashboard-gradient-overlay) {
+  position: relative;
+  z-index: 2;
+}
+
+.dashboard-mosaic-bg {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 0;
   overflow: hidden;
-  opacity: 0.15;
+  opacity: 0.12;
   display: flex;
   gap: 20px;
   pointer-events: none;
@@ -2617,12 +2616,12 @@ button, input, select {
   100% { transform: translateY(0); }
 }
 
-.landing-gradient-overlay {
+.dashboard-gradient-overlay {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 50% 50%, rgba(11,12,14,0.4) 0%, rgba(11,12,14,0.95) 100%),
-              linear-gradient(to bottom, rgba(11,12,14,0.6) 0%, rgba(11,12,14,1) 100%);
-  z-index: 2;
+  background: radial-gradient(circle at 50% 50%, rgba(11,12,14,0.5) 0%, rgba(11,12,14,0.95) 100%),
+              linear-gradient(to bottom, rgba(11,12,14,0.7) 0%, rgba(11,12,14,1) 100%);
+  z-index: 1;
   pointer-events: none;
 }
 

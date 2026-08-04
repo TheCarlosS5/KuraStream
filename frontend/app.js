@@ -175,13 +175,8 @@ function setupRouter() {
   const handleRoute = () => {
     const sessionStr = localStorage.getItem('kura_user_session');
     if (!sessionStr) {
-      document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
-      const landingView = document.getElementById('landing-view');
-      if (landingView) landingView.classList.add('active');
-      const mainHeader = document.querySelector('.app-header');
-      if (mainHeader) mainHeader.style.display = 'none';
-      initLandingView();
-      return;
+      const loginModal = document.getElementById('login-modal');
+      if (loginModal) loginModal.style.display = 'flex';
     }
 
     const hash = window.location.hash || '#/';
@@ -252,6 +247,7 @@ function setupRouter() {
       document.getElementById('nav-movies').classList.remove('active');
       document.getElementById('nav-settings').classList.remove('active');
       loadDashboard('anime');
+      initDashboardMosaic();
     } else if (hash === '#/movies') {
       currentView = 'dashboard';
       currentShowsPage = 1;
@@ -262,6 +258,7 @@ function setupRouter() {
       document.getElementById('nav-movies').classList.add('active');
       document.getElementById('nav-settings').classList.remove('active');
       loadDashboard('movie');
+      initDashboardMosaic();
     } else if (hash.startsWith('#/show/')) {
       currentView = 'detail';
       const id = hash.split('/').pop();
@@ -3721,47 +3718,35 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Dynamic mosaic background rendering
-async function initLandingView() {
-  const mosaicBg = document.getElementById('landing-mosaic-bg');
+async function initDashboardMosaic() {
+  const mosaicBg = document.getElementById('dashboard-mosaic-bg');
   if (!mosaicBg) return;
-  if (mosaicBg.children.length > 0) return; // Already initialized
+  if (mosaicBg.children.length > 0) return;
   
   let shows = [];
   try {
     const res = await fetch('/api/shows');
-    if (res.ok) {
-      shows = await res.json();
-    }
-  } catch (err) {
-    console.error('Error fetching shows for landing mosaic:', err);
-  }
+    if (res.ok) shows = await res.json();
+  } catch (err) {}
   
   const defaultPosters = [
     'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80',
     'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=500&q=80',
     'https://images.unsplash.com/photo-1580477667995-2b94f01c9516?w=500&q=80',
-    'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=500&q=80',
-    'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=500&q=80',
-    'https://images.unsplash.com/photo-1560169897-fc0cdbdfa4d5?w=500&q=80',
-    'https://images.unsplash.com/photo-1618336753974-aae8e04506aa?w=500&q=80',
-    'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?w=500&q=80'
+    'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=500&q=80'
   ];
   
-  let posterUrls = shows.map(s => s.poster_path).filter(p => p);
-  if (posterUrls.length < 8) {
-    posterUrls = [...posterUrls, ...defaultPosters];
-  }
+  let posterUrls = shows.map(s => s.poster_path).filter(Boolean);
+  if (posterUrls.length < 8) posterUrls = [...posterUrls, ...defaultPosters];
   
   const colsData = [[], [], [], []];
   for (let i = 0; i < 24; i++) {
-    const url = posterUrls[i % posterUrls.length];
-    colsData[i % 4].push(url);
+    colsData[i % 4].push(posterUrls[i % posterUrls.length]);
   }
   
   mosaicBg.innerHTML = colsData.map((col, idx) => {
-    const isUp = idx % 2 === 0;
-    const colClass = isUp ? 'col-up' : 'col-down';
-    const imgs = [...col, ...col].map(url => `<img src="${url}" alt="Anime Cover">`).join('');
+    const colClass = idx % 2 === 0 ? 'col-up' : 'col-down';
+    const imgs = [...col, ...col].map(url => `<img src="${url}" alt="Anime Poster">`).join('');
     return `<div class="landing-mosaic-column ${colClass}">${imgs}</div>`;
   }).join('');
 }
