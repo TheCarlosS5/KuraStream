@@ -2520,19 +2520,27 @@ button, input, select {
   position: relative;
 }
 
-#dashboard-view > *:not(.dashboard-mosaic-bg):not(.dashboard-gradient-overlay) {
+.views-container > section {
   position: relative;
   z-index: 2;
 }
 
 .dashboard-mosaic-bg {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 0;
   overflow: hidden;
-  opacity: 0.12;
+  opacity: 0.15;
   display: flex;
   gap: 20px;
+  pointer-events: none;
+}
+
+.dashboard-gradient-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: radial-gradient(circle at 50% 30%, rgba(15, 13, 20, 0.4) 0%, rgba(10, 8, 13, 0.95) 100%);
   pointer-events: none;
 }
 
