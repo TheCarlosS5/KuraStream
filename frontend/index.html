@@ -97,6 +97,21 @@
     <div class="dashboard-mosaic-bg" id="dashboard-mosaic-bg"></div>
     <div class="dashboard-gradient-overlay"></div>
 
+    <!-- PROFILE SWITCHER VIEW ("¿Quién está viendo?") -->
+    <section id="profile-switcher-view" class="app-view" style="display: none;">
+      <div class="profile-switcher-container">
+        <h1 class="switcher-title">¿Quién está viendo?</h1>
+        <div class="profile-grid" id="profile-grid">
+          <!-- Profile cards injected dynamically by app.js -->
+        </div>
+        <div style="margin-top: 40px; display: flex; justify-content: center;">
+          <button type="button" class="btn btn-secondary" id="btn-manage-profiles">
+            Administrar perfiles
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- DASHBOARD VIEW -->
     <section id="dashboard-view" class="app-view active">
 
@@ -1024,7 +1039,7 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="app.js?v=3.5" type="module"></script>
-  <script src="player.js?v=3.5" type="module"></script>
+  <script src="app.js?v=4.0" type="module"></script>
+  <script src="player.js?v=4.0" type="module"></script>
 </body>
 </html>
