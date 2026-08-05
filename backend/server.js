@@ -51,13 +51,31 @@ function verifyToken(token) {
 
 function resolveMediaFilePath(filePath) {
   if (!filePath) return filePath;
-  if (fs.existsSync(filePath)) return filePath;
-  if (filePath.includes('/library/')) {
-    const relativePath = filePath.substring(filePath.indexOf('/library/'));
-    const resolvedPath = path.join(__dirname, '..', relativePath);
-    if (fs.existsSync(resolvedPath)) return resolvedPath;
+  let decoded = filePath;
+  try { decoded = decodeURIComponent(filePath); } catch(e) {}
+  
+  if (fs.existsSync(decoded)) return decoded;
+  
+  const idx = decoded.indexOf('library/');
+  if (idx !== -1) {
+    const rel = decoded.substring(idx);
+    const abs1 = path.resolve(__dirname, '..', rel);
+    if (fs.existsSync(abs1)) return abs1;
+    
+    const altRel = rel.replace(/Oshi_no_Ko/g, 'Oshi no Ko').replace(/Oshi no Ko/g, 'Oshi_no_Ko');
+    const abs2 = path.resolve(__dirname, '..', altRel);
+    if (fs.existsSync(abs2)) return abs2;
   }
-  return filePath;
+  return decoded;
+}
+
+function getFfmpegPath() {
+  const customBin = path.join(__dirname, '..', 'bin', 'ffmpeg');
+  if (fs.existsSync(customBin)) return customBin;
+  const userHome = process.env.HOME || '/home/dserver-calos';
+  const userBin = path.join(userHome, 'bin', 'ffmpeg');
+  if (fs.existsSync(userBin)) return userBin;
+  return 'ffmpeg';
 }
 
 function authorizeAdmin(req, res) {
@@ -1573,8 +1591,8 @@ const server = http.createServer(async (req, res) => {
       
       ffmpegArgs.push('pipe:1');
 
-      console.log(`Spawning ffmpeg: ffmpeg ${ffmpegArgs.join(' ')}`);
-      const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+      console.log(`Spawning ffmpeg: ${getFfmpegPath()} ${ffmpegArgs.join(' ')}`);
+      const ffmpegProcess = spawn(getFfmpegPath(), ffmpegArgs);
 
       ffmpegProcess.stdout.pipe(res);
 
@@ -1622,7 +1640,7 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Origin': '*'
     });
 
-    const ffmpegProcess = spawn('ffmpeg', [
+    const ffmpegProcess = spawn(getFfmpegPath(), [
       '-i', resolveMediaFilePath(episode.filepath),
       '-map', `0:${track.index}`,
       '-f', 'ass',
