@@ -428,9 +428,21 @@ export const dbHelper = {
           const relativePath = show.poster_path.replace(/^\/library\//, '');
           const fullPath = path.join(libraryDir, relativePath);
           if (!fs.existsSync(fullPath)) {
+            const dirName = path.dirname(fullPath);
+            if (fs.existsSync(dirName)) {
+              const files = fs.readdirSync(dirName);
+              const posterFile = files.find(f => f.startsWith('poster.'));
+              if (posterFile) {
+                const typeDir = show.media_type === 'movie' ? 'Movies' : 'Anime';
+                const folderName = path.basename(dirName);
+                show.poster_path = `/library/${typeDir}/${folderName}/${posterFile}`;
+                dbHelper.saveShow(show);
+                continue;
+              }
+            }
             const episodes = db.prepare("SELECT * FROM episodes WHERE show_id = ?").all(show.id);
             const hasValidVideo = episodes.some(ep => ep.filepath && fs.existsSync(ep.filepath));
-            if (!hasValidVideo) {
+            if (!hasValidVideo && !fs.existsSync(dirName)) {
               console.log(`[Auto-Sync] Cleaning orphaned DB record: ${show.title} (${show.id})`);
               dbHelper.deleteShow(show.id);
             }
