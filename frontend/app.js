@@ -173,6 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ROUTER
 function setupRouter() {
   const handleRoute = () => {
+    updateMosaicBgVisibility();
     const sessionStr = localStorage.getItem('kura_user_session');
     if (!sessionStr) {
       const loginModal = document.getElementById('login-modal');
@@ -3310,7 +3311,23 @@ function getDecodedToken(token) {
   }
 }
 
+function updateMosaicBgVisibility() {
+  const sessionStr = localStorage.getItem('kura_user_session');
+  const mosaicBg = document.getElementById('dashboard-mosaic-bg');
+  const gradientOverlay = document.querySelector('.dashboard-gradient-overlay');
+  
+  if (!sessionStr) {
+    if (mosaicBg) mosaicBg.style.display = 'flex';
+    if (gradientOverlay) gradientOverlay.style.display = 'block';
+    initDashboardMosaic();
+  } else {
+    if (mosaicBg) mosaicBg.style.display = 'none';
+    if (gradientOverlay) gradientOverlay.style.display = 'none';
+  }
+}
+
 function checkAndShowProfileSwitcher() {
+  updateMosaicBgVisibility();
   const profileSwitcherView = document.getElementById('profile-switcher-view');
   const sessionStr = localStorage.getItem('kura_user_session');
   if (!sessionStr) {
