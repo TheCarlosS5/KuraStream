@@ -49,6 +49,17 @@ function verifyToken(token) {
   }
 }
 
+function resolveMediaFilePath(filePath) {
+  if (!filePath) return filePath;
+  if (fs.existsSync(filePath)) return filePath;
+  if (filePath.includes('/library/')) {
+    const relativePath = filePath.substring(filePath.indexOf('/library/'));
+    const resolvedPath = path.join(__dirname, '..', relativePath);
+    if (fs.existsSync(resolvedPath)) return resolvedPath;
+  }
+  return filePath;
+}
+
 function authorizeAdmin(req, res) {
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -1476,7 +1487,7 @@ const server = http.createServer(async (req, res) => {
       delete activeStreams[sessionId];
     });
 
-    const filePath = episode.filepath;
+    const filePath = resolveMediaFilePath(episode.filepath);
 
     // Check if the container is MKV
     const isMkv = path.extname(filePath).toLowerCase() === '.mkv';
@@ -1612,7 +1623,7 @@ const server = http.createServer(async (req, res) => {
     });
 
     const ffmpegProcess = spawn('ffmpeg', [
-      '-i', episode.filepath,
+      '-i', resolveMediaFilePath(episode.filepath),
       '-map', `0:${track.index}`,
       '-f', 'ass',
       'pipe:1'

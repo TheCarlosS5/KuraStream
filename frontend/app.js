@@ -2560,7 +2560,9 @@ async function updateUserInterface(session) {
     if (listEl && session.token) {
       const decoded = getDecodedToken(session.token);
       try {
-        const res = await fetch('/api/profiles');
+        const res = await fetch('/api/profiles', {
+          headers: { 'Authorization': `Bearer ${session.token}` }
+        });
         const data = await res.json();
         if (data && data.success) {
           listEl.innerHTML = '';
