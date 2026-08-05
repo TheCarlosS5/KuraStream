@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { Readable } from 'node:stream';
 import crypto from 'node:crypto';
 import { dbHelper, db } from './db.js';
@@ -1042,6 +1042,8 @@ const server = http.createServer(async (req, res) => {
   // Helper for display power control (laptop backlight management)
   function setLaptopDisplayPower(state) {
     const isOff = state === 'off';
+    
+    // 1. Sysfs backlight bl_power & brightness
     try {
       const sysPath = '/sys/class/backlight';
       if (fs.existsSync(sysPath)) {
@@ -1067,13 +1069,29 @@ const server = http.createServer(async (req, res) => {
           }
         }
       }
-    } catch(e) {
-      console.warn("Backlight sysfs write error:", e.message);
-    }
+    } catch(e) {}
 
+    // 2. Framebuffer blanking
     try {
-      const cmd = isOff ? 'setterm --blank force > /dev/tty1 2>/dev/null' : 'setterm --blank poke > /dev/tty1 2>/dev/null';
-      exec(cmd);
+      const fbBlankPath = '/sys/class/graphics/fb0/blank';
+      if (fs.existsSync(fbBlankPath)) {
+        fs.writeFileSync(fbBlankPath, isOff ? '1' : '0');
+      }
+    } catch(e) {}
+
+    // 3. Brightnessctl, vbetool & setterm commands
+    try {
+      if (isOff) {
+        try { execSync('brightnessctl set 0 2>/dev/null'); } catch(e) {}
+        try { execSync('vbetool dpms off 2>/dev/null'); } catch(e) {}
+        try { execSync('for tty in /dev/tty[0-6]; do setterm --blank force > $tty 2>/dev/null; done'); } catch(e) {}
+        try { execSync('xset -display :0 dpms force off 2>/dev/null'); } catch(e) {}
+      } else {
+        try { execSync('brightnessctl set 100% 2>/dev/null'); } catch(e) {}
+        try { execSync('vbetool dpms on 2>/dev/null'); } catch(e) {}
+        try { execSync('for tty in /dev/tty[0-6]; do setterm --blank poke > $tty 2>/dev/null; done'); } catch(e) {}
+        try { execSync('xset -display :0 dpms force on 2>/dev/null'); } catch(e) {}
+      }
     } catch(e) {}
 
     return isOff ? 'off' : 'on';
