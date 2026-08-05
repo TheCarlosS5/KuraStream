@@ -233,6 +233,9 @@ function setupRouter() {
       view.classList.remove('active');
     });
 
+    const searchInputEl = document.getElementById('search-input');
+    const genreFilterEl = document.getElementById('genre-filter');
+
     // If profile switcher is active ("¿Quién está viendo?"), preserve it and do not override with dashboard
     const profileSwitcherView = document.getElementById('profile-switcher-view');
     if (profileSwitcherView && profileSwitcherView.classList.contains('active')) {
@@ -3399,6 +3402,7 @@ async function loadProfilesView() {
 
 function renderProfiles(profiles) {
   const grid = document.getElementById('profile-grid');
+  if (!grid) return;
   grid.innerHTML = '';
   
   profiles.forEach(p => {
