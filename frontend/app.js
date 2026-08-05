@@ -1679,6 +1679,85 @@ function setupForms() {
     });
   }
 
+  // Laptop Display Power Control Handlers
+  const btnDisplayOff = document.getElementById('btn-display-off');
+  const btnDisplayOn = document.getElementById('btn-display-on');
+  const displayBadge = document.getElementById('display-status-badge');
+
+  const updateDisplayStatusUI = (status) => {
+    if (!displayBadge) return;
+    if (status === 'off') {
+      displayBadge.textContent = 'Apagada (Modo Anti-Calentamiento)';
+      displayBadge.style.background = '#a855f7';
+      displayBadge.style.color = '#fff';
+    } else {
+      displayBadge.textContent = 'Encendida';
+      displayBadge.style.background = '#00e08f';
+      displayBadge.style.color = '#000';
+    }
+  };
+
+  const fetchDisplayStatus = async () => {
+    try {
+      const res = await fetch('/api/admin/display/status');
+      const data = await res.json();
+      if (res.ok && data.success) {
+        updateDisplayStatusUI(data.status);
+      }
+    } catch(e) {}
+  };
+
+  if (btnDisplayOff) {
+    btnDisplayOff.addEventListener('click', async () => {
+      btnDisplayOff.disabled = true;
+      try {
+        const res = await fetch('/api/admin/display/power', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: 'off' })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          updateDisplayStatusUI('off');
+          alert('¡Pantalla del portátil apagada con éxito! El servidor sigue funcionando al 100% en segundo plano.');
+        } else {
+          alert('Error al apagar pantalla: ' + (data.error || 'Intenta de nuevo'));
+        }
+      } catch(e) {
+        alert('Error: ' + e.message);
+      } finally {
+        btnDisplayOff.disabled = false;
+      }
+    });
+  }
+
+  if (btnDisplayOn) {
+    btnDisplayOn.addEventListener('click', async () => {
+      btnDisplayOn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/display/power', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: 'on' })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          updateDisplayStatusUI('on');
+          alert('¡Pantalla del portátil encendida!');
+        } else {
+          alert('Error al encender pantalla: ' + (data.error || 'Intenta de nuevo'));
+        }
+      } catch(e) {
+        alert('Error: ' + e.message);
+      } finally {
+        btnDisplayOn.disabled = false;
+      }
+    });
+  }
+
+  // Fetch initial display status on admin panel load
+  fetchDisplayStatus();
+
   // Setup Custom Logo Drag and Drop
   makeDropZone('logo-drop-zone', uploadLogo, 'logo-file-input');
 

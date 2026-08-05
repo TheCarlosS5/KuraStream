@@ -1039,7 +1039,91 @@ const server = http.createServer(async (req, res) => {
     if (!admin) return;
   }
 
-  // --- New Admin Control REST Endpoints ---
+  // Helper for display power control (laptop backlight management)
+  function setLaptopDisplayPower(state) {
+    const isOff = state === 'off';
+    try {
+      const sysPath = '/sys/class/backlight';
+      if (fs.existsSync(sysPath)) {
+        const devices = fs.readdirSync(sysPath);
+        for (const dev of devices) {
+          const blPowerPath = path.join(sysPath, dev, 'bl_power');
+          const brightnessPath = path.join(sysPath, dev, 'brightness');
+          const maxBrightPath = path.join(sysPath, dev, 'max_brightness');
+
+          if (fs.existsSync(blPowerPath)) {
+            fs.writeFileSync(blPowerPath, isOff ? '4' : '0');
+          }
+          if (fs.existsSync(brightnessPath)) {
+            let targetBright = '0';
+            if (!isOff) {
+              if (fs.existsSync(maxBrightPath)) {
+                targetBright = fs.readFileSync(maxBrightPath, 'utf8').trim() || '9';
+              } else {
+                targetBright = '9';
+              }
+            }
+            fs.writeFileSync(brightnessPath, targetBright);
+          }
+        }
+      }
+    } catch(e) {
+      console.warn("Backlight sysfs write error:", e.message);
+    }
+
+    try {
+      const cmd = isOff ? 'setterm --blank force > /dev/tty1 2>/dev/null' : 'setterm --blank poke > /dev/tty1 2>/dev/null';
+      exec(cmd);
+    } catch(e) {}
+
+    return isOff ? 'off' : 'on';
+  }
+
+  function getLaptopDisplayPower() {
+    try {
+      const sysPath = '/sys/class/backlight';
+      if (fs.existsSync(sysPath)) {
+        const devices = fs.readdirSync(sysPath);
+        for (const dev of devices) {
+          const blPowerPath = path.join(sysPath, dev, 'bl_power');
+          if (fs.existsSync(blPowerPath)) {
+            const val = fs.readFileSync(blPowerPath, 'utf8').trim();
+            return val === '4' ? 'off' : 'on';
+          }
+        }
+      }
+    } catch(e) {}
+    return 'on';
+  }
+
+  // Display Power Endpoints
+  if (pathname === '/api/admin/display/status' && req.method === 'GET') {
+    const status = getLaptopDisplayPower();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, status }));
+    return;
+  }
+
+  if (pathname === '/api/admin/display/power' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { state } = JSON.parse(body || '{}');
+        const finalState = setLaptopDisplayPower(state);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          status: finalState,
+          message: finalState === 'off' ? 'Pantalla apagada (Modo Anti-Calentamiento activo)' : 'Pantalla encendida'
+        }));
+      } catch(e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+    });
+    return;
+  }
 
   // TMDB Candidate Search
   if (pathname === '/api/admin/search-tmdb-candidates' && req.method === 'GET') {

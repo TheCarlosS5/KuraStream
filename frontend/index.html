@@ -527,6 +527,29 @@
                 </div>
               </div>
             </div>
+
+            <!-- Laptop Display Power Control Card -->
+            <div class="admin-card" style="margin-top: 25px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <i data-lucide="monitor-off" style="color: var(--accent-color); width: 24px; height: 24px;"></i>
+                  <div>
+                    <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.2rem;">Control de Pantalla del Portátil Servidor</h3>
+                    <p style="margin: 3px 0 0 0; color: var(--text-muted); font-size: 0.85rem;">Apaga la pantalla física del portátil para evitar calentamiento y reducir el consumo de energía sin interrumpir el servidor.</p>
+                  </div>
+                </div>
+                <span id="display-status-badge" class="badge" style="background: #00e08f; color: #000; font-weight: 700; font-size: 0.85rem; padding: 6px 12px;">Encendida</span>
+              </div>
+
+              <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 15px;">
+                <button type="button" class="btn btn-primary" id="btn-display-off" style="gap: 8px; height: 40px; padding: 0 18px; font-size: 0.85rem;">
+                  <i data-lucide="monitor-off"></i> Apagar Pantalla (Modo Anti-Calentamiento)
+                </button>
+                <button type="button" class="btn btn-secondary" id="btn-display-on" style="gap: 8px; height: 40px; padding: 0 18px; font-size: 0.85rem;">
+                  <i data-lucide="monitor"></i> Encender Pantalla
+                </button>
+              </div>
+            </div>
             </div>
 
             <!-- Active Streams Section -->
@@ -1039,7 +1062,7 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="app.js?v=4.0" type="module"></script>
-  <script src="player.js?v=4.0" type="module"></script>
+  <script src="app.js?v=4.5" type="module"></script>
+  <script src="player.js?v=4.5" type="module"></script>
 </body>
 </html>
