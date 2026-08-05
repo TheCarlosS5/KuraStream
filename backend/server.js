@@ -1041,6 +1041,130 @@ const server = http.createServer(async (req, res) => {
 
   // --- New Admin Control REST Endpoints ---
 
+  // TMDB Candidate Search
+  if (pathname === '/api/admin/search-tmdb-candidates' && req.method === 'GET') {
+    try {
+      const queryVal = parsedUrl.searchParams.get('query');
+      const typeVal = parsedUrl.searchParams.get('type') || 'anime';
+      if (!queryVal) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'Término de búsqueda requerido' }));
+      }
+      const results = await scraper.search(queryVal, typeVal);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, results }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return;
+  }
+
+  // 1-Click Show Creator from TMDB
+  if (pathname === '/api/admin/create-show-tmdb' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const { tmdb_id, media_type, age_rating } = JSON.parse(body);
+        if (!tmdb_id) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: false, error: 'tmdb_id es requerido' }));
+        }
+        const mType = media_type || 'anime';
+        const details = await scraper.getDetails(tmdb_id, mType);
+        if (!details) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: false, error: 'No se encontraron detalles en TMDB' }));
+        }
+
+        const typeDir = mType === 'movie' ? 'Movies' : 'Anime';
+        const safeTitle = details.title.replace(/[\/\\?%*:|"<>]/g, '_');
+        const showDir = path.join(__dirname, '..', 'library', typeDir, safeTitle);
+        if (!fs.existsSync(showDir)) fs.mkdirSync(showDir, { recursive: true });
+
+        let posterLocal = '';
+        let backdropLocal = '';
+        if (details.poster_path) {
+          const posterExt = path.extname(details.poster_path) || '.jpg';
+          const posterDest = path.join(showDir, `poster${posterExt}`);
+          await scraper.downloadImage(details.poster_path, posterDest);
+          posterLocal = `/library/${typeDir}/${safeTitle}/poster${posterExt}`;
+        }
+        if (details.backdrop_path) {
+          const backdropExt = path.extname(details.backdrop_path) || '.jpg';
+          const backdropDest = path.join(showDir, `backdrop${backdropExt}`);
+          await scraper.downloadImage(details.backdrop_path, backdropDest);
+          backdropLocal = `/library/${typeDir}/${safeTitle}/backdrop${backdropExt}`;
+        }
+
+        const showRecord = {
+          id: String(details.id),
+          title: details.title,
+          synopsis: details.synopsis || '',
+          rating: details.rating || 0,
+          year: details.year || new Date().getFullYear(),
+          studio: details.studio || '',
+          director: details.director || '',
+          writer: details.writer || '',
+          cast_members: JSON.stringify(details.cast_members || []),
+          poster_path: posterLocal || details.poster_path || '',
+          backdrop_path: backdropLocal || details.backdrop_path || '',
+          media_type: mType,
+          backdrop_loops: '[]',
+          genres: (details.genres || []).join(','),
+          trailer_key: details.trailer_key || '',
+          age_rating: age_rating || 'TV-14'
+        };
+
+        dbHelper.saveShow(showRecord);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, show: showRecord }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // 1-Click Server Repair & Sync
+  if (pathname === '/api/admin/repair-library' && req.method === 'POST') {
+    try {
+      dbHelper.syncDatabaseWithDisk();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, message: 'Biblioteca auditada y reparada con éxito' }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return;
+  }
+
+  // Get episodes for a show (Admin view)
+  if (pathname.startsWith('/api/admin/shows/') && pathname.endsWith('/episodes') && req.method === 'GET') {
+    const parts = pathname.split('/');
+    const showId = parts[parts.length - 2];
+    const episodes = dbHelper.getEpisodes(showId);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, episodes }));
+    return;
+  }
+
+  // Delete an episode (Admin view)
+  if (pathname.startsWith('/api/admin/episodes/') && pathname.endsWith('/delete') && req.method === 'POST') {
+    const parts = pathname.split('/');
+    const episodeId = parts[parts.length - 2];
+    const ep = dbHelper.getEpisode(episodeId);
+    if (ep) {
+      db.prepare("DELETE FROM episodes WHERE id = ?").run(episodeId);
+      db.prepare("DELETE FROM watch_history WHERE episode_id = ?").run(episodeId);
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
   // Trigger library scan
   if (pathname === '/api/admin/scan' && req.method === 'POST') {
     try {

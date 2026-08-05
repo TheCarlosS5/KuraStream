@@ -437,11 +437,16 @@
           <div id="admin-sub-overview" class="admin-sub-view active">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
               <h2 class="admin-sub-title" style="margin: 0; padding: 0; border: none;">Estado General del Servidor</h2>
-              <button class="btn btn-primary" id="btn-scan-library" style="gap: 8px; height: 38px; font-size: 0.85rem; padding: 0 15px;">
-                <i data-lucide="refresh-cw"></i> Escanear Biblioteca
-              </button>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary" id="btn-repair-server" style="gap: 8px; height: 38px; font-size: 0.85rem; padding: 0 15px;">
+                  <i data-lucide="wrench"></i> Sincronizar y Reparar
+                </button>
+                <button class="btn btn-primary" id="btn-scan-library" style="gap: 8px; height: 38px; font-size: 0.85rem; padding: 0 15px;">
+                  <i data-lucide="refresh-cw"></i> Escanear Archivos
+                </button>
+              </div>
             </div>
-            
+
             <!-- Statistics Grid -->
             <div class="admin-stats-grid">
               <div class="stat-card">
@@ -540,7 +545,33 @@
 
           <!-- SUB-VIEW: IMPORT -->
           <div id="admin-sub-import" class="admin-sub-view">
-            <h2 class="admin-sub-title">Importar Nuevo Archivo</h2>
+            <h2 class="admin-sub-title">Importar & Crear Contenido</h2>
+
+            <!-- Buscador y Creador TMDB 1-Clic -->
+            <div class="admin-card" style="margin-bottom: 25px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <i data-lucide="sparkles" style="color: var(--accent-color); width: 22px; height: 22px;"></i>
+                  <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.2rem;">Creador Inteligente 1-Clic (TMDB)</h3>
+                </div>
+                <span class="badge" style="background: var(--accent-color); color: #fff; font-weight: 700;">TMDB Auto-Fill</span>
+              </div>
+              <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Escribe el título de cualquier Anime o Película para buscar coincidencias oficiales en TMDB, descargar portadas en HD y crear la serie en 1 clic.</p>
+              
+              <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
+                <input type="text" id="tmdb-wizard-input" placeholder="Ej: Solo Leveling, Demon Slayer, Jujutsu Kaisen..." style="flex-grow: 1; padding: 10px 14px; font-size: 0.95rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-main);">
+                <select id="tmdb-wizard-type" style="padding: 0 14px; height: 44px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-main); font-size: 0.9rem;">
+                  <option value="anime">Anime / Serie</option>
+                  <option value="movie">Película</option>
+                </select>
+                <button type="button" class="btn btn-primary" id="btn-tmdb-wizard-search" style="gap: 8px; height: 44px; padding: 0 20px; font-size: 0.9rem;">
+                  <i data-lucide="search"></i> Buscar en TMDB
+                </button>
+              </div>
+
+              <!-- TMDB Wizard Candidate Grid -->
+              <div id="tmdb-wizard-results" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;"></div>
+            </div>
             
             <div class="import-two-columns">
               <!-- Left: Form -->

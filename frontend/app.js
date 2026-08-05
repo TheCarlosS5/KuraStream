@@ -1558,6 +1558,123 @@ function setupForms() {
     });
   }
 
+  // TMDB Wizard Search & 1-Click Show Creator
+  const btnTmdbWizardSearch = document.getElementById('btn-tmdb-wizard-search');
+  const tmdbWizardInput = document.getElementById('tmdb-wizard-input');
+  const tmdbWizardType = document.getElementById('tmdb-wizard-type');
+  const tmdbWizardResults = document.getElementById('tmdb-wizard-results');
+
+  const performTmdbWizardSearch = async () => {
+    const query = (tmdbWizardInput ? tmdbWizardInput.value : '').trim();
+    const type = tmdbWizardType ? tmdbWizardType.value : 'anime';
+    if (!query) return alert('Por favor, ingresa el título de una serie o película.');
+
+    btnTmdbWizardSearch.disabled = true;
+    btnTmdbWizardSearch.innerHTML = '<i class="spinner-icon"></i> Buscando...';
+    if (tmdbWizardResults) tmdbWizardResults.innerHTML = '<p style="color: var(--text-muted); padding: 15px;">Buscando coincidencias en TMDB...</p>';
+
+    try {
+      const res = await fetch(`/api/admin/search-tmdb-candidates?query=${encodeURIComponent(query)}&type=${type}`);
+      const data = await res.json();
+      if (res.ok && data.success && data.results && data.results.length > 0) {
+        tmdbWizardResults.innerHTML = data.results.map(item => {
+          const posterUrl = item.poster_path ? (item.poster_path.startsWith('/') ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : item.poster_path) : 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
+          return `
+            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s;">
+              <div style="height: 220px; background: url('${posterUrl}') center/cover no-repeat; position: relative;">
+                <span class="badge" style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); font-size: 0.75rem;">${item.year || ''}</span>
+              </div>
+              <div style="padding: 12px; display: flex; flex-direction: column; flex-grow: 1; justify-content: space-between;">
+                <div>
+                  <h4 style="margin: 0 0 6px 0; font-family: var(--font-title); font-size: 0.95rem;">${item.title}</h4>
+                  <p style="margin: 0; color: var(--text-muted); font-size: 0.75rem; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">${item.synopsis || 'Sin sinopsis disponible.'}</p>
+                </div>
+                <button type="button" class="btn btn-primary btn-create-tmdb-show" data-tmdb-id="${item.tmdb_id}" data-type="${type}" style="margin-top: 12px; width: 100%; font-size: 0.8rem; padding: 6px; justify-content: center; gap: 6px;">
+                  <i data-lucide="plus-circle" style="width: 14px; height: 14px;"></i> Crear en 1-Clic
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('');
+        
+        if (typeof lucide !== 'undefined') lucide.createIcons({ root: tmdbWizardResults });
+
+        tmdbWizardResults.querySelectorAll('.btn-create-tmdb-show').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const tmdbId = btn.dataset.tmdbId;
+            const mediaType = btn.dataset.type;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="spinner-icon"></i> Creando...';
+            try {
+              const createRes = await fetch('/api/admin/create-show-tmdb', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tmdb_id: tmdbId, media_type: mediaType })
+              });
+              const createData = await createRes.json();
+              if (createRes.ok && createData.success) {
+                alert(`¡"${createData.show.title}" creada y sincronizada con éxito!`);
+                loadAdminPanel();
+                window.location.hash = '#/';
+              } else {
+                alert('Error al crear la serie: ' + (createData.error || 'Intenta de nuevo'));
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="plus-circle"></i> Crear en 1-Clic';
+              }
+            } catch(e) {
+              alert('Error de conexión: ' + e.message);
+              btn.disabled = false;
+            }
+          });
+        });
+
+      } else {
+        tmdbWizardResults.innerHTML = '<p style="color: var(--text-muted); padding: 15px;">No se encontraron coincidencias en TMDB para tu búsqueda.</p>';
+      }
+    } catch(err) {
+      console.error(err);
+      if (tmdbWizardResults) tmdbWizardResults.innerHTML = '<p style="color: var(--danger-color); padding: 15px;">Error al conectar con TMDB.</p>';
+    } finally {
+      btnTmdbWizardSearch.disabled = false;
+      btnTmdbWizardSearch.innerHTML = '<i data-lucide="search"></i> Buscar en TMDB';
+      if (typeof lucide !== 'undefined') lucide.createIcons({ root: btnTmdbWizardSearch });
+    }
+  };
+
+  if (btnTmdbWizardSearch) btnTmdbWizardSearch.addEventListener('click', performTmdbWizardSearch);
+  if (tmdbWizardInput) {
+    tmdbWizardInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        performTmdbWizardSearch();
+      }
+    });
+  }
+
+  // Server Repair & Sync Handler
+  const btnRepairServer = document.getElementById('btn-repair-server');
+  if (btnRepairServer) {
+    btnRepairServer.addEventListener('click', async () => {
+      btnRepairServer.disabled = true;
+      btnRepairServer.innerHTML = '<i class="spinner-icon"></i> Auditando...';
+      try {
+        const res = await fetch('/api/admin/repair-library', { method: 'POST' });
+        if (res.ok) {
+          alert('¡Sincronización, limpieza y reparación del servidor completadas con éxito!');
+          loadAdminPanel();
+        } else {
+          alert('Error al reparar el servidor');
+        }
+      } catch(e) {
+        alert('Error: ' + e.message);
+      } finally {
+        btnRepairServer.disabled = false;
+        btnRepairServer.innerHTML = '<i data-lucide="wrench"></i> Sincronizar y Reparar';
+        if (typeof lucide !== 'undefined') lucide.createIcons({ root: btnRepairServer });
+      }
+    });
+  }
+
   // Setup Custom Logo Drag and Drop
   makeDropZone('logo-drop-zone', uploadLogo, 'logo-file-input');
 
