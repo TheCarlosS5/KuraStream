@@ -233,9 +233,11 @@ function setupRouter() {
       view.classList.remove('active');
     });
 
-    // Parse route
-    const searchInputEl = document.getElementById('search-input');
-    const genreFilterEl = document.getElementById('genre-filter');
+    // If profile switcher is active ("¿Quién está viendo?"), preserve it and do not override with dashboard
+    const profileSwitcherView = document.getElementById('profile-switcher-view');
+    if (profileSwitcherView && profileSwitcherView.classList.contains('active')) {
+      return;
+    }
 
     if (hash === '#/' || hash === '') {
       currentView = 'dashboard';
@@ -3334,7 +3336,7 @@ function renderProfiles(profiles) {
     }
   });
   
-  if (isProfileManagementMode && profiles.length < 5) {
+  if (profiles.length < 5) {
     const addCard = document.createElement('div');
     addCard.className = 'profile-card add-profile';
     addCard.innerHTML = `
