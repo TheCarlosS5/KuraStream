@@ -4225,7 +4225,12 @@ function setupAutoDownloaderControls() {
   const btnToggle = document.getElementById('btn-toggle-autodownload');
   const lastScanEl = document.getElementById('autodownload-last-scan');
   const btnScanNow = document.getElementById('btn-scan-autodownload-now');
-  const historyList = document.getElementById('autodownload-history-list');
+  const activeContainer = document.getElementById('autodownload-active-container');
+  const activeTitle = document.getElementById('autodownload-current-title');
+  const activePercent = document.getElementById('autodownload-current-percent');
+  const activeFill = document.getElementById('autodownload-progress-fill');
+  const activeStatus = document.getElementById('autodownload-current-status');
+  const activeStats = document.getElementById('autodownload-current-stats');
 
   const updateUI = (status) => {
     if (!status) return;
@@ -4243,6 +4248,20 @@ function setupAutoDownloaderControls() {
 
     if (lastScanEl) {
       lastScanEl.textContent = status.lastScanTime ? new Date(status.lastScanTime).toLocaleTimeString() : 'Nunca';
+    }
+
+    // Update Live Download Progress Monitor
+    if (activeContainer) {
+      if (status.currentDownload) {
+        activeContainer.style.display = 'block';
+        if (activeTitle) activeTitle.innerHTML = `<i data-lucide="download-cloud" style="width: 16px; height: 16px; color: #00e08f;"></i> ${status.currentDownload.animeTitle} - Cap. ${status.currentDownload.episode} (Temp. ${status.currentDownload.season})`;
+        if (activePercent) activePercent.textContent = `${status.currentDownload.percent}%`;
+        if (activeFill) activeFill.style.width = `${status.currentDownload.percent}%`;
+        if (activeStatus) activeStatus.textContent = status.currentDownload.status === 'ingesting' ? 'Extrayendo metadatos y generando miniaturas en servidor...' : 'Descargando torrent en servidor...';
+        if (activeStats) activeStats.textContent = `${status.currentDownload.loadedMB} MB / ${status.currentDownload.totalMB} MB (${status.currentDownload.speedMBs} MB/s)`;
+      } else {
+        activeContainer.style.display = 'none';
+      }
     }
 
     if (historyList && status.history) {

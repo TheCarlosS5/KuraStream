@@ -610,6 +610,23 @@
                 </button>
               </div>
 
+              <!-- Live Download Progress Monitor -->
+              <div id="autodownload-active-container" style="display: none; margin-bottom: 15px; padding: 12px; background: rgba(0,224,143,0.05); border: 1px solid rgba(0,224,143,0.2); border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <span id="autodownload-current-title" style="font-weight: 700; font-size: 0.88rem; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="download-cloud" style="width: 16px; height: 16px; color: #00e08f;"></i> Descargando capítulo...
+                  </span>
+                  <span id="autodownload-current-percent" style="font-weight: 800; font-size: 0.95rem; color: #00e08f;">0%</span>
+                </div>
+                <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; margin-bottom: 6px;">
+                  <div id="autodownload-progress-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-color), #00e08f); transition: width 0.2s ease;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-muted);">
+                  <span id="autodownload-current-status">Descargando torrent en servidor...</span>
+                  <span id="autodownload-current-stats">0 MB / 0 MB (0 MB/s)</span>
+                </div>
+              </div>
+
               <!-- History List -->
               <h4 style="font-size: 0.85rem; margin-bottom: 8px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Últimos Torrents Registrados</h4>
               <div id="autodownload-history-list" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem;">
