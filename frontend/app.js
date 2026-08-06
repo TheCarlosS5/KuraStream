@@ -4334,17 +4334,42 @@ function setupAutoDownloaderControls() {
         tmQueueList.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem; padding: 10px 0;">No hay capítulos pendientes en la cola de descarga.</p>';
       } else {
         tmQueueList.innerHTML = queue.map((item, idx) => `
-          <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px;">
-            <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; max-width: 80%;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; flex: 1;">
               <span class="badge" style="background: rgba(168,85,247,0.15); color: var(--accent-color); font-weight: 800;">#${idx + 1}</span>
               <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                 <strong style="color: var(--text-main); font-size: 0.88rem;">${item.animeTitle || item.title}</strong>
                 <span style="color: var(--text-muted); font-size: 0.78rem;"> (Temp. ${item.season || 1} · Cap. ${item.episode || '?'})</span>
               </div>
             </div>
-            <span class="badge" style="font-size: 0.72rem; background: rgba(255,255,255,0.08); color: var(--text-muted);">En espera 1-a-1</span>
+            <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+              <span class="badge" style="font-size: 0.72rem; background: rgba(255,255,255,0.08); color: var(--text-muted);">En espera 1-a-1</span>
+              <button type="button" class="btn btn-secondary btn-remove-queue-item" data-index="${idx}" style="padding: 4px 10px; font-size: 0.78rem; color: #ff5555; background: rgba(255, 85, 85, 0.1); border: 1px solid rgba(255, 85, 85, 0.25); cursor: pointer; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;">
+                <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i> Quitar
+              </button>
+            </div>
           </div>
         `).join('');
+
+        tmQueueList.querySelectorAll('.btn-remove-queue-item').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const index = parseInt(btn.getAttribute('data-index'));
+            try {
+              const res = await fetch('/api/admin/autodownload/queue/remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ index })
+              });
+              const data = await res.json();
+              if (data.status) {
+                updateUI(data.status);
+              }
+            } catch (err) {
+              console.error("Error removing queue item:", err);
+            }
+          });
+        });
       }
     }
 

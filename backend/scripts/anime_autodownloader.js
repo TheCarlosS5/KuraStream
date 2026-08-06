@@ -286,14 +286,18 @@ export async function runAutoScan() {
     // Build complete processing queue: find all missing episodes for each discovered anime
     const fullQueue = [];
     const queuedHashes = new Set();
+    const queuedEpisodeKeys = new Set();
 
     for (const title of titlesArray) {
       console.log(`[AutoDownloader] Checking all available episodes to complete series: "${title}"`);
       const allEps = await fetchAnimeAllEpisodes(title);
       for (const epItem of allEps) {
         const hash = epItem.guid || epItem.link || epItem.title;
-        if (!dbHelper.isTorrentDownloaded(hash) && !queuedHashes.has(hash)) {
+        const parsed = parseAnimeFilename(epItem.title);
+        const epKey = `${parsed.animeTitle.toLowerCase().trim()}_S${parsed.season}_E${parsed.episode}`;
+        if (!dbHelper.isTorrentDownloaded(hash) && !queuedHashes.has(hash) && !queuedEpisodeKeys.has(epKey)) {
           queuedHashes.add(hash);
+          queuedEpisodeKeys.add(epKey);
           fullQueue.push(epItem);
         }
       }
@@ -302,8 +306,11 @@ export async function runAutoScan() {
     // Add remaining items from RSS
     for (const item of [...singleEpisodes, ...batchPacks]) {
       const hash = item.guid || item.link || item.title;
-      if (!dbHelper.isTorrentDownloaded(hash) && !queuedHashes.has(hash)) {
+      const parsed = parseAnimeFilename(item.title);
+      const epKey = `${parsed.animeTitle.toLowerCase().trim()}_S${parsed.season}_E${parsed.episode}`;
+      if (!dbHelper.isTorrentDownloaded(hash) && !queuedHashes.has(hash) && !queuedEpisodeKeys.has(epKey)) {
         queuedHashes.add(hash);
+        queuedEpisodeKeys.add(epKey);
         fullQueue.push(item);
       }
     }
@@ -425,6 +432,19 @@ export function stopAutoDownloader() {
     scanTimer = null;
   }
   console.log('[AutoDownloader] Automated daemon stopped.');
+}
+
+/**
+ * Remove an item from the waiting queue by index
+ */
+export function removeFromQueue(index) {
+  const idx = Number(index);
+  if (!isNaN(idx) && idx >= 0 && idx < downloadQueue.length) {
+    const removed = downloadQueue.splice(idx, 1);
+    console.log(`[AutoDownloader] Manually removed item from queue at index ${idx}:`, removed[0]?.title);
+    return true;
+  }
+  return false;
 }
 
 /**
