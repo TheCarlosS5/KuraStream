@@ -1171,9 +1171,10 @@ async function loadShowDetails(id) {
       seasonTabs.style.display = 'flex';
       // Group episodes by season
       const seasons = {};
-      episodes.forEach(ep => {
-        if (!seasons[ep.season_number]) seasons[ep.season_number] = [];
-        seasons[ep.season_number].push(ep);
+      (episodes || []).forEach(ep => {
+        const sNum = ep.season_number || 1;
+        if (!seasons[sNum]) seasons[sNum] = [];
+        seasons[sNum].push(ep);
       });
 
       const seasonNums = Object.keys(seasons).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
@@ -1195,19 +1196,23 @@ async function loadShowDetails(id) {
           document.querySelectorAll('.season-tab').forEach(t => t.classList.remove('active'));
           e.target.classList.add('active');
           const sNum = e.target.getAttribute('data-season');
-          renderEpisodeList(seasons[sNum], episodesList);
+          renderEpisodeList(seasons[sNum] || [], episodesList);
         });
       });
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
     
-    // Load Comments and Popular Sidebar
-    loadShowComments(id);
-    loadPopularSidebar(id);
+    // Load Comments and Popular Sidebar asynchronously without breaking main detail view
+    loadShowComments(id).catch(e => console.warn('Comments load warning:', e));
+    loadPopularSidebar(id).catch(e => console.warn('Sidebar load warning:', e));
   } catch (e) {
     console.error('Error loading show details:', e);
-    detailTitle.textContent = 'Error';
-    episodesList.innerHTML = '<div class="error-text">No se pudo cargar el anime/película.</div>';
+    if (!detailTitle.textContent || detailTitle.textContent === 'Cargando...') {
+      detailTitle.textContent = 'Error';
+    }
+    if (episodesList && (!episodesList.children.length || episodesList.querySelector('.spinner'))) {
+      episodesList.innerHTML = '<div class="error-text">No se pudo cargar el anime/película.</div>';
+    }
   }
 }
 
@@ -3200,7 +3205,7 @@ async function loadShowComments(showId) {
 
   // Update editor values
   if (commentAvatar) {
-    commentAvatar.textContent = username[0].toUpperCase();
+    commentAvatar.textContent = (username && username.length > 0) ? username[0].toUpperCase() : 'I';
   }
   if (authorNameSpan) {
     authorNameSpan.textContent = username;
@@ -4332,4 +4337,5 @@ function setupAutoDownloaderControls() {
   }
 
   fetchStatus();
+  setInterval(fetchStatus, 2000);
 }

@@ -92,7 +92,7 @@ async function scanCategory(categoryName, mediaType) {
       // Save/update Show in DB
       dbHelper.saveShow({
         id: showId,
-        title: showDetails ? showDetails.title : showDir.replace(/_/g, ' '),
+        title: (showDetails ? showDetails.title : showDir.replace(/_/g, ' ')).replace(/Ranma1\/?2/ig, 'Ranma ½'),
         synopsis: showDetails ? showDetails.synopsis : '',
         rating: showDetails ? showDetails.rating : 0.0,
         year: showDetails ? showDetails.year : null,
@@ -186,9 +186,17 @@ async function scanCategory(categoryName, mediaType) {
                 await fs.access(thumbDest);
                 localThumbUrl = `/library/${categoryName}/${showDir}/${thumbFilename}`;
               } catch (e) {
-                const extracted = await extractEpisodeThumbnail(filePath, thumbDest);
-                if (extracted) {
-                  localThumbUrl = `/library/${categoryName}/${showDir}/${thumbFilename}`;
+                if (tmdbEp && tmdbEp.still_path) {
+                  const downloaded = await downloadImage(tmdbEp.still_path, thumbDest);
+                  if (downloaded) {
+                    localThumbUrl = `/library/${categoryName}/${showDir}/${thumbFilename}`;
+                  }
+                }
+                if (!localThumbUrl) {
+                  const extracted = await extractEpisodeThumbnail(filePath, thumbDest);
+                  if (extracted) {
+                    localThumbUrl = `/library/${categoryName}/${showDir}/${thumbFilename}`;
+                  }
                 }
               }
 
