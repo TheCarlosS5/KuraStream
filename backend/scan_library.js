@@ -241,6 +241,11 @@ export async function runLibraryScan() {
   console.log("==============================================");
   console.log(" KuraStream Library Scanner & DB Sync");
   console.log("==============================================");
+
+  try {
+    await fs.mkdir(path.join(LIBRARY_DIR, 'Anime'), { recursive: true });
+    await fs.mkdir(path.join(LIBRARY_DIR, 'Movies'), { recursive: true });
+  } catch (e) {}
   
   await scanCategory('Anime', 'anime');
   await scanCategory('Movies', 'movie');
