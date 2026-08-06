@@ -1219,7 +1219,7 @@ function renderEpisodeList(epList, targetContainer) {
   
   targetContainer.innerHTML = epList.map(ep => {
     const durationMin = Math.round(ep.duration / 60);
-    const thumb = ep.thumbnail_path || 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=300&q=80';
+    const thumb = ep.thumbnail_path || (currentShow ? currentShow.poster_path : null) || 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=300&q=80';
     
     return `
       <div class="episode-item" onclick="window.showEpisodeDetails('${ep.id}')">
@@ -1362,24 +1362,146 @@ function startAdminLogsPolling() {
 }
 
 // ADMIN PANEL
+function parseEpisodeNumberFromFilename(filename, defaultEp = 1) {
+  if (!filename) return defaultEp;
+  const matchSe = filename.match(/S\d+[\s._-]*E(\d+)/i);
+  if (matchSe) return parseInt(matchSe[1], 10);
+
+  const matchEp = filename.match(/(?:E|EP|CAP|CAPITULO|EPISODIO)[\s._-]*(\d+)/i);
+  if (matchEp) return parseInt(matchEp[1], 10);
+
+  const matchStandaloneNum = filename.match(/\b(\d{1,3})\b/);
+  if (matchStandaloneNum) return parseInt(matchStandaloneNum[1], 10);
+
+  return defaultEp;
+}
+
+function uploadFileWithProgress(formData, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/import');
+
+    // Retrieve active auth token (session token or fallback to admin token)
+    const sessionStr = localStorage.getItem('kura_user_session');
+    let token = null;
+    if (sessionStr) {
+      try {
+        const session = JSON.parse(sessionStr);
+        token = session ? session.token : null;
+      } catch (e) {}
+    }
+    if (!token) {
+      token = localStorage.getItem('adminToken') || localStorage.getItem('kura_admin_token');
+    }
+
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+
+    const startTime = Date.now();
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const percent = Math.round((e.loaded / e.total) * 100);
+        const elapsedTime = (Date.now() - startTime) / 1000;
+        const speed = elapsedTime > 0 ? (e.loaded / elapsedTime) / (1024 * 1024) : 0;
+        const loadedMB = (e.loaded / (1024 * 1024)).toFixed(1);
+        const totalMB = (e.total / (1024 * 1024)).toFixed(1);
+        
+        onProgress({
+          percent,
+          loadedMB,
+          totalMB,
+          speed: speed.toFixed(1),
+          stage: 'uploading'
+        });
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const res = JSON.parse(xhr.responseText);
+          resolve(res);
+        } catch (err) {
+          resolve(xhr.responseText);
+        }
+      } else {
+        reject(new Error(xhr.responseText || `Error HTTP ${xhr.status}`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Error de red al subir el archivo.'));
+    xhr.onabort = () => reject(new Error('Subida cancelada.'));
+
+    xhr.send(formData);
+  });
+}
+
 function setupForms() {
   const form = document.getElementById('import-form');
   const typeSelect = document.getElementById('import-type');
   const tvFieldsGroup = document.getElementById('tv-fields-group');
   const statusBox = document.getElementById('import-status');
   const statusText = document.getElementById('import-status-text');
+  const batchLabel = document.getElementById('import-batch-label');
+  const progressPercent = document.getElementById('import-progress-percent');
+  const progressFill = document.getElementById('upload-progress-fill');
+  const progressStats = document.getElementById('import-progress-stats');
 
   const fileInput = document.getElementById('import-file');
   const btnSelectFile = document.getElementById('btn-select-file');
   const fileLabel = document.getElementById('selected-file-label');
+  const bulkContainer = document.getElementById('bulk-files-container');
+  const bulkFileCount = document.getElementById('bulk-file-count');
+  const bulkFilesList = document.getElementById('bulk-files-list');
+  const epGroup = document.getElementById('import-episode-group');
+  const epTitleGroup = document.getElementById('import-ep-title-group');
 
   if (btnSelectFile && fileInput) {
     btnSelectFile.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', () => {
-      if (fileInput.files.length > 0) {
-        fileLabel.textContent = fileInput.files[0].name;
-      } else {
+      const files = Array.from(fileInput.files);
+      if (files.length === 0) {
         fileLabel.textContent = 'Ningún archivo seleccionado';
+        if (bulkContainer) bulkContainer.style.display = 'none';
+        if (epGroup) epGroup.style.display = 'block';
+        if (epTitleGroup) epTitleGroup.style.display = 'block';
+      } else if (files.length === 1) {
+        fileLabel.textContent = files[0].name;
+        if (bulkContainer) bulkContainer.style.display = 'none';
+        if (epGroup) epGroup.style.display = 'block';
+        if (epTitleGroup) epTitleGroup.style.display = 'block';
+        
+        // Auto-fill episode number if empty or default
+        const epInput = document.getElementById('import-episode');
+        if (epInput) {
+          const autoEp = parseEpisodeNumberFromFilename(files[0].name, 1);
+          epInput.value = autoEp;
+        }
+      } else {
+        fileLabel.textContent = `${files.length} archivos seleccionados`;
+        if (bulkContainer) bulkContainer.style.display = 'block';
+        if (bulkFileCount) bulkFileCount.textContent = `${files.length} capítulos`;
+        if (epGroup) epGroup.style.display = 'none';
+        if (epTitleGroup) epTitleGroup.style.display = 'none';
+
+        if (bulkFilesList) {
+          bulkFilesList.innerHTML = '';
+          files.forEach((file, idx) => {
+            const detectedEp = parseEpisodeNumberFromFilename(file.name, idx + 1);
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'bulk-file-item';
+            itemDiv.innerHTML = `
+              <span class="file-name" title="${file.name}">${file.name}</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: var(--text-muted); font-size: 0.75rem;">Cap #</span>
+                <input type="number" class="bulk-ep-num" data-index="${idx}" min="1" value="${detectedEp}">
+              </div>
+            `;
+            bulkFilesList.appendChild(itemDiv);
+          });
+        }
       }
     });
   }
@@ -1465,57 +1587,116 @@ function setupForms() {
     e.preventDefault();
     
     const fileInput = document.getElementById('import-file');
-    const hasFile = fileInput && fileInput.files.length > 0;
+    const files = fileInput && fileInput.files.length > 0 ? Array.from(fileInput.files) : [];
     const sourcePath = document.getElementById('import-filepath').value.trim();
     
-    if (!hasFile && !sourcePath) {
-      alert("Por favor, selecciona un archivo o ingresa una ruta local en el servidor.");
+    if (files.length === 0 && !sourcePath) {
+      alert("Por favor, selecciona al menos un archivo o ingresa una ruta local en el servidor.");
       return;
     }
 
     const title = document.getElementById('import-title').value.trim();
     const mediaType = typeSelect.value;
     const seasonNumber = mediaType === 'movie' ? null : parseInt(document.getElementById('import-season').value, 10);
-    const episodeNumber = mediaType === 'movie' ? null : parseInt(document.getElementById('import-episode').value, 10);
-    const episodeTitle = mediaType === 'movie' ? null : document.getElementById('import-ep-title').value.trim();
     const tmdbId = document.getElementById('import-tmdb').value.trim();
     const startSec = document.getElementById('import-intro-start').value;
     const startSeconds = startSec !== '' ? parseInt(startSec, 10) : null;
 
-    statusText.textContent = 'Procesando vídeo, extrayendo metadatos con ffprobe y ffmpeg...';
     statusBox.style.display = 'flex';
     document.getElementById('import-submit-btn').disabled = true;
 
     try {
-      const formData = new FormData();
-      if (hasFile) {
-        formData.append('videoFile', fileInput.files[0]);
+      if (files.length > 1) {
+        // Bulk Upload Flow
+        const bulkInputs = Array.from(document.querySelectorAll('.bulk-ep-num'));
+        let successCount = 0;
+
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const epNum = bulkInputs[i] ? parseInt(bulkInputs[i].value, 10) : (i + 1);
+
+          if (batchLabel) {
+            batchLabel.textContent = `Procesando capítulo ${i + 1} de ${files.length} (${Math.round((i / files.length) * 100)}%)`;
+          }
+
+          const formData = new FormData();
+          formData.append('videoFile', file);
+          formData.append('title', title);
+          formData.append('mediaType', mediaType);
+          if (seasonNumber !== null) formData.append('seasonNumber', seasonNumber);
+          formData.append('episodeNumber', epNum);
+          if (tmdbId) formData.append('tmdbId', tmdbId);
+          if (startSeconds !== null) formData.append('startSeconds', startSeconds);
+
+          // Upload with progress updates
+          await uploadFileWithProgress(formData, (prog) => {
+            if (progressFill) progressFill.style.width = `${prog.percent}%`;
+            if (progressPercent) progressPercent.textContent = `${prog.percent}%`;
+            if (statusText) statusText.textContent = `Subiendo ${file.name} (${prog.speed} MB/s)`;
+            if (progressStats) progressStats.textContent = `${prog.loadedMB} MB / ${prog.totalMB} MB`;
+          });
+
+          // Show server processing stage
+          if (statusText) statusText.textContent = `Extrayendo pistas y metadatos con ffprobe para Cap. ${epNum}...`;
+          if (progressFill) progressFill.style.width = '100%';
+          if (progressPercent) progressPercent.textContent = '100%';
+          
+          successCount++;
+        }
+
+        alert(`¡Carga masiva completada! Se importaron ${successCount} capítulos de la temporada con éxito.`);
       } else {
-        formData.append('sourcePath', sourcePath);
+        // Single File or Server Source Path Flow
+        const episodeNumber = mediaType === 'movie' ? null : parseInt(document.getElementById('import-episode').value, 10);
+        const episodeTitle = mediaType === 'movie' ? null : document.getElementById('import-ep-title').value.trim();
+
+        if (batchLabel) batchLabel.textContent = 'Procesando archivo...';
+
+        const formData = new FormData();
+        if (files.length === 1) {
+          formData.append('videoFile', files[0]);
+        } else {
+          formData.append('sourcePath', sourcePath);
+        }
+        formData.append('title', title);
+        formData.append('mediaType', mediaType);
+        if (seasonNumber !== null) formData.append('seasonNumber', seasonNumber);
+        if (episodeNumber !== null) formData.append('episodeNumber', episodeNumber);
+        if (episodeTitle) formData.append('episodeTitle', episodeTitle);
+        if (tmdbId) formData.append('tmdbId', tmdbId);
+        if (startSeconds !== null) formData.append('startSeconds', startSeconds);
+
+        if (files.length === 1) {
+          await uploadFileWithProgress(formData, (prog) => {
+            if (progressFill) progressFill.style.width = `${prog.percent}%`;
+            if (progressPercent) progressPercent.textContent = `${prog.percent}%`;
+            if (statusText) statusText.textContent = `Subiendo ${files[0].name} (${prog.speed} MB/s)`;
+            if (progressStats) progressStats.textContent = `${prog.loadedMB} MB / ${prog.totalMB} MB`;
+          });
+        } else {
+          if (progressFill) progressFill.style.width = '50%';
+          if (progressPercent) progressPercent.textContent = '50%';
+          if (statusText) statusText.textContent = 'Importando desde ruta local del servidor...';
+          
+          const res = await fetch('/api/import', { method: 'POST', body: formData });
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(errText || 'Error importando el archivo.');
+          }
+        }
+
+        if (statusText) statusText.textContent = 'Procesando metadatos y miniaturas en servidor...';
+        if (progressFill) progressFill.style.width = '100%';
+        if (progressPercent) progressPercent.textContent = '100%';
+
+        alert('¡Archivo importado y organizado con éxito!');
       }
-      formData.append('title', title);
-      formData.append('mediaType', mediaType);
-      if (seasonNumber !== null) formData.append('seasonNumber', seasonNumber);
-      if (episodeNumber !== null) formData.append('episodeNumber', episodeNumber);
-      if (episodeTitle) formData.append('episodeTitle', episodeTitle);
-      if (tmdbId) formData.append('tmdbId', tmdbId);
-      if (startSeconds !== null) formData.append('startSeconds', startSeconds);
 
-      const res = await fetch('/api/import', {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || 'Error importando el archivo.');
-      }
-
-      const data = await res.json();
-      alert('¡Archivo importado y organizado con éxito!');
-      
       form.reset();
       if (fileLabel) fileLabel.textContent = 'Ningún archivo seleccionado';
+      if (bulkContainer) bulkContainer.style.display = 'none';
+      if (epGroup) epGroup.style.display = 'block';
+      if (epTitleGroup) epTitleGroup.style.display = 'block';
       tvFieldsGroup.style.display = 'block';
       
       // Reset disabled states and displays
@@ -1531,6 +1712,8 @@ function setupForms() {
       alert(`Error al importar: ${err.message}`);
     } finally {
       statusBox.style.display = 'none';
+      if (progressFill) progressFill.style.width = '0%';
+      if (progressPercent) progressPercent.textContent = '0%';
       document.getElementById('import-submit-btn').disabled = false;
     }
   });
@@ -1561,6 +1744,9 @@ function setupForms() {
       }
     });
   }
+
+  // Setup Anime Auto-Downloader UI Controls
+  setupAutoDownloaderControls();
 
   // TMDB Wizard Search & 1-Click Show Creator
   const btnTmdbWizardSearch = document.getElementById('btn-tmdb-wizard-search');
@@ -2061,7 +2247,7 @@ window.openMediaEditor = async (showId) => {
       thumbsList.innerHTML = seasonsKeys.map(sNum => {
         const eps = seasonsMap[sNum];
         const epsHtml = eps.map(ep => {
-          const thumbImg = ep.thumbnail_path || 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=150&q=80';
+          const thumbImg = ep.thumbnail_path || (show ? show.poster_path : null) || 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=150&q=80';
           return `
             <div style="display: flex; gap: 12px; align-items: center; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px;">
               <img src="${thumbImg}" alt="Episodio ${ep.episode_number}" style="width: 60px; height: 90px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);">
@@ -4033,3 +4219,98 @@ window.scrapeShowCover = async (showId, currentTitle) => {
     }
   }
 };
+
+function setupAutoDownloaderControls() {
+  const badge = document.getElementById('autodownload-status-badge');
+  const btnToggle = document.getElementById('btn-toggle-autodownload');
+  const lastScanEl = document.getElementById('autodownload-last-scan');
+  const btnScanNow = document.getElementById('btn-scan-autodownload-now');
+  const historyList = document.getElementById('autodownload-history-list');
+
+  const updateUI = (status) => {
+    if (!status) return;
+    if (badge) {
+      badge.textContent = status.isEnabled ? (status.isScanning ? 'Escaneando...' : 'Activo (30m)') : 'Inactivo';
+      badge.style.background = status.isEnabled ? 'rgba(0, 224, 143, 0.2)' : 'rgba(255,255,255,0.1)';
+      badge.style.color = status.isEnabled ? '#00e08f' : 'var(--text-muted)';
+    }
+
+    if (btnToggle) {
+      btnToggle.innerHTML = status.isEnabled ?
+        '<i data-lucide="power" style="width: 14px; height: 14px;"></i> Desactivar Auto-Scan' :
+        '<i data-lucide="power" style="width: 14px; height: 14px;"></i> Activar Auto-Scan';
+    }
+
+    if (lastScanEl) {
+      lastScanEl.textContent = status.lastScanTime ? new Date(status.lastScanTime).toLocaleTimeString() : 'Nunca';
+    }
+
+    if (historyList && status.history) {
+      if (status.history.length === 0) {
+        historyList.innerHTML = '<p style="color: var(--text-muted); padding: 6px 0;">No se han registrado descargas automatizadas aún.</p>';
+      } else {
+        historyList.innerHTML = status.history.map(item => `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px;">
+            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">
+              <strong style="color: var(--text-main);">${item.anime_title || 'Anime'}</strong>
+              <span style="color: var(--text-muted); font-size: 0.75rem;"> Cap. ${item.episode || '?'} (Temp. ${item.season || 1})</span>
+            </div>
+            <span class="badge" style="font-size: 0.7rem; background: rgba(0, 224, 143, 0.15); color: #00e08f;">Importado</span>
+          </div>
+        `).join('');
+      }
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  };
+
+  const fetchStatus = async () => {
+    try {
+      const res = await fetch('/api/admin/autodownload/status');
+      if (res.ok) {
+        const data = await res.json();
+        updateUI(data);
+      }
+    } catch (e) {
+      console.warn('Error fetching autodownload status:', e);
+    }
+  };
+
+  if (btnToggle) {
+    btnToggle.addEventListener('click', async () => {
+      btnToggle.disabled = true;
+      try {
+        const res = await fetch('/api/admin/autodownload/toggle', { method: 'POST' });
+        if (res.ok) {
+          const data = await res.json();
+          updateUI(data);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        btnToggle.disabled = false;
+      }
+    });
+  }
+
+  if (btnScanNow) {
+    btnScanNow.addEventListener('click', async () => {
+      btnScanNow.disabled = true;
+      const orig = btnScanNow.innerHTML;
+      btnScanNow.innerHTML = '<i class="spinner-icon"></i> Buscando...';
+      try {
+        const res = await fetch('/api/admin/autodownload/scan', { method: 'POST' });
+        if (res.ok) {
+          await fetchStatus();
+          alert('¡Búsqueda y escaneo RSS completado!');
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        btnScanNow.disabled = false;
+        btnScanNow.innerHTML = orig;
+      }
+    });
+  }
+
+  fetchStatus();
+}

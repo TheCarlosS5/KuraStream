@@ -450,13 +450,13 @@
           
           <!-- SUB-VIEW: OVERVIEW (Stats & Active streams) -->
           <div id="admin-sub-overview" class="admin-sub-view active">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <div class="admin-sub-title-bar">
               <h2 class="admin-sub-title" style="margin: 0; padding: 0; border: none;">Estado General del Servidor</h2>
-              <div style="display: flex; gap: 8px;">
-                <button class="btn btn-secondary" id="btn-repair-server" style="gap: 8px; height: 38px; font-size: 0.85rem; padding: 0 15px;">
+              <div class="admin-btn-group">
+                <button class="btn btn-secondary" id="btn-repair-server">
                   <i data-lucide="wrench"></i> Sincronizar y Reparar
                 </button>
-                <button class="btn btn-primary" id="btn-scan-library" style="gap: 8px; height: 38px; font-size: 0.85rem; padding: 0 15px;">
+                <button class="btn btn-primary" id="btn-scan-library">
                   <i data-lucide="refresh-cw"></i> Escanear Archivos
                 </button>
               </div>
@@ -491,13 +491,14 @@
                   <span class="stat-value" id="stat-duration">--</span>
                   <span class="stat-label">Horas de Video</span>
                 </div>
+              </div>
             </div>
 
             <!-- System Storage & Disk Space Card -->
             <div class="admin-card" style="margin-top: 25px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                  <i data-lucide="hard-drive" style="color: var(--accent-color); width: 22px; height: 22px;"></i>
+                  <i data-lucide="hard-drive" style="color: var(--accent-color); width: 22px; height: 22px; flex-shrink: 0;"></i>
                   <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.2rem;">Almacenamiento y Disco del Servidor</h3>
                 </div>
                 <span id="disk-usage-badge" class="badge" style="background: var(--accent-color); color: #fff; font-weight: 700;">--</span>
@@ -531,8 +532,8 @@
             <!-- Laptop Display Power Control Card -->
             <div class="admin-card" style="margin-top: 25px;">
               <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <i data-lucide="monitor-off" style="color: var(--accent-color); width: 24px; height: 24px;"></i>
+                <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 260px;">
+                  <i data-lucide="monitor-off" style="color: var(--accent-color); width: 24px; height: 24px; flex-shrink: 0;"></i>
                   <div>
                     <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.2rem;">Control de Pantalla del Portátil Servidor</h3>
                     <p style="margin: 3px 0 0 0; color: var(--text-muted); font-size: 0.85rem;">Apaga la pantalla física del portátil para evitar calentamiento y reducir el consumo de energía sin interrumpir el servidor.</p>
@@ -541,15 +542,14 @@
                 <span id="display-status-badge" class="badge" style="background: #00e08f; color: #000; font-weight: 700; font-size: 0.85rem; padding: 6px 12px;">Encendida</span>
               </div>
 
-              <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 15px;">
-                <button type="button" class="btn btn-primary" id="btn-display-off" style="gap: 8px; height: 40px; padding: 0 18px; font-size: 0.85rem;">
+              <div class="admin-btn-group" style="margin-top: 15px;">
+                <button type="button" class="btn btn-primary" id="btn-display-off">
                   <i data-lucide="monitor-off"></i> Apagar Pantalla (Modo Anti-Calentamiento)
                 </button>
-                <button type="button" class="btn btn-secondary" id="btn-display-on" style="gap: 8px; height: 40px; padding: 0 18px; font-size: 0.85rem;">
+                <button type="button" class="btn btn-secondary" id="btn-display-on">
                   <i data-lucide="monitor"></i> Encender Pantalla
                 </button>
               </div>
-            </div>
             </div>
 
             <!-- Active Streams Section -->
@@ -584,6 +584,38 @@
           <!-- SUB-VIEW: IMPORT -->
           <div id="admin-sub-import" class="admin-sub-view">
             <h2 class="admin-sub-title">Importar & Crear Contenido</h2>
+
+            <!-- Auto-Downloader Torrent Card -->
+            <div class="admin-card" style="margin-bottom: 25px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <i data-lucide="rss" style="color: var(--accent-color); width: 22px; height: 22px;"></i>
+                  <div>
+                    <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.15rem;">Auto-Downloader Anime (Latino / Sub ESP)</h3>
+                    <small style="color: var(--text-muted); font-size: 0.8rem;">Descarga e ingesta automática por torrent desde Nyaa/Animetosho</small>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span id="autodownload-status-badge" class="badge" style="background: rgba(255,255,255,0.1); color: var(--text-muted);">Inactivo</span>
+                  <button type="button" class="btn btn-secondary" id="btn-toggle-autodownload" style="height: 36px; padding: 0 14px; font-size: 0.8rem;">
+                    <i data-lucide="power" style="width: 14px; height: 14px;"></i> Activar Auto-Scan
+                  </button>
+                </div>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 10px 14px; border-radius: 6px; font-size: 0.82rem; margin-bottom: 12px; border: 1px solid var(--border-color);">
+                <span style="color: var(--text-muted);">Última búsqueda: <strong id="autodownload-last-scan" style="color: var(--text-main);">Nunca</strong></span>
+                <button type="button" class="btn btn-primary" id="btn-scan-autodownload-now" style="height: 32px; padding: 0 12px; font-size: 0.78rem; gap: 6px;">
+                  <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Escanear Ahora
+                </button>
+              </div>
+
+              <!-- History List -->
+              <h4 style="font-size: 0.85rem; margin-bottom: 8px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Últimos Torrents Registrados</h4>
+              <div id="autodownload-history-list" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem;">
+                <p style="color: var(--text-muted); padding: 6px 0;">No se han registrado descargas automatizadas aún.</p>
+              </div>
+            </div>
 
             <!-- Buscador y Creador TMDB 1-Clic -->
             <div class="admin-card" style="margin-bottom: 25px;">
@@ -620,10 +652,10 @@
                     <label>Archivo de Video*</label>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
                       <div style="display: flex; gap: 10px; align-items: center;">
-                        <input type="file" id="import-file" accept=".mkv,.mp4,.avi,.webm" style="display: none;">
+                        <input type="file" id="import-file" accept=".mkv,.mp4,.avi,.webm" multiple style="display: none;">
                         <button type="button" class="btn btn-secondary" id="btn-select-file" style="padding: 0 16px; height: 42px; display: inline-flex; align-items: center; gap: 8px;">
                           <i data-lucide="video" style="width: 18px; height: 18px;"></i>
-                          Seleccionar Archivo...
+                          Seleccionar Archivos...
                         </button>
                         <span id="selected-file-label" style="color: var(--text-muted); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px;">Ningún archivo seleccionado</span>
                       </div>
@@ -632,7 +664,18 @@
                         <input type="text" id="import-filepath" placeholder="Ej: /home/carlossgr/Descargas/OshiNoKo_S01E01.mkv" style="flex-grow: 1; padding: 6px 12px; font-size: 0.8rem; height: 32px;">
                       </div>
                     </div>
-                    <small class="form-tip">Puedes subir un archivo de video directamente de tu PC o indicar su ruta absoluta en el servidor.</small>
+                    <small class="form-tip">Puedes seleccionar 1 o varios capítulos de una temporada a la vez, o indicar su ruta local en el servidor.</small>
+                    
+                    <!-- Bulk Upload Files Preview -->
+                    <div id="bulk-files-container" style="display: none; margin-top: 10px; padding: 12px; background: rgba(255,255,255,0.03); border: 1px dashed var(--border-color); border-radius: 8px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span style="font-weight: 600; font-size: 0.85rem; color: var(--accent-color); display: flex; align-items: center; gap: 6px;">
+                          <i data-lucide="layers" style="width: 14px; height: 14px;"></i> Carga Masiva por Temporada
+                        </span>
+                        <span id="bulk-file-count" class="badge" style="background: var(--surface-color); color: var(--text-main);">0 archivos</span>
+                      </div>
+                      <div id="bulk-files-list" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem; padding-right: 4px;"></div>
+                    </div>
                   </div>
 
                   <div class="form-group">
@@ -669,12 +712,12 @@
                         <label for="import-season">Temporada</label>
                         <input type="number" id="import-season" min="1" value="1">
                       </div>
-                      <div class="form-group col">
+                      <div class="form-group col" id="import-episode-group">
                         <label for="import-episode">Capítulo #</label>
                         <input type="number" id="import-episode" min="1" value="1">
                       </div>
                     </div>
-                    <div class="form-group">
+                    <div class="form-group" id="import-ep-title-group">
                       <label for="import-ep-title">Título del Capítulo (Opcional)</label>
                       <input type="text" id="import-ep-title" placeholder="Dejar vacío para autodetectar con TMDB">
                     </div>
@@ -696,9 +739,23 @@
                   <button type="submit" class="btn btn-primary btn-block" id="import-submit-btn" style="margin-top: 15px;"><i data-lucide="download"></i> Importar y Organizar</button>
                 </form>
 
-                <div id="import-status" class="import-status" style="display: none; margin-top: 15px;">
-                  <div class="status-spinner spinner"></div>
-                  <p id="import-status-text">Procesando vídeo, extrayendo pistas y metadatos con ffprobe...</p>
+                <div id="import-status" class="import-status" style="display: none; margin-top: 15px; flex-direction: column; gap: 10px; padding: 15px; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 8px;">
+                  <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      <div class="status-spinner spinner" style="width: 20px; height: 20px;"></div>
+                      <span id="import-batch-label" style="font-weight: 700; font-size: 0.9rem; color: var(--text-main);">Procesando vídeo...</span>
+                    </div>
+                    <span id="import-progress-percent" style="font-weight: 800; font-size: 1rem; color: var(--accent-color);">0%</span>
+                  </div>
+                  
+                  <div class="upload-progress-bar-track" style="width: 100%; height: 10px; background: rgba(255,255,255,0.08); border-radius: 5px; overflow: hidden;">
+                    <div id="upload-progress-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-color) 0%, #00e08f 100%); transition: width 0.2s ease;"></div>
+                  </div>
+
+                  <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-muted);">
+                    <span id="import-status-text">Iniciando subida...</span>
+                    <span id="import-progress-stats">0 MB / 0 MB</span>
+                  </div>
                 </div>
               </div>
 
