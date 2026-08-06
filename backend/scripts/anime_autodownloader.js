@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dbHelper } from '../db.js';
 import { scraper } from '../scraper.js';
+import { runLibraryScan } from '../scan_library.js';
 
 const tmdbResolutionCache = new Map();
 
@@ -121,12 +122,58 @@ export function parseAnimeFilename(filename) {
 export function filterSpanishAnimeTorrents(items) {
   if (!Array.isArray(items)) return [];
 
-  const spanishRegex = /(latino|sub[\s\-_]*español|sub[\s\-_]*esp|castellano|spanish|esp|multisub|multi\-sub|dual[\s\-_]*audio)/i;
+  const spanishRegex = /(latino|español|espanol|sub[\s\._\-]*español|sub[\s\._\-]*espanol|sub[\s\._\-]*esp|castellano|spanish|multisub|multi\-sub|multi[\s\._\-]*subs|multi[\s\._\-]*audio|dual[\s\._\-]*audio|es\-la|es\-es|vostfr[\/\-_]*es)/i;
+  const rawChineseRegex = /\[(RAW|Chinese|BIG5|GB|CHS|CHT)\]/i;
 
   return items.filter(item => {
     if (!item || !item.title) return false;
-    return spanishRegex.test(item.title) || (item.description && spanishRegex.test(item.description));
+    const fullText = `${item.title} ${item.description || ''}`;
+    const hasSpanish = spanishRegex.test(fullText);
+    const isRawChinese = rawChineseRegex.test(item.title) && !hasSpanish;
+    return hasSpanish && !isRawChinese;
   });
+}
+
+/**
+ * Ingests all completed video files from temp download directory into official Library/Anime/ structure
+ * and triggers runLibraryScan() to populate TMDB metadata and home screen cards.
+ */
+export async function ingestCompletedDownloads() {
+  try {
+    const files = await fs.readdir(tempDownloadDir);
+    let ingestedCount = 0;
+
+    for (const file of files) {
+      if (file.endsWith('.mkv') || file.endsWith('.mp4') || file.endsWith('.avi')) {
+        const fullPath = path.join(tempDownloadDir, file);
+        const parsed = parseAnimeFilename(file);
+        const resolved = await resolveAnimeTMDB(file);
+
+        const showTitle = (resolved.canonicalTitle || parsed.animeTitle || 'Anime').replace(/[\/\\:*?"<>|]/g, '_').trim();
+        const seasonPad = String(parsed.season).padStart(2, '0');
+        const epPad = String(parsed.episode).padStart(2, '0');
+        const ext = path.extname(file) || '.mkv';
+
+        const targetDir = path.resolve(__dirname, '..', '..', 'library', 'Anime', showTitle, `Season ${seasonPad}`);
+        await fs.mkdir(targetDir, { recursive: true });
+
+        const targetFileName = `${showTitle} - S${seasonPad}E${epPad}${ext}`;
+        const targetPath = path.join(targetDir, targetFileName);
+
+        console.log(`[AutoDownloader] Ingesting completed download: "${file}" -> "${targetPath}"`);
+        await fs.rename(fullPath, targetPath);
+        ingestedCount++;
+      }
+    }
+
+    if (ingestedCount > 0) {
+      console.log(`[AutoDownloader] Triggering library scan for ${ingestedCount} newly ingested files...`);
+      await runLibraryScan();
+      console.log(`[AutoDownloader] Library scan complete! Newly ingested shows are now live on home screen.`);
+    }
+  } catch (err) {
+    console.error('[AutoDownloader] Ingest error:', err.message);
+  }
 }
 
 /**
@@ -448,6 +495,9 @@ export async function runAutoScan() {
         currentDownload.status = 'ingesting';
         currentDownload.percent = 100;
       }
+
+      // Move completed download into official library and scan catalog
+      await ingestCompletedDownloads();
 
       // Record in database
       dbHelper.saveDownloadedTorrent({
