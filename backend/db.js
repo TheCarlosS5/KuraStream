@@ -323,6 +323,8 @@ export const dbHelper = {
       }
     }
 
+    query += " GROUP BY id";
+
     const stmt = db.prepare(query);
     return stmt.all(...params);
   },
@@ -331,6 +333,7 @@ export const dbHelper = {
     return stmt.get(id);
   },
   saveShow: (show) => {
+    if (!show || !show.id) return;
     const existing = dbHelper.getShow(show.id);
     
     // Safely parse backdrop_loops
@@ -360,68 +363,31 @@ export const dbHelper = {
     const trailer_key = show.trailer_key !== undefined ? show.trailer_key : (existing ? existing.trailer_key : null);
     const age_rating = show.age_rating !== undefined ? show.age_rating : (existing && existing.age_rating !== undefined ? existing.age_rating : 'TV-14');
 
-    if (existing) {
-      const stmt = db.prepare(`
-        UPDATE shows SET 
-          title = ?, 
-          synopsis = ?, 
-          rating = ?, 
-          year = ?, 
-          studio = ?, 
-          director = ?, 
-          writer = ?, 
-          cast_members = ?, 
-          poster_path = ?, 
-          backdrop_path = ?, 
-          media_type = ?, 
-          backdrop_loops = ?,
-          genres = ?,
-          trailer_key = ?,
-          age_rating = ?
-        WHERE id = ?
-      `);
-      stmt.run(
-        show.title,
-        show.synopsis || '',
-        show.rating || 0.0,
-        show.year || null,
-        show.studio || '',
-        show.director || '',
-        show.writer || '',
-        JSON.stringify(cast),
-        show.poster_path || '',
-        show.backdrop_path || '',
-        show.media_type || 'anime',
-        JSON.stringify(loops),
-        show.genres || existing.genres || '',
-        trailer_key,
-        age_rating,
-        show.id
-      );
-    } else {
-      const stmt = db.prepare(`
-        INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run(
-        show.id,
-        show.title,
-        show.synopsis || '',
-        show.rating || 0.0,
-        show.year || null,
-        show.studio || '',
-        show.director || '',
-        show.writer || '',
-        JSON.stringify(cast),
-        show.poster_path || '',
-        show.backdrop_path || '',
-        show.media_type || 'anime',
-        JSON.stringify(loops),
-        show.genres || '',
-        trailer_key,
-        age_rating
-      );
-    }
+    // Delete any existing rows for this ID to guarantee 100% uniqueness
+    db.prepare("DELETE FROM shows WHERE id = ?").run(show.id);
+
+    const stmt = db.prepare(`
+      INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      show.id,
+      show.title,
+      show.synopsis || '',
+      show.rating || 0.0,
+      show.year || null,
+      show.studio || '',
+      show.director || '',
+      show.writer || '',
+      JSON.stringify(cast),
+      show.poster_path || '',
+      show.backdrop_path || '',
+      show.media_type || 'anime',
+      JSON.stringify(loops),
+      show.genres || (existing ? existing.genres : ''),
+      trailer_key,
+      age_rating
+    );
   },
   deleteShow: (id) => {
     db.prepare("DELETE FROM watch_history WHERE episode_id IN (SELECT id FROM episodes WHERE show_id = ?)").run(id);
