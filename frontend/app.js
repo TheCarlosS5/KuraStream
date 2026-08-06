@@ -4265,6 +4265,14 @@ function setupAutoDownloaderControls() {
   const tmQueueList = document.getElementById('tm-queue-list');
   const tmHistoryList = document.getElementById('tm-history-list');
 
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('kura_admin_token') || (JSON.parse(localStorage.getItem('kura_user_session') || '{}')).token || '';
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : ''
+    };
+  };
+
   const updateUI = (status) => {
     if (!status) return;
 
@@ -4358,7 +4366,7 @@ function setupAutoDownloaderControls() {
             try {
               const res = await fetch('/api/admin/autodownload/queue/remove', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ index })
               });
               const data = await res.json();
@@ -4395,7 +4403,9 @@ function setupAutoDownloaderControls() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('/api/admin/autodownload/status');
+      const res = await fetch('/api/admin/autodownload/status', {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
         updateUI(data);
@@ -4408,7 +4418,10 @@ function setupAutoDownloaderControls() {
   const handleToggle = async (btnEl) => {
     if (btnEl) btnEl.disabled = true;
     try {
-      const res = await fetch('/api/admin/autodownload/toggle', { method: 'POST' });
+      const res = await fetch('/api/admin/autodownload/toggle', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
         updateUI(data);
@@ -4425,7 +4438,10 @@ function setupAutoDownloaderControls() {
     const orig = btnEl ? btnEl.innerHTML : '';
     if (btnEl) btnEl.innerHTML = '<i class="spinner-icon"></i> Buscando...';
     try {
-      const res = await fetch('/api/admin/autodownload/scan', { method: 'POST' });
+      const res = await fetch('/api/admin/autodownload/scan', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         await fetchStatus();
         alert('¡Búsqueda y escaneo RSS completado!');
