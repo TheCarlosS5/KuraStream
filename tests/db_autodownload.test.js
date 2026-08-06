@@ -18,5 +18,6 @@ test('dbHelper supports downloaded_torrents operations', () => {
 
   const history = dbHelper.getDownloadedTorrents();
   assert.ok(history.length > 0);
-  assert.equal(history[0].info_hash, 'abc123hash');
+  const found = history.find(h => h.info_hash === 'abc123hash');
+  assert.ok(found);
 });

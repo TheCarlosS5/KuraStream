@@ -438,6 +438,10 @@
               <i data-lucide="tv"></i>
               <span>Biblioteca</span>
             </button>
+            <button class="admin-nav-item" data-target="admin-sub-torrents">
+              <i data-lucide="download-cloud"></i>
+              <span>Descargas Torrent</span>
+            </button>
             <button class="admin-nav-item" data-target="admin-sub-console">
               <i data-lucide="terminal"></i>
               <span>Consola</span>
@@ -578,6 +582,72 @@
                   <i data-lucide="rotate-ccw" style="width: 16px; height: 16px;"></i> Restablecer Logotipo Original
                 </button>
               </form>
+            </div>
+          <!-- SUB-VIEW: TORRENT DOWNLOAD MANAGER -->
+          <div id="admin-sub-torrents" class="admin-sub-view">
+            <div class="admin-sub-title-bar" style="margin-bottom: 20px;">
+              <div>
+                <h2 class="admin-sub-title" style="margin: 0; padding: 0; border: none;">Gestor de Descargas Torrent (Latino / Sub ESP)</h2>
+                <small style="color: var(--text-muted); font-size: 0.82rem;">Monitoreo en tiempo real, cola secuencial 1 por 1 e ingesta automática por serie y temporada.</small>
+              </div>
+              <div class="admin-btn-group">
+                <span id="torrent-manager-status-badge" class="badge" style="background: rgba(255,255,255,0.1); color: var(--text-muted);">Inactivo</span>
+                <button type="button" class="btn btn-secondary" id="btn-toggle-torrent-manager" style="height: 36px; padding: 0 14px; font-size: 0.8rem;">
+                  <i data-lucide="power" style="width: 14px; height: 14px;"></i> Activar Auto-Scan
+                </button>
+                <button type="button" class="btn btn-primary" id="btn-scan-torrent-manager-now" style="height: 36px; padding: 0 14px; font-size: 0.8rem; gap: 6px;">
+                  <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Escanear Ahora
+                </button>
+              </div>
+            </div>
+
+            <!-- Active Live Download Card -->
+            <div class="admin-card" style="margin-bottom: 25px; background: rgba(0,224,143,0.04); border: 1px solid rgba(0,224,143,0.25);">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <i data-lucide="download-cloud" style="color: #00e08f; width: 24px; height: 24px;"></i>
+                  <div>
+                    <h3 id="tm-active-title" style="margin: 0; font-family: var(--font-title); font-size: 1.1rem; color: var(--text-main);">Sin descargas activas en este momento</h3>
+                    <small id="tm-active-subtitle" style="color: var(--text-muted); font-size: 0.8rem;">El servidor está a la espera de nuevos capítulos o inicio de escaneo.</small>
+                  </div>
+                </div>
+                <span id="tm-active-percent" style="font-size: 1.4rem; font-weight: 900; color: #00e08f;">0%</span>
+              </div>
+
+              <!-- Animated Progress Bar -->
+              <div style="width: 100%; height: 12px; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
+                <div id="tm-active-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-color), #00e08f); transition: width 0.3s ease;"></div>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: var(--text-muted);">
+                <span id="tm-active-status">Estado: En espera</span>
+                <strong id="tm-active-metrics" style="color: var(--text-main);">0.0 MB / 0.0 MB (0.0 MB/s)</strong>
+              </div>
+            </div>
+
+            <!-- Sequential Queue (1-by-1) Card -->
+            <div class="admin-card" style="margin-bottom: 25px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <i data-lucide="list-ordered" style="color: var(--accent-color); width: 20px; height: 20px;"></i>
+                  <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.05rem;">Cola de Descargas Secuenciales (1 por 1)</h3>
+                </div>
+                <span id="tm-queue-count" class="badge" style="background: rgba(255,255,255,0.08); color: var(--text-muted);">0 en cola</span>
+              </div>
+              <div id="tm-queue-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto;">
+                <p style="color: var(--text-muted); font-size: 0.85rem; padding: 10px 0;">No hay capítulos pendientes en la cola de descarga.</p>
+              </div>
+            </div>
+
+            <!-- Completed History Card -->
+            <div class="admin-card">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+                <i data-lucide="check-circle" style="color: #00e08f; width: 20px; height: 20px;"></i>
+                <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.05rem;">Historial de Torrents Importados al Catálogo</h3>
+              </div>
+              <div id="tm-history-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto;">
+                <p style="color: var(--text-muted); font-size: 0.85rem; padding: 10px 0;">No hay descargas recientes registradas en el historial.</p>
+              </div>
             </div>
           </div>
 

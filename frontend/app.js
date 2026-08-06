@@ -4242,54 +4242,122 @@ function setupAutoDownloaderControls() {
   const activeFill = document.getElementById('autodownload-progress-fill');
   const activeStatus = document.getElementById('autodownload-current-status');
   const activeStats = document.getElementById('autodownload-current-stats');
+  const historyList = document.getElementById('autodownload-history-list');
+
+  // Dedicated Torrent Download Manager Elements
+  const tmBadge = document.getElementById('torrent-manager-status-badge');
+  const tmBtnToggle = document.getElementById('btn-toggle-torrent-manager');
+  const tmBtnScanNow = document.getElementById('btn-scan-torrent-manager-now');
+  const tmActiveTitle = document.getElementById('tm-active-title');
+  const tmActiveSubtitle = document.getElementById('tm-active-subtitle');
+  const tmActivePercent = document.getElementById('tm-active-percent');
+  const tmActiveBar = document.getElementById('tm-active-bar');
+  const tmActiveStatus = document.getElementById('tm-active-status');
+  const tmActiveMetrics = document.getElementById('tm-active-metrics');
+  const tmQueueCount = document.getElementById('tm-queue-count');
+  const tmQueueList = document.getElementById('tm-queue-list');
+  const tmHistoryList = document.getElementById('tm-history-list');
 
   const updateUI = (status) => {
     if (!status) return;
+
+    // Badges & Toggle Buttons
+    const badgeText = status.isEnabled ? (status.isScanning ? 'Escaneando...' : 'Activo (30m)') : 'Inactivo';
+    const badgeBg = status.isEnabled ? 'rgba(0, 224, 143, 0.2)' : 'rgba(255,255,255,0.1)';
+    const badgeColor = status.isEnabled ? '#00e08f' : 'var(--text-muted)';
+    const toggleHTML = status.isEnabled ?
+      '<i data-lucide="power" style="width: 14px; height: 14px;"></i> Desactivar Auto-Scan' :
+      '<i data-lucide="power" style="width: 14px; height: 14px;"></i> Activar Auto-Scan';
+
     if (badge) {
-      badge.textContent = status.isEnabled ? (status.isScanning ? 'Escaneando...' : 'Activo (30m)') : 'Inactivo';
-      badge.style.background = status.isEnabled ? 'rgba(0, 224, 143, 0.2)' : 'rgba(255,255,255,0.1)';
-      badge.style.color = status.isEnabled ? '#00e08f' : 'var(--text-muted)';
+      badge.textContent = badgeText;
+      badge.style.background = badgeBg;
+      badge.style.color = badgeColor;
+    }
+    if (tmBadge) {
+      tmBadge.textContent = badgeText;
+      tmBadge.style.background = badgeBg;
+      tmBadge.style.color = badgeColor;
     }
 
-    if (btnToggle) {
-      btnToggle.innerHTML = status.isEnabled ?
-        '<i data-lucide="power" style="width: 14px; height: 14px;"></i> Desactivar Auto-Scan' :
-        '<i data-lucide="power" style="width: 14px; height: 14px;"></i> Activar Auto-Scan';
-    }
+    if (btnToggle) btnToggle.innerHTML = toggleHTML;
+    if (tmBtnToggle) tmBtnToggle.innerHTML = toggleHTML;
 
     if (lastScanEl) {
       lastScanEl.textContent = status.lastScanTime ? new Date(status.lastScanTime).toLocaleTimeString() : 'Nunca';
     }
 
-    // Update Live Download Progress Monitor
-    if (activeContainer) {
-      if (status.currentDownload) {
-        activeContainer.style.display = 'block';
-        if (activeTitle) activeTitle.innerHTML = `<i data-lucide="download-cloud" style="width: 16px; height: 16px; color: #00e08f;"></i> ${status.currentDownload.animeTitle} - Cap. ${status.currentDownload.episode} (Temp. ${status.currentDownload.season})`;
-        if (activePercent) activePercent.textContent = `${status.currentDownload.percent}%`;
-        if (activeFill) activeFill.style.width = `${status.currentDownload.percent}%`;
-        if (activeStatus) activeStatus.textContent = status.currentDownload.status === 'ingesting' ? 'Extrayendo metadatos y generando miniaturas en servidor...' : 'Descargando torrent en servidor...';
-        if (activeStats) activeStats.textContent = `${status.currentDownload.loadedMB} MB / ${status.currentDownload.totalMB} MB (${status.currentDownload.speedMBs} MB/s)`;
-      } else {
-        activeContainer.style.display = 'none';
-      }
+    // Active Live Download Monitor
+    if (status.currentDownload) {
+      const cur = status.currentDownload;
+      const titleText = `${cur.animeTitle} - Cap. ${cur.episode} (Temp. ${cur.season})`;
+      const subtitleText = `Torrents en cola: ${status.downloadQueue ? status.downloadQueue.length : 0} pendientes.`;
+      const statusStr = cur.status === 'ingesting' ? 'Extrayendo metadatos y generando miniaturas...' : 'Descargando torrent en servidor...';
+      const metricsStr = `${cur.loadedMB} MB / ${cur.totalMB} MB (${cur.speedMBs} MB/s)`;
+
+      if (activeContainer) activeContainer.style.display = 'block';
+      if (activeTitle) activeTitle.innerHTML = `<i data-lucide="download-cloud" style="width: 16px; height: 16px; color: #00e08f;"></i> ${titleText}`;
+      if (activePercent) activePercent.textContent = `${cur.percent}%`;
+      if (activeFill) activeFill.style.width = `${cur.percent}%`;
+      if (activeStatus) activeStatus.textContent = statusStr;
+      if (activeStats) activeStats.textContent = metricsStr;
+
+      // Dedicated Manager Active Card
+      if (tmActiveTitle) tmActiveTitle.textContent = titleText;
+      if (tmActiveSubtitle) tmActiveSubtitle.textContent = subtitleText;
+      if (tmActivePercent) tmActivePercent.textContent = `${cur.percent}%`;
+      if (tmActiveBar) tmActiveBar.style.width = `${cur.percent}%`;
+      if (tmActiveStatus) tmActiveStatus.textContent = `Estado: ${statusStr}`;
+      if (tmActiveMetrics) tmActiveMetrics.textContent = metricsStr;
+    } else {
+      if (activeContainer) activeContainer.style.display = 'none';
+      if (tmActiveTitle) tmActiveTitle.textContent = 'Sin descargas activas en este momento';
+      if (tmActiveSubtitle) tmActiveSubtitle.textContent = 'El servidor está a la espera de nuevos capítulos o inicio de escaneo.';
+      if (tmActivePercent) tmActivePercent.textContent = '0%';
+      if (tmActiveBar) tmActiveBar.style.width = '0%';
+      if (tmActiveStatus) tmActiveStatus.textContent = 'Estado: En espera';
+      if (tmActiveMetrics) tmActiveMetrics.textContent = '0.0 MB / 0.0 MB (0.0 MB/s)';
     }
 
-    if (historyList && status.history) {
-      if (status.history.length === 0) {
-        historyList.innerHTML = '<p style="color: var(--text-muted); padding: 6px 0;">No se han registrado descargas automatizadas aún.</p>';
+    // Sequential Queue (1-by-1) rendering
+    const queue = status.downloadQueue || [];
+    if (tmQueueCount) tmQueueCount.textContent = `${queue.length} en cola`;
+    if (tmQueueList) {
+      if (queue.length === 0) {
+        tmQueueList.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem; padding: 10px 0;">No hay capítulos pendientes en la cola de descarga.</p>';
       } else {
-        historyList.innerHTML = status.history.map(item => `
-          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px;">
-            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">
-              <strong style="color: var(--text-main);">${item.anime_title || 'Anime'}</strong>
-              <span style="color: var(--text-muted); font-size: 0.75rem;"> Cap. ${item.episode || '?'} (Temp. ${item.season || 1})</span>
+        tmQueueList.innerHTML = queue.map((item, idx) => `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px;">
+            <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; max-width: 80%;">
+              <span class="badge" style="background: rgba(168,85,247,0.15); color: var(--accent-color); font-weight: 800;">#${idx + 1}</span>
+              <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                <strong style="color: var(--text-main); font-size: 0.88rem;">${item.animeTitle || item.title}</strong>
+                <span style="color: var(--text-muted); font-size: 0.78rem;"> (Temp. ${item.season || 1} · Cap. ${item.episode || '?'})</span>
+              </div>
             </div>
-            <span class="badge" style="font-size: 0.7rem; background: rgba(0, 224, 143, 0.15); color: #00e08f;">Importado</span>
+            <span class="badge" style="font-size: 0.72rem; background: rgba(255,255,255,0.08); color: var(--text-muted);">En espera 1-a-1</span>
           </div>
         `).join('');
       }
     }
+
+    // History rendering
+    const history = status.history || [];
+    const historyHTML = history.length === 0 ?
+      '<p style="color: var(--text-muted); font-size: 0.85rem; padding: 10px 0;">No hay descargas recientes registradas en el historial.</p>' :
+      history.map(item => `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px;">
+          <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">
+            <strong style="color: var(--text-main); font-size: 0.88rem;">${item.anime_title || 'Anime'}</strong>
+            <span style="color: var(--text-muted); font-size: 0.78rem;"> Cap. ${item.episode || '?'} (Temp. ${item.season || 1})</span>
+          </div>
+          <span class="badge" style="font-size: 0.72rem; background: rgba(0, 224, 143, 0.15); color: #00e08f;">Importado en Catálogo</span>
+        </div>
+      `).join('');
+
+    if (historyList) historyList.innerHTML = historyHTML;
+    if (tmHistoryList) tmHistoryList.innerHTML = historyHTML;
+
     if (typeof lucide !== 'undefined') lucide.createIcons();
   };
 
@@ -4305,42 +4373,46 @@ function setupAutoDownloaderControls() {
     }
   };
 
-  if (btnToggle) {
-    btnToggle.addEventListener('click', async () => {
-      btnToggle.disabled = true;
-      try {
-        const res = await fetch('/api/admin/autodownload/toggle', { method: 'POST' });
-        if (res.ok) {
-          const data = await res.json();
-          updateUI(data);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        btnToggle.disabled = false;
+  const handleToggle = async (btnEl) => {
+    if (btnEl) btnEl.disabled = true;
+    try {
+      const res = await fetch('/api/admin/autodownload/toggle', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        updateUI(data);
       }
-    });
-  }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      if (btnEl) btnEl.disabled = false;
+    }
+  };
 
-  if (btnScanNow) {
-    btnScanNow.addEventListener('click', async () => {
-      btnScanNow.disabled = true;
-      const orig = btnScanNow.innerHTML;
-      btnScanNow.innerHTML = '<i class="spinner-icon"></i> Buscando...';
-      try {
-        const res = await fetch('/api/admin/autodownload/scan', { method: 'POST' });
-        if (res.ok) {
-          await fetchStatus();
-          alert('¡Búsqueda y escaneo RSS completado!');
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        btnScanNow.disabled = false;
-        btnScanNow.innerHTML = orig;
+  const handleScanNow = async (btnEl) => {
+    if (btnEl) btnEl.disabled = true;
+    const orig = btnEl ? btnEl.innerHTML : '';
+    if (btnEl) btnEl.innerHTML = '<i class="spinner-icon"></i> Buscando...';
+    try {
+      const res = await fetch('/api/admin/autodownload/scan', { method: 'POST' });
+      if (res.ok) {
+        await fetchStatus();
+        alert('¡Búsqueda y escaneo RSS completado!');
       }
-    });
-  }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = orig;
+      }
+    }
+  };
+
+  if (btnToggle) btnToggle.addEventListener('click', () => handleToggle(btnToggle));
+  if (tmBtnToggle) tmBtnToggle.addEventListener('click', () => handleToggle(tmBtnToggle));
+
+  if (btnScanNow) btnScanNow.addEventListener('click', () => handleScanNow(btnScanNow));
+  if (tmBtnScanNow) tmBtnScanNow.addEventListener('click', () => handleScanNow(tmBtnScanNow));
 
   fetchStatus();
   setInterval(fetchStatus, 2000);

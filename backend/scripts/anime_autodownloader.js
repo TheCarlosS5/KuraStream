@@ -11,6 +11,7 @@ let isScanning = false;
 let lastScanTime = null;
 let scanTimer = null;
 let currentDownload = null;
+let downloadQueue = [];
 const activeDownloads = [];
 
 /**
@@ -149,7 +150,12 @@ export function isBatchPack(title) {
  * Searches for all available episodes of a specific anime to ensure complete series
  */
 export async function fetchAnimeAllEpisodes(animeTitle) {
-  if (!animeTitle || animeTitle.length < 3 || process.env.NODE_ENV === 'test') return [];
+  if (!animeTitle || animeTitle.length < 3) return [];
+  if (process.env.NODE_ENV === 'test') {
+    return [
+      { title: `${animeTitle} - S01E01 [1080p Latino].mkv`, link: 'http://example.com/s1e1', guid: 'test-hash-s1e1' }
+    ];
+  }
   const searchUrl = `https://nyaa.si/?page=rss&q=${encodeURIComponent(animeTitle)}&c=1_2`;
   try {
     const controller = new AbortController();
@@ -302,14 +308,28 @@ export async function runAutoScan() {
       }
     }
 
-    // Process queue sequentially 1 by 1
-    const processQueue = process.env.NODE_ENV === 'test' ? fullQueue.slice(0, 1) : fullQueue;
+    // Populate UI queue with parsed metadata
+    const queueLimit = process.env.NODE_ENV === 'test' ? 1 : fullQueue.length;
+    const processQueue = fullQueue.slice(0, queueLimit);
+
+    downloadQueue = processQueue.map(item => {
+      const parsed = parseAnimeFilename(item.title);
+      return {
+        title: item.title,
+        animeTitle: parsed.animeTitle,
+        season: parsed.season,
+        episode: parsed.episode,
+        link: item.link
+      };
+    });
 
     for (let i = 0; i < processQueue.length; i++) {
       const item = processQueue[i];
       const infoHash = item.guid || item.link || item.title;
       const isBatch = isBatchPack(item.title);
       const parsed = parseAnimeFilename(item.title);
+
+      if (downloadQueue.length > 0) downloadQueue.shift();
 
       console.log(`[AutoDownloader] Processing 1-by-1 (${i + 1}/${fullQueue.length}): "${item.title}" -> ${parsed.animeTitle} S${parsed.season}E${parsed.episode}`);
 
@@ -374,6 +394,7 @@ export async function runAutoScan() {
   } finally {
     isScanning = false;
     currentDownload = null;
+    downloadQueue = [];
   }
 
   return { status: 'completed', processedCount, lastScanTime };
@@ -416,6 +437,7 @@ export function getAutoDownloaderStatus() {
     isScanning,
     lastScanTime,
     currentDownload,
+    downloadQueue,
     activeDownloads,
     history
   };
