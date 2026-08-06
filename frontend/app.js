@@ -1068,12 +1068,14 @@ async function loadShowDetails(id) {
 
     // Set backdrop image immediately as a fallback
     if (show.backdrop_path) {
-      const safeBackdrop = show.backdrop_path.replace(/'/g, "%27");
+      let hdBackdrop = show.backdrop_path.replace('/w500/', '/original/').replace('/w1280/', '/original/');
+      const safeBackdrop = hdBackdrop.replace(/'/g, "%27");
       const ambientBg = document.querySelector('.detail-ambient-bg');
       if (ambientBg) {
-        ambientBg.style.backgroundImage = `url('${safeBackdrop}?t=${Date.now()}')`;
+        ambientBg.style.backgroundImage = `url('${safeBackdrop}')`;
         ambientBg.style.backgroundSize = 'cover';
-        ambientBg.style.backgroundPosition = 'center';
+        ambientBg.style.backgroundPosition = 'center top';
+        ambientBg.style.filter = 'brightness(0.55) saturate(120%)';
       }
     }
 
@@ -1082,7 +1084,10 @@ async function loadShowDetails(id) {
 
     if (!hasLocalLoops && show.trailer_key) {
       // Show YouTube container and hide/pause local video
-      if (bgYoutubeContainer) bgYoutubeContainer.style.display = 'block';
+      if (bgYoutubeContainer) {
+        bgYoutubeContainer.style.display = 'block';
+        bgYoutubeContainer.style.pointerEvents = 'none';
+      }
       if (bgVideo) {
         bgVideo.style.display = 'none';
         bgVideo.pause();
@@ -1093,7 +1098,8 @@ async function loadShowDetails(id) {
       }
 
       if (bgYoutubeIframe) {
-        bgYoutubeIframe.src = `https://www.youtube.com/embed/${show.trailer_key}?autoplay=1&mute=1&controls=0&loop=1&playlist=${show.trailer_key}&playsinline=1&showinfo=0&rel=0&iv_load_policy=3&enablejsapi=1`;
+        bgYoutubeIframe.style.pointerEvents = 'none';
+        bgYoutubeIframe.src = `https://www.youtube-nocookie.com/embed/${show.trailer_key}?autoplay=1&mute=1&controls=0&loop=1&playlist=${show.trailer_key}&playsinline=1&showinfo=0&rel=0&iv_load_policy=3&enablejsapi=1&disablekb=1&modestbranding=1&fs=0&autohide=1`;
       }
     } else {
       // Hide YouTube container, clear iframe src, and run local loop playback logic

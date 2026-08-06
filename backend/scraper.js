@@ -67,10 +67,10 @@ async function tmdbFetch(endpoint, params = {}) {
   return response.json();
 }
 
-// Download image utility
 export async function downloadImage(urlPath, destPath) {
   if (!urlPath) return '';
-  const imageUrl = `https://image.tmdb.org/t/p/w500${urlPath}`;
+  const size = (destPath && destPath.includes('backdrop')) ? 'original' : 'w500';
+  const imageUrl = urlPath.startsWith('http') ? urlPath : `https://image.tmdb.org/t/p/${size}${urlPath}`;
   try {
     await fs.mkdir(path.dirname(destPath), { recursive: true });
     const res = await fetch(imageUrl);
@@ -206,7 +206,8 @@ export const scraper = {
         episode_number: ep.episode_number,
         title: ep.name,
         synopsis: ep.overview,
-        air_date: ep.air_date
+        air_date: ep.air_date,
+        still_path: ep.still_path ? `https://image.tmdb.org/t/p/w500${ep.still_path}` : null
       }));
     } catch (err) {
       console.error(`Failed to fetch season ${seasonNumber} for show ${tmdbId}:`, err);
