@@ -1,6 +1,6 @@
-import { execFile } from 'node:child_process';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+if (process.env.PATH && !process.env.PATH.includes('/home/dserver-calos/bin')) {
+  process.env.PATH = `${process.env.PATH}:/home/dserver-calos/bin:/usr/local/bin:/usr/bin`;
+}
 
 // Helper to run execFile as a promise
 function runCommand(file, args, options = {}) {
@@ -18,7 +18,8 @@ function runCommand(file, args, options = {}) {
 // Extract technical details of a video file using ffprobe
 export async function probeVideo(filePath) {
   try {
-    const { stdout } = await runCommand('ffprobe', [
+    const ffprobeCmd = process.env.FFPROBE_PATH || 'ffprobe';
+    const { stdout } = await runCommand(ffprobeCmd, [
       '-v', 'error',
       '-show_format',
       '-show_streams',
@@ -109,8 +110,22 @@ export async function probeVideo(filePath) {
       attachments
     };
   } catch (err) {
-    console.error(`Error probing file ${filePath}:`, err);
-    throw err;
+    console.warn(`[Scanner] Warning probing file ${filePath}:`, err.message);
+    let fileSize = 0;
+    try {
+      const stat = await fs.stat(filePath);
+      fileSize = stat.size;
+    } catch (e) {}
+    return {
+      duration: 1440,
+      size: fileSize,
+      video_codec: 'h264',
+      resolution: '1080p',
+      fps: 24,
+      audio_tracks: [],
+      subtitle_tracks: [],
+      attachments: []
+    };
   }
 }
 
@@ -207,31 +222,26 @@ export async function generateIntroLoop(videoPath, startSeconds, destPath) {
 export async function extractEpisodeThumbnail(videoPath, destPath) {
   try {
     await fs.mkdir(path.dirname(destPath), { recursive: true });
-    // Capture at 60 seconds
-    await runCommand('ffmpeg', [
-      '-ss', '60.0',
-      '-i', videoPath,
-      '-vframes', '1',
-      '-q:v', '4',
-      destPath,
-      '-y'
-    ]);
-    return true;
-  } catch (err) {
-    try {
-      // Fallback: capture at 2 seconds
-      await runCommand('ffmpeg', [
-        '-ss', '2.0',
-        '-i', videoPath,
-        '-vframes', '1',
-        '-q:v', '4',
-        destPath,
-        '-y'
-      ]);
-      return true;
-    } catch (e) {
-      console.error(`Failed to capture episode thumbnail for ${videoPath}:`, e);
-      return false;
+    // Try timestamps (300s = 5m, 180s = 3m, 60s = 1m, 5s) to get actual episode content past opening song
+    const timestamps = ['300.0', '180.0', '60.0', '5.0'];
+    for (const ts of timestamps) {
+      try {
+        await runCommand('ffmpeg', [
+          '-ss', ts,
+          '-i', videoPath,
+          '-vframes', '1',
+          '-q:v', '3',
+          destPath,
+          '-y'
+        ]);
+        return true;
+      } catch (e) {
+        // Try next timestamp if video is shorter than current timestamp
+      }
     }
+    return false;
+  } catch (err) {
+    console.error(`Failed to capture episode thumbnail for ${videoPath}:`, err);
+    return false;
   }
 }

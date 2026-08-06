@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'kurastream.db');
@@ -206,12 +207,10 @@ export function runMigrations(databaseInstance) {
   try {
     const tableInfo = databaseInstance.prepare("PRAGMA table_info(watch_history)").all();
     const profileNameCol = tableInfo.find(col => col.name === 'profile_name');
-    const isPrimaryKeyComposite = profileNameCol && profileNameCol.pk > 0;
-    if (!isPrimaryKeyComposite) {
-      databaseInstance.exec("BEGIN TRANSACTION;");
-      databaseInstance.exec("ALTER TABLE watch_history RENAME TO watch_history_old;");
+    const isPrimaryKeyComposite = profileNameCol && Number(profileNameCol.pk) > 0;
+    if (tableInfo.length > 0 && !isPrimaryKeyComposite) {
       databaseInstance.exec(`
-        CREATE TABLE watch_history (
+        CREATE TABLE IF NOT EXISTS watch_history_new (
           username TEXT NOT NULL,
           profile_name TEXT NOT NULL DEFAULT 'Principal',
           episode_id TEXT NOT NULL,
@@ -220,70 +219,60 @@ export function runMigrations(databaseInstance) {
           PRIMARY KEY (username, profile_name, episode_id)
         );
       `);
-      const hasProfileNameInOld = profileNameCol !== undefined;
-      if (hasProfileNameInOld) {
+      if (profileNameCol) {
         databaseInstance.exec(`
-          INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
-          SELECT username, COALESCE(profile_name, 'Principal'), episode_id, progress_seconds, updated_at FROM watch_history_old;
+          INSERT OR IGNORE INTO watch_history_new (username, profile_name, episode_id, progress_seconds, updated_at)
+          SELECT username, COALESCE(profile_name, 'Principal'), episode_id, progress_seconds, updated_at FROM watch_history;
         `);
       } else {
         databaseInstance.exec(`
-          INSERT OR IGNORE INTO watch_history (username, profile_name, episode_id, progress_seconds, updated_at)
-          SELECT username, 'Principal', episode_id, progress_seconds, updated_at FROM watch_history_old;
+          INSERT OR IGNORE INTO watch_history_new (username, profile_name, episode_id, progress_seconds, updated_at)
+          SELECT username, 'Principal', episode_id, progress_seconds, updated_at FROM watch_history;
         `);
       }
-      databaseInstance.exec("DROP TABLE watch_history_old;");
-      databaseInstance.exec("COMMIT;");
+      databaseInstance.exec(`
+        DROP TABLE watch_history;
+        ALTER TABLE watch_history_new RENAME TO watch_history;
+      `);
       console.log("watch_history migrated to composite primary key with profile_name successfully.");
     }
   } catch (e) {
-    try {
-      databaseInstance.exec("ROLLBACK;");
-    } catch (rollbackErr) {
-      // Ignore if no active transaction
-    }
-    console.error("Watch history multi-profile migration failed:", e);
+    console.error("Watch history multi-profile migration failed:", e.message);
   }
 
   // Migration for adding profile_name to favorites composite primary key
   try {
     const tableInfo = databaseInstance.prepare("PRAGMA table_info(favorites)").all();
     const profileNameCol = tableInfo.find(col => col.name === 'profile_name');
-    const isPrimaryKeyComposite = profileNameCol && profileNameCol.pk > 0;
-    if (!isPrimaryKeyComposite) {
-      databaseInstance.exec("BEGIN TRANSACTION;");
-      databaseInstance.exec("ALTER TABLE favorites RENAME TO favorites_old;");
+    const isPrimaryKeyComposite = profileNameCol && Number(profileNameCol.pk) > 0;
+    if (tableInfo.length > 0 && !isPrimaryKeyComposite) {
       databaseInstance.exec(`
-        CREATE TABLE favorites (
+        CREATE TABLE IF NOT EXISTS favorites_new (
           username TEXT NOT NULL,
           profile_name TEXT NOT NULL DEFAULT 'Principal',
           show_id TEXT NOT NULL,
           PRIMARY KEY (username, profile_name, show_id)
         );
       `);
-      const hasProfileNameInOld = profileNameCol !== undefined;
-      if (hasProfileNameInOld) {
+      if (profileNameCol) {
         databaseInstance.exec(`
-          INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
-          SELECT username, COALESCE(profile_name, 'Principal'), show_id FROM favorites_old;
+          INSERT OR IGNORE INTO favorites_new (username, profile_name, show_id)
+          SELECT username, COALESCE(profile_name, 'Principal'), show_id FROM favorites;
         `);
       } else {
         databaseInstance.exec(`
-          INSERT OR IGNORE INTO favorites (username, profile_name, show_id)
-          SELECT username, 'Principal', show_id FROM favorites_old;
+          INSERT OR IGNORE INTO favorites_new (username, profile_name, show_id)
+          SELECT username, 'Principal', show_id FROM favorites;
         `);
       }
-      databaseInstance.exec("DROP TABLE favorites_old;");
-      databaseInstance.exec("COMMIT;");
+      databaseInstance.exec(`
+        DROP TABLE favorites;
+        ALTER TABLE favorites_new RENAME TO favorites;
+      `);
       console.log("favorites migrated to composite primary key with profile_name successfully.");
     }
   } catch (e) {
-    try {
-      databaseInstance.exec("ROLLBACK;");
-    } catch (rollbackErr) {
-      // Ignore if no active transaction
-    }
-    console.error("Favorites multi-profile migration failed:", e);
+    console.error("Favorites multi-profile migration failed:", e.message);
   }
 }
 
@@ -301,8 +290,11 @@ try {
 
 // Seed default admin user
 try {
+  const salt = process.env.PASSWORD_SALT || process.env.JWT_SECRET || 'kurasalt';
+  const adminHash = crypto.scryptSync('Carlos2009', salt, 64).toString('hex');
   db.exec(`
-    INSERT OR IGNORE INTO users (username, password, role) VALUES ('TheCarlosS5', 'Carlos2009.', 'admin');
+    INSERT OR IGNORE INTO users (username, password, role) VALUES ('TheCarlosS5', '${adminHash}', 'admin');
+    UPDATE users SET password = '${adminHash}' WHERE username = 'TheCarlosS5';
   `);
 } catch (e) {
   console.error("Failed to seed default admin user:", e);
