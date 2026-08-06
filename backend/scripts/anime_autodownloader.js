@@ -359,7 +359,7 @@ export async function runAutoScan() {
         const parsed = parseAnimeFilename(epItem.title);
         const resolved = await resolveAnimeTMDB(epItem.title);
         const epKey = `${resolved.tmdbId}_S${parsed.season}_E${parsed.episode}`;
-        if (!dbHelper.isTorrentDownloaded(hash) && !queuedHashes.has(hash) && !queuedEpisodeKeys.has(epKey)) {
+        if (!dbHelper.isTorrentDownloaded(hash) && !dbHelper.isTorrentIgnored(hash) && !queuedHashes.has(hash) && !queuedEpisodeKeys.has(epKey)) {
           queuedHashes.add(hash);
           queuedEpisodeKeys.add(epKey);
           fullQueue.push({
@@ -377,7 +377,7 @@ export async function runAutoScan() {
       const parsed = parseAnimeFilename(item.title);
       const resolved = await resolveAnimeTMDB(item.title);
       const epKey = `${resolved.tmdbId}_S${parsed.season}_E${parsed.episode}`;
-      if (!dbHelper.isTorrentDownloaded(hash) && !queuedHashes.has(hash) && !queuedEpisodeKeys.has(epKey)) {
+      if (!dbHelper.isTorrentDownloaded(hash) && !dbHelper.isTorrentIgnored(hash) && !queuedHashes.has(hash) && !queuedEpisodeKeys.has(epKey)) {
         queuedHashes.add(hash);
         queuedEpisodeKeys.add(epKey);
         fullQueue.push({
@@ -514,7 +514,12 @@ export function removeFromQueue(index) {
   const idx = Number(index);
   if (!isNaN(idx) && idx >= 0 && idx < downloadQueue.length) {
     const removed = downloadQueue.splice(idx, 1);
-    console.log(`[AutoDownloader] Manually removed item from queue at index ${idx}:`, removed[0]?.title);
+    const item = removed[0];
+    if (item) {
+      const hash = item.guid || item.link || item.title;
+      dbHelper.ignoreTorrent(hash, item.title);
+      console.log(`[AutoDownloader] Manually removed & ignored item from queue:`, item.title);
+    }
     return true;
   }
   return false;

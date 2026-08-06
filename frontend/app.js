@@ -4307,21 +4307,29 @@ function setupAutoDownloaderControls() {
       const cur = status.currentDownload;
       const titleText = `${cur.animeTitle} - Cap. ${cur.episode} (Temp. ${cur.season})`;
       const subtitleText = `Torrents en cola: ${status.downloadQueue ? status.downloadQueue.length : 0} pendientes.`;
-      const statusStr = cur.status === 'ingesting' ? 'Extrayendo metadatos y generando miniaturas...' : 'Descargando torrent en servidor...';
-      const metricsStr = `${cur.loadedMB} MB / ${cur.totalMB} MB (${cur.speedMBs} MB/s)`;
+      const isIngesting = cur.status === 'ingesting';
+      const displayPercent = isIngesting ? 100 : cur.percent;
+      const statusStr = isIngesting ? '✅ Descarga 100% completada. Procesando video e integrando al catálogo...' : 'Descargando torrent en servidor...';
+      const metricsStr = isIngesting ? 'Completado - Procesando archivo' : `${cur.loadedMB} MB / ${cur.totalMB} MB (${cur.speedMBs} MB/s)`;
 
       if (activeContainer) activeContainer.style.display = 'block';
       if (activeTitle) activeTitle.innerHTML = `<i data-lucide="download-cloud" style="width: 16px; height: 16px; color: #00e08f;"></i> ${titleText}`;
-      if (activePercent) activePercent.textContent = `${cur.percent}%`;
-      if (activeFill) activeFill.style.width = `${cur.percent}%`;
+      if (activePercent) activePercent.textContent = `${displayPercent}%`;
+      if (activeFill) {
+        activeFill.style.transition = 'width 0.5s ease-in-out';
+        activeFill.style.width = `${displayPercent}%`;
+      }
       if (activeStatus) activeStatus.textContent = statusStr;
       if (activeStats) activeStats.textContent = metricsStr;
 
       // Dedicated Manager Active Card
       if (tmActiveTitle) tmActiveTitle.textContent = titleText;
       if (tmActiveSubtitle) tmActiveSubtitle.textContent = subtitleText;
-      if (tmActivePercent) tmActivePercent.textContent = `${cur.percent}%`;
-      if (tmActiveBar) tmActiveBar.style.width = `${cur.percent}%`;
+      if (tmActivePercent) tmActivePercent.textContent = `${displayPercent}%`;
+      if (tmActiveBar) {
+        tmActiveBar.style.transition = 'width 0.5s ease-in-out';
+        tmActiveBar.style.width = `${displayPercent}%`;
+      }
       if (tmActiveStatus) tmActiveStatus.textContent = `Estado: ${statusStr}`;
       if (tmActiveMetrics) tmActiveMetrics.textContent = metricsStr;
     } else {

@@ -111,6 +111,12 @@ db.exec(`
     downloaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS ignored_torrents (
+    info_hash TEXT PRIMARY KEY,
+    title TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS favorites (
     username TEXT NOT NULL,
     profile_name TEXT NOT NULL DEFAULT 'Principal',
@@ -837,6 +843,19 @@ export const dbHelper = {
   isTorrentDownloaded: (infoHash) => {
     if (!infoHash) return false;
     const stmt = db.prepare("SELECT 1 FROM downloaded_torrents WHERE info_hash = ?");
+    return !!stmt.get(infoHash);
+  },
+  ignoreTorrent: (infoHash, title) => {
+    if (!infoHash) return;
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO ignored_torrents (info_hash, title)
+      VALUES (?, ?)
+    `);
+    stmt.run(infoHash, title || '');
+  },
+  isTorrentIgnored: (infoHash) => {
+    if (!infoHash) return false;
+    const stmt = db.prepare("SELECT 1 FROM ignored_torrents WHERE info_hash = ?");
     return !!stmt.get(infoHash);
   },
   getDownloadedTorrents: (limit = 50) => {
