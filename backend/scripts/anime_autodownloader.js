@@ -56,7 +56,7 @@ export function parseAnimeFilename(filename) {
 export function filterSpanishAnimeTorrents(items) {
   if (!Array.isArray(items)) return [];
 
-  const spanishRegex = /(latino|sub[\s\-_]*español|sub[\s\-_]*esp|castellano|spanish|esp)/i;
+  const spanishRegex = /(latino|sub[\s\-_]*español|sub[\s\-_]*esp|castellano|spanish|esp|multisub|multi\-sub|dual[\s\-_]*audio)/i;
 
   return items.filter(item => {
     if (!item || !item.title) return false;
@@ -95,19 +95,53 @@ export function parseRSSXml(xmlText) {
  * Fetches latest Spanish anime torrents from Nyaa RSS
  */
 export async function fetchSpanishAnimeRSS() {
-  const rssUrl = 'https://nyaa.si/?page=rss&q=latino+OR+espa%C3%B1ol&c=1_2&f=0';
-  try {
-    const res = await fetch(rssUrl, {
-      headers: { 'User-Agent': 'KuraStream/1.5.0 AutoDownloader' }
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const xml = await res.text();
-    const parsed = parseRSSXml(xml);
-    return filterSpanishAnimeTorrents(parsed);
-  } catch (err) {
-    console.warn('[AutoDownloader] Error fetching RSS feed:', err.message);
-    return [];
+  const rssUrls = [
+    'https://nyaa.si/?page=rss&c=1_2',
+    'https://nyaa.si/?page=rss&q=latino',
+    'https://nyaa.si/?page=rss&q=espa%C3%B1ol'
+  ];
+
+  const allItems = [];
+  const seenGuids = new Set();
+
+  for (const url of rssUrls) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'KuraStream/1.5.0 AutoDownloader' },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const xml = await res.text();
+        const parsed = parseRSSXml(xml);
+        const filtered = filterSpanishAnimeTorrents(parsed);
+
+        for (const item of filtered) {
+          const key = item.guid || item.link || item.title;
+          if (!seenGuids.has(key)) {
+            seenGuids.add(key);
+            allItems.push(item);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[AutoDownloader] Error fetching ${url}:`, err.message);
+    }
   }
+
+  return allItems;
+}
+
+/**
+ * Detects if a torrent title represents a full season batch/pack vs a single episode.
+ */
+export function isBatchPack(title) {
+  if (!title) return false;
+  const batchRegex = /(batch|completa|completo|01[\s\-_~]+\d{2}|S\d+[\s\-_]+Complete|season\s*\d+\s*complete|\b01\s*-\s*\d{2}\b)/i;
+  return batchRegex.test(title);
 }
 
 /**
@@ -124,14 +158,31 @@ export async function runAutoScan() {
     await fs.mkdir(tempDownloadDir, { recursive: true });
     const items = await fetchSpanishAnimeRSS();
 
-    for (const item of items) {
+    // Prioritize single episode torrents to process sequentially 1 by 1
+    const singleEpisodes = items.filter(item => !isBatchPack(item.title));
+    const batchPacks = items.filter(item => isBatchPack(item.title));
+
+    const processQueue = [...singleEpisodes, ...batchPacks];
+
+    for (const item of processQueue) {
       const infoHash = item.guid || item.link || item.title;
       if (dbHelper.isTorrentDownloaded(infoHash)) {
         continue;
       }
 
+      const isBatch = isBatchPack(item.title);
       const parsed = parseAnimeFilename(item.title);
-      console.log(`[AutoDownloader] Found new release: "${item.title}" -> ${parsed.animeTitle} S${parsed.season}E${parsed.episode}`);
+      console.log(`[AutoDownloader] Processing ${isBatch ? 'season batch' : 'single episode'} release 1-by-1: "${item.title}" -> ${parsed.animeTitle} S${parsed.season}E${parsed.episode}`);
+
+      // Track active download status
+      activeDownloads.push({
+        title: item.title,
+        animeTitle: parsed.animeTitle,
+        season: parsed.season,
+        episode: parsed.episode,
+        isBatch,
+        startTime: new Date().toISOString()
+      });
 
       // Record in database
       dbHelper.saveDownloadedTorrent({
@@ -144,6 +195,11 @@ export async function runAutoScan() {
       });
 
       processedCount++;
+
+      // Keep max 10 active/recent status items in memory
+      if (activeDownloads.length > 10) {
+        activeDownloads.shift();
+      }
     }
   } catch (err) {
     console.error('[AutoDownloader] Scan error:', err);
@@ -160,7 +216,9 @@ export async function runAutoScan() {
 export function startAutoDownloader(intervalMs = 30 * 60 * 1000) {
   isEnabled = true;
   if (scanTimer) clearInterval(scanTimer);
-  runAutoScan();
+  if (process.env.NODE_ENV !== 'test') {
+    runAutoScan();
+  }
   scanTimer = setInterval(() => {
     if (isEnabled) runAutoScan();
   }, intervalMs);

@@ -25,3 +25,9 @@ test('filterSpanishAnimeTorrents correctly filters torrent items with Spanish au
   assert.equal(filtered[0].title, 'Solo Leveling - 05 [1080p Latino].mkv');
   assert.equal(filtered[1].title, 'Demon Slayer - S04E01 [Sub Español].mkv');
 });
+
+test('isBatchPack detects full season packs vs single episodes', async () => {
+  const { isBatchPack } = await import('../backend/scripts/anime_autodownloader.js');
+  assert.equal(isBatchPack('[Fansub] Naruto [01-220] [Batch Latino]'), true);
+  assert.equal(isBatchPack('[Erai-raws] One Piece - 1172 [MultiSub]'), false);
+});
