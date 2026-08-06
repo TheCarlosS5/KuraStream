@@ -100,6 +100,16 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS downloaded_torrents (
+    info_hash TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    anime_title TEXT,
+    season INTEGER DEFAULT 1,
+    episode INTEGER,
+    source_url TEXT,
+    downloaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS favorites (
     username TEXT NOT NULL,
     profile_name TEXT NOT NULL DEFAULT 'Principal',
@@ -849,5 +859,30 @@ export const dbHelper = {
   deleteProfile: (username, profileName) => {
     const stmt = db.prepare("DELETE FROM profiles WHERE username = ? AND profile_name = ?");
     stmt.run(username, profileName);
+  },
+
+  // Downloaded Torrents History
+  saveDownloadedTorrent: (torrent) => {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO downloaded_torrents (info_hash, title, anime_title, season, episode, source_url)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      torrent.info_hash,
+      torrent.title,
+      torrent.anime_title || null,
+      torrent.season || 1,
+      torrent.episode || null,
+      torrent.source_url || null
+    );
+  },
+  isTorrentDownloaded: (infoHash) => {
+    if (!infoHash) return false;
+    const stmt = db.prepare("SELECT 1 FROM downloaded_torrents WHERE info_hash = ?");
+    return !!stmt.get(infoHash);
+  },
+  getDownloadedTorrents: (limit = 50) => {
+    const stmt = db.prepare("SELECT * FROM downloaded_torrents ORDER BY downloaded_at DESC LIMIT ?");
+    return stmt.all(limit);
   }
 };
