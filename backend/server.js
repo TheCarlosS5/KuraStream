@@ -12,6 +12,7 @@ import { scraper, downloadImage } from './scraper.js';
 import { runLibraryScan } from './scan_library.js';
 import { detectIntrosForSeason } from './said.js';
 import { downloadAndSetShowCover } from './anime_scraper.js';
+import { getAutoDownloaderStatus, startAutoDownloader, stopAutoDownloader, runAutoScan } from './scripts/anime_autodownloader.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -547,6 +548,15 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    if (!show.trailer_key && show.id) {
+      scraper.getDetails(show.id, show.media_type || 'anime').then(details => {
+        if (details && details.trailer_key) {
+          show.trailer_key = details.trailer_key;
+          dbHelper.saveShow(show);
+        }
+      }).catch(e => {});
+    }
+
     const episodes = dbHelper.getEpisodes(id);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ show, episodes }));
@@ -964,7 +974,6 @@ const server = http.createServer(async (req, res) => {
       const showFolder = path.join(__dirname, '..', 'library', mediaTypeDir, sanitizedTitle);
       let localPosterName = '';
       let localBackdropName = '';
-      let localThumbUrl = '';
 
       if (showDetails) {
         if (showDetails.poster_path) {
@@ -992,15 +1001,36 @@ const server = http.createServer(async (req, res) => {
         genres: showDetails ? showDetails.genres : ''
       });
 
-      // Fetch episode metadata if TV
+      // Fetch episode metadata & thumbnail if TV
       let epTitle = episodeTitle;
       let epSynopsis = '';
+      let epStillPath = null;
       if (mediaType === 'anime' && showDetails) {
         const seasonEps = await scraper.getSeasonEpisodes(showDetails.id, seasonNumber || 1);
         const tmdbEp = seasonEps.find(e => e.episode_number === parseInt(episodeNumber || 1, 10));
         if (tmdbEp) {
           epTitle = tmdbEp.title;
           epSynopsis = tmdbEp.synopsis;
+          epStillPath = tmdbEp.still_path;
+        }
+      }
+
+      // Generate or Download Episode Thumbnail
+      const thumbFileName = `ep_S${seasonNumber || 1}_E${episodeNumber || 1}_thumb.jpg`;
+      const thumbFileDest = path.join(showFolder, thumbFileName);
+      let localThumbUrl = '';
+
+      if (epStillPath) {
+        const downloaded = await downloadImage(epStillPath, thumbFileDest);
+        if (downloaded) {
+          localThumbUrl = `/library/${mediaTypeDir}/${sanitizedTitle}/${thumbFileName}`;
+        }
+      }
+
+      if (!localThumbUrl) {
+        const extracted = await extractEpisodeThumbnail(destPath, thumbFileDest);
+        if (extracted) {
+          localThumbUrl = `/library/${mediaTypeDir}/${sanitizedTitle}/${thumbFileName}`;
         }
       }
 
@@ -1350,6 +1380,35 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/admin/active-streams' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ streams: Object.values(activeStreams) }));
+    return;
+  }
+
+  // Admin AutoDownloader Status
+  if (pathname === '/api/admin/autodownload/status' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(getAutoDownloaderStatus()));
+    return;
+  }
+
+  // Admin AutoDownloader Toggle
+  if (pathname === '/api/admin/autodownload/toggle' && req.method === 'POST') {
+    const body = await readJsonBody(req, res);
+    const enable = body && typeof body.enable === 'boolean' ? body.enable : !getAutoDownloaderStatus().isEnabled;
+    if (enable) {
+      startAutoDownloader();
+    } else {
+      stopAutoDownloader();
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(getAutoDownloaderStatus()));
+    return;
+  }
+
+  // Admin AutoDownloader Scan
+  if (pathname === '/api/admin/autodownload/scan' && req.method === 'POST') {
+    const result = await runAutoScan();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
     return;
   }
 
