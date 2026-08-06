@@ -1994,12 +1994,14 @@ function setupForms() {
       const targetView = document.getElementById(targetId);
       if (targetView) targetView.classList.add('active');
 
-      // Manage polling based on active sub-view
+      // Manage polling and data rendering based on active sub-view
       stopAdminPolling();
       if (targetId === 'admin-sub-overview') {
         startAdminStatsPolling();
       } else if (targetId === 'admin-sub-console') {
         startAdminLogsPolling();
+      } else if (targetId === 'admin-sub-library') {
+        loadAdminPanel();
       }
     });
   });
@@ -2078,20 +2080,25 @@ function setupForms() {
 }
 
 async function loadAdminPanel() {
-  // Reset tab selection to default
-  const navItems = document.querySelectorAll('.admin-nav-item');
-  const subViews = document.querySelectorAll('.admin-sub-view');
+  // Preserve current active tab selection if already selected
+  const activeTab = document.querySelector('.admin-nav-item.active');
+  const activeView = document.querySelector('.admin-sub-view.active');
   
-  navItems.forEach(item => item.classList.remove('active'));
-  subViews.forEach(view => view.classList.remove('active'));
-  
-  const defaultTab = document.querySelector('[data-target="admin-sub-overview"]');
-  if (defaultTab) defaultTab.classList.add('active');
-  const defaultView = document.getElementById('admin-sub-overview');
-  if (defaultView) defaultView.classList.add('active');
+  if (!activeTab || !activeView) {
+    const navItems = document.querySelectorAll('.admin-nav-item');
+    const subViews = document.querySelectorAll('.admin-sub-view');
+    
+    navItems.forEach(item => item.classList.remove('active'));
+    subViews.forEach(view => view.classList.remove('active'));
+    
+    const defaultTab = document.querySelector('[data-target="admin-sub-overview"]');
+    if (defaultTab) defaultTab.classList.add('active');
+    const defaultView = document.getElementById('admin-sub-overview');
+    if (defaultView) defaultView.classList.add('active');
 
-  stopAdminPolling();
-  startAdminStatsPolling();
+    stopAdminPolling();
+    startAdminStatsPolling();
+  }
 
   const showsList = document.getElementById('admin-shows-list');
   showsList.innerHTML = '<div class="spinner"></div>';
