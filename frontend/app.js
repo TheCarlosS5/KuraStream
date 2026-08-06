@@ -4470,6 +4470,50 @@ function setupAutoDownloaderControls() {
   if (btnScanNow) btnScanNow.addEventListener('click', () => handleScanNow(btnScanNow));
   if (tmBtnScanNow) tmBtnScanNow.addEventListener('click', () => handleScanNow(tmBtnScanNow));
 
+  const btnCancelActive = document.getElementById('btn-cancel-active-download');
+  if (btnCancelActive) {
+    btnCancelActive.addEventListener('click', async () => {
+      if (!confirm('¿Seguro que deseas detener la descarga activa actual?')) return;
+      btnCancelActive.disabled = true;
+      try {
+        const res = await fetch('/api/admin/autodownload/cancel-active', {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status) updateUI(data.status);
+        }
+      } catch (e) {
+        console.error("Error cancelling download:", e);
+      } finally {
+        btnCancelActive.disabled = false;
+      }
+    });
+  }
+
+  const btnClearQueue = document.getElementById('btn-clear-download-queue');
+  if (btnClearQueue) {
+    btnClearQueue.addEventListener('click', async () => {
+      if (!confirm('¿Seguro que deseas vaciar toda la cola de descargas?')) return;
+      btnClearQueue.disabled = true;
+      try {
+        const res = await fetch('/api/admin/autodownload/queue/clear', {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status) updateUI(data.status);
+        }
+      } catch (e) {
+        console.error("Error clearing download queue:", e);
+      } finally {
+        btnClearQueue.disabled = false;
+      }
+    });
+  }
+
   fetchStatus();
   setInterval(fetchStatus, 2000);
 }

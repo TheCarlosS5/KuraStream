@@ -613,7 +613,12 @@
                     <small id="tm-active-subtitle" style="color: var(--text-muted); font-size: 0.8rem;">El servidor está a la espera de nuevos capítulos o inicio de escaneo.</small>
                   </div>
                 </div>
-                <span id="tm-active-percent" style="font-size: 1.4rem; font-weight: 900; color: #00e08f;">0%</span>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <button type="button" class="btn btn-secondary" id="btn-cancel-active-download" style="padding: 4px 12px; font-size: 0.78rem; color: #ff5555; background: rgba(255, 85, 85, 0.12); border: 1px solid rgba(255, 85, 85, 0.3); cursor: pointer; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;">
+                    <i data-lucide="square" style="width: 14px; height: 14px;"></i> Detener Descarga
+                  </button>
+                  <span id="tm-active-percent" style="font-size: 1.4rem; font-weight: 900; color: #00e08f;">0%</span>
+                </div>
               </div>
 
               <!-- Animated Progress Bar -->
@@ -629,12 +634,17 @@
 
             <!-- Sequential Queue (1-by-1) Card -->
             <div class="admin-card" style="margin-bottom: 25px;">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <i data-lucide="list-ordered" style="color: var(--accent-color); width: 20px; height: 20px;"></i>
                   <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.05rem;">Cola de Descargas Secuenciales (1 por 1)</h3>
                 </div>
-                <span id="tm-queue-count" class="badge" style="background: rgba(255,255,255,0.08); color: var(--text-muted);">0 en cola</span>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <button type="button" class="btn btn-secondary" id="btn-clear-download-queue" style="padding: 4px 12px; font-size: 0.78rem; color: #ffab00; background: rgba(255, 171, 0, 0.12); border: 1px solid rgba(255, 171, 0, 0.3); cursor: pointer; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;">
+                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Vaciar Toda la Cola
+                  </button>
+                  <span id="tm-queue-count" class="badge" style="background: rgba(255,255,255,0.08); color: var(--text-muted);">0 en cola</span>
+                </div>
               </div>
               <div id="tm-queue-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto;">
                 <p style="color: var(--text-muted); font-size: 0.85rem; padding: 10px 0;">No hay capítulos pendientes en la cola de descarga.</p>

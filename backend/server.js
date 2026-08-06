@@ -12,7 +12,7 @@ import { scraper, downloadImage } from './scraper.js';
 import { runLibraryScan } from './scan_library.js';
 import { detectIntrosForSeason } from './said.js';
 import { downloadAndSetShowCover } from './anime_scraper.js';
-import { getAutoDownloaderStatus, startAutoDownloader, stopAutoDownloader, runAutoScan, removeFromQueue } from './scripts/anime_autodownloader.js';
+import { getAutoDownloaderStatus, startAutoDownloader, stopAutoDownloader, runAutoScan, removeFromQueue, cancelActiveDownload, clearQueue } from './scripts/anime_autodownloader.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -1427,6 +1427,22 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: e.message }));
       }
     });
+    return;
+  }
+
+  // Admin AutoDownloader Cancel Active Download
+  if (pathname === '/api/admin/autodownload/cancel-active' && req.method === 'POST') {
+    const success = cancelActiveDownload();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success, status: getAutoDownloaderStatus() }));
+    return;
+  }
+
+  // Admin AutoDownloader Clear Entire Queue
+  if (pathname === '/api/admin/autodownload/queue/clear' && req.method === 'POST') {
+    const success = clearQueue();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success, status: getAutoDownloaderStatus() }));
     return;
   }
 

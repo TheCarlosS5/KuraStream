@@ -261,6 +261,8 @@ async function getWebTorrentClient() {
   return torrentClient;
 }
 
+let activeTorrentInstance = null;
+
 export async function downloadTorrentFile(torrentUrl, destDir, onProgress) {
   const client = await getWebTorrentClient();
   if (!client || process.env.NODE_ENV === 'test') {
@@ -283,6 +285,7 @@ export async function downloadTorrentFile(torrentUrl, destDir, onProgress) {
   return new Promise((resolve) => {
     try {
       const torrent = client.add(torrentUrl, { path: destDir });
+      activeTorrentInstance = torrent;
       
       torrent.on('download', () => {
         const percent = Math.round(torrent.progress * 100);
@@ -297,6 +300,7 @@ export async function downloadTorrentFile(torrentUrl, destDir, onProgress) {
 
       torrent.on('done', () => {
         console.log(`[WebTorrent] Torrent download complete: "${torrent.name}"`);
+        activeTorrentInstance = null;
         const videoFile = torrent.files.find(f => f.name.endsWith('.mkv') || f.name.endsWith('.mp4') || f.name.endsWith('.avi'));
         const downloadedFilePath = videoFile ? path.join(destDir, videoFile.path) : null;
         resolve({ downloadedFilePath, name: torrent.name });
@@ -304,10 +308,12 @@ export async function downloadTorrentFile(torrentUrl, destDir, onProgress) {
 
       torrent.on('error', (err) => {
         console.error(`[WebTorrent] Download error:`, err);
+        activeTorrentInstance = null;
         resolve({ status: 'error', error: err.message });
       });
     } catch (err) {
       console.error('[WebTorrent] Add torrent error:', err);
+      activeTorrentInstance = null;
       resolve({ status: 'error', error: err.message });
     }
   });
@@ -523,6 +529,40 @@ export function removeFromQueue(index) {
     return true;
   }
   return false;
+}
+
+/**
+ * Immediately cancels current active download and ignores it
+ */
+export function cancelActiveDownload() {
+  if (activeTorrentInstance) {
+    try {
+      activeTorrentInstance.destroy();
+    } catch (e) {}
+    activeTorrentInstance = null;
+  }
+  if (currentDownload) {
+    const hash = currentDownload.link || currentDownload.title;
+    dbHelper.ignoreTorrent(hash, currentDownload.title);
+    console.log(`[AutoDownloader] Active download cancelled and ignored:`, currentDownload.title);
+    currentDownload = null;
+  }
+  return true;
+}
+
+/**
+ * Clears entire waiting queue and marks all items as ignored
+ */
+export function clearQueue() {
+  if (downloadQueue && downloadQueue.length > 0) {
+    for (const item of downloadQueue) {
+      const hash = item.guid || item.link || item.title;
+      dbHelper.ignoreTorrent(hash, item.title);
+    }
+    console.log(`[AutoDownloader] Queue cleared (${downloadQueue.length} items ignored).`);
+  }
+  downloadQueue = [];
+  return true;
 }
 
 /**
