@@ -2,6 +2,69 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dbHelper } from '../db.js';
+import { scraper } from '../scraper.js';
+
+const tmdbResolutionCache = new Map();
+
+/**
+ * Searches TMDB in real-time to resolve canonical anime ID & title.
+ * Prevents duplicate queue items and duplicate homepage anime cards when different release groups
+ * use alternate Japanese, English, or romaji titles for the same anime.
+ */
+export async function resolveAnimeTMDB(rawTitle) {
+  const parsed = parseAnimeFilename(rawTitle);
+  if (!parsed.animeTitle || parsed.animeTitle === 'Anime') {
+    return {
+      tmdbId: 'unknown',
+      canonicalTitle: 'Anime',
+      season: parsed.season,
+      episode: parsed.episode
+    };
+  }
+
+  const cleanKey = parsed.animeTitle.toLowerCase().trim();
+  if (tmdbResolutionCache.has(cleanKey)) {
+    const cached = tmdbResolutionCache.get(cleanKey);
+    return {
+      ...cached,
+      season: parsed.season,
+      episode: parsed.episode
+    };
+  }
+
+  try {
+    let results = await scraper.search(parsed.animeTitle, 'anime');
+    if (!results || results.length === 0) {
+      results = await scraper.search(parsed.animeTitle, 'movie');
+    }
+
+    if (results && results.length > 0) {
+      const match = {
+        tmdbId: String(results[0].tmdb_id),
+        canonicalTitle: results[0].title || parsed.animeTitle,
+      };
+      tmdbResolutionCache.set(cleanKey, match);
+      return {
+        ...match,
+        season: parsed.season,
+        episode: parsed.episode
+      };
+    }
+  } catch (err) {
+    console.warn(`[AutoDownloader] TMDB resolution warning for "${parsed.animeTitle}":`, err.message);
+  }
+
+  const fallback = {
+    tmdbId: cleanKey,
+    canonicalTitle: parsed.animeTitle,
+  };
+  tmdbResolutionCache.set(cleanKey, fallback);
+  return {
+    ...fallback,
+    season: parsed.season,
+    episode: parsed.episode
+  };
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tempDownloadDir = path.resolve(__dirname, '..', '..', 'library', 'downloads', 'temp');
@@ -294,11 +357,16 @@ export async function runAutoScan() {
       for (const epItem of allEps) {
         const hash = epItem.guid || epItem.link || epItem.title;
         const parsed = parseAnimeFilename(epItem.title);
-        const epKey = `${parsed.animeTitle.toLowerCase().trim()}_S${parsed.season}_E${parsed.episode}`;
+        const resolved = await resolveAnimeTMDB(epItem.title);
+        const epKey = `${resolved.tmdbId}_S${parsed.season}_E${parsed.episode}`;
         if (!dbHelper.isTorrentDownloaded(hash) && !queuedHashes.has(hash) && !queuedEpisodeKeys.has(epKey)) {
           queuedHashes.add(hash);
           queuedEpisodeKeys.add(epKey);
-          fullQueue.push(epItem);
+          fullQueue.push({
+            ...epItem,
+            canonicalTitle: resolved.canonicalTitle,
+            tmdbId: resolved.tmdbId
+          });
         }
       }
     }
@@ -307,11 +375,16 @@ export async function runAutoScan() {
     for (const item of [...singleEpisodes, ...batchPacks]) {
       const hash = item.guid || item.link || item.title;
       const parsed = parseAnimeFilename(item.title);
-      const epKey = `${parsed.animeTitle.toLowerCase().trim()}_S${parsed.season}_E${parsed.episode}`;
+      const resolved = await resolveAnimeTMDB(item.title);
+      const epKey = `${resolved.tmdbId}_S${parsed.season}_E${parsed.episode}`;
       if (!dbHelper.isTorrentDownloaded(hash) && !queuedHashes.has(hash) && !queuedEpisodeKeys.has(epKey)) {
         queuedHashes.add(hash);
         queuedEpisodeKeys.add(epKey);
-        fullQueue.push(item);
+        fullQueue.push({
+          ...item,
+          canonicalTitle: resolved.canonicalTitle,
+          tmdbId: resolved.tmdbId
+        });
       }
     }
 
@@ -323,7 +396,7 @@ export async function runAutoScan() {
       const parsed = parseAnimeFilename(item.title);
       return {
         title: item.title,
-        animeTitle: parsed.animeTitle,
+        animeTitle: item.canonicalTitle || parsed.animeTitle,
         season: parsed.season,
         episode: parsed.episode,
         link: item.link
