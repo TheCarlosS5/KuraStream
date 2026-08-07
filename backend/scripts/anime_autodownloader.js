@@ -134,14 +134,17 @@ export function filterSpanishAnimeTorrents(items) {
   });
 }
 
+const stagedDownloadDir = path.resolve(__dirname, '..', '..', 'library', 'downloads', 'staged');
+
 /**
- * Ingests all completed video files from temp download directory into official Library/Anime/ structure
- * and triggers runLibraryScan() to populate TMDB metadata and home screen cards.
+ * Ingests all completed video files from temp download directory into staged directory
+ * and records pending item in staged_imports database table for Admin review.
  */
 export async function ingestCompletedDownloads() {
   try {
+    await fs.mkdir(stagedDownloadDir, { recursive: true });
     const files = await fs.readdir(tempDownloadDir);
-    let ingestedCount = 0;
+    let stagedCount = 0;
 
     for (const file of files) {
       if (file.endsWith('.mkv') || file.endsWith('.mp4') || file.endsWith('.avi')) {
@@ -149,30 +152,34 @@ export async function ingestCompletedDownloads() {
         const parsed = parseAnimeFilename(file);
         const resolved = await resolveAnimeTMDB(file);
 
-        const showTitle = (resolved.canonicalTitle || parsed.animeTitle || 'Anime').replace(/[\/\\:*?"<>|]/g, '_').trim();
-        const seasonPad = String(parsed.season).padStart(2, '0');
-        const epPad = String(parsed.episode).padStart(2, '0');
-        const ext = path.extname(file) || '.mkv';
+        const cleanTitle = resolved.canonicalTitle || parsed.animeTitle || 'Anime';
+        const targetPath = path.join(stagedDownloadDir, file);
 
-        const targetDir = path.resolve(__dirname, '..', '..', 'library', 'Anime', showTitle, `Season ${seasonPad}`);
-        await fs.mkdir(targetDir, { recursive: true });
-
-        const targetFileName = `${showTitle} - S${seasonPad}E${epPad}${ext}`;
-        const targetPath = path.join(targetDir, targetFileName);
-
-        console.log(`[AutoDownloader] Ingesting completed download: "${file}" -> "${targetPath}"`);
+        console.log(`[AutoDownloader] Moving completed download to staging: "${file}" -> "${targetPath}"`);
         await fs.rename(fullPath, targetPath);
-        ingestedCount++;
+
+        const stageId = `stage_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        dbHelper.saveStagedImport({
+          id: stageId,
+          raw_title: file,
+          clean_title: cleanTitle,
+          media_type: 'anime',
+          season: parsed.season,
+          episode: parsed.episode,
+          file_path: targetPath,
+          tmdb_id: resolved.tmdbId !== 'unknown' ? resolved.tmdbId : null,
+          source_info: 'Nyaa AutoDownloader'
+        });
+
+        stagedCount++;
       }
     }
 
-    if (ingestedCount > 0) {
-      console.log(`[AutoDownloader] Triggering library scan for ${ingestedCount} newly ingested files...`);
-      await runLibraryScan();
-      console.log(`[AutoDownloader] Library scan complete! Newly ingested shows are now live on home screen.`);
+    if (stagedCount > 0) {
+      console.log(`[AutoDownloader] Successfully staged ${stagedCount} downloaded items for admin review.`);
     }
   } catch (err) {
-    console.error('[AutoDownloader] Ingest error:', err.message);
+    console.error('[AutoDownloader] Staging ingest error:', err.message);
   }
 }
 

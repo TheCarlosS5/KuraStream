@@ -1446,6 +1446,38 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Dynamic Generic Fallback Poster SVG Generator
+  if (pathname === '/api/placeholder-poster' && req.method === 'GET') {
+    const titleVal = parsedUrl.searchParams.get('title') || 'KuraStream Anime';
+    const cleanTitle = titleVal.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="750" viewBox="0 0 500 750">
+      <defs>
+        <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#180b2b" />
+          <stop offset="50%" stop-color="#0f172a" />
+          <stop offset="100%" stop-color="#030712" />
+        </linearGradient>
+        <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#a855f7" />
+          <stop offset="100%" stop-color="#00e08f" />
+        </linearGradient>
+      </defs>
+      <rect width="500" height="750" fill="url(#bg)" />
+      <circle cx="250" cy="280" r="140" fill="#a855f7" opacity="0.08" />
+      <rect x="40" y="40" width="420" height="670" rx="16" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" />
+      <text x="250" y="120" font-family="'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="28" fill="url(#accent)" text-anchor="middle" letter-spacing="4">KURASTREAM</text>
+      <rect x="180" y="145" width="140" height="3" fill="url(#accent)" rx="1.5" />
+      <g transform="translate(250, 310)">
+        <polygon points="-40,-50 50,0 -40,50" fill="#00e08f" opacity="0.8" />
+      </g>
+      <text x="250" y="520" font-family="'Segoe UI', Roboto, sans-serif" font-weight="800" font-size="30" fill="#ffffff" text-anchor="middle">${cleanTitle}</text>
+      <text x="250" y="560" font-family="'Segoe UI', Roboto, sans-serif" font-size="16" fill="#94a3b8" text-anchor="middle">CONTENIDO MULTIMEDIA</text>
+    </svg>`;
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' });
+    res.end(svg);
+    return;
+  }
+
   // Search TMDB Helper
   if (pathname === '/api/search-tmdb' && req.method === 'GET') {
     try {
