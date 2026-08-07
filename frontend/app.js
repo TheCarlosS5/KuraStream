@@ -1639,20 +1639,24 @@ function setupForms() {
           if (tmdbId) formData.append('tmdbId', tmdbId);
           if (startSeconds !== null) formData.append('startSeconds', startSeconds);
 
-          // Upload with progress updates
-          await uploadFileWithProgress(formData, (prog) => {
-            if (progressFill) progressFill.style.width = `${prog.percent}%`;
-            if (progressPercent) progressPercent.textContent = `${prog.percent}%`;
-            if (statusText) statusText.textContent = `Subiendo ${file.name} (${prog.speed} MB/s)`;
-            if (progressStats) progressStats.textContent = `${prog.loadedMB} MB / ${prog.totalMB} MB`;
-          });
+          try {
+            // Upload with progress updates
+            await uploadFileWithProgress(formData, (prog) => {
+              if (progressFill) progressFill.style.width = `${prog.percent}%`;
+              if (progressPercent) progressPercent.textContent = `${prog.percent}%`;
+              if (statusText) statusText.textContent = `Subiendo ${file.name} (${prog.speed} MB/s)`;
+              if (progressStats) progressStats.textContent = `${prog.loadedMB} MB / ${prog.totalMB} MB`;
+            });
 
-          // Show server processing stage
-          if (statusText) statusText.textContent = `Extrayendo pistas y metadatos con ffprobe para Cap. ${epNum}...`;
-          if (progressFill) progressFill.style.width = '100%';
-          if (progressPercent) progressPercent.textContent = '100%';
-          
-          successCount++;
+            // Show server processing stage
+            if (statusText) statusText.textContent = `Extrayendo pistas y metadatos con ffprobe para Cap. ${epNum}...`;
+            if (progressFill) progressFill.style.width = '100%';
+            if (progressPercent) progressPercent.textContent = '100%';
+            
+            successCount++;
+          } catch (epErr) {
+            console.warn(`[Bulk Upload Warning] Error al subir ${file.name}:`, epErr);
+          }
         }
 
         alert(`¡Carga masiva completada! Se importaron ${successCount} capítulos de la temporada con éxito.`);

@@ -913,13 +913,12 @@ const server = http.createServer(async (req, res) => {
 
       const showId = showDetails ? showDetails.id : sanitizedTitle;
 
-      // Duplicate check
+      // Duplicate check & overwrite handling
       if (mediaType !== 'movie') {
         const episodeId = `${showId}_S${seasonNumber || 1}_E${episodeNumber || 1}`;
         const existingEpisode = dbHelper.getEpisode(episodeId);
         if (existingEpisode) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: `El capítulo ${episodeNumber} de la temporada ${seasonNumber} ya existe para esta serie. Cambia el número de capítulo para evitar sobrescribirlo.` }));
+          console.log(`[Import] Episode ${episodeId} already exists. Updating with new file upload...`);
         }
       }
 
