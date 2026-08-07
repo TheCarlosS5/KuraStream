@@ -4514,6 +4514,135 @@ function setupAutoDownloaderControls() {
     });
   }
 
+  const btnRefreshStaging = document.getElementById('btn-refresh-staging');
+  if (btnRefreshStaging) {
+    btnRefreshStaging.addEventListener('click', () => loadStagedImports());
+  }
+
+  // Auto load staging on tab switch
+  document.querySelectorAll('.admin-nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      if (item.dataset.target === 'admin-sub-staging') {
+        loadStagedImports();
+      }
+    });
+  });
+
   fetchStatus();
   setInterval(fetchStatus, 2000);
+}
+
+async function loadStagedImports() {
+  const container = document.getElementById('staging-items-list');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/admin/staged', { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error('Error al cargar elementos en preparación.');
+
+    const items = await res.json();
+    if (!Array.isArray(items) || items.length === 0) {
+      container.innerHTML = `<div class="admin-card" style="text-align: center; padding: 40px 20px;">
+        <i data-lucide="check-circle-2" style="width: 48px; height: 48px; color: #00e08f; margin-bottom: 12px; display: inline-block;"></i>
+        <h4 style="margin: 0 0 6px 0;">¡Todo al día!</h4>
+        <p style="color: var(--text-muted); margin: 0; font-size: 0.88rem;">No hay descargas o archivos pendientes de revisión en la bandeja de entrada.</p>
+      </div>`;
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
+
+    container.innerHTML = items.map(item => `
+      <div class="admin-card" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 16px; border-radius: 8px;">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 280px;">
+            <span class="badge" style="background: rgba(168,85,247,0.15); color: #c084fc; font-size: 0.75rem; margin-bottom: 6px; display: inline-block;">${item.source_info || 'Descarga Torrents'}</span>
+            <h4 style="margin: 4px 0 8px 0; font-size: 1rem; color: var(--text-main); word-break: break-all;">${item.raw_title}</h4>
+            <small style="color: var(--text-muted); font-size: 0.78rem; display: block;">Ruta física: ${item.file_path}</small>
+            
+            <div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap;">
+              <div style="flex: 2; min-width: 200px;">
+                <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Nombre Limpio para Catálogo:</label>
+                <input type="text" id="stage-title-${item.id}" value="${item.clean_title || ''}" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+              </div>
+              <div style="flex: 1; min-width: 80px;">
+                <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Temp:</label>
+                <input type="number" id="stage-season-${item.id}" value="${item.season || 1}" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+              </div>
+              <div style="flex: 1; min-width: 80px;">
+                <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Cap:</label>
+                <input type="number" id="stage-episode-${item.id}" value="${item.episode || 1}" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; align-self: center;">
+            <button type="button" class="btn btn-primary btn-publish-staged" data-id="${item.id}" style="padding: 8px 16px; font-size: 0.82rem; gap: 6px; display: inline-flex; align-items: center;">
+              <i data-lucide="check" style="width: 14px; height: 14px;"></i> Publicar al Catálogo
+            </button>
+            <button type="button" class="btn btn-secondary btn-delete-staged" data-id="${item.id}" style="padding: 6px 12px; font-size: 0.8rem; color: #ff5555; background: rgba(255,85,85,0.1); border: 1px solid rgba(255,85,85,0.2); gap: 6px; display: inline-flex; align-items: center;">
+              <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Eliminar
+            </button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    if (window.lucide) window.lucide.createIcons();
+
+    document.querySelectorAll('.btn-publish-staged').forEach(btn => {
+      btn.addEventListener('click', () => publishStagedItem(btn.dataset.id));
+    });
+    document.querySelectorAll('.btn-delete-staged').forEach(btn => {
+      btn.addEventListener('click', () => deleteStagedItem(btn.dataset.id));
+    });
+
+  } catch (e) {
+    console.error(e);
+    container.innerHTML = `<p style="color: #ff5555;">Error al cargar elementos: ${e.message}</p>`;
+  }
+}
+
+async function publishStagedItem(id) {
+  const cleanTitleEl = document.getElementById(`stage-title-${id}`);
+  const seasonEl = document.getElementById(`stage-season-${id}`);
+  const epEl = document.getElementById(`stage-episode-${id}`);
+
+  const payload = {
+    clean_title: cleanTitleEl ? cleanTitleEl.value.trim() : '',
+    season: seasonEl ? parseInt(seasonEl.value, 10) : 1,
+    episode: epEl ? parseInt(epEl.value, 10) : 1,
+    media_type: 'anime'
+  };
+
+  try {
+    const res = await fetch(`/api/admin/staged/${id}/publish`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      alert('¡Publicado con éxito al catálogo público!');
+      loadStagedImports();
+    } else {
+      const err = await res.json();
+      alert(`Error al publicar: ${err.error || 'Desconocido'}`);
+    }
+  } catch (e) {
+    alert(`Error de red: ${e.message}`);
+  }
+}
+
+async function deleteStagedItem(id) {
+  if (!confirm('¿Seguro que deseas eliminar este archivo de la bandeja de preparación?')) return;
+  try {
+    const res = await fetch(`/api/admin/staged/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      loadStagedImports();
+    }
+  } catch (e) {
+    alert(`Error: ${e.message}`);
+  }
 }

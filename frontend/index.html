@@ -442,6 +442,10 @@
               <i data-lucide="download-cloud"></i>
               <span>Descargas Torrent</span>
             </button>
+            <button class="admin-nav-item" data-target="admin-sub-staging">
+              <i data-lucide="inbox"></i>
+              <span>Por Organizar</span>
+            </button>
             <button class="admin-nav-item" data-target="admin-sub-console">
               <i data-lucide="terminal"></i>
               <span>Consola</span>
@@ -660,6 +664,25 @@
               <div id="tm-history-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto;">
                 <p style="color: var(--text-muted); font-size: 0.85rem; padding: 10px 0;">No hay descargas recientes registradas en el historial.</p>
               </div>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW: STAGING AREA (Por Organizar) -->
+          <div id="admin-sub-staging" class="admin-sub-view">
+            <div class="admin-sub-title-bar">
+              <div>
+                <h2 class="admin-sub-title" style="margin: 0; padding: 0; border: none; display: flex; align-items: center; gap: 10px;">
+                  <i data-lucide="inbox" style="color: var(--accent-color);"></i> Biblioteca por Organizar (Staging)
+                </h2>
+                <small style="color: var(--text-muted); font-size: 0.85rem;">Revisa las descargas automáticas, edita sus nombres y organízalas antes de publicarlas al catálogo público.</small>
+              </div>
+              <button type="button" class="btn btn-secondary" id="btn-refresh-staging" style="padding: 6px 14px; font-size: 0.8rem; display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Actualizar
+              </button>
+            </div>
+
+            <div id="staging-items-list" style="display: flex; flex-direction: column; gap: 14px; margin-top: 20px;">
+              <p style="color: var(--text-muted); font-size: 0.9rem;">Cargando elementos pendientes...</p>
             </div>
           </div>
 
