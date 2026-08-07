@@ -1478,6 +1478,90 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/admin/staged - List all pending staged imports
+  if (pathname === '/api/admin/staged' && req.method === 'GET') {
+    const staged = dbHelper.getStagedImports();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(staged));
+    return;
+  }
+
+  // POST /api/admin/staged/:id/publish - Zero-copy move & publish to main catalog
+  if (pathname.startsWith('/api/admin/staged/') && pathname.endsWith('/publish') && req.method === 'POST') {
+    const parts = pathname.split('/');
+    const stageId = parts[4];
+    const item = dbHelper.getStagedImport(stageId);
+
+    if (!item) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Staged item not found' }));
+    }
+
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const cleanTitle = (payload.clean_title || item.clean_title || item.raw_title).replace(/[\\/:*?"<>|]/g, '_').trim();
+        const mediaType = payload.media_type || item.media_type || 'anime';
+        const season = payload.season || item.season || 1;
+        const episode = payload.episode || item.episode || 1;
+        const seasonPad = String(season).padStart(2, '0');
+        const epPad = String(episode).padStart(2, '0');
+        const ext = path.extname(item.file_path) || '.mkv';
+
+        const categoryDir = mediaType === 'movie' ? 'Movies' : 'Anime';
+        const targetDir = mediaType === 'movie' 
+          ? path.join(__dirname, '..', 'library', categoryDir, cleanTitle)
+          : path.join(__dirname, '..', 'library', categoryDir, cleanTitle, `Season ${seasonPad}`);
+
+        await fsPromises.mkdir(targetDir, { recursive: true });
+
+        const targetFileName = mediaType === 'movie' ? `${cleanTitle}${ext}` : `${cleanTitle} - S${seasonPad}E${epPad}${ext}`;
+        const targetPath = path.join(targetDir, targetFileName);
+
+        // Zero-copy move
+        if (fs.existsSync(item.file_path)) {
+          await fsPromises.rename(item.file_path, targetPath);
+        }
+
+        // Delete staging entry
+        dbHelper.deleteStagedImport(stageId);
+
+        // Trigger scan to incorporate into public catalog
+        await runLibraryScan();
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, message: 'Publicado con éxito al catálogo' }));
+      } catch (err) {
+        console.error('[Staged Publish Error]:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // DELETE /api/admin/staged/:id - Remove staged item and delete file
+  if (pathname.startsWith('/api/admin/staged/') && req.method === 'DELETE') {
+    const parts = pathname.split('/');
+    const stageId = parts[4];
+    const item = dbHelper.getStagedImport(stageId);
+
+    if (item) {
+      try {
+        if (fs.existsSync(item.file_path)) {
+          await fsPromises.unlink(item.file_path);
+        }
+      } catch (e) {}
+      dbHelper.deleteStagedImport(stageId);
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
   // Search TMDB Helper
   if (pathname === '/api/search-tmdb' && req.method === 'GET') {
     try {
