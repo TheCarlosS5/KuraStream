@@ -117,6 +117,20 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS staged_imports (
+    id TEXT PRIMARY KEY,
+    raw_title TEXT NOT NULL,
+    clean_title TEXT,
+    media_type TEXT NOT NULL DEFAULT 'anime',
+    season INTEGER DEFAULT 1,
+    episode INTEGER DEFAULT 1,
+    file_path TEXT NOT NULL,
+    tmdb_id TEXT,
+    source_info TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    status TEXT NOT NULL DEFAULT 'pending'
+  );
+
   CREATE TABLE IF NOT EXISTS favorites (
     username TEXT NOT NULL,
     profile_name TEXT NOT NULL DEFAULT 'Principal',
@@ -861,5 +875,53 @@ export const dbHelper = {
   getDownloadedTorrents: (limit = 50) => {
     const stmt = db.prepare("SELECT * FROM downloaded_torrents ORDER BY downloaded_at DESC LIMIT ?");
     return stmt.all(limit);
+  },
+
+  // Staged Imports Helper Methods
+  saveStagedImport: (item) => {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO staged_imports (id, raw_title, clean_title, media_type, season, episode, file_path, tmdb_id, source_info, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      item.id,
+      item.raw_title,
+      item.clean_title || null,
+      item.media_type || 'anime',
+      item.season || 1,
+      item.episode || 1,
+      item.file_path,
+      item.tmdb_id || null,
+      item.source_info || null,
+      item.status || 'pending'
+    );
+  },
+  getStagedImports: () => {
+    const stmt = db.prepare("SELECT * FROM staged_imports WHERE status = 'pending' ORDER BY created_at DESC");
+    return stmt.all();
+  },
+  getStagedImport: (id) => {
+    const stmt = db.prepare("SELECT * FROM staged_imports WHERE id = ?");
+    return stmt.get(id) || null;
+  },
+  updateStagedImport: (id, updates) => {
+    const current = dbHelper.getStagedImport(id);
+    if (!current) return;
+    const clean_title = updates.clean_title !== undefined ? updates.clean_title : current.clean_title;
+    const season = updates.season !== undefined ? updates.season : current.season;
+    const episode = updates.episode !== undefined ? updates.episode : current.episode;
+    const tmdb_id = updates.tmdb_id !== undefined ? updates.tmdb_id : current.tmdb_id;
+    const status = updates.status !== undefined ? updates.status : current.status;
+
+    const stmt = db.prepare(`
+      UPDATE staged_imports 
+      SET clean_title = ?, season = ?, episode = ?, tmdb_id = ?, status = ?
+      WHERE id = ?
+    `);
+    stmt.run(clean_title, season, episode, tmdb_id, status, id);
+  },
+  deleteStagedImport: (id) => {
+    const stmt = db.prepare("DELETE FROM staged_imports WHERE id = ?");
+    stmt.run(id);
   }
 };
