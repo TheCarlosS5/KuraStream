@@ -341,8 +341,9 @@ export const dbHelper = {
     return stmt.all(...params);
   },
   getShow: (id) => {
-    const stmt = db.prepare("SELECT * FROM shows WHERE id = ?");
-    return stmt.get(id);
+    if (!id) return null;
+    const stmt = db.prepare("SELECT * FROM shows WHERE LOWER(id) = LOWER(?)");
+    return stmt.get(id) || null;
   },
   saveShow: (show) => {
     if (!show || !show.id) return;
@@ -444,12 +445,14 @@ export const dbHelper = {
 
   // Episodes
   getEpisodes: (showId) => {
-    const stmt = db.prepare("SELECT * FROM episodes WHERE show_id = ? ORDER BY season_number, episode_number");
+    if (!showId) return [];
+    const stmt = db.prepare("SELECT * FROM episodes WHERE LOWER(show_id) = LOWER(?) ORDER BY season_number, episode_number");
     return stmt.all(showId);
   },
   getEpisode: (id) => {
-    const stmt = db.prepare("SELECT * FROM episodes WHERE id = ?");
-    return stmt.get(id);
+    if (!id) return null;
+    const stmt = db.prepare("SELECT * FROM episodes WHERE LOWER(id) = LOWER(?)");
+    return stmt.get(id) || null;
   },
   saveEpisode: (ep) => {
     const existing = dbHelper.getEpisode(ep.id);
