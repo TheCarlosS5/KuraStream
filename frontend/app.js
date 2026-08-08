@@ -1191,9 +1191,9 @@ async function loadShowDetails(id) {
 
       // Render first season by default
       if (seasonNums.length > 0) {
-        renderEpisodeList(seasons[seasonNums[0]], episodesList);
+        renderEpisodeList(seasons[seasonNums[0]], episodesList, show.poster_path);
       } else {
-        renderEpisodeList([], episodesList);
+        renderEpisodeList([], episodesList, show.poster_path);
       }
 
       // Bind season tab clicks
@@ -1202,7 +1202,7 @@ async function loadShowDetails(id) {
           document.querySelectorAll('.season-tab').forEach(t => t.classList.remove('active'));
           e.target.classList.add('active');
           const sNum = e.target.getAttribute('data-season');
-          renderEpisodeList(seasons[sNum] || [], episodesList);
+          renderEpisodeList(seasons[sNum] || [], episodesList, show.poster_path);
         });
       });
     }
@@ -1222,15 +1222,15 @@ async function loadShowDetails(id) {
   }
 }
 
-function renderEpisodeList(epList, targetContainer) {
+function renderEpisodeList(epList, targetContainer, fallbackPoster = '') {
   if (!epList || epList.length === 0) {
     targetContainer.innerHTML = '<div class="empty-state">No hay capítulos importados en esta temporada.</div>';
     return;
   }
   
   targetContainer.innerHTML = epList.map(ep => {
-    const durationMin = Math.round(ep.duration / 60);
-    const thumb = ep.thumbnail_path || (currentShow ? currentShow.poster_path : null) || 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=300&q=80';
+    const durationMin = Math.round((ep.duration || 0) / 60);
+    const thumb = ep.thumbnail_path || fallbackPoster || `/api/placeholder-poster?title=${encodeURIComponent(ep.title || 'KuraStream')}`;
     
     return `
       <div class="episode-item" onclick="window.showEpisodeDetails('${ep.id}')">
@@ -4240,6 +4240,8 @@ window.scrapeShowCover = async (showId, currentTitle) => {
       if (typeof lucide !== 'undefined') lucide.createIcons({ root: btn });
     }
   }
+};
+
 function getAuthHeaders() {
   const token = localStorage.getItem('kura_admin_token') || (JSON.parse(localStorage.getItem('kura_user_session') || '{}')).token || '';
   return {
