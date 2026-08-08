@@ -4269,14 +4269,6 @@ function setupAutoDownloaderControls() {
   const tmQueueList = document.getElementById('tm-queue-list');
   const tmHistoryList = document.getElementById('tm-history-list');
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('kura_admin_token') || (JSON.parse(localStorage.getItem('kura_user_session') || '{}')).token || '';
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : ''
-    };
-  };
-
   const updateUI = (status) => {
     if (!status) return;
 
