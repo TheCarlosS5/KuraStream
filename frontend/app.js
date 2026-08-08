@@ -4240,7 +4240,13 @@ window.scrapeShowCover = async (showId, currentTitle) => {
       if (typeof lucide !== 'undefined') lucide.createIcons({ root: btn });
     }
   }
-};
+function getAuthHeaders() {
+  const token = localStorage.getItem('kura_admin_token') || (JSON.parse(localStorage.getItem('kura_user_session') || '{}')).token || '';
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': token ? `Bearer ${token}` : ''
+  };
+}
 
 function setupAutoDownloaderControls() {
   const badge = document.getElementById('autodownload-status-badge');
