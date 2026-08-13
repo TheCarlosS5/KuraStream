@@ -52,7 +52,8 @@ class PlayerController {
         }
 
         // Ensure the path is strictly within the library directory
-        if ($realLibrary && !str_starts_with($realPath, $realLibrary)) {
+        $libraryPrefix = rtrim($realLibrary, '/\\') . DIRECTORY_SEPARATOR;
+        if (!$realLibrary || ($realPath !== $realLibrary && !str_starts_with($realPath, $libraryPrefix))) {
             http_response_code(403);
             echo "Access denied: File must reside within the library directory";
             exit();

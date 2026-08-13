@@ -63,15 +63,56 @@ class ShowController {
             jsonError('showId y status requeridos', 400);
         }
 
-        $show = DbHelper::getShow($showId);
-        if (!$show) {
-            jsonError('Show no encontrado', 404);
+        $success = DbHelper::updateShowStatus($showId, $status);
+        if (!$success) {
+            jsonError('Error al actualizar el estado del show', 500);
         }
 
-        $show['status'] = $status;
-        DbHelper::saveShow($show);
+        jsonResponse(['success' => true]);
+    }
 
-        jsonResponse(['success' => true, 'show' => $show]);
+    public static function getComments(): void {
+        $showId = $_GET['show_id'] ?? '';
+        if (empty($showId)) {
+            jsonError('show_id requerido', 400);
+        }
+
+        $comments = DbHelper::getComments($showId);
+        jsonResponse(['success' => true, 'comments' => $comments]);
+    }
+
+    public static function addComment(): void {
+        $authUser = AuthMiddleware::requireAuth();
+        $username = $authUser['username'];
+
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+
+        $showId = $data['show_id'] ?? '';
+        $content = trim($data['content'] ?? '');
+        $profile = $data['profile_name'] ?? 'Principal';
+        $episodeId = $data['episode_id'] ?? '';
+
+        if (empty($showId) || empty($content)) {
+            jsonError('show_id y content requeridos', 400);
+        }
+
+        $comment = DbHelper::addComment($showId, $username, $profile, $content, $episodeId);
+        jsonResponse(['success' => true, 'comment' => $comment]);
+    }
+
+    public static function searchTmdb(): void {
+        AuthMiddleware::requireAdmin();
+        $query = trim($_GET['query'] ?? ($_GET['q'] ?? ''));
+        $type = $_GET['type'] ?? 'anime';
+
+        if (empty($query)) {
+            jsonResponse([]);
+            return;
+        }
+
+        $results = TmdbScraper::search($query, $type);
+        jsonResponse($results);
     }
 
     public static function getRandomShow(): void {

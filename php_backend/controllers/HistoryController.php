@@ -5,15 +5,8 @@ require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
 class HistoryController {
     private static function resolveUserAndProfile(array $body = []): array {
-        $token = AuthMiddleware::getBearerToken();
-        $payload = AuthMiddleware::verifyToken($token);
-
-        if ($payload && !empty($payload['username'])) {
-            $username = $payload['username'];
-        } else {
-            $username = $_GET['username'] ?? ($body['username'] ?? 'guest');
-        }
-
+        $authUser = AuthMiddleware::requireAuth();
+        $username = $authUser['username'];
         $profile = $_GET['profile_name'] ?? ($body['profile_name'] ?? 'Principal');
 
         return [$username, $profile];

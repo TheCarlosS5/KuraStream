@@ -140,6 +140,17 @@ class Database {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_user_profiles (username)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+            CREATE TABLE IF NOT EXISTS comments (
+                id VARCHAR(255) PRIMARY KEY,
+                show_id VARCHAR(255) NOT NULL,
+                episode_id VARCHAR(255) DEFAULT '',
+                username VARCHAR(255) NOT NULL,
+                profile_name VARCHAR(255) NOT NULL DEFAULT 'Principal',
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_comments_show (show_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ");
 
         try {
@@ -583,6 +594,40 @@ class DbHelper {
         $db = Database::getConnection();
         $stmt = $db->prepare("DELETE FROM user_profiles WHERE username = :u AND id = :id");
         return $stmt->execute(['u' => $username, 'id' => $id]);
+    }
+
+    public static function getComments(string $showId): array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT * FROM comments WHERE show_id = :s ORDER BY created_at DESC");
+        $stmt->execute(['s' => $showId]);
+        return $stmt->fetchAll();
+    }
+
+    public static function addComment(string $showId, string $username, string $profile, string $content, string $episodeId = ''): array {
+        $db = Database::getConnection();
+        $id = 'comm_' . uniqid();
+        $stmt = $db->prepare("
+            INSERT INTO comments (id, show_id, episode_id, username, profile_name, content)
+            VALUES (:id, :s, :e, :u, :p, :c)
+        ");
+        $stmt->execute([
+            'id' => $id,
+            's' => $showId,
+            'e' => $episodeId,
+            'u' => $username,
+            'p' => $profile,
+            'c' => $content
+        ]);
+
+        return [
+            'id' => $id,
+            'show_id' => $showId,
+            'episode_id' => $episodeId,
+            'username' => $username,
+            'profile_name' => $profile,
+            'content' => $content,
+            'created_at' => date('Y-m-d H:i:s')
+        ];
     }
 }
 

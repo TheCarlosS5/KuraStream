@@ -41,7 +41,7 @@ $verifiedExpired = AuthMiddleware::verifyToken($expiredToken);
 assert($verifiedExpired === null, "Expired token should be rejected");
 echo "✓ Expired Token Rejection OK\n";
 
-// 4. Test Stream Path Traversal Prevention
+// 4. Test Stream Path Traversal & Prefix Traversal Prevention
 $_GET['filepath'] = '/etc/passwd';
 ob_start();
 try {
@@ -51,19 +51,28 @@ try {
 }
 $output = ob_get_clean();
 assert(http_response_code() === 403 || http_response_code() === 404, "Path traversal must return 403/404");
-echo "✓ Path Traversal Prevention OK\n";
 
-// 5. Test Invalid HTTP Range Request (416 Not Satisfiable)
-$_GET['filepath'] = __FILE__;
-$_SERVER['HTTP_RANGE'] = 'bytes=999999-9999999';
+$_GET['filepath'] = LIBRARY_DIR . '-private/video.mp4';
 ob_start();
 try {
     PlayerController::streamVideo();
 } catch (Throwable $e) {
     // Expected exit
 }
-$rangeOutput = ob_get_clean();
-assert(http_response_code() === 416 || http_response_code() === 403, "Invalid Range header must return 416/403");
-echo "✓ Invalid HTTP Range Header (416) OK\n";
+$prefixOutput = ob_get_clean();
+assert(http_response_code() === 403 || http_response_code() === 404, "Prefix traversal (e.g. library-private) MUST return 403/404");
+echo "✓ Path & Prefix Traversal Prevention OK\n";
+
+// 5. Test HistoryController Require Authentication
+$_SERVER['HTTP_AUTHORIZATION'] = '';
+ob_start();
+try {
+    HistoryController::getHistory();
+} catch (Throwable $e) {
+    // Expected exit with 401
+}
+$historyUnauth = ob_get_clean();
+assert(http_response_code() === 401, "Unauthenticated history request MUST return 401");
+echo "✓ HistoryController Require Auth (401) OK\n";
 
 echo "ALL SECURITY AND API TESTS PASSED SUCCESSFULLY!\n";

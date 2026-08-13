@@ -160,6 +160,26 @@ if ($uri === '/api/admin/toggle-show-status' && $method === 'POST') {
     ShowController::toggleStatus();
 }
 
+if ($uri === '/api/comments' && $method === 'GET') {
+    ShowController::getComments();
+}
+
+if ($uri === '/api/comments' && $method === 'POST') {
+    ShowController::addComment();
+}
+
+if ($uri === '/api/admin/tmdb/search' && $method === 'GET') {
+    ShowController::searchTmdb();
+}
+
+if ($uri === '/api/subtitles' && $method === 'GET') {
+    jsonResponse([]);
+}
+
+if ($uri === '/api/torrents' && $method === 'GET') {
+    jsonResponse([]);
+}
+
 // Rescan trigger
 if ($uri === '/api/admin/scan' && $method === 'POST') {
     AuthMiddleware::requireAdmin();

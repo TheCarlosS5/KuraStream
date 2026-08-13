@@ -19,25 +19,34 @@ class AuthController {
             jsonError('Usuario y contraseña requeridos', 400);
         }
 
-        // Environment admin credentials
-        $adminUser = getenv('ADMIN_USER') ?: 'admin';
-        $adminPass = getenv('ADMIN_PASS') ?: 'Carlos2009';
+        // Optional Environment admin credentials check
+        $adminUser = getenv('ADMIN_USER');
+        $adminPass = getenv('ADMIN_PASS');
+        $adminPassHash = getenv('ADMIN_PASS_HASH');
 
-        if (($username === $adminUser || $username === 'TheCarlosS5' || $username === 'admin') && 
-            ($password === $adminPass || password_verify($password, password_hash($adminPass, PASSWORD_BCRYPT)))) {
-            $tokenPayload = [
-                'username' => $username,
-                'role' => 'admin',
-                'exp' => time() + (30 * 24 * 3600)
-            ];
-            $token = AuthMiddleware::createToken($tokenPayload);
+        if (!empty($adminUser) && $username === $adminUser) {
+            $isPassValid = false;
+            if (!empty($adminPassHash)) {
+                $isPassValid = password_verify($password, $adminPassHash);
+            } elseif (!empty($adminPass)) {
+                $isPassValid = ($password === $adminPass);
+            }
 
-            jsonResponse([
-                'success' => true,
-                'token' => $token,
-                'role' => 'admin',
-                'username' => $username
-            ]);
+            if ($isPassValid) {
+                $tokenPayload = [
+                    'username' => $username,
+                    'role' => 'admin',
+                    'exp' => time() + (30 * 24 * 3600)
+                ];
+                $token = AuthMiddleware::createToken($tokenPayload);
+
+                jsonResponse([
+                    'success' => true,
+                    'token' => $token,
+                    'role' => 'admin',
+                    'username' => $username
+                ]);
+            }
         }
 
         // DB user credentials check
