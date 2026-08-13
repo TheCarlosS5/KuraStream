@@ -402,7 +402,7 @@ class DbHelper {
         $completedShows = count($stmtComp->fetchAll());
 
         $stmtGenres = $db->prepare("
-            SELECT DISTINCT s.genres
+            SELECT DISTINCT s.id, s.genres
             FROM shows s
             LEFT JOIN episodes e ON e.show_id = s.id
             LEFT JOIN watch_history w ON w.episode_id = e.id AND w.username = :u1 AND w.profile_name = :p1
