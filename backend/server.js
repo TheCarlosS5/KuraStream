@@ -714,7 +714,7 @@ const server = http.createServer(async (req, res) => {
   // Get recently watched history
   if (pathname === '/api/history' && req.method === 'GET') {
     const username = parsedUrl.searchParams.get('username') || 'guest';
-    let profileName = 'Principal';
+    let profileName = parsedUrl.searchParams.get('profile_name') || 'Principal';
     const authHeader = req.headers['authorization'];
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
@@ -769,7 +769,7 @@ const server = http.createServer(async (req, res) => {
   // Favorites (My List) routes
   if (pathname === '/api/favorites' && req.method === 'GET') {
     const username = parsedUrl.searchParams.get('username') || 'guest';
-    let profileName = 'Principal';
+    let profileName = parsedUrl.searchParams.get('profile_name') || 'Principal';
     const authHeader = req.headers['authorization'];
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);

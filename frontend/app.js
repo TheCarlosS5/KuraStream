@@ -315,6 +315,7 @@ function setupRouter() {
       renderHistoryView();
     } else if (hash.startsWith('#/genres')) {
       currentView = 'genres';
+      updateActiveNavHighlight(hash);
       const genresView = document.getElementById('genres-view');
       if (genresView) { genresView.classList.add('active'); genresView.style.display = 'block'; }
       let activeGenre = '';
@@ -327,6 +328,7 @@ function setupRouter() {
       renderGenresView(activeGenre);
     } else if (hash === '#/stats') {
       currentView = 'stats';
+      updateActiveNavHighlight(hash);
       const statsView = document.getElementById('stats-view');
       if (statsView) { statsView.classList.add('active'); statsView.style.display = 'block'; }
       renderStatsView();
@@ -3340,7 +3342,7 @@ async function renderGenresView(activeGenre = '') {
 
     if (Array.isArray(shows) && activeGenre.toLowerCase() !== 'películas' && activeGenre.toLowerCase() !== 'peliculas') {
       shows = shows.filter(s => {
-        if (!s.genres) return true;
+        if (!s.genres) return false;
         return s.genres.toLowerCase().includes(activeGenre.toLowerCase());
       });
     }
