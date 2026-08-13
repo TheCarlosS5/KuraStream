@@ -3271,8 +3271,27 @@ async function renderGenresView(activeGenre = '') {
 
   if (!gridContainer) return;
 
+  let allShows = [];
+  try {
+    const res = await fetch('/api/shows');
+    if (res.ok) {
+      allShows = await res.json();
+    }
+  } catch (err) {
+    console.error('Error fetching shows for genre counts:', err);
+  }
+
   gridContainer.innerHTML = GENRE_LIST.map(g => {
     const isActive = activeGenre && activeGenre.toLowerCase() === g.name.toLowerCase();
+    let count = 0;
+    if (Array.isArray(allShows)) {
+      if (g.name.toLowerCase() === 'películas' || g.name.toLowerCase() === 'peliculas') {
+        count = allShows.filter(s => s.media_type === 'movie' || s.type === 'movie').length;
+      } else {
+        const gNameLower = g.name.toLowerCase();
+        count = allShows.filter(s => s.genres && s.genres.toLowerCase().includes(gNameLower)).length;
+      }
+    }
     return `
       <div class="genre-card ${isActive ? 'active' : ''}" data-genre="${g.name}" style="background: ${g.gradient};">
         <div class="genre-card-overlay"></div>
@@ -3281,6 +3300,7 @@ async function renderGenresView(activeGenre = '') {
             <i data-lucide="${g.icon}"></i>
           </div>
           <h3 class="genre-name">${g.name}</h3>
+          <span class="genre-count">${count} ${count === 1 ? 'título' : 'títulos'}</span>
         </div>
       </div>
     `;
