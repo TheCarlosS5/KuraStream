@@ -52,20 +52,33 @@
       </div>
     </a>
     <nav class="header-nav">
-      <a href="#/" class="nav-link active" id="nav-home">Inicio</a>
-      <a href="#/airing" class="nav-link" id="nav-airing" style="display: inline-flex; align-items: center; gap: 6px;">
-        En Emisión <span class="airing-pulse-dot" style="width: 8px; height: 8px; background: #00e08f; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #00e08f; animation: pulseGlow 1.8s infinite;"></span>
-      </a>
-      <a href="#/calendar" class="nav-link" id="nav-calendar">Calendario</a>
-      <a href="#/movies" class="nav-link" id="nav-movies">Películas</a>
-      <a href="#/settings" class="nav-link" id="nav-settings">Ajustes</a>
+      <a href="#/" class="nav-link active" id="nav-home"><i data-lucide="home"></i> Inicio</a>
+      <a href="#/airing" class="nav-link" id="nav-airing"><i data-lucide="flame"></i> En Emisión <span class="airing-pulse-dot"></span></a>
+      <a href="#/calendar" class="nav-link" id="nav-calendar"><i data-lucide="calendar"></i> Calendario</a>
+      <div class="nav-dropdown" id="nav-explore-dropdown">
+        <button class="nav-link nav-dropdown-trigger" id="nav-explore-trigger"><i data-lucide="compass"></i> Explorar <i data-lucide="chevron-down"></i></button>
+        <div class="nav-dropdown-menu" id="nav-explore-menu">
+          <a href="#/movies" class="dropdown-item" id="nav-movies"><i data-lucide="film"></i> Películas</a>
+          <a href="#/genres" class="dropdown-item" id="nav-genres"><i data-lucide="layout-grid"></i> Géneros</a>
+          <a href="javascript:void(0)" id="btn-random-anime" class="dropdown-item"><i data-lucide="sparkles"></i> Descubrimiento Aleatorio</a>
+        </div>
+      </div>
+      <a href="#/my-list" class="nav-link" id="nav-mylist"><i data-lucide="heart"></i> Mi Lista</a>
+      <a href="#/history" class="nav-link" id="nav-history"><i data-lucide="history"></i> Historial</a>
     </nav>
     <div class="header-right" style="display: flex; align-items: center; gap: 15px;">
       <div class="header-search">
         <input type="text" id="search-input" placeholder="Buscar series, películas...">
         <i data-lucide="search" class="search-icon"></i>
       </div>
-      <!-- User Account Widget -->
+      <!-- Notifications Bell Widget -->
+      <div class="notifications-container" id="notifications-container">
+        <button class="nav-icon-btn" id="btn-notifications-trigger" title="Notificaciones"><i data-lucide="bell"></i><span class="notification-badge" id="notification-badge" style="display: none;">0</span></button>
+        <div class="notifications-dropdown" id="notifications-dropdown" style="display: none;">
+          <div class="notifications-header"><span>Notificaciones</span><button id="btn-mark-notifications-read" class="btn-text-sm">Marcar leídas</button></div>
+          <div class="notifications-list" id="notifications-list"></div>
+        </div>
+      </div>
       <!-- User Account Widget -->
       <div class="user-account-container" id="user-account-container" style="position: relative;">
         <button class="btn btn-secondary" id="btn-login-trigger" style="padding: 8px 16px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); border-color: var(--border-color);">
@@ -82,6 +95,7 @@
               <!-- Dynamic list of other profiles -->
             </div>
             <a href="javascript:void(0)" id="btn-switch-profile" class="user-dropdown-item" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-main); text-decoration: none; font-size: 0.85rem; transition: background 0.2s;"><i data-lucide="users" style="width: 14px; height: 14px;"></i> Administrar Perfiles</a>
+            <a href="#/stats" class="user-dropdown-item" id="btn-user-stats" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-main); text-decoration: none; font-size: 0.85rem; transition: background 0.2s;"><i data-lucide="bar-chart-2" style="width: 14px; height: 14px;"></i> Mis Estadísticas</a>
             <a href="#/settings" class="user-dropdown-item" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-main); text-decoration: none; font-size: 0.85rem; transition: background 0.2s;"><i data-lucide="settings" style="width: 14px; height: 14px;"></i> Ajustes</a>
             <a href="javascript:void(0)" id="btn-admin-direct" class="user-dropdown-item" style="display: none; align-items: center; gap: 8px; padding: 8px 16px; color: var(--accent-color); text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: background 0.2s;"><i data-lucide="shield-check" style="width: 14px; height: 14px;"></i> Panel Admin</a>
             <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 6px 0;">
