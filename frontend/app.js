@@ -5820,7 +5820,10 @@ async function loadNotifications() {
       list.querySelectorAll('.notification-item').forEach(item => {
         item.addEventListener('click', () => {
           const dropdown = document.getElementById('notifications-dropdown');
-          if (dropdown) dropdown.style.display = 'none';
+          if (dropdown) {
+            dropdown.style.display = 'none';
+            dropdown.classList.remove('show');
+          }
         });
       });
     }
