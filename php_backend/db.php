@@ -242,19 +242,19 @@ class DbHelper {
         $stmt->execute(['u' => $username, 'p' => $profile]);
         $row = $stmt->fetch();
         if (!$row) {
-            return ['auto_skip_intro' => 0, 'auto_play_next' => 1];
+            return ['auto_skip_intro' => false, 'auto_play_next' => true];
         }
         return [
-            'auto_skip_intro' => (int)$row['auto_skip_intro'],
-            'auto_play_next' => (int)$row['auto_play_next']
+            'auto_skip_intro' => (bool)$row['auto_skip_intro'],
+            'auto_play_next' => (bool)$row['auto_play_next']
         ];
     }
 
     public static function saveUserPreferences(string $username, string $profile, array $data): void {
         $db = Database::getConnection();
         $existing = self::getUserPreferences($username, $profile);
-        $autoSkip = isset($data['auto_skip_intro']) ? (int)$data['auto_skip_intro'] : $existing['auto_skip_intro'];
-        $autoPlay = isset($data['auto_play_next']) ? (int)$data['auto_play_next'] : $existing['auto_play_next'];
+        $autoSkip = isset($data['auto_skip_intro']) ? (int)(bool)$data['auto_skip_intro'] : (int)$existing['auto_skip_intro'];
+        $autoPlay = isset($data['auto_play_next']) ? (int)(bool)$data['auto_play_next'] : (int)$existing['auto_play_next'];
 
         $stmt = $db->prepare("
             INSERT INTO user_preferences (username, profile_name, auto_skip_intro, auto_play_next)
@@ -276,10 +276,10 @@ class DbHelper {
         return $ep;
     }
 
-    public static function saveEpisodeTimestamps(string $id, array $data): void {
+    public static function saveEpisodeTimestamps(string $id, array $data): bool {
         $db = Database::getConnection();
         $ep = self::getEpisode($id);
-        if (!$ep) return;
+        if (!$ep) return false;
 
         $introStart = array_key_exists('intro_start', $data) ? ($data['intro_start'] !== null ? (int)$data['intro_start'] : null) : $ep['intro_start'];
         $introEnd = array_key_exists('intro_end', $data) ? ($data['intro_end'] !== null ? (int)$data['intro_end'] : null) : $ep['intro_end'];
@@ -304,6 +304,7 @@ class DbHelper {
             'outro_start' => $outroStart,
             'chapters' => $chaptersJson
         ]);
+        return true;
     }
 
     public static function getEpisodesForShow($showId): array {

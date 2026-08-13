@@ -4,20 +4,11 @@ require_once __DIR__ . '/../db.php';
 
 class PlayerController {
     public static function getEpisodeDetails(string $id): void {
-        $db = Database::getConnection();
-        $stmt = $db->prepare("SELECT * FROM episodes WHERE id = :id");
-        $stmt->execute(['id' => $id]);
-        $ep = $stmt->fetch();
-
+        $ep = DbHelper::getEpisode($id);
         if (!$ep) {
             jsonError('Episodio no encontrado', 404);
         }
-
-        $ep['audio_tracks'] = !empty($ep['audio_tracks']) ? json_decode($ep['audio_tracks'], true) : [];
-        $ep['subtitle_tracks'] = !empty($ep['subtitle_tracks']) ? json_decode($ep['subtitle_tracks'], true) : [];
-        $ep['chapters'] = !empty($ep['chapters']) ? json_decode($ep['chapters'], true) : [];
         $ep['stream_url'] = "/api/stream?filepath=" . urlencode($ep['filepath']);
-
         jsonResponse($ep);
     }
 
@@ -25,15 +16,11 @@ class PlayerController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        $db = Database::getConnection();
-        $stmt = $db->prepare("SELECT * FROM episodes WHERE id = :id");
-        $stmt->execute(['id' => $id]);
-        $ep = $stmt->fetch();
-        if (!$ep) {
+        $success = DbHelper::saveEpisodeTimestamps($id, $data);
+        if (!$success) {
             jsonError('Episodio no encontrado', 404);
         }
 
-        DbHelper::saveEpisodeTimestamps($id, $data);
         jsonResponse(['success' => true]);
     }
 

@@ -10,14 +10,23 @@ try {
     $prefs = DbHelper::getUserPreferences('test_user_autoskip', 'Principal');
     assert(isset($prefs['auto_skip_intro']), "auto_skip_intro should be present in default preferences");
     assert(isset($prefs['auto_play_next']), "auto_play_next should be present in default preferences");
-    echo "Default prefs OK: auto_skip_intro=" . $prefs['auto_skip_intro'] . ", auto_play_next=" . $prefs['auto_play_next'] . "\n";
+    assert(is_bool($prefs['auto_skip_intro']), "auto_skip_intro should be boolean");
+    assert(is_bool($prefs['auto_play_next']), "auto_play_next should be boolean");
+    echo "Default prefs OK: auto_skip_intro=" . var_export($prefs['auto_skip_intro'], true) . ", auto_play_next=" . var_export($prefs['auto_play_next'], true) . "\n";
 
     // Test 2: saveUserPreferences
-    DbHelper::saveUserPreferences('test_user_autoskip', 'Principal', ['auto_skip_intro' => 1, 'auto_play_next' => 1]);
+    DbHelper::saveUserPreferences('test_user_autoskip', 'Principal', ['auto_skip_intro' => true, 'auto_play_next' => true]);
     $updated = DbHelper::getUserPreferences('test_user_autoskip', 'Principal');
-    assert($updated['auto_skip_intro'] == 1, "auto_skip_intro should be 1 after save");
-    assert($updated['auto_play_next'] == 1, "auto_play_next should be 1 after save");
+    assert($updated['auto_skip_intro'] === true, "auto_skip_intro should be true after save");
+    assert($updated['auto_play_next'] === true, "auto_play_next should be true after save");
+    assert(is_bool($updated['auto_skip_intro']), "auto_skip_intro should be boolean");
+    assert(is_bool($updated['auto_play_next']), "auto_play_next should be boolean");
     echo "Save prefs OK\n";
+
+    // Test 3: saveEpisodeTimestamps non-existent episode return false
+    $nonExistentResult = DbHelper::saveEpisodeTimestamps('non_existent_ep_id_xyz', ['intro_start' => 10]);
+    assert($nonExistentResult === false, "saveEpisodeTimestamps should return false for non-existent episode");
+    echo "Non-existent episode timestamp save OK\n";
 
     // Test 3: saveEpisodeTimestamps and chapters column
     // First ensure dummy show and episode exist for testing
