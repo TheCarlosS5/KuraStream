@@ -1034,5 +1034,42 @@ export const dbHelper = {
   deleteStagedImport: (id) => {
     const stmt = db.prepare("DELETE FROM staged_imports WHERE id = ?");
     stmt.run(id);
+  },
+  getRandomShow: () => {
+    const stmt = db.prepare("SELECT * FROM shows ORDER BY RANDOM() LIMIT 1");
+    const show = stmt.get();
+    if (!show) return null;
+    if (show.genres) {
+      try { show.genres = JSON.parse(show.genres); } catch(e) {}
+    }
+    return show;
+  },
+  getNotifications: (username = 'guest', profile = 'Principal') => {
+    try {
+      const stmt = db.prepare(`
+        SELECT e.id as episode_id, e.season_number, e.episode_number, e.title as episode_title, s.id as show_id, s.title as show_title, s.poster_path
+        FROM favorites f
+        JOIN shows s ON f.show_id = s.id
+        JOIN episodes e ON e.show_id = s.id
+        WHERE f.username = ? AND f.profile_name = ?
+        ORDER BY e.season_number DESC, e.episode_number DESC
+        LIMIT 20
+      `);
+      const rows = stmt.all(username, profile);
+      return rows.map(r => ({
+        id: 'notif_' + r.episode_id,
+        show_id: r.show_id,
+        show_title: r.show_title,
+        poster_path: r.poster_path || '',
+        episode_id: r.episode_id,
+        season_number: Number(r.season_number),
+        episode_number: Number(r.episode_number),
+        title: r.episode_title || '',
+        message: `¡Nuevo episodio disponible! S${r.season_number} E${r.episode_number}: ${r.show_title}`,
+        created_at: new Date().toISOString()
+      }));
+    } catch (e) {
+      return [];
+    }
   }
 };

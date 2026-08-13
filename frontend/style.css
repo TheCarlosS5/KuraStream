@@ -3566,4 +3566,294 @@ input:checked + .slider:before {
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Random Anime Roulette Modal & Popovers */
+#random-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.random-modal-content {
+  position: relative;
+  width: 100%;
+  max-width: 650px;
+  background: rgba(22, 27, 38, 0.95);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(229, 9, 20, 0.25);
+  overflow: hidden;
+}
+
+.random-modal-content .modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: var(--text-main);
+  font-size: 1.5rem;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 2;
+}
+
+.random-modal-content .modal-close:hover {
+  background: var(--accent-color);
+  color: #fff;
+  transform: rotate(90deg);
+}
+
+.random-card {
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-radius: 12px;
+}
+
+.random-card-inner {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+@media (max-width: 600px) {
+  .random-card-inner {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+}
+
+.random-poster-wrapper {
+  width: 160px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-color);
+}
+
+.random-poster-img {
+  width: 100%;
+  height: 230px;
+  object-fit: cover;
+  display: block;
+}
+
+.random-info-wrapper {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.random-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(229, 9, 20, 0.15);
+  color: var(--accent-color);
+  border: 1px solid rgba(229, 9, 20, 0.3);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  width: fit-content;
+}
+
+.random-title {
+  font-family: var(--font-title);
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1.2;
+  margin: 0;
+}
+
+.random-meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.random-meta .rating {
+  color: #ffc107;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.random-genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.genre-tag {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: var(--text-main);
+}
+
+.random-synopsis {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 4px 0 10px 0;
+}
+
+.random-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: auto;
+}
+
+/* Roulette Spin Animation */
+.roulette-spin {
+  animation: rouletteNeonPulse 1.2s infinite alternate ease-in-out;
+  border-radius: 12px;
+}
+
+.roulette-spinner-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  gap: 16px;
+}
+
+.slot-machine-reel {
+  display: flex;
+  gap: 16px;
+  font-size: 2.5rem;
+  animation: slotReelBounce 0.4s infinite ease-in-out alternate;
+}
+
+.roulette-text {
+  font-family: var(--font-title);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-main);
+  letter-spacing: 0.5px;
+}
+
+@keyframes rouletteNeonPulse {
+  0% {
+    box-shadow: 0 0 10px rgba(229, 9, 20, 0.2), inset 0 0 10px rgba(229, 9, 20, 0.1);
+  }
+  100% {
+    box-shadow: 0 0 35px rgba(229, 9, 20, 0.6), inset 0 0 20px rgba(229, 9, 20, 0.3);
+  }
+}
+
+@keyframes slotReelBounce {
+  0% {
+    transform: translateY(-8px) scale(0.95);
+    filter: blur(1px);
+  }
+  100% {
+    transform: translateY(8px) scale(1.05);
+    filter: blur(0px);
+  }
+}
+
+/* Notification Popover & Items */
+.notification-badge {
+  background: var(--accent-color);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  box-shadow: 0 0 10px rgba(229, 9, 20, 0.7);
+  border: 2px solid var(--bg-main);
+}
+
+.notification-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.2s ease;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.notification-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.notification-item:last-child {
+  border-bottom: none;
+}
+
+.notification-poster {
+  width: 42px;
+  height: 58px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-color);
+}
+
+.notification-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.notification-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notification-ep {
+  font-size: 0.78rem;
+  color: var(--accent-color);
+  font-weight: 600;
+}
+
+.notification-time {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+
 

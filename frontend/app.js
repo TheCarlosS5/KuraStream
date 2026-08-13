@@ -155,6 +155,8 @@ function initAppMain() {
   setupUserAuth();
   setupCommunityChat();
   initCustomCursor();
+  setupRandomModalAndNotifications();
+  loadNotifications();
 
   // Add search, status, sort and genre filter listeners
   const sInput = document.getElementById('search-input');
@@ -5656,3 +5658,225 @@ async function toggleShowStatus(showId, currentStatus) {
   }
 }
 window.toggleShowStatus = toggleShowStatus;
+
+async function openRandomAnimeModal() {
+  const modal = document.getElementById('random-modal');
+  const cardBody = document.getElementById('random-card-body');
+  if (!modal || !cardBody) return;
+
+  modal.style.display = 'flex';
+  cardBody.className = 'random-card roulette-spin';
+  cardBody.innerHTML = `
+    <div class="roulette-spinner-container">
+      <div class="slot-machine-reel">
+        <span class="slot-icon">🎲</span>
+        <span class="slot-icon">⚡</span>
+        <span class="slot-icon">🍁</span>
+        <span class="slot-icon">⭐</span>
+      </div>
+      <p class="roulette-text">Seleccionando anime aleatorio...</p>
+    </div>
+  `;
+
+  try {
+    const res = await fetch('/api/shows/random');
+    let show = null;
+    if (res.ok) {
+      const data = await res.json();
+      show = data.show || (data.id ? data : null);
+    }
+
+    await new Promise(r => setTimeout(r, 400));
+    cardBody.classList.remove('roulette-spin');
+
+    if (!show) {
+      cardBody.innerHTML = `
+        <div class="random-show-empty" style="text-align: center; padding: 30px; color: var(--text-muted);">
+          <p>No se pudo obtener un anime aleatorio en este momento.</p>
+          <button class="btn btn-secondary" id="btn-random-retry" style="margin-top: 15px;">Girar de nuevo</button>
+        </div>
+      `;
+      const retryBtn = document.getElementById('btn-random-retry');
+      if (retryBtn) retryBtn.addEventListener('click', openRandomAnimeModal);
+      return;
+    }
+
+    let genresList = [];
+    if (Array.isArray(show.genres)) {
+      genresList = show.genres;
+    } else if (typeof show.genres === 'string') {
+      try { genresList = JSON.parse(show.genres); } catch(e) { genresList = show.genres.split(',').map(g => g.trim()); }
+    }
+
+    const posterSrc = show.poster_path || `/api/placeholder-poster?title=${encodeURIComponent(show.title || 'Anime')}`;
+
+    cardBody.innerHTML = `
+      <div class="random-card-inner">
+        <div class="random-poster-wrapper">
+          <img src="${posterSrc}" alt="${show.title || 'Anime'}" class="random-poster-img">
+        </div>
+        <div class="random-info-wrapper">
+          <div class="random-badge">🎲 Recomendación Aleatoria</div>
+          <h2 class="random-title">${show.title || 'Anime Aleatorio'}</h2>
+          <div class="random-meta">
+            ${show.rating ? `<span class="rating"><i data-lucide="star"></i> ${show.rating}</span>` : ''}
+            ${show.year ? `<span class="year">${show.year}</span>` : ''}
+            ${show.status ? `<span class="status">${show.status === 'airing' ? 'En Emisión' : 'Finalizado'}</span>` : ''}
+          </div>
+          <div class="random-genres">
+            ${genresList.map(g => `<span class="genre-tag">${g}</span>`).join('')}
+          </div>
+          <p class="random-synopsis">${show.synopsis || show.description || 'Sin descripción disponible para esta serie.'}</p>
+          <div class="random-actions">
+            <a href="#/show/${show.id}" class="btn btn-primary" id="btn-random-watch"><i data-lucide="play"></i> Ver Ahora</a>
+            <button class="btn btn-secondary" id="btn-random-again"><i data-lucide="sparkles"></i> Girar de nuevo</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+      window.lucide.createIcons();
+    }
+
+    const watchBtn = document.getElementById('btn-random-watch');
+    if (watchBtn) {
+      watchBtn.addEventListener('click', () => {
+        modal.style.display = 'none';
+      });
+    }
+
+    const againBtn = document.getElementById('btn-random-again');
+    if (againBtn) {
+      againBtn.addEventListener('click', () => {
+        openRandomAnimeModal();
+      });
+    }
+  } catch (err) {
+    console.error("Error in openRandomAnimeModal:", err);
+    cardBody.classList.remove('roulette-spin');
+    cardBody.innerHTML = `
+      <div class="random-show-empty" style="text-align: center; padding: 30px; color: var(--text-muted);">
+        <p>Error al obtener anime aleatorio.</p>
+        <button class="btn btn-secondary" id="btn-random-retry" style="margin-top: 15px;">Intentar de nuevo</button>
+      </div>
+    `;
+    const retryBtn = document.getElementById('btn-random-retry');
+    if (retryBtn) retryBtn.addEventListener('click', openRandomAnimeModal);
+  }
+}
+
+async function loadNotifications() {
+  const badge = document.getElementById('notification-badge');
+  const list = document.getElementById('notifications-list');
+
+  const { activeUser, profileName } = getUserAndProfile();
+  let notifications = [];
+
+  try {
+    const res = await fetch(`/api/notifications?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`);
+    if (res.ok) {
+      const data = await res.json();
+      notifications = Array.isArray(data) ? data : (data.notifications || []);
+    }
+  } catch (err) {
+    console.error("Error loading notifications:", err);
+  }
+
+  const unreadCount = notifications.length;
+  if (badge) {
+    if (unreadCount > 0) {
+      badge.textContent = unreadCount;
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.textContent = '0';
+      badge.style.display = 'none';
+    }
+  }
+
+  if (list) {
+    if (notifications.length === 0) {
+      list.innerHTML = `<div class="notification-empty" style="padding: 24px 16px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">No hay notificaciones sin leer</div>`;
+    } else {
+      list.innerHTML = notifications.map(item => {
+        const epNum = item.episode_number || item.episode || 1;
+        const seasonNum = item.season_number || item.season || '';
+        const title = item.show_title || item.title || 'Nuevo episodio';
+        const poster = item.poster_path || `/api/placeholder-poster?title=${encodeURIComponent(title)}`;
+        const targetHash = item.episode_id ? `#/player/${item.episode_id}` : `#/show/${item.show_id}`;
+
+        return `
+          <a href="${targetHash}" class="notification-item" data-show-id="${item.show_id || ''}" data-episode-id="${item.episode_id || ''}">
+            <img src="${poster}" alt="${title}" class="notification-poster" onerror="this.src='/api/placeholder-poster?title=Show';">
+            <div class="notification-info">
+              <span class="notification-title">${title}</span>
+              <span class="notification-ep">Episodio ${epNum} ${seasonNum ? `(Temporada ${seasonNum})` : ''}</span>
+              <span class="notification-time">${item.message || 'Nuevo lanzamiento disponible'}</span>
+            </div>
+          </a>
+        `;
+      }).join('');
+
+      list.querySelectorAll('.notification-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const dropdown = document.getElementById('notifications-dropdown');
+          if (dropdown) dropdown.style.display = 'none';
+        });
+      });
+    }
+  }
+}
+
+function setupRandomModalAndNotifications() {
+  const btnRandom = document.getElementById('btn-random-anime');
+  if (btnRandom) {
+    btnRandom.addEventListener('click', (e) => {
+      e.preventDefault();
+      const menu = document.getElementById('nav-explore-menu');
+      if (menu) menu.classList.remove('show');
+      openRandomAnimeModal();
+    });
+  }
+
+  const btnCloseRandom = document.getElementById('btn-close-random');
+  const modalRandom = document.getElementById('random-modal');
+  if (btnCloseRandom && modalRandom) {
+    btnCloseRandom.addEventListener('click', () => {
+      modalRandom.style.display = 'none';
+    });
+  }
+  if (modalRandom) {
+    modalRandom.addEventListener('click', (e) => {
+      if (e.target === modalRandom) {
+        modalRandom.style.display = 'none';
+      }
+    });
+  }
+
+  const btnMarkRead = document.getElementById('btn-mark-notifications-read');
+  if (btnMarkRead) {
+    btnMarkRead.addEventListener('click', () => {
+      const badge = document.getElementById('notification-badge');
+      if (badge) {
+        badge.textContent = '0';
+        badge.style.display = 'none';
+      }
+      const list = document.getElementById('notifications-list');
+      if (list) {
+        list.innerHTML = `<div class="notification-empty" style="padding: 24px 16px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">No hay notificaciones sin leer</div>`;
+      }
+    });
+  }
+
+  const notifTrigger = document.getElementById('btn-notifications-trigger');
+  if (notifTrigger) {
+    notifTrigger.addEventListener('click', () => {
+      loadNotifications();
+    });
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.openRandomAnimeModal = openRandomAnimeModal;
+  window.loadNotifications = loadNotifications;
+}

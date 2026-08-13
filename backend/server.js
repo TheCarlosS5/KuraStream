@@ -589,6 +589,22 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Get Random Show
+  if (pathname === '/api/shows/random' && req.method === 'GET') {
+    const show = dbHelper.getRandomShow();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: true, show }));
+  }
+
+  // Get User Notifications
+  if (pathname === '/api/notifications' && req.method === 'GET') {
+    const username = parsedUrl.searchParams.get('username') || 'guest';
+    const profile = parsedUrl.searchParams.get('profile_name') || 'Principal';
+    const notifications = dbHelper.getNotifications(username, profile);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: true, notifications }));
+  }
+
   // Get individual show details & episodes
   if (pathname.startsWith('/api/shows/') && req.method === 'GET') {
     const id = pathname.split('/').pop();
