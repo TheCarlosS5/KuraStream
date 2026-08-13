@@ -1,50 +1,52 @@
 import { initPlayer, destroyPlayer } from './player.js?v=1.5';
 
-const originalFetch = window.fetch;
-window.fetch = function(input, options = {}) {
-  let url = input;
-  if (input instanceof Request) {
-    url = input.url;
-  } else if (input instanceof URL) {
-    url = input.toString();
-  }
-  
-  const urlStr = typeof url === 'string' ? url : '';
-  const isApiTarget = urlStr.includes('/api/');
-  
-  if (isApiTarget) {
-    // Determine active token (user session token or fallback to admin token)
-    const sessionStr = localStorage.getItem('kura_user_session');
-    let token = null;
-    if (sessionStr) {
-      try {
-        const session = JSON.parse(sessionStr);
-        token = session ? session.token : null;
-      } catch(e) {}
+if (typeof window !== 'undefined') {
+  const originalFetch = window.fetch;
+  window.fetch = function(input, options = {}) {
+    let url = input;
+    if (input instanceof Request) {
+      url = input.url;
+    } else if (input instanceof URL) {
+      url = input.toString();
     }
-    if (!token) {
-      token = localStorage.getItem('adminToken') || localStorage.getItem('kura_admin_token');
-    }
+    
+    const urlStr = typeof url === 'string' ? url : '';
+    const isApiTarget = urlStr.includes('/api/');
+    
+    if (isApiTarget) {
+      // Determine active token (user session token or fallback to admin token)
+      const sessionStr = localStorage.getItem('kura_user_session');
+      let token = null;
+      if (sessionStr) {
+        try {
+          const session = JSON.parse(sessionStr);
+          token = session ? session.token : null;
+        } catch(e) {}
+      }
+      if (!token) {
+        token = localStorage.getItem('kurastream_token') || localStorage.getItem('token') || localStorage.getItem('adminToken') || localStorage.getItem('kura_admin_token');
+      }
 
-    if (token) {
-      if (input instanceof Request) {
-        input.headers.set('Authorization', `Bearer ${token}`);
-      } else {
-        options.headers = options.headers || {};
-        if (options.headers instanceof Headers) {
-          options.headers.set('Authorization', `Bearer ${token}`);
-        } else if (Array.isArray(options.headers)) {
-          const authIdx = options.headers.findIndex(h => h[0].toLowerCase() === 'authorization');
-          if (authIdx !== -1) options.headers[authIdx][1] = `Bearer ${token}`;
-          else options.headers.push(['Authorization', `Bearer ${token}`]);
+      if (token) {
+        if (input instanceof Request) {
+          input.headers.set('Authorization', `Bearer ${token}`);
         } else {
-          options.headers['Authorization'] = `Bearer ${token}`;
+          options.headers = options.headers || {};
+          if (options.headers instanceof Headers) {
+            options.headers.set('Authorization', `Bearer ${token}`);
+          } else if (Array.isArray(options.headers)) {
+            const authIdx = options.headers.findIndex(h => h[0].toLowerCase() === 'authorization');
+            if (authIdx !== -1) options.headers[authIdx][1] = `Bearer ${token}`;
+            else options.headers.push(['Authorization', `Bearer ${token}`]);
+          } else {
+            options.headers['Authorization'] = `Bearer ${token}`;
+          }
         }
       }
     }
-  }
-  return originalFetch(input, options);
-};
+    return originalFetch(input, options);
+  };
+}
 
 // Chameleon UI Engine
 function applyChameleonTheme(imgElement) {
@@ -132,6 +134,7 @@ function parseMMSSToSeconds(str) {
 }
 
 // Global state
+window.userPreferences = { auto_skip_intro: false, auto_play_next: true };
 let currentView = 'dashboard';
 let currentShowEpisodes = [];
 let clickCount = 0;
@@ -141,34 +144,39 @@ let adminLogsInterval = null;
 let carouselInterval = null;
 let currentShowsPage = 1;
 
-// Initialize app
-document.addEventListener('DOMContentLoaded', () => {
+function initAppMain() {
   setupRouter();
   setupEasterEgg();
   setupForms();
   setupSettingsView();
+  loadUserPreferences();
   setupUserAuth();
   setupCommunityChat();
   initCustomCursor();
 
-  // Add search and filter listeners
+  // Add search, status, sort and genre filter listeners
   const sInput = document.getElementById('search-input');
   const gFilter = document.getElementById('genre-filter');
-  if (sInput) {
-    sInput.addEventListener('input', () => {
-      const mediaType = window.location.hash === '#/movies' ? 'movie' : 'anime';
-      currentShowsPage = 1;
-      loadDashboard(mediaType);
-    });
-  }
-  if (gFilter) {
-    gFilter.addEventListener('change', () => {
-      const mediaType = window.location.hash === '#/movies' ? 'movie' : 'anime';
-      currentShowsPage = 1;
-      loadDashboard(mediaType);
-    });
-  }
-});
+  const stFilter = document.getElementById('status-filter');
+  const sSort = document.getElementById('sort-filter');
+
+  const onFilterChange = () => {
+    const mediaType = window.location.hash === '#/movies' ? 'movie' : 'anime';
+    currentShowsPage = 1;
+    loadDashboard(mediaType);
+  };
+
+  if (sInput) sInput.addEventListener('input', onFilterChange);
+  if (gFilter) gFilter.addEventListener('change', onFilterChange);
+  if (stFilter) stFilter.addEventListener('change', onFilterChange);
+  if (sSort) sSort.addEventListener('change', onFilterChange);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAppMain);
+} else {
+  initAppMain();
+}
 
 // ROUTER
 function setupRouter() {
@@ -248,19 +256,46 @@ function setupRouter() {
       currentShowsPage = 1;
       if (searchInputEl) searchInputEl.value = '';
       if (genreFilterEl) genreFilterEl.value = 'all';
+      const stFilterEl = document.getElementById('status-filter');
+      if (stFilterEl) stFilterEl.value = 'all';
       document.getElementById('dashboard-view').classList.add('active');
       document.getElementById('nav-home').classList.add('active');
+      if (document.getElementById('nav-airing')) document.getElementById('nav-airing').classList.remove('active');
       document.getElementById('nav-movies').classList.remove('active');
       document.getElementById('nav-settings').classList.remove('active');
       loadDashboard('anime');
       initDashboardMosaic();
+    } else if (hash === '#/airing') {
+      currentView = 'dashboard';
+      currentShowsPage = 1;
+      if (searchInputEl) searchInputEl.value = '';
+      if (genreFilterEl) genreFilterEl.value = 'all';
+      const stFilterEl = document.getElementById('status-filter');
+      if (stFilterEl) stFilterEl.value = 'airing';
+      document.getElementById('dashboard-view').classList.add('active');
+      document.getElementById('nav-home').classList.remove('active');
+      if (document.getElementById('nav-airing')) document.getElementById('nav-airing').classList.add('active');
+      document.getElementById('nav-movies').classList.remove('active');
+      document.getElementById('nav-settings').classList.remove('active');
+      loadDashboard('anime');
+      initDashboardMosaic();
+    } else if (hash === '#/calendar') {
+      currentView = 'calendar';
+      document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
+      document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+      document.getElementById('calendar-view').classList.add('active');
+      if (document.getElementById('nav-calendar')) document.getElementById('nav-calendar').classList.add('active');
+      loadCalendarView();
     } else if (hash === '#/movies') {
       currentView = 'dashboard';
       currentShowsPage = 1;
       if (searchInputEl) searchInputEl.value = '';
       if (genreFilterEl) genreFilterEl.value = 'all';
+      const stFilterEl = document.getElementById('status-filter');
+      if (stFilterEl) stFilterEl.value = 'all';
       document.getElementById('dashboard-view').classList.add('active');
       document.getElementById('nav-home').classList.remove('active');
+      if (document.getElementById('nav-airing')) document.getElementById('nav-airing').classList.remove('active');
       document.getElementById('nav-movies').classList.add('active');
       document.getElementById('nav-settings').classList.remove('active');
       loadDashboard('movie');
@@ -546,9 +581,15 @@ async function loadDashboard(mediaType = 'anime') {
       genreFilterSelect.innerHTML = genreOpts;
     }
 
-    // Apply search and genre filters
+    // Apply search, genre, status and sort filters
     const searchInput = document.getElementById('search-input');
     const searchQuery = (searchInput ? searchInput.value : '').trim().toLowerCase();
+
+    const statusFilterSelect = document.getElementById('status-filter');
+    const selectedStatus = (statusFilterSelect ? statusFilterSelect.value : 'all') || 'all';
+
+    const sortFilterSelect = document.getElementById('sort-filter');
+    const selectedSort = (sortFilterSelect ? sortFilterSelect.value : 'default') || 'default';
 
     let filteredCategoryShows = categoryShows;
 
@@ -565,13 +606,30 @@ async function loadDashboard(mediaType = 'anime') {
       );
     }
 
-    if (filteredCategoryShows.length === 0 && (searchQuery || selectedGenre !== 'all')) {
+    if (selectedStatus !== 'all') {
+      filteredCategoryShows = filteredCategoryShows.filter(s => 
+        (s.status || 'finished') === selectedStatus
+      );
+    }
+
+    // Apply sorting
+    if (selectedSort === 'year_desc') {
+      filteredCategoryShows.sort((a, b) => (b.year || 0) - (a.year || 0));
+    } else if (selectedSort === 'year_asc') {
+      filteredCategoryShows.sort((a, b) => (a.year || 0) - (b.year || 0));
+    } else if (selectedSort === 'rating_desc') {
+      filteredCategoryShows.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    } else if (selectedSort === 'title_asc') {
+      filteredCategoryShows.sort((a, b) => a.title.localeCompare(b.title));
+    }
+
+    if (filteredCategoryShows.length === 0 && (searchQuery || selectedGenre !== 'all' || selectedStatus !== 'all')) {
       carouselContainer.style.display = 'none';
       sectionsContainer.innerHTML = `
         <div class="empty-state" style="text-align: center; padding: 60px; color: var(--text-muted);">
           <i data-lucide="search-code" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 12px; display: inline-block;"></i>
           <h2>No se encontraron resultados</h2>
-          <p style="margin-top: 10px;">Prueba ajustando los términos de búsqueda o el filtro de géneros.</p>
+          <p style="margin-top: 10px;">Prueba ajustando los filtros de búsqueda, estado o géneros.</p>
         </div>`;
       if (typeof lucide !== 'undefined') lucide.createIcons();
       return;
@@ -866,6 +924,13 @@ function createShowCardHTML(show, historyMap = new Map()) {
     `;
   }
 
+  const isAiring = show.status === 'airing';
+  const airingBadgeHTML = isAiring ? `
+    <div class="badge-airing-neon">
+      <span class="airing-pulse-dot" style="width:6px;height:6px;background:#00e08f;border-radius:50%;display:inline-block;animation:pulseGlow 1.8s infinite;"></span> EMISIÓN
+    </div>
+  ` : '';
+
   return `
     <div class="show-card" onclick="location.hash='#/show/${show.id}'" style="flex: 0 0 auto; width: 180px; height: 320px;">
       <div class="card-img-wrapper" style="height: 220px; position: relative;">
@@ -874,6 +939,7 @@ function createShowCardHTML(show, historyMap = new Map()) {
           <i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);margin-right:2px;display:inline-block;vertical-align:middle;"></i> 
           ${rating}
         </div>
+        ${airingBadgeHTML}
         ${progressHTML}
       </div>
       <div class="card-info">
@@ -1269,7 +1335,7 @@ function startAdminStatsPolling() {
   
   const poll = async () => {
     try {
-      const resStats = await fetch('/api/admin/stats');
+      const resStats = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
       if (resStats.ok) {
         const stats = await resStats.json();
         const statShows = document.getElementById('stat-shows');
@@ -1304,7 +1370,7 @@ function startAdminStatsPolling() {
         if (statDiskTotal) statDiskTotal.textContent = stats.diskTotalFormatted || '--';
       }
 
-      const resStreams = await fetch('/api/admin/active-streams');
+      const resStreams = await fetch('/api/admin/active-streams', { headers: getAuthHeaders() });
       if (resStreams.ok) {
         const data = await resStreams.json();
         const streamsList = document.getElementById('active-streams-list');
@@ -1900,7 +1966,7 @@ function setupForms() {
 
   const fetchDisplayStatus = async () => {
     try {
-      const res = await fetch('/api/admin/display/status');
+      const res = await fetch('/api/admin/display/status', { headers: getAuthHeaders() });
       const data = await res.json();
       if (res.ok && data.success) {
         updateDisplayStatusUI(data.status);
@@ -1914,7 +1980,7 @@ function setupForms() {
       try {
         const res = await fetch('/api/admin/display/power', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ state: 'off' })
         });
         const data = await res.json();
@@ -1938,7 +2004,7 @@ function setupForms() {
       try {
         const res = await fetch('/api/admin/display/power', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ state: 'on' })
         });
         const data = await res.json();
@@ -1983,31 +2049,38 @@ function setupForms() {
     });
   }
 
-  // Setup Admin Sidebar Tabs switching
-  const navItems = document.querySelectorAll('.admin-nav-item');
-  const subViews = document.querySelectorAll('.admin-sub-view');
+  // Setup Admin Sidebar Tabs switching via delegated click event listener
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.admin-nav-item');
+    if (!btn) return;
+    
+    const targetId = btn.getAttribute('data-target');
+    if (!targetId) return;
 
-  navItems.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const targetId = btn.getAttribute('data-target');
-      
-      navItems.forEach(item => item.classList.remove('active'));
-      subViews.forEach(view => view.classList.remove('active'));
-      
-      btn.classList.add('active');
-      const targetView = document.getElementById(targetId);
-      if (targetView) targetView.classList.add('active');
+    const navItems = document.querySelectorAll('.admin-nav-item');
+    const subViews = document.querySelectorAll('.admin-sub-view');
 
-      // Manage polling and data rendering based on active sub-view
-      stopAdminPolling();
-      if (targetId === 'admin-sub-overview') {
-        startAdminStatsPolling();
-      } else if (targetId === 'admin-sub-console') {
-        startAdminLogsPolling();
-      } else if (targetId === 'admin-sub-library') {
-        loadAdminPanel();
-      }
-    });
+    navItems.forEach(item => item.classList.remove('active'));
+    subViews.forEach(view => view.classList.remove('active'));
+
+    btn.classList.add('active');
+    const targetView = document.getElementById(targetId);
+    if (targetView) targetView.classList.add('active');
+
+    // Manage polling and data rendering based on active sub-view
+    stopAdminPolling();
+    if (targetId === 'admin-sub-overview' || targetId === 'admin-sub-status') {
+      startAdminStatsPolling();
+      fetchDisplayStatus();
+    } else if (targetId === 'admin-sub-console') {
+      startAdminLogsPolling();
+    } else if (targetId === 'admin-sub-library') {
+      loadAdminPanel();
+    } else if (targetId === 'admin-sub-staging') {
+      loadStagedImports();
+    } else if (targetId === 'admin-sub-torrents') {
+      setupAutoDownloaderControls();
+    }
   });
 
   // Clear logs button
@@ -2105,16 +2178,19 @@ async function loadAdminPanel() {
   }
 
   const showsList = document.getElementById('admin-shows-list');
+  if (!showsList) return;
   showsList.innerHTML = '<div class="spinner"></div>';
   
   try {
     const resAnime = await fetch('/api/shows?type=anime');
-    const anime = await resAnime.json();
+    const anime = resAnime.ok ? await resAnime.json() : [];
     
     const resMovie = await fetch('/api/shows?type=movie');
-    const movies = await resMovie.json();
+    const movies = resMovie.ok ? await resMovie.json() : [];
     
-    const allShows = [...anime, ...movies];
+    const animeArr = Array.isArray(anime) ? anime : [];
+    const movieArr = Array.isArray(movies) ? movies : [];
+    const allShows = [...animeArr, ...movieArr];
 
     // Populate show selector in Import panel
     const showSelector = document.getElementById('import-show-selector');
@@ -2142,7 +2218,8 @@ async function loadAdminPanel() {
               <div class="admin-show-meta">${show.media_type === 'movie' ? 'Película' : 'Anime'} • ${show.year || 'N/A'}</div>
             </div>
           </div>
-          <div style="display:flex; gap: 8px; flex-wrap: wrap;">
+          <div style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <button class="btn-status-toggle ${show.status === 'airing' ? 'airing' : 'finished'}" onclick="toggleShowStatus('${show.id}', '${show.status}')" title="Haz clic para cambiar entre En Emisión y Finalizado">${show.status === 'airing' ? '● En Emisión' : 'Finalizado'}</button>
             <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(168, 85, 247, 0.2); border-color: #a855f7;" onclick="scrapeShowCover('${show.id}', '${show.title.replace(/'/g, "\\'")}')" id="btn-scrape-${show.id}"><i data-lucide="search" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Buscar Carátula HD</button>
             <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem; height: 32px;" onclick="openMediaEditor('${show.id}')">Editar Multimedia</button>
             ${show.media_type === 'anime' ? `<button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(39, 201, 63, 0.2); border-color: #27c93f;" onclick="triggerSAID('${show.id}')" id="btn-said-${show.id}"><i data-lucide="scan" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Detectar Intros</button>` : ''}
@@ -2196,12 +2273,16 @@ window.deleteShow = async (id, title) => {
   }
   
   try {
-    const res = await fetch(`/api/shows/${id}`, { method: 'DELETE' });
-    if (res.ok) {
+    const res = await fetch(`/api/shows/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
       alert('Eliminado con éxito.');
       loadAdminPanel();
     } else {
-      alert('Error al eliminar de la base de datos.');
+      alert('Error al eliminar de la base de datos: ' + (data.error || data.message || 'Error de autorización'));
     }
   } catch (e) {
     console.error(e);
@@ -2213,6 +2294,8 @@ window.deleteShow = async (id, title) => {
 window.openMediaEditor = async (showId) => {
   const modal = document.getElementById('media-edit-modal-overlay');
   const showIdInput = document.getElementById('edit-show-id');
+  const showTitleInput = document.getElementById('edit-show-title-input');
+  const btnSaveTitle = document.getElementById('btn-save-show-title');
   const loopsList = document.getElementById('edit-show-loops-list');
   const titleHeader = document.getElementById('edit-media-title');
   const closeBtn = document.getElementById('edit-media-close');
@@ -2220,10 +2303,46 @@ window.openMediaEditor = async (showId) => {
   showIdInput.value = showId;
   
   try {
-    const res = await fetch(`/api/shows/${showId}`);
+    const res = await fetch(`/api/shows/${encodeURIComponent(showId)}`);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      alert(`Error al cargar datos del anime: ${errData.error || 'No encontrado'}`);
+      return;
+    }
     const { show, episodes } = await res.json();
     
     titleHeader.textContent = `Editar Multimedia - ${show.title}`;
+    if (showTitleInput) showTitleInput.value = show.title;
+
+    if (btnSaveTitle) {
+      btnSaveTitle.onclick = async () => {
+        const newTitle = showTitleInput ? showTitleInput.value.trim() : '';
+        if (!newTitle) return alert('Por favor introduce un nombre válido.');
+        btnSaveTitle.disabled = true;
+        try {
+          const updateRes = await fetch('/api/admin/update-show-title', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ showId: show.id, newTitle })
+          });
+          const updateData = await updateRes.json();
+          if (updateRes.ok && updateData.success) {
+            alert('¡Nombre del anime actualizado con éxito!');
+            titleHeader.textContent = `Editar Multimedia - ${newTitle}`;
+            if (window.location.hash.startsWith('#/show/')) {
+              const currentId = window.location.hash.split('/').pop();
+              loadShowDetails(currentId);
+            }
+          } else {
+            alert('Error al renombrar: ' + (updateData.error || 'Desconocido'));
+          }
+        } catch (e) {
+          alert('Error de red: ' + e.message);
+        } finally {
+          btnSaveTitle.disabled = false;
+        }
+      };
+    }
     
     // Populate backdrop loops list
     let loops = [];
@@ -2703,9 +2822,56 @@ function showEpisodeDetails(episodeId) {
 window.showEpisodeDetails = showEpisodeDetails;
 
 // Settings handling functions
+async function loadUserPreferences() {
+  const savedLocal = localStorage.getItem('kurastream_auto_skip_intro');
+  if (savedLocal !== null) {
+    window.userPreferences.auto_skip_intro = savedLocal === 'true' || savedLocal === true;
+  }
+
+  const toggle = document.getElementById('autoSkipIntroToggle');
+  if (toggle) {
+    toggle.checked = !!window.userPreferences.auto_skip_intro;
+  }
+
+  try {
+    const sessionStr = localStorage.getItem('kura_user_session');
+    const headers = {};
+    if (sessionStr) {
+      try {
+        const session = JSON.parse(sessionStr);
+        if (session && session.token) {
+          headers['Authorization'] = `Bearer ${session.token}`;
+        }
+      } catch (e) {}
+    }
+    const resp = await fetch('/api/user/preferences', { headers });
+    if (resp.ok) {
+      const data = await resp.json();
+      const prefs = data.preferences || data;
+      if (prefs) {
+        if (typeof prefs.auto_skip_intro !== 'undefined') {
+          const isSkip = Boolean(Number(prefs.auto_skip_intro));
+          window.userPreferences.auto_skip_intro = isSkip;
+          localStorage.setItem('kurastream_auto_skip_intro', isSkip);
+          if (toggle) {
+            toggle.checked = isSkip;
+          }
+        }
+        if (typeof prefs.auto_play_next !== 'undefined') {
+          window.userPreferences.auto_play_next = Boolean(Number(prefs.auto_play_next));
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch user preferences from server:', err);
+  }
+}
+window.loadUserPreferences = loadUserPreferences;
+
 function setupSettingsView() {
   const selectAudio = document.getElementById('pref-audio-lang');
   const selectSub = document.getElementById('pref-sub-lang');
+  const autoSkipToggle = document.getElementById('autoSkipIntroToggle');
   const toast = document.getElementById('settings-save-success');
   let toastTimeout = null;
 
@@ -2732,6 +2898,37 @@ function setupSettingsView() {
       saveSetting('kura_pref_sub_lang', selectSub.value);
     });
   }
+
+  if (autoSkipToggle) {
+    autoSkipToggle.checked = !!window.userPreferences.auto_skip_intro;
+    autoSkipToggle.addEventListener('change', async function() {
+      const isChecked = this.checked;
+      window.userPreferences.auto_skip_intro = isChecked;
+      localStorage.setItem('kurastream_auto_skip_intro', isChecked);
+
+      saveSetting('kurastream_auto_skip_intro', isChecked);
+
+      try {
+        const sessionStr = localStorage.getItem('kura_user_session');
+        const headers = { 'Content-Type': 'application/json' };
+        if (sessionStr) {
+          try {
+            const session = JSON.parse(sessionStr);
+            if (session && session.token) {
+              headers['Authorization'] = `Bearer ${session.token}`;
+            }
+          } catch (e) {}
+        }
+        await fetch('/api/user/preferences', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ auto_skip_intro: isChecked })
+        });
+      } catch (err) {
+        console.warn('Error syncing auto_skip_intro preference to backend:', err);
+      }
+    });
+  }
 }
 
 function loadSettingsView() {
@@ -2743,6 +2940,8 @@ function loadSettingsView() {
 
   if (selectAudio) selectAudio.value = audioLang;
   if (selectSub) selectSub.value = subLang;
+
+  loadUserPreferences();
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
@@ -3996,7 +4195,7 @@ function updateAvatarPreview() {
   avatar.style.background = color;
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+function initProfilesUI() {
   // Setup event listeners for profile switcher elements
   const btnManage = document.getElementById('btn-manage-profiles');
   if (btnManage) {
@@ -4004,19 +4203,20 @@ document.addEventListener('DOMContentLoaded', () => {
       isProfileManagementMode = !isProfileManagementMode;
       btnManage.textContent = isProfileManagementMode ? 'Listo' : 'Administrar perfiles';
       btnManage.style.background = isProfileManagementMode ? 'rgba(255,255,255,0.1)' : 'transparent';
-      loadProfilesView();
+      if (typeof loadProfilesView === 'function') loadProfilesView();
+      else renderProfileSwitcher();
     });
   }
   
   const btnSwitchProfile = document.getElementById('btn-switch-profile');
   if (btnSwitchProfile) {
     btnSwitchProfile.addEventListener('click', () => {
-      document.getElementById('user-dropdown-card').style.display = 'none';
+      const dropCard = document.getElementById('user-dropdown-card');
+      if (dropCard) dropCard.style.display = 'none';
       document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
-      document.getElementById('profile-switcher-view').classList.add('active');
+      const switchView = document.getElementById('profile-switcher-view');
+      if (switchView) switchView.classList.add('active');
       isProfileManagementMode = false;
-      if (btnManage) btnManage.textContent = 'Administrar perfiles';
-      loadProfilesView();
     });
   }
   
@@ -4165,7 +4365,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Call the check on initial load after a short delay to let views initialize
   setTimeout(checkAndShowProfileSwitcher, 100);
   window.addEventListener('hashchange', checkAndShowProfileSwitcher);
-});
+}
 
 // Dynamic mosaic background rendering
 async function initDashboardMosaic() {
@@ -4213,13 +4413,9 @@ window.scrapeShowCover = async (showId, currentTitle) => {
   }
   
   try {
-    const session = JSON.parse(localStorage.getItem('kura_user_session'));
     const res = await fetch('/api/admin/scrape-show-cover', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.token}`
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ showId, query })
     });
     
@@ -4243,7 +4439,7 @@ window.scrapeShowCover = async (showId, currentTitle) => {
 };
 
 function getAuthHeaders() {
-  const token = localStorage.getItem('kura_admin_token') || (JSON.parse(localStorage.getItem('kura_user_session') || '{}')).token || '';
+  const token = localStorage.getItem('kurastream_token') || localStorage.getItem('token') || localStorage.getItem('kura_admin_token') || (JSON.parse(localStorage.getItem('kura_user_session') || '{}')).token || '';
   return {
     'Content-Type': 'application/json',
     'Authorization': token ? `Bearer ${token}` : ''
@@ -4474,6 +4670,109 @@ function setupAutoDownloaderControls() {
   if (btnScanNow) btnScanNow.addEventListener('click', () => handleScanNow(btnScanNow));
   if (tmBtnScanNow) tmBtnScanNow.addEventListener('click', () => handleScanNow(tmBtnScanNow));
 
+  // Live Nyaa Torrent Search UI Setup
+  const torrentSearchInput = document.getElementById('torrent-search-input');
+  const torrentFilterSpanishCheck = document.getElementById('torrent-filter-spanish-check');
+  const btnSearchTorrents = document.getElementById('btn-search-torrents');
+  const torrentSearchResultsContainer = document.getElementById('torrent-search-results-container');
+  const torrentResultsCount = document.getElementById('torrent-results-count');
+  const torrentSearchResultsList = document.getElementById('torrent-search-results-list');
+
+  const executeTorrentSearch = async () => {
+    const query = torrentSearchInput ? torrentSearchInput.value.trim() : '';
+    const filterSpanish = torrentFilterSpanishCheck && torrentFilterSpanishCheck.checked ? '1' : '0';
+
+    if (btnSearchTorrents) {
+      btnSearchTorrents.disabled = true;
+      btnSearchTorrents.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px;"></div> Buscando...`;
+    }
+
+    try {
+      const res = await fetch(`/api/admin/torrents/search?q=${encodeURIComponent(query)}&filterSpanish=${filterSpanish}`, {
+        headers: getAuthHeaders()
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        const results = data.results || [];
+        if (torrentSearchResultsContainer) torrentSearchResultsContainer.style.display = 'block';
+        if (torrentResultsCount) torrentResultsCount.textContent = results.length;
+
+        if (results.length === 0) {
+          torrentSearchResultsList.innerHTML = `<p style="color: var(--text-muted); font-size: 0.85rem; padding: 15px 0;">No se encontraron torrents en Nyaa con los términos indicados.</p>`;
+        } else {
+          torrentSearchResultsList.innerHTML = results.map((item) => `
+            <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; margin-bottom: 4px;">
+              <div style="font-size: 0.9rem; font-weight: 700; color: var(--text-main); line-height: 1.35; word-break: break-word;">${item.title}</div>
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+                <div style="display: flex; gap: 14px; font-size: 0.8rem; color: var(--text-muted); align-items: center; flex-wrap: wrap;">
+                  <span style="background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 4px; color: var(--text-main); font-weight: 600;">💾 ${item.size || 'N/A'}</span>
+                  <span style="color: #00e08f; font-weight: 600;">🟢 ${item.seeders || 0} Seeders</span>
+                  <span style="color: #ff5555; font-weight: 600;">🔴 ${item.leechers || 0} Leechers</span>
+                </div>
+                <button type="button" class="btn btn-primary btn-add-manual-torrent" data-link="${item.link}" data-title="${item.title.replace(/"/g, '&quot;')}" style="padding: 8px 18px; font-size: 0.82rem; font-weight: 700; white-space: nowrap; display: flex; align-items: center; gap: 6px; border-radius: 6px; cursor: pointer;">
+                  <i data-lucide="download" style="width: 15px; height: 15px;"></i> Descargar Torrent
+                </button>
+              </div>
+            </div>
+          `).join('');
+
+          if (typeof lucide !== 'undefined') lucide.createIcons({ root: torrentSearchResultsList });
+
+          torrentSearchResultsList.querySelectorAll('.btn-add-manual-torrent').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const torrentUrl = btn.getAttribute('data-link');
+              const torrentTitle = btn.getAttribute('data-title');
+              btn.disabled = true;
+              btn.innerHTML = `<div class="spinner" style="width:12px;height:12px;border-width:2px;margin-right:4px;"></div> Añadiendo...`;
+
+              try {
+                const addRes = await fetch('/api/admin/torrents/add', {
+                  method: 'POST',
+                  headers: getAuthHeaders(),
+                  body: JSON.stringify({ torrentUrl, title: torrentTitle })
+                });
+                const addData = await addRes.json();
+                if (addRes.ok && addData.success) {
+                  alert('¡Torrent añadido a la cola de descarga con éxito! Se descargará e integrará a Por Organizar.');
+                  fetchStatus();
+                } else {
+                  alert('Error al añadir torrent: ' + (addData.error || 'Desconocido'));
+                }
+              } catch (err) {
+                alert('Error de conexión: ' + err.message);
+              } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i data-lucide="download" style="width: 14px; height: 14px;"></i> Descargar Torrent`;
+                if (typeof lucide !== 'undefined') lucide.createIcons({ root: btn });
+              }
+            });
+          });
+        }
+      } else {
+        alert('Error en búsqueda de torrents: ' + (data.error || 'No se pudo conectar a Nyaa'));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error de conexión con Nyaa.');
+    } finally {
+      if (btnSearchTorrents) {
+        btnSearchTorrents.disabled = false;
+        btnSearchTorrents.innerHTML = `<i data-lucide="search" style="width: 16px; height: 16px;"></i> Buscar Torrents`;
+        if (typeof lucide !== 'undefined') lucide.createIcons({ root: btnSearchTorrents });
+      }
+    }
+  };
+
+  if (btnSearchTorrents) {
+    btnSearchTorrents.addEventListener('click', executeTorrentSearch);
+  }
+  if (torrentSearchInput) {
+    torrentSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') executeTorrentSearch();
+    });
+  }
+
   const btnCancelActive = document.getElementById('btn-cancel-active-download');
   if (btnCancelActive) {
     btnCancelActive.addEventListener('click', async () => {
@@ -4492,6 +4791,34 @@ function setupAutoDownloaderControls() {
         console.error("Error cancelling download:", e);
       } finally {
         btnCancelActive.disabled = false;
+      }
+    });
+  }
+
+  const btnStartQueue = document.getElementById('btn-start-download-queue');
+  if (btnStartQueue) {
+    btnStartQueue.addEventListener('click', async () => {
+      btnStartQueue.disabled = true;
+      btnStartQueue.innerHTML = `<div class="spinner" style="width:12px;height:12px;border-width:2px;margin-right:4px;"></div> Iniciando...`;
+      try {
+        const res = await fetch('/api/admin/autodownload/queue/start', {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (data.status) updateUI(data.status);
+          alert(data.message || 'Descargas iniciadas');
+        } else {
+          alert('No se pudo iniciar: ' + (data.error || 'Desconocido'));
+        }
+      } catch (e) {
+        console.error("Error starting queue:", e);
+        alert('Error al iniciar la cola.');
+      } finally {
+        btnStartQueue.disabled = false;
+        btnStartQueue.innerHTML = `<i data-lucide="play" style="width: 14px; height: 14px;"></i> Iniciar Descargas`;
+        if (typeof lucide !== 'undefined') lucide.createIcons({ root: btnStartQueue });
       }
     });
   }
@@ -4542,6 +4869,13 @@ async function loadStagedImports() {
 
   try {
     const res = await fetch('/api/admin/staged', { headers: getAuthHeaders() });
+    if (res.status === 401 || res.status === 403) {
+      container.innerHTML = `<div class="admin-card" style="text-align: center; padding: 30px;">
+        <p style="color: #ff5555; font-weight: 600; margin-bottom: 12px;">Sesión de administrador caducada o no autorizada.</p>
+        <button type="button" class="btn btn-primary" onclick="openAdminLoginModal()" style="padding: 8px 16px;">Iniciar Sesión Administrador</button>
+      </div>`;
+      return;
+    }
     if (!res.ok) throw new Error('Error al cargar elementos en preparación.');
 
     const items = await res.json();
@@ -4650,3 +4984,125 @@ async function deleteStagedItem(id) {
     alert(`Error: ${e.message}`);
   }
 }
+
+let calendarDataCache = null;
+let currentCalendarDay = 'Monday';
+
+async function loadCalendarView(forceRefresh = false) {
+  const gridContainer = document.getElementById('calendar-grid-content');
+  if (!gridContainer) return;
+
+  if (!calendarDataCache || forceRefresh) {
+    gridContainer.innerHTML = '<div style="text-align:center; padding:50px; color:var(--text-muted);"><p>Cargando calendario simulcast de AniList...</p></div>';
+    try {
+      const res = await fetch('/api/calendar/schedule');
+      calendarDataCache = await res.json();
+    } catch (e) {
+      console.error("Calendar fetch error:", e);
+      gridContainer.innerHTML = '<p style="color:var(--danger-color); text-align:center;">Error al cargar el calendario.</p>';
+      return;
+    }
+  }
+
+  const todayNameEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date().getDay()];
+  if (!currentCalendarDay) currentCalendarDay = todayNameEn;
+
+  const dayTabs = document.querySelectorAll('.day-tab');
+  dayTabs.forEach(tab => {
+    const day = tab.dataset.day;
+    if (day === currentCalendarDay) tab.classList.add('active');
+    else tab.classList.remove('active');
+
+    tab.onclick = () => {
+      currentCalendarDay = day;
+      dayTabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderCalendarDay(currentCalendarDay);
+    };
+  });
+
+  const refreshBtn = document.getElementById('btn-refresh-calendar');
+  if (refreshBtn) {
+    refreshBtn.onclick = () => loadCalendarView(true);
+  }
+
+  renderCalendarDay(currentCalendarDay);
+}
+
+function renderCalendarDay(dayName) {
+  const gridContainer = document.getElementById('calendar-grid-content');
+  if (!gridContainer || !calendarDataCache) return;
+
+  const showsList = calendarDataCache[dayName] || [];
+
+  if (showsList.length === 0) {
+    gridContainer.innerHTML = `
+      <div class="empty-state" style="text-align: center; padding: 60px; color: var(--text-muted);">
+        <i data-lucide="calendar-off" style="width:48px;height:48px;margin-bottom:10px;display:inline-block;"></i>
+        <h2>No hay estrenos programados para este día</h2>
+      </div>`;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    return;
+  }
+
+  gridContainer.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
+      ${showsList.map(item => {
+        const cover = item.cover_image || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
+        const inLibBadge = item.in_library ? `
+          <div style="position: absolute; top: 10px; right: 10px; background: rgba(0, 224, 143, 0.95); color: #000; font-family: var(--font-title); font-size: 0.7rem; font-weight: 800; padding: 4px 10px; border-radius: 20px; box-shadow: 0 0 10px rgba(0,224,143,0.5); z-index: 3;">
+            ✓ EN TU BIBLIOTECA
+          </div>
+        ` : '';
+
+        const libAction = item.in_library ? `
+          <button class="btn btn-sm btn-primary" style="width: 100%; margin-top: 10px; font-size: 0.8rem;" onclick="location.hash='#/show/${item.library_show_id}'">
+            <i data-lucide="play" style="width:12px;height:12px;margin-right:4px;"></i> Ver en KuraStream
+          </button>
+        ` : '';
+
+        const timeString = new Date(item.airing_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        return `
+          <div class="calendar-card" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s, border-color 0.2s;">
+            <div style="height: 180px; position: relative; overflow: hidden; background: #000;">
+              <img src="${cover}" alt="${item.title}" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.85;">
+              <div style="position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.8); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px 8px; font-size: 0.75rem; font-weight: 700; color: var(--accent-color);">
+                Episodio ${item.episode} • ${timeString}
+              </div>
+              ${inLibBadge}
+            </div>
+            <div style="padding: 15px; display: flex; flex-direction: column; flex-grow: 1; justify-content: space-between;">
+              <div>
+                <h3 style="font-family: var(--font-title); font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; line-clamp: 2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${item.title}</h3>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px;">${item.studio || 'Estudio N/A'}</p>
+                <div style="font-size: 0.75rem; color: var(--text-muted); line-clamp: 1; overflow: hidden;">${item.genres}</div>
+              </div>
+              ${libAction}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+async function toggleShowStatus(showId, currentStatus) {
+  const newStatus = currentStatus === 'airing' ? 'finished' : 'airing';
+  try {
+    const res = await fetch('/api/admin/toggle-show-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ showId, status: newStatus })
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (typeof loadAdminLibrary === 'function') loadAdminLibrary();
+      else if (typeof loadAdminPanel === 'function') loadAdminPanel();
+    }
+  } catch (e) {
+    console.error("Failed to toggle show status:", e);
+  }
+}
+window.toggleShowStatus = toggleShowStatus;
