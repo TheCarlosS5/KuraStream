@@ -54,6 +54,10 @@ if ($uri === '/api/shows/search' && $method === 'GET') {
     ShowController::searchShows();
 }
 
+if ($uri === '/api/shows/random' && $method === 'GET') {
+    ShowController::getRandomShow();
+}
+
 if (preg_match('#^/api/shows/([^/]+)$#', $uri, $m) && $method === 'GET') {
     ShowController::getShowDetails($m[1]);
 }
@@ -82,12 +86,20 @@ if ($uri === '/api/user/preferences' && $method === 'POST') {
     HistoryController::saveUserPreferences();
 }
 
+if ($uri === '/api/user/stats' && $method === 'GET') {
+    HistoryController::getUserStats();
+}
+
 if ($uri === '/api/history' && $method === 'GET') {
     HistoryController::getHistory();
 }
 
 if ($uri === '/api/history' && $method === 'POST') {
     HistoryController::updateProgress();
+}
+
+if ($uri === '/api/history' && $method === 'DELETE') {
+    HistoryController::deleteHistory();
 }
 
 if ($uri === '/api/favorites' && $method === 'GET') {
@@ -97,6 +109,11 @@ if ($uri === '/api/favorites' && $method === 'GET') {
 if ($uri === '/api/favorites' && $method === 'POST') {
     HistoryController::toggleFavorite();
 }
+
+if ($uri === '/api/notifications' && $method === 'GET') {
+    HistoryController::getNotifications();
+}
+
 
 if ($uri === '/api/admin/staged' && $method === 'GET') {
     AdminController::getStaged();

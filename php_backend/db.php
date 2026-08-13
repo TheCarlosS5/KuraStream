@@ -366,4 +366,117 @@ class DbHelper {
             'chapters' => json_encode($ep['chapters'] ?? [])
         ]);
     }
+
+    public static function getRandomShow(): ?array {
+        $db = Database::getConnection();
+        $stmt = $db->query("SELECT * FROM shows ORDER BY RAND() LIMIT 1");
+        $show = $stmt->fetch();
+        if (!$show) return null;
+        $show['rating'] = (float)$show['rating'];
+        $show['year'] = $show['year'] !== null ? (int)$show['year'] : null;
+        return $show;
+    }
+
+    public static function getUserStats(string $username, string $profile = 'Principal'): array {
+        $db = Database::getConnection();
+
+        $stmt = $db->prepare("
+            SELECT SUM(progress_seconds) as total_time, COUNT(DISTINCT episode_id) as watched_eps
+            FROM watch_history
+            WHERE username = :u AND profile_name = :p
+        ");
+        $stmt->execute(['u' => $username, 'p' => $profile]);
+        $row = $stmt->fetch() ?: [];
+        $totalTime = (int)($row['total_time'] ?? 0);
+        $watchedEpisodes = (int)($row['watched_eps'] ?? 0);
+
+        $stmtComp = $db->prepare("
+            SELECT s.id, COUNT(DISTINCT e.id) as total_episodes, COUNT(DISTINCT w.episode_id) as watched_episodes
+            FROM shows s
+            JOIN episodes e ON e.show_id = s.id
+            LEFT JOIN watch_history w ON w.episode_id = e.id AND w.username = :u AND w.profile_name = :p AND (w.progress_seconds >= e.duration * 0.8 OR (e.duration = 0 AND w.progress_seconds > 0))
+            GROUP BY s.id
+            HAVING total_episodes > 0 AND total_episodes = watched_episodes
+        ");
+        $stmtComp->execute(['u' => $username, 'p' => $profile]);
+        $completedShows = count($stmtComp->fetchAll());
+
+        $stmtGenres = $db->prepare("
+            SELECT DISTINCT s.genres
+            FROM shows s
+            LEFT JOIN episodes e ON e.show_id = s.id
+            LEFT JOIN watch_history w ON w.episode_id = e.id AND w.username = :u1 AND w.profile_name = :p1
+            LEFT JOIN favorites f ON f.show_id = s.id AND f.username = :u2 AND f.profile_name = :p2
+            WHERE w.episode_id IS NOT NULL OR f.show_id IS NOT NULL
+        ");
+        $stmtGenres->execute([
+            'u1' => $username, 'p1' => $profile,
+            'u2' => $username, 'p2' => $profile
+        ]);
+        $rows = $stmtGenres->fetchAll();
+
+        $genreCounts = [];
+        foreach ($rows as $r) {
+            if (empty($r['genres'])) continue;
+            $genresList = array_map('trim', explode(',', $r['genres']));
+            foreach ($genresList as $g) {
+                if ($g === '') continue;
+                $genreCounts[$g] = ($genreCounts[$g] ?? 0) + 1;
+            }
+        }
+
+        arsort($genreCounts);
+        $topGenre = !empty($genreCounts) ? (string)array_key_first($genreCounts) : 'Ninguno';
+
+        return [
+            'total_time_seconds' => $totalTime,
+            'watched_episodes' => $watchedEpisodes,
+            'completed_shows' => $completedShows,
+            'top_genre' => $topGenre,
+            'genres_breakdown' => $genreCounts
+        ];
+    }
+
+    public static function deleteHistoryItem(string $username, string $profile, string $episodeId): void {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("DELETE FROM watch_history WHERE username = :u AND profile_name = :p AND episode_id = :ep");
+        $stmt->execute(['u' => $username, 'p' => $profile, 'ep' => $episodeId]);
+    }
+
+    public static function clearUserHistory(string $username, string $profile): void {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("DELETE FROM watch_history WHERE username = :u AND profile_name = :p");
+        $stmt->execute(['u' => $username, 'p' => $profile]);
+    }
+
+    public static function getNotifications(string $username, string $profile = 'Principal'): array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            SELECT e.id as episode_id, e.season_number, e.episode_number, e.title as episode_title, s.id as show_id, s.title as show_title, s.poster_path
+            FROM favorites f
+            JOIN shows s ON f.show_id = s.id
+            JOIN episodes e ON e.show_id = s.id
+            WHERE f.username = :u AND f.profile_name = :p
+            ORDER BY e.season_number DESC, e.episode_number DESC
+            LIMIT 20
+        ");
+        $stmt->execute(['u' => $username, 'p' => $profile]);
+        $rows = $stmt->fetchAll();
+
+        return array_map(function($r) {
+            return [
+                'id' => 'notif_' . $r['episode_id'],
+                'show_id' => $r['show_id'],
+                'show_title' => $r['show_title'],
+                'poster_path' => $r['poster_path'] ?? '',
+                'episode_id' => $r['episode_id'],
+                'season_number' => (int)$r['season_number'],
+                'episode_number' => (int)$r['episode_number'],
+                'title' => $r['episode_title'] ?? '',
+                'message' => "¡Nuevo episodio disponible! S{$r['season_number']} E{$r['episode_number']}: {$r['show_title']}",
+                'created_at' => date('Y-m-d H:i:s')
+            ];
+        }, $rows);
+    }
 }
+

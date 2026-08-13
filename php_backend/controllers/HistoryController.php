@@ -121,4 +121,55 @@ class HistoryController {
         DbHelper::saveUserPreferences($username, $profile, $data);
         jsonResponse(['success' => true]);
     }
+
+    public static function getUserStats(): void {
+        $username = $_GET['username'] ?? 'guest';
+        $profile = $_GET['profile_name'] ?? 'Principal';
+
+        $stats = DbHelper::getUserStats($username, $profile);
+        jsonResponse([
+            'success' => true,
+            'stats' => $stats
+        ]);
+    }
+
+    public static function deleteHistory(): void {
+        $username = $_GET['username'] ?? 'guest';
+        $profile = $_GET['profile_name'] ?? 'Principal';
+        $episodeId = $_GET['episode_id'] ?? null;
+        $clear = $_GET['clear'] ?? null;
+
+        if (!$episodeId && !$clear) {
+            $raw = file_get_contents('php://input');
+            if (!empty($raw)) {
+                $data = json_decode($raw, true) ?: [];
+                $username = $data['username'] ?? $username;
+                $profile = $data['profile_name'] ?? $profile;
+                $episodeId = $data['episode_id'] ?? null;
+                $clear = $data['clear'] ?? null;
+            }
+        }
+
+        if ($clear === 'all') {
+            DbHelper::clearUserHistory($username, $profile);
+            jsonResponse(['success' => true]);
+        } else if (!empty($episodeId)) {
+            DbHelper::deleteHistoryItem($username, $profile, $episodeId);
+            jsonResponse(['success' => true]);
+        } else {
+            jsonError('episode_id o clear=all requerido', 400);
+        }
+    }
+
+    public static function getNotifications(): void {
+        $username = $_GET['username'] ?? 'guest';
+        $profile = $_GET['profile_name'] ?? 'Principal';
+
+        $notifications = DbHelper::getNotifications($username, $profile);
+        jsonResponse([
+            'success' => true,
+            'notifications' => $notifications
+        ]);
+    }
 }
+
