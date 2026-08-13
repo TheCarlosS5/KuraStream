@@ -46,6 +46,10 @@ if ($uri === '/api/login' && $method === 'POST') {
     AuthController::login();
 }
 
+if ($uri === '/api/register' && $method === 'POST') {
+    AuthController::register();
+}
+
 if ($uri === '/api/shows' && $method === 'GET') {
     ShowController::getShows();
 }
@@ -72,6 +76,10 @@ if (preg_match('#^/api/episodes/([^/]+)/timestamps$#', $uri, $m) && $method === 
 
 if (preg_match('#^/api/episodes/([^/]+)$#', $uri, $m) && $method === 'GET') {
     PlayerController::getEpisodeDetails($m[1]);
+}
+
+if (preg_match('#^/api/stream/([^/]+)$#', $uri, $m) && $method === 'GET') {
+    PlayerController::streamVideo($m[1]);
 }
 
 if ($uri === '/api/stream' && $method === 'GET') {
@@ -119,6 +127,10 @@ if ($uri === '/api/admin/staged' && $method === 'GET') {
     AdminController::getStaged();
 }
 
+if (preg_match('#^/api/admin/staged/([^/]+)/publish$#', $uri, $m) && $method === 'POST') {
+    AdminController::publishStaged($m[1]);
+}
+
 if ($uri === '/api/admin/publish' && $method === 'POST') {
     AdminController::publishStaged();
 }
@@ -132,11 +144,13 @@ if ($uri === '/api/admin/stats' && $method === 'GET') {
 }
 
 if ($uri === '/api/admin/toggle-show-status' && $method === 'POST') {
+    AuthMiddleware::requireAdmin();
     ShowController::toggleStatus();
 }
 
 // Rescan trigger
 if ($uri === '/api/admin/scan' && $method === 'POST') {
+    AuthMiddleware::requireAdmin();
     $res = LibraryScanner::runScan();
     jsonResponse($res);
 }

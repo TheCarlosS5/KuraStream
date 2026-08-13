@@ -15,7 +15,17 @@ define('LIBRARY_DIR', ROOT_DIR . '/library');
 
 // Set JSON headers and CORS
 function setCorsHeaders() {
-    header('Access-Control-Allow-Origin: *');
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    $allowedOrigins = array_filter(explode(',', getenv('ALLOWED_ORIGINS') ?: ''));
+
+    if (!empty($allowedOrigins)) {
+        if (in_array($origin, $allowedOrigins, true)) {
+            header("Access-Control-Allow-Origin: {$origin}");
+        }
+    } else {
+        header('Access-Control-Allow-Origin: ' . ($origin ?: '*'));
+    }
+
     header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
     header('Access-Control-Allow-Headers: Content-Type, Authorization');
     if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
