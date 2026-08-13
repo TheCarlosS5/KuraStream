@@ -41,9 +41,8 @@ class PlayerController {
             exit();
         }
 
-        // Security check: validate file path traversal
+        // Security check: validate file path traversal strictly against LIBRARY_DIR
         $realPath = realpath($filepath);
-        $realRoot = realpath(ROOT_DIR);
         $realLibrary = realpath(LIBRARY_DIR);
 
         if (!$realPath || !file_exists($realPath) || !is_file($realPath)) {
@@ -52,29 +51,35 @@ class PlayerController {
             exit();
         }
 
-        // Ensure the path is within the project root directory
-        if ($realRoot && !str_starts_with($realPath, $realRoot)) {
+        // Ensure the path is strictly within the library directory
+        if ($realLibrary && !str_starts_with($realPath, $realLibrary)) {
             http_response_code(403);
-            echo "Access denied: Invalid file path";
+            echo "Access denied: File must reside within the library directory";
             exit();
         }
 
         $fileSize = filesize($realPath);
         $offset = 0;
         $length = $fileSize;
+        $isPartial = false;
 
-        if (isset($_SERVER['HTTP_RANGE'])) {
-            preg_match('/bytes=(\d+)-(\d+)?/', $_SERVER['HTTP_RANGE'], $matches);
-            $offset = intval($matches[1]);
-            if (isset($matches[2]) && !empty($matches[2])) {
-                $end = intval($matches[2]);
+        if (isset($_SERVER['HTTP_RANGE']) && preg_match('/bytes=(\d+)-(\d+)?/', $_SERVER['HTTP_RANGE'], $matches)) {
+            $startRange = intval($matches[1]);
+            $endRange = isset($matches[2]) && !empty($matches[2]) ? intval($matches[2]) : ($fileSize - 1);
+
+            if ($startRange <= $endRange && $startRange < $fileSize) {
+                $offset = $startRange;
+                $end = min($endRange, $fileSize - 1);
+                $length = $end - $offset + 1;
+                $isPartial = true;
+
+                header('HTTP/1.1 206 Partial Content');
+                header("Content-Range: bytes {$offset}-{$end}/{$fileSize}");
             } else {
-                $end = $fileSize - 1;
+                header('HTTP/1.1 416 Requested Range Not Satisfiable');
+                header("Content-Range: bytes */{$fileSize}");
+                exit();
             }
-            $length = $end - $offset + 1;
-
-            header('HTTP/1.1 206 Partial Content');
-            header("Content-Range: bytes {$offset}-{$end}/{$fileSize}");
         } else {
             header('HTTP/1.1 200 OK');
         }

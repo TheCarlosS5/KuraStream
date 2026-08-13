@@ -20,11 +20,15 @@ assert($verified['username'] === 'admin', "Token payload username mismatch");
 assert($verified['role'] === 'admin', "Token payload role mismatch");
 echo "✓ JWT Token Creation & Verification OK\n";
 
-// 2. Test Tampered Token Rejection
+// 2. Test Tampered Token & Legacy Token Rejection
 $tamperedToken = $token . "tampered";
 $verifiedTampered = AuthMiddleware::verifyToken($tamperedToken);
 assert($verifiedTampered === null, "Tampered token should be rejected");
-echo "✓ Tampered Token Rejection OK\n";
+
+$legacyBase64 = base64_encode(json_encode(['username' => 'admin', 'role' => 'admin']));
+$verifiedLegacy = AuthMiddleware::verifyToken($legacyBase64);
+assert($verifiedLegacy === null, "Legacy base64 unsigned token MUST be rejected");
+echo "✓ Legacy & Tampered Token Rejection OK\n";
 
 // 3. Test Expired Token Rejection
 $expiredPayload = [
@@ -43,10 +47,23 @@ ob_start();
 try {
     PlayerController::streamVideo();
 } catch (Throwable $e) {
-    // Expected exit or 403
+    // Expected exit
 }
 $output = ob_get_clean();
 assert(http_response_code() === 403 || http_response_code() === 404, "Path traversal must return 403/404");
 echo "✓ Path Traversal Prevention OK\n";
+
+// 5. Test Invalid HTTP Range Request (416 Not Satisfiable)
+$_GET['filepath'] = __FILE__;
+$_SERVER['HTTP_RANGE'] = 'bytes=999999-9999999';
+ob_start();
+try {
+    PlayerController::streamVideo();
+} catch (Throwable $e) {
+    // Expected exit
+}
+$rangeOutput = ob_get_clean();
+assert(http_response_code() === 416 || http_response_code() === 403, "Invalid Range header must return 416/403");
+echo "✓ Invalid HTTP Range Header (416) OK\n";
 
 echo "ALL SECURITY AND API TESTS PASSED SUCCESSFULLY!\n";

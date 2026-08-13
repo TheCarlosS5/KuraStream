@@ -1,11 +1,26 @@
 <?php
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
 class HistoryController {
+    private static function resolveUserAndProfile(array $body = []): array {
+        $token = AuthMiddleware::getBearerToken();
+        $payload = AuthMiddleware::verifyToken($token);
+
+        if ($payload && !empty($payload['username'])) {
+            $username = $payload['username'];
+        } else {
+            $username = $_GET['username'] ?? ($body['username'] ?? 'guest');
+        }
+
+        $profile = $_GET['profile_name'] ?? ($body['profile_name'] ?? 'Principal');
+
+        return [$username, $profile];
+    }
+
     public static function getHistory(): void {
-        $username = $_GET['username'] ?? 'guest';
-        $profile = $_GET['profile_name'] ?? 'Principal';
+        list($username, $profile) = self::resolveUserAndProfile();
 
         $db = Database::getConnection();
         $stmt = $db->prepare("
@@ -26,8 +41,8 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        $username = $data['username'] ?? 'guest';
-        $profile = $data['profile_name'] ?? 'Principal';
+        list($username, $profile) = self::resolveUserAndProfile($data);
+
         $episodeId = $data['episode_id'] ?? '';
         $progress = (float)($data['progress_seconds'] ?? 0);
         $duration = (float)($data['duration'] ?? 0);
@@ -56,8 +71,7 @@ class HistoryController {
     }
 
     public static function getFavorites(): void {
-        $username = $_GET['username'] ?? 'guest';
-        $profile = $_GET['profile_name'] ?? 'Principal';
+        list($username, $profile) = self::resolveUserAndProfile();
 
         $db = Database::getConnection();
         $stmt = $db->prepare("
@@ -76,8 +90,8 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        $username = $data['username'] ?? 'guest';
-        $profile = $data['profile_name'] ?? 'Principal';
+        list($username, $profile) = self::resolveUserAndProfile($data);
+
         $showId = $data['show_id'] ?? '';
 
         if (empty($showId)) {
@@ -101,8 +115,7 @@ class HistoryController {
     }
 
     public static function getUserPreferences(): void {
-        $username = $_GET['username'] ?? 'guest';
-        $profile = $_GET['profile_name'] ?? 'Principal';
+        list($username, $profile) = self::resolveUserAndProfile();
 
         $prefs = DbHelper::getUserPreferences($username, $profile);
         jsonResponse([
@@ -115,16 +128,14 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        $username = $data['username'] ?? ($_GET['username'] ?? 'guest');
-        $profile = $data['profile_name'] ?? ($_GET['profile_name'] ?? 'Principal');
+        list($username, $profile) = self::resolveUserAndProfile($data);
 
         DbHelper::saveUserPreferences($username, $profile, $data);
         jsonResponse(['success' => true]);
     }
 
     public static function getUserStats(): void {
-        $username = $_GET['username'] ?? 'guest';
-        $profile = $_GET['profile_name'] ?? 'Principal';
+        list($username, $profile) = self::resolveUserAndProfile();
 
         $stats = DbHelper::getUserStats($username, $profile);
         jsonResponse([
@@ -134,21 +145,13 @@ class HistoryController {
     }
 
     public static function deleteHistory(): void {
-        $username = $_GET['username'] ?? 'guest';
-        $profile = $_GET['profile_name'] ?? 'Principal';
-        $episodeId = $_GET['episode_id'] ?? null;
-        $clear = $_GET['clear'] ?? null;
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
 
-        if (!$episodeId && !$clear) {
-            $raw = file_get_contents('php://input');
-            if (!empty($raw)) {
-                $data = json_decode($raw, true) ?: [];
-                $username = $data['username'] ?? $username;
-                $profile = $data['profile_name'] ?? $profile;
-                $episodeId = $data['episode_id'] ?? null;
-                $clear = $data['clear'] ?? null;
-            }
-        }
+        list($username, $profile) = self::resolveUserAndProfile($data);
+
+        $episodeId = $_GET['episode_id'] ?? ($data['episode_id'] ?? null);
+        $clear = $_GET['clear'] ?? ($data['clear'] ?? null);
 
         if ($clear === 'all') {
             DbHelper::clearUserHistory($username, $profile);
@@ -162,8 +165,7 @@ class HistoryController {
     }
 
     public static function getNotifications(): void {
-        $username = $_GET['username'] ?? 'guest';
-        $profile = $_GET['profile_name'] ?? 'Principal';
+        list($username, $profile) = self::resolveUserAndProfile();
 
         $notifications = DbHelper::getNotifications($username, $profile);
         jsonResponse([

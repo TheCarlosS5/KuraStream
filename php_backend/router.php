@@ -50,6 +50,18 @@ if ($uri === '/api/register' && $method === 'POST') {
     AuthController::register();
 }
 
+if ($uri === '/api/profiles' && $method === 'GET') {
+    AuthController::getProfiles();
+}
+
+if ($uri === '/api/profiles' && $method === 'POST') {
+    AuthController::saveProfile();
+}
+
+if (preg_match('#^/api/profiles/([^/]+)$#', $uri, $m) && $method === 'DELETE') {
+    AuthController::deleteProfile($m[1]);
+}
+
 if ($uri === '/api/shows' && $method === 'GET') {
     ShowController::getShows();
 }

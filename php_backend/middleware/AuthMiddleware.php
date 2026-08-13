@@ -23,17 +23,9 @@ class AuthMiddleware {
             return null;
         }
 
-        // Support Legacy base64 tokens if valid, but verify structure
+        // Reject token if not 3 parts
         $parts = explode('.', $token);
         if (count($parts) !== 3) {
-            // Check legacy fallback base64
-            $decodedLegacy = json_decode(@base64_decode($token), true);
-            if ($decodedLegacy && isset($decodedLegacy['username'], $decodedLegacy['role'])) {
-                if (isset($decodedLegacy['exp']) && $decodedLegacy['exp'] < time()) {
-                    return null;
-                }
-                return $decodedLegacy;
-            }
             return null;
         }
 

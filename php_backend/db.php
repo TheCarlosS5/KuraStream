@@ -121,6 +121,25 @@ class Database {
                 filesize BIGINT DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+            CREATE TABLE IF NOT EXISTS users (
+                username VARCHAR(255) PRIMARY KEY,
+                password_hash VARCHAR(255) NOT NULL,
+                role VARCHAR(50) NOT NULL DEFAULT 'user',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                id VARCHAR(255) PRIMARY KEY,
+                username VARCHAR(255) NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                avatar VARCHAR(500) DEFAULT '',
+                color VARCHAR(50) DEFAULT '#a855f7',
+                is_kids TINYINT(1) DEFAULT 0,
+                pin VARCHAR(10) DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_profiles (username)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ");
 
         try {
@@ -477,6 +496,93 @@ class DbHelper {
                 'created_at' => date('Y-m-d H:i:s')
             ];
         }, $rows);
+    }
+
+    public static function registerUser(string $username, string $password, string $role = 'user'): ?array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT * FROM users WHERE username = :u");
+        $stmt->execute(['u' => $username]);
+        if ($stmt->fetch()) {
+            return null; // Already exists
+        }
+
+        $hash = password_hash($password, PASSWORD_BCRYPT);
+        $ins = $db->prepare("INSERT INTO users (username, password_hash, role) VALUES (:u, :p, :r)");
+        $ins->execute(['u' => $username, 'p' => $hash, 'r' => $role]);
+
+        // Create default profile
+        self::saveUserProfile($username, [
+            'id' => 'profile_' . uniqid(),
+            'name' => 'Principal',
+            'avatar' => '',
+            'color' => '#a855f7'
+        ]);
+
+        return [
+            'username' => $username,
+            'role' => $role
+        ];
+    }
+
+    public static function getUser(string $username): ?array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT * FROM users WHERE username = :u");
+        $stmt->execute(['u' => $username]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public static function getUserProfiles(string $username): array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT * FROM user_profiles WHERE username = :u ORDER BY created_at ASC");
+        $stmt->execute(['u' => $username]);
+        return $stmt->fetchAll();
+    }
+
+    public static function saveUserProfile(string $username, array $data): array {
+        $db = Database::getConnection();
+        $id = $data['id'] ?? ('prof_' . uniqid());
+        $name = trim($data['name'] ?? 'Perfil');
+        $avatar = $data['avatar'] ?? '';
+        $color = $data['color'] ?? '#a855f7';
+        $isKids = !empty($data['is_kids']) ? 1 : 0;
+        $pin = $data['pin'] ?? '';
+
+        $stmt = $db->prepare("
+            INSERT INTO user_profiles (id, username, name, avatar, color, is_kids, pin)
+            VALUES (:id, :u, :n, :a, :c, :k, :p)
+            ON DUPLICATE KEY UPDATE
+                name = VALUES(name),
+                avatar = VALUES(avatar),
+                color = VALUES(color),
+                is_kids = VALUES(is_kids),
+                pin = VALUES(pin)
+        ");
+        $stmt->execute([
+            'id' => $id,
+            'u' => $username,
+            'n' => $name,
+            'a' => $avatar,
+            'c' => $color,
+            'k' => $isKids,
+            'p' => $pin
+        ]);
+
+        return [
+            'id' => $id,
+            'username' => $username,
+            'name' => $name,
+            'avatar' => $avatar,
+            'color' => $color,
+            'is_kids' => (bool)$isKids,
+            'pin' => $pin
+        ];
+    }
+
+    public static function deleteUserProfile(string $username, string $id): bool {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("DELETE FROM user_profiles WHERE username = :u AND id = :id");
+        return $stmt->execute(['u' => $username, 'id' => $id]);
     }
 }
 
