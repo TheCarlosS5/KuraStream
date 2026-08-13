@@ -25,14 +25,25 @@ db.exec(`
     cast_members TEXT, -- JSON array of { name, character, profile_path }
     poster_path TEXT,
     backdrop_path TEXT,
-    media_type TEXT NOT NULL DEFAULT 'anime', -- 'anime', 'movie', 'manga'
+    media_type TEXT NOT NULL DEFAULT 'anime',
     backdrop_loops TEXT DEFAULT '[]',
     genres TEXT DEFAULT '',
     trailer_key TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    age_rating TEXT DEFAULT 'TV-14'
+    age_rating TEXT DEFAULT 'TV-14',
+    status TEXT DEFAULT 'finished'
   );
+`);
 
+// Migrate shows table for status if needed
+try {
+  const showCols = db.prepare("PRAGMA table_info(shows)").all();
+  if (!showCols.some(c => c.name === 'status')) {
+    db.exec("ALTER TABLE shows ADD COLUMN status TEXT DEFAULT 'finished';");
+  }
+} catch (e) {}
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS episodes (
     id TEXT PRIMARY KEY,
     show_id TEXT NOT NULL,
@@ -375,13 +386,14 @@ export const dbHelper = {
 
     const trailer_key = show.trailer_key !== undefined ? show.trailer_key : (existing ? existing.trailer_key : null);
     const age_rating = show.age_rating !== undefined ? show.age_rating : (existing && existing.age_rating !== undefined ? existing.age_rating : 'TV-14');
+    const status = show.status !== undefined ? show.status : (existing && existing.status !== undefined ? existing.status : 'finished');
 
     // Delete any existing rows for this ID to guarantee 100% uniqueness
     db.prepare("DELETE FROM shows WHERE id = ?").run(show.id);
 
     const stmt = db.prepare(`
-      INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       show.id,
@@ -399,7 +411,8 @@ export const dbHelper = {
       JSON.stringify(loops),
       show.genres || (existing ? existing.genres : ''),
       trailer_key,
-      age_rating
+      age_rating,
+      status
     );
   },
   deleteShow: (id) => {
@@ -407,6 +420,54 @@ export const dbHelper = {
     db.prepare("DELETE FROM episodes WHERE show_id = ?").run(id);
     db.prepare("DELETE FROM favorites WHERE show_id = ?").run(id);
     db.prepare("DELETE FROM shows WHERE id = ?").run(id);
+  },
+  updateShowTitleAndPath: async (showId, newTitle) => {
+    const show = dbHelper.getShow(showId);
+    if (!show || !newTitle) return false;
+
+    const oldTitle = show.title;
+    const cleanNewTitle = newTitle.replace(/[\\/:*?"<>|]/g, '_').trim();
+    if (!cleanNewTitle) return false;
+
+    const mediaTypeDir = show.media_type === 'movie' ? 'Movies' : 'Anime';
+    const oldFolderBasename = oldTitle.replace(/[\\/:*?"<>|]/g, '_');
+    const oldShowFolder = path.join(__dirname, '..', 'library', mediaTypeDir, oldFolderBasename);
+    const newShowFolder = path.join(__dirname, '..', 'library', mediaTypeDir, cleanNewTitle);
+
+    // If folder exists, move folder on disk
+    if (fs.existsSync(oldShowFolder) && oldShowFolder !== newShowFolder) {
+      await fsPromises.mkdir(path.dirname(newShowFolder), { recursive: true });
+      await fsPromises.rename(oldShowFolder, newShowFolder);
+    }
+
+    // Update shows table
+    let newPosterUrl = show.poster_path || '';
+    let newBackdropUrl = show.backdrop_path || '';
+
+    if (newPosterUrl && newPosterUrl.includes(`/library/${mediaTypeDir}/${oldFolderBasename}/`)) {
+      newPosterUrl = newPosterUrl.replace(`/library/${mediaTypeDir}/${oldFolderBasename}/`, `/library/${mediaTypeDir}/${cleanNewTitle}/`);
+    }
+    if (newBackdropUrl && newBackdropUrl.includes(`/library/${mediaTypeDir}/${oldFolderBasename}/`)) {
+      newBackdropUrl = newBackdropUrl.replace(`/library/${mediaTypeDir}/${oldFolderBasename}/`, `/library/${mediaTypeDir}/${cleanNewTitle}/`);
+    }
+
+    db.prepare("UPDATE shows SET title = ?, poster_path = ?, backdrop_path = ? WHERE LOWER(id) = LOWER(?)").run(cleanNewTitle, newPosterUrl, newBackdropUrl, showId);
+
+    // Update episodes table filepath & thumbnail_path
+    const episodes = dbHelper.getEpisodes(showId);
+    for (const ep of episodes) {
+      let newFilePath = ep.filepath;
+      let newThumbPath = ep.thumbnail_path;
+      if (newFilePath && newFilePath.includes(oldFolderBasename)) {
+        newFilePath = newFilePath.replace(oldFolderBasename, cleanNewTitle);
+      }
+      if (newThumbPath && newThumbPath.includes(oldFolderBasename)) {
+        newThumbPath = newThumbPath.replace(oldFolderBasename, cleanNewTitle);
+      }
+      db.prepare("UPDATE episodes SET filepath = ?, thumbnail_path = ? WHERE id = ?").run(newFilePath, newThumbPath, ep.id);
+    }
+
+    return true;
   },
   syncDatabaseWithDisk: () => {
     try {
@@ -631,6 +692,53 @@ export const dbHelper = {
       VALUES (?, ?, ?, ?, datetime('now'))
     `);
     stmt.run(username, profileName, episodeId, progressSeconds);
+  },
+  deleteHistoryItem: (username = 'guest', profileName = 'Principal', episodeId) => {
+    const stmt = db.prepare("DELETE FROM watch_history WHERE username = ? AND profile_name = ? AND episode_id = ?");
+    stmt.run(username, profileName, episodeId);
+  },
+  clearUserHistory: (username = 'guest', profileName = 'Principal') => {
+    const stmt = db.prepare("DELETE FROM watch_history WHERE username = ? AND profile_name = ?");
+    stmt.run(username, profileName);
+  },
+  getUserStats: (username = 'guest', profileName = 'Principal') => {
+    const timeStmt = db.prepare("SELECT SUM(progress_seconds) as total_time FROM watch_history WHERE username = ? AND profile_name = ?");
+    const timeRes = timeStmt.get(username, profileName);
+    const totalTime = Math.round(timeRes ? (timeRes.total_time || 0) : 0);
+
+    const epStmt = db.prepare("SELECT COUNT(DISTINCT episode_id) as ep_count FROM watch_history WHERE username = ? AND profile_name = ? AND progress_seconds > 0");
+    const epRes = epStmt.get(username, profileName);
+    const watchedEpisodes = epRes ? (epRes.ep_count || 0) : 0;
+
+    const genreStmt = db.prepare(`
+      SELECT DISTINCT s.genres
+      FROM shows s
+      LEFT JOIN episodes e ON e.show_id = s.id
+      LEFT JOIN watch_history w ON w.episode_id = e.id AND w.username = ? AND w.profile_name = ?
+      LEFT JOIN favorites f ON f.show_id = s.id AND f.username = ? AND f.profile_name = ?
+      WHERE w.episode_id IS NOT NULL OR f.show_id IS NOT NULL
+    `);
+    const rows = genreStmt.all(username, profileName, username, profileName);
+
+    const genreCounts = {};
+    for (const r of rows) {
+      if (!r.genres) continue;
+      const list = r.genres.split(',').map(g => g.trim()).filter(Boolean);
+      for (const g of list) {
+        genreCounts[g] = (genreCounts[g] || 0) + 1;
+      }
+    }
+
+    const sortedGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]);
+    const topGenre = sortedGenres.length > 0 ? sortedGenres[0][0] : 'Ninguno';
+
+    return {
+      total_time_seconds: totalTime,
+      watched_episodes: watchedEpisodes,
+      completed_shows: 0,
+      top_genre: topGenre,
+      genres_breakdown: genreCounts
+    };
   },
   transferGuestHistory: (username, profileName = 'Principal') => {
     if (!username || username === 'guest') return;

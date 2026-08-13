@@ -12,7 +12,8 @@ import { scraper, downloadImage } from './scraper.js';
 import { runLibraryScan } from './scan_library.js';
 import { detectIntrosForSeason } from './said.js';
 import { downloadAndSetShowCover } from './anime_scraper.js';
-import { getAutoDownloaderStatus, startAutoDownloader, stopAutoDownloader, runAutoScan, removeFromQueue, cancelActiveDownload, clearQueue } from './scripts/anime_autodownloader.js';
+import { fetchWeeklyCalendar } from './anime_calendar.js';
+import { getAutoDownloaderStatus, startAutoDownloader, stopAutoDownloader, runAutoScan, removeFromQueue, cancelActiveDownload, clearQueue, searchNyaaTorrents, addManualTorrent, startManualQueueProcessing } from './scripts/anime_autodownloader.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -312,17 +313,20 @@ const server = http.createServer(async (req, res) => {
       let passwordMatch = false;
       let needsUpdate = false;
 
-      if (existing.password === hashPassword(password)) {
+      const singleHash = hashPassword(password);
+      const doubleHash = hashPassword(singleHash);
+
+      if (existing.password === singleHash || existing.password === doubleHash || existing.password === password) {
         passwordMatch = true;
-      } else if (existing.password === password) {
-        passwordMatch = true;
-        needsUpdate = true;
+        if (existing.password !== singleHash) {
+          needsUpdate = true;
+        }
       }
 
       if (passwordMatch) {
         try {
           if (needsUpdate) {
-            db.prepare("UPDATE users SET password = ? WHERE username = ?").run(hashPassword(password), existing.username);
+            db.prepare("UPDATE users SET password = ? WHERE username = ?").run(singleHash, existing.username);
           }
           dbHelper.transferGuestHistory(existing.username);
         } catch (err) {
@@ -506,9 +510,65 @@ const server = http.createServer(async (req, res) => {
       }
     }
     const type = parsedUrl.searchParams.get('type') || 'all';
-    const shows = dbHelper.getShows(type, isKids);
+    const statusParam = parsedUrl.searchParams.get('status');
+    const sortParam = parsedUrl.searchParams.get('sort');
+
+    let shows = dbHelper.getShows(type, isKids);
+    if (statusParam && statusParam !== 'all') {
+      shows = shows.filter(s => (s.status || 'finished') === statusParam);
+    }
+    if (sortParam) {
+      shows = [...shows].sort((a, b) => {
+        if (sortParam === 'year_desc') return (b.year || 0) - (a.year || 0);
+        if (sortParam === 'year_asc') return (a.year || 0) - (b.year || 0);
+        if (sortParam === 'rating_desc') return (b.rating || 0) - (a.rating || 0);
+        if (sortParam === 'title_asc') return a.title.localeCompare(b.title);
+        return 0;
+      });
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(shows));
+  }
+
+  // Get Weekly Simulcast Calendar Schedule
+  if (pathname === '/api/calendar/schedule' && req.method === 'GET') {
+    try {
+      const schedule = await fetchWeeklyCalendar();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(schedule));
+    } catch (err) {
+      console.error("Calendar schedule error:", err);
+      res.writeHead(500);
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
+  // Toggle Show Airing Status (Admin)
+  if (pathname === '/api/admin/toggle-show-status' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { showId, status } = JSON.parse(body || '{}');
+        if (!showId || !status) {
+          res.writeHead(400);
+          return res.end(JSON.stringify({ error: 'showId and status required' }));
+        }
+        const show = dbHelper.getShow(showId);
+        if (!show) {
+          res.writeHead(404);
+          return res.end(JSON.stringify({ error: 'Show not found' }));
+        }
+        show.status = status;
+        dbHelper.saveShow(show);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: true, show }));
+      } catch (err) {
+        res.writeHead(500);
+        return res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
   }
 
   // Search TMDB
@@ -534,8 +594,8 @@ const server = http.createServer(async (req, res) => {
     const id = pathname.split('/').pop();
     const show = dbHelper.getShow(id);
     if (!show) {
-      res.writeHead(404);
-      return res.end('Show not found');
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Show not found' }));
     }
 
     const authHeader = req.headers['authorization'];
@@ -566,25 +626,45 @@ const server = http.createServer(async (req, res) => {
   if (pathname.startsWith('/api/shows/') && req.method === 'DELETE') {
     const admin = authorizeAdmin(req, res);
     if (!admin) return;
-    const id = pathname.split('/').pop();
-    const show = dbHelper.getShow(id);
+    const rawId = pathname.split('/').pop();
+    const id = decodeURIComponent(rawId);
+    const show = dbHelper.getShow(id) || dbHelper.getShow(rawId);
     if (!show) {
-      res.writeHead(404);
-      return res.end('Show not found');
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Anime o película no encontrada' }));
     }
     
-    // Delete files physically
-    const showTypeDir = show.media_type === 'movie' ? 'Movies' : 'Anime';
-    const showDir = path.join(__dirname, '..', 'library', showTypeDir, show.title);
-    try {
-      await fsPromises.rm(showDir, { recursive: true, force: true });
-    } catch (err) {
-      console.warn(`Failed to delete library folder: ${showDir}`, err);
+    // Delete files physically from both Anime and Movies (and lowercase variants)
+    const possibleDirs = ['Anime', 'Movies', 'anime', 'movies'];
+    const searchFolderNames = [
+      show.id,
+      show.title.replace(/[\\/:*?"<>|]/g, '_'),
+      show.title.replace(/[^a-zA-Z0-9_]/g, '_').replace(/\s+/g, '_')
+    ];
+    if (show.poster_path && show.poster_path.startsWith('/library/')) {
+      const parts = show.poster_path.split('/');
+      if (parts.length >= 4) searchFolderNames.push(parts[3]);
+    }
+
+    for (const cat of possibleDirs) {
+      const parentDir = path.join(__dirname, '..', 'library', cat);
+      try {
+        const existingFolders = await fsPromises.readdir(parentDir);
+        for (const f of existingFolders) {
+          const lowerF = f.toLowerCase();
+          const matches = searchFolderNames.some(name => lowerF === name.toLowerCase() || lowerF.includes(name.toLowerCase()));
+          if (matches) {
+            const targetPath = path.join(parentDir, f);
+            await fsPromises.rm(targetPath, { recursive: true, force: true });
+            console.log(`Physically deleted show directory: ${targetPath}`);
+          }
+        }
+      } catch (e) {}
     }
     
-    dbHelper.deleteShow(id);
+    dbHelper.deleteShow(show.id);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: true }));
+    return res.end(JSON.stringify({ success: true, message: 'Anime eliminado con éxito' }));
   }
 
   // Watch progress routes
@@ -646,6 +726,44 @@ const server = http.createServer(async (req, res) => {
     const history = dbHelper.getHistory(username, profileName);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(history));
+  }
+
+  if (pathname === '/api/history' && req.method === 'DELETE') {
+    const username = parsedUrl.searchParams.get('username') || 'guest';
+    let profileName = parsedUrl.searchParams.get('profile_name') || 'Principal';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token);
+      if (payload && payload.profile_name) {
+        profileName = payload.profile_name;
+      }
+    }
+    const episodeId = parsedUrl.searchParams.get('episode_id');
+    const clear = parsedUrl.searchParams.get('clear');
+    if (clear === 'all') {
+      dbHelper.clearUserHistory(username, profileName);
+    } else if (episodeId) {
+      dbHelper.deleteHistoryItem(username, profileName, episodeId);
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: true }));
+  }
+
+  if (pathname === '/api/user/stats' && req.method === 'GET') {
+    const username = parsedUrl.searchParams.get('username') || 'guest';
+    let profileName = parsedUrl.searchParams.get('profile_name') || 'Principal';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token);
+      if (payload && payload.profile_name) {
+        profileName = payload.profile_name;
+      }
+    }
+    const stats = dbHelper.getUserStats(username, profileName);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: true, stats }));
   }
 
   // Favorites (My List) routes
@@ -1063,14 +1181,17 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (pathname.startsWith('/api/admin/')) {
+  if (pathname.startsWith('/api/admin/') && pathname !== '/api/admin/login') {
     const admin = authorizeAdmin(req, res);
     if (!admin) return;
   }
 
+  let currentDisplayPowerState = 'on';
+
   // Helper for display power control (laptop backlight management)
   function setLaptopDisplayPower(state) {
     const isOff = state === 'off';
+    currentDisplayPowerState = isOff ? 'off' : 'on';
     
     // 1. Sysfs backlight bl_power & brightness
     try {
@@ -1083,7 +1204,7 @@ const server = http.createServer(async (req, res) => {
           const maxBrightPath = path.join(sysPath, dev, 'max_brightness');
 
           if (fs.existsSync(blPowerPath)) {
-            fs.writeFileSync(blPowerPath, isOff ? '4' : '0');
+            try { fs.writeFileSync(blPowerPath, isOff ? '4' : '0'); } catch(e) {}
           }
           if (fs.existsSync(brightnessPath)) {
             let targetBright = '0';
@@ -1094,7 +1215,7 @@ const server = http.createServer(async (req, res) => {
                 targetBright = '9';
               }
             }
-            fs.writeFileSync(brightnessPath, targetBright);
+            try { fs.writeFileSync(brightnessPath, targetBright); } catch(e) {}
           }
         }
       }
@@ -1104,26 +1225,28 @@ const server = http.createServer(async (req, res) => {
     try {
       const fbBlankPath = '/sys/class/graphics/fb0/blank';
       if (fs.existsSync(fbBlankPath)) {
-        fs.writeFileSync(fbBlankPath, isOff ? '1' : '0');
+        try { fs.writeFileSync(fbBlankPath, isOff ? '1' : '0'); } catch(e) {}
       }
     } catch(e) {}
 
-    // 3. Brightnessctl, vbetool & setterm commands
+    // 3. Brightnessctl, vbetool, xrandr & setterm commands
     try {
       if (isOff) {
         try { execSync('brightnessctl set 0 2>/dev/null'); } catch(e) {}
+        try { execSync('xrandr --output $(xrandr | grep " connected" | cut -f1 -d" " | head -n1) --off 2>/dev/null'); } catch(e) {}
         try { execSync('vbetool dpms off 2>/dev/null'); } catch(e) {}
         try { execSync('for tty in /dev/tty[0-6]; do setterm --blank force > $tty 2>/dev/null; done'); } catch(e) {}
         try { execSync('xset -display :0 dpms force off 2>/dev/null'); } catch(e) {}
       } else {
         try { execSync('brightnessctl set 100% 2>/dev/null'); } catch(e) {}
+        try { execSync('xrandr --output $(xrandr | grep " connected" | cut -f1 -d" " | head -n1) --auto 2>/dev/null'); } catch(e) {}
         try { execSync('vbetool dpms on 2>/dev/null'); } catch(e) {}
         try { execSync('for tty in /dev/tty[0-6]; do setterm --blank poke > $tty 2>/dev/null; done'); } catch(e) {}
         try { execSync('xset -display :0 dpms force on 2>/dev/null'); } catch(e) {}
       }
     } catch(e) {}
 
-    return isOff ? 'off' : 'on';
+    return currentDisplayPowerState;
   }
 
   function getLaptopDisplayPower() {
@@ -1132,15 +1255,20 @@ const server = http.createServer(async (req, res) => {
       if (fs.existsSync(sysPath)) {
         const devices = fs.readdirSync(sysPath);
         for (const dev of devices) {
+          const brightnessPath = path.join(sysPath, dev, 'brightness');
           const blPowerPath = path.join(sysPath, dev, 'bl_power');
+          if (fs.existsSync(brightnessPath)) {
+            const bVal = fs.readFileSync(brightnessPath, 'utf8').trim();
+            if (bVal === '0') return 'off';
+          }
           if (fs.existsSync(blPowerPath)) {
             const val = fs.readFileSync(blPowerPath, 'utf8').trim();
-            return val === '4' ? 'off' : 'on';
+            if (val === '4') return 'off';
           }
         }
       }
     } catch(e) {}
-    return 'on';
+    return currentDisplayPowerState;
   }
 
   // Display Power Endpoints
@@ -1322,11 +1450,107 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      const show = await downloadAndSetShowCover(showId, query);
+      let show = await downloadAndSetShowCover(showId, query);
+      if (!show) {
+        // Fallback to placeholder SVG poster
+        const dbShow = dbHelper.getShow(showId);
+        if (dbShow) {
+          dbShow.poster_path = `/api/placeholder-poster?title=${encodeURIComponent(query || dbShow.title)}`;
+          dbHelper.saveShow(dbShow);
+          show = dbShow;
+        }
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, show }));
     } catch (err) {
       console.error(err);
+      const dbShow = dbHelper.getShow(showId);
+      if (dbShow) {
+        dbShow.poster_path = `/api/placeholder-poster?title=${encodeURIComponent(query || dbShow.title)}`;
+        dbHelper.saveShow(dbShow);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: true, show: dbShow }));
+      }
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Live Nyaa Torrent Search
+  if (pathname === '/api/admin/torrents/search' && req.method === 'GET') {
+    try {
+      const q = parsedUrl.searchParams.get('q') || '';
+      const filterSpanish = parsedUrl.searchParams.get('filterSpanish') === '1';
+      const results = await searchNyaaTorrents(q, filterSpanish);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, results }));
+    } catch (err) {
+      console.error('[Torrents Search Error]:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+  }
+
+  // Add Manual Torrent to Download Queue
+  if (pathname === '/api/admin/torrents/add' && req.method === 'POST') {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+
+    const { torrentUrl, title } = body;
+    if (!torrentUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'torrentUrl es requerido' }));
+    }
+
+    try {
+      await addManualTorrent(torrentUrl, title);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, message: 'Torrent añadido a la cola de descarga con éxito' }));
+    } catch (err) {
+      console.error('[Torrents Add Error]:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
+  // Start Queue Processing Manually
+  if (pathname === '/api/admin/autodownload/queue/start' && req.method === 'POST') {
+    try {
+      const ok = await startManualQueueProcessing();
+      const status = getAutoDownloaderStatus();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, status, message: ok ? 'Descargas iniciadas con éxito' : 'Ya hay una descarga activa' }));
+    } catch (err) {
+      console.error('[Start Queue Error]:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
+  // Admin Update Show Title & Rename Folder
+  if (pathname === '/api/admin/update-show-title' && req.method === 'POST') {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+
+    const { showId, newTitle } = body;
+    if (!showId || !newTitle) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'showId y newTitle son requeridos' }));
+    }
+
+    try {
+      const ok = await dbHelper.updateShowTitleAndPath(showId, newTitle);
+      if (!ok) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'No se encontró el anime o el título no es válido' }));
+      }
+
+      await runLibraryScan();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, message: 'Título y carpeta actualizados con éxito' }));
+    } catch (err) {
+      console.error('[Update Show Title Error]:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
     }
@@ -1683,6 +1907,9 @@ const server = http.createServer(async (req, res) => {
         finalBackdropUrl = `/library/${mediaTypeDir}/${sanitizedTitle}/backdrop${ext}`;
       }
       
+      const statusVal = formData.get('status');
+      if (statusVal) show.status = statusVal;
+
       show.poster_path = finalPosterUrl;
       show.backdrop_path = finalBackdropUrl;
       dbHelper.saveShow(show);

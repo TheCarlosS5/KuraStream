@@ -202,6 +202,74 @@
       </div>
     </section>
 
+    <!-- MY LIST VIEW -->
+    <section id="mylist-view" class="view-section app-view" style="display: none;">
+      <div class="view-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 16px; padding: 25px; backdrop-filter: blur(10px);">
+        <div>
+          <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
+            <span>💖 Mi Lista</span>
+          </h1>
+          <p style="color: var(--text-muted); font-size: 0.95rem;">Tus animes y películas guardadas en favoritos.</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <label for="mylist-sort" style="color: var(--text-muted); font-size: 0.85rem; font-weight: 600;">Ordenar por:</label>
+          <select id="mylist-sort" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 20px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px;">
+            <option value="recent">Recientes</option>
+            <option value="title_asc">Título A-Z</option>
+            <option value="rating_desc">Rating</option>
+            <option value="year_desc">Año</option>
+          </select>
+        </div>
+      </div>
+      <div id="mylist-grid" class="shows-grid"></div>
+    </section>
+
+    <!-- HISTORY VIEW -->
+    <section id="history-view" class="view-section app-view" style="display: none;">
+      <div class="view-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 16px; padding: 25px; backdrop-filter: blur(10px);">
+        <div>
+          <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
+            <span>📜 Historial de Reproducción</span>
+          </h1>
+          <p style="color: var(--text-muted); font-size: 0.95rem;">Revisa y continúa viendo tus episodios recientes.</p>
+        </div>
+        <button id="btn-clear-history" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; color: var(--danger-color); border-color: rgba(255, 51, 102, 0.3); background: rgba(255, 51, 102, 0.1);">
+          <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i> 🗑️ Limpiar Historial
+        </button>
+      </div>
+      <div id="history-list" class="history-list-container"></div>
+    </section>
+
+    <!-- GENRES VIEW -->
+    <section id="genres-view" class="view-section app-view" style="display: none;">
+      <div class="view-header" style="margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 16px; padding: 25px; backdrop-filter: blur(10px);">
+        <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
+          <span>🎭 Explorar por Géneros</span>
+        </h1>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">Selecciona una categoría para explorar el catálogo disponible.</p>
+      </div>
+      <div id="genres-grid" class="genres-grid-container"></div>
+      <div id="genre-catalog-section" style="margin-top: 35px; display: none;">
+        <h2 id="genre-catalog-title" style="font-family: var(--font-title); font-size: 1.5rem; margin-bottom: 20px; color: var(--text-main);">Catálogo</h2>
+        <div id="genre-catalog-grid" class="shows-grid"></div>
+      </div>
+    </section>
+
+    <!-- STATS VIEW -->
+    <section id="stats-view" class="view-section app-view" style="display: none;">
+      <div class="view-header" style="margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 16px; padding: 25px; backdrop-filter: blur(10px);">
+        <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
+          <span>📊 Mis Estadísticas</span>
+        </h1>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">Resumen de tu actividad y hábitos de reproducción.</p>
+      </div>
+      <div id="stats-cards-grid" class="stats-grid-container"></div>
+      <div class="stats-chart-card" style="margin-top: 30px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 16px; padding: 25px; backdrop-filter: blur(10px);">
+        <h3 style="font-family: var(--font-title); font-size: 1.25rem; margin-bottom: 20px; color: var(--text-main);">Desglose por Géneros</h3>
+        <div id="stats-genre-chart" class="genre-chart-container"></div>
+      </div>
+    </section>
+
     <!-- SHOW DETAIL VIEW -->
     <section id="detail-view" class="app-view">
       <!-- Background Ambient Intro Loop Video -->

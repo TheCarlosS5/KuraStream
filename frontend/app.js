@@ -243,12 +243,16 @@ function setupRouter() {
     }
 
     // Hide all views
-    document.querySelectorAll('.app-view').forEach(view => {
+    document.querySelectorAll('.app-view, .view-section').forEach(view => {
       view.classList.remove('active');
+      view.style.display = 'none';
     });
 
     const searchInputEl = document.getElementById('search-input');
     const genreFilterEl = document.getElementById('genre-filter');
+
+    // Update active nav link highlighting
+    document.querySelectorAll('.header-nav .nav-link').forEach(link => link.classList.remove('active'));
 
     // If profile switcher is active ("¿Quién está viendo?"), preserve it and do not override with dashboard
     const profileSwitcherView = document.getElementById('profile-switcher-view');
@@ -263,7 +267,9 @@ function setupRouter() {
       if (genreFilterEl) genreFilterEl.value = 'all';
       const stFilterEl = document.getElementById('status-filter');
       if (stFilterEl) stFilterEl.value = 'all';
-      document.getElementById('dashboard-view').classList.add('active');
+      document.getElementById('nav-home')?.classList.add('active');
+      const dashView = document.getElementById('dashboard-view');
+      if (dashView) { dashView.classList.add('active'); dashView.style.display = 'block'; }
       loadDashboard('anime');
       initDashboardMosaic();
     } else if (hash === '#/airing') {
@@ -273,12 +279,16 @@ function setupRouter() {
       if (genreFilterEl) genreFilterEl.value = 'all';
       const stFilterEl = document.getElementById('status-filter');
       if (stFilterEl) stFilterEl.value = 'airing';
-      document.getElementById('dashboard-view').classList.add('active');
+      document.getElementById('nav-airing')?.classList.add('active');
+      const dashView = document.getElementById('dashboard-view');
+      if (dashView) { dashView.classList.add('active'); dashView.style.display = 'block'; }
       loadDashboard('anime');
       initDashboardMosaic();
     } else if (hash === '#/calendar') {
       currentView = 'calendar';
-      document.getElementById('calendar-view').classList.add('active');
+      document.getElementById('nav-calendar')?.classList.add('active');
+      const calView = document.getElementById('calendar-view');
+      if (calView) { calView.classList.add('active'); calView.style.display = 'block'; }
       loadCalendarView();
     } else if (hash === '#/movies') {
       currentView = 'dashboard';
@@ -287,26 +297,51 @@ function setupRouter() {
       if (genreFilterEl) genreFilterEl.value = 'all';
       const stFilterEl = document.getElementById('status-filter');
       if (stFilterEl) stFilterEl.value = 'all';
-      document.getElementById('dashboard-view').classList.add('active');
+      const dashView = document.getElementById('dashboard-view');
+      if (dashView) { dashView.classList.add('active'); dashView.style.display = 'block'; }
       loadDashboard('movie');
       initDashboardMosaic();
-    } else if (hash === '#/genres' || hash === '#/my-list' || hash === '#/history') {
-      currentView = 'dashboard';
-      currentShowsPage = 1;
-      if (searchInputEl) searchInputEl.value = '';
-      document.getElementById('dashboard-view').classList.add('active');
-      loadDashboard('anime');
-      initDashboardMosaic();
+    } else if (hash === '#/my-list') {
+      currentView = 'mylist';
+      document.getElementById('nav-mylist')?.classList.add('active');
+      const mylistView = document.getElementById('mylist-view');
+      if (mylistView) { mylistView.classList.add('active'); mylistView.style.display = 'block'; }
+      renderMyListView();
+    } else if (hash === '#/history') {
+      currentView = 'history';
+      document.getElementById('nav-history')?.classList.add('active');
+      const historyView = document.getElementById('history-view');
+      if (historyView) { historyView.classList.add('active'); historyView.style.display = 'block'; }
+      renderHistoryView();
+    } else if (hash.startsWith('#/genres')) {
+      currentView = 'genres';
+      const genresView = document.getElementById('genres-view');
+      if (genresView) { genresView.classList.add('active'); genresView.style.display = 'block'; }
+      let activeGenre = '';
+      if (hash.includes('?genre=')) {
+        const paramStr = hash.split('?genre=')[1];
+        if (paramStr) {
+          activeGenre = decodeURIComponent(paramStr.split('&')[0]);
+        }
+      }
+      renderGenresView(activeGenre);
+    } else if (hash === '#/stats') {
+      currentView = 'stats';
+      const statsView = document.getElementById('stats-view');
+      if (statsView) { statsView.classList.add('active'); statsView.style.display = 'block'; }
+      renderStatsView();
     } else if (hash.startsWith('#/show/')) {
       currentView = 'detail';
       const id = hash.split('/').pop();
-      document.getElementById('detail-view').classList.add('active');
+      const detView = document.getElementById('detail-view');
+      if (detView) { detView.classList.add('active'); detView.style.display = 'block'; }
       loadShowDetails(id);
     } else if (hash.startsWith('#/player/')) {
       currentView = 'player';
       const id = hash.split('/').pop();
       document.querySelector('.app-header').style.display = 'none';
-      document.getElementById('player-view').classList.add('active');
+      const playView = document.getElementById('player-view');
+      if (playView) { playView.classList.add('active'); playView.style.display = 'block'; }
       initPlayer(id);
     } else if (hash === '#/admin') {
       if (!isAdmin()) {
@@ -315,11 +350,13 @@ function setupRouter() {
         return;
       }
       currentView = 'admin';
-      document.getElementById('admin-view').classList.add('active');
+      const admView = document.getElementById('admin-view');
+      if (admView) { admView.classList.add('active'); admView.style.display = 'block'; }
       loadAdminPanel();
     } else if (hash === '#/settings') {
       currentView = 'settings';
-      document.getElementById('settings-view').classList.add('active');
+      const setView = document.getElementById('settings-view');
+      if (setView) { setView.classList.add('active'); setView.style.display = 'block'; }
       loadSettingsView();
     }
 
@@ -2935,6 +2972,504 @@ function loadSettingsView() {
   if (selectSub) selectSub.value = subLang;
 
   loadUserPreferences();
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+// --- SPA VIEWS & ROUTING HELPERS & RENDERERS ---
+
+function getUserAndProfile() {
+  let activeUser = 'guest';
+  let profileName = 'Principal';
+  const sessionStr = localStorage.getItem('kura_user_session');
+  if (sessionStr) {
+    try {
+      const sess = JSON.parse(sessionStr);
+      if (sess.username) activeUser = sess.username;
+      const decoded = getDecodedToken(sess.token);
+      if (decoded && decoded.profile_name) profileName = decoded.profile_name;
+    } catch(e) {}
+  }
+  return { activeUser, profileName };
+}
+
+let mylistSortValue = 'recent';
+
+async function renderMyListView() {
+  const container = document.getElementById('mylist-grid');
+  if (!container) return;
+
+  container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--text-muted); grid-column: 1 / -1;"><div class="spinner" style="margin: 0 auto 15px auto;"></div>Cargando tu lista...</div>`;
+
+  const { activeUser, profileName } = getUserAndProfile();
+  const sessionStr = localStorage.getItem('kura_user_session');
+  let token = '';
+  if (sessionStr) {
+    try { token = JSON.parse(sessionStr).token || ''; } catch(e) {}
+  }
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  let favorites = [];
+  try {
+    const res = await fetch(`/api/favorites?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
+    if (res.ok) {
+      favorites = await res.json();
+    }
+  } catch (err) {
+    console.error("Error fetching favorites:", err);
+  }
+
+  if (!Array.isArray(favorites) || favorites.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 16px;">
+        <i data-lucide="heart" style="width: 48px; height: 48px; stroke: var(--text-muted); margin-bottom: 16px;"></i>
+        <h3 style="font-family: var(--font-title); font-size: 1.2rem; color: var(--text-main); margin-bottom: 8px;">Tu lista está vacía</h3>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">No has agregado ningún anime o película a tu lista de favoritos aún.</p>
+        <a href="#/" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 8px;">
+          <i data-lucide="compass" style="width: 16px; height: 16px;"></i> Explorar Catálogo
+        </a>
+      </div>
+    `;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    return;
+  }
+
+  const sortSelect = document.getElementById('mylist-sort');
+  if (sortSelect) {
+    sortSelect.value = mylistSortValue;
+    sortSelect.onchange = (e) => {
+      mylistSortValue = e.target.value;
+      renderMyListView();
+    };
+  }
+
+  let sortedList = [...favorites];
+  if (mylistSortValue === 'title_asc') {
+    sortedList.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  } else if (mylistSortValue === 'rating_desc') {
+    sortedList.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+  } else if (mylistSortValue === 'year_desc') {
+    sortedList.sort((a, b) => (b.year || 0) - (a.year || 0));
+  }
+
+  container.innerHTML = sortedList.map(show => {
+    const poster = show.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
+    const rating = show.rating ? Number(show.rating).toFixed(1) : 'N/A';
+    const mediaTypeLabel = show.media_type === 'movie' ? 'PELÍCULA' : 'ANIME';
+
+    return `
+      <div class="show-card mylist-card" data-show-id="${show.id}" onclick="location.hash='#/show/${show.id}'" style="position: relative;">
+        <div class="card-img-wrapper" style="height: 220px; position: relative;">
+          <img src="${poster}" alt="${show.title}" loading="lazy">
+          <div class="card-rating-badge">
+            <i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);margin-right:2px;display:inline-block;vertical-align:middle;"></i> 
+            ${rating}
+          </div>
+          <div class="badge" style="position: absolute; top: 10px; left: 10px; background: rgba(18, 22, 32, 0.85); color: var(--accent-color); font-weight: 700; font-size: 0.65rem; border: 1px solid var(--border-color); backdrop-filter: blur(4px);">
+            ${mediaTypeLabel}
+          </div>
+          <button class="btn-remove-favorite" data-show-id="${show.id}" title="Quitar de mi lista" style="position: absolute; bottom: 10px; right: 10px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255, 51, 75, 0.85); border: none; color: white; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.2s, background 0.2s; z-index: 5;">
+            <i data-lucide="heart-off" style="width: 16px; height: 16px;"></i>
+          </button>
+        </div>
+        <div class="card-info">
+          <h3 class="card-title" style="font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${show.title}</h3>
+          <div class="card-meta" style="font-size: 0.75rem;">
+            <span>${show.media_type === 'movie' ? 'Película' : 'Anime'}</span>
+            <span>•</span>
+            <span>${show.year || 'N/A'}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.btn-remove-favorite').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const showId = btn.getAttribute('data-show-id');
+      try {
+        await fetch('/api/favorites', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            username: activeUser,
+            profile_name: profileName,
+            show_id: showId,
+            showId: showId,
+            isFavorite: false
+          })
+        });
+        renderMyListView();
+      } catch (err) {
+        console.error("Error removing favorite:", err);
+      }
+    });
+  });
+
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+async function renderHistoryView() {
+  const container = document.getElementById('history-list');
+  if (!container) return;
+
+  container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--text-muted);"><div class="spinner" style="margin: 0 auto 15px auto;"></div>Cargando historial...</div>`;
+
+  const { activeUser, profileName } = getUserAndProfile();
+  const sessionStr = localStorage.getItem('kura_user_session');
+  let token = '';
+  if (sessionStr) {
+    try { token = JSON.parse(sessionStr).token || ''; } catch(e) {}
+  }
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const clearBtn = document.getElementById('btn-clear-history');
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
+      if (confirm('¿Estás seguro de que deseas borrar todo tu historial de reproducción?')) {
+        try {
+          await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}&clear=all`, {
+            method: 'DELETE',
+            headers
+          });
+          renderHistoryView();
+        } catch (err) {
+          console.error("Error clearing history:", err);
+        }
+      }
+    };
+  }
+
+  let history = [];
+  try {
+    const res = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
+    if (res.ok) {
+      history = await res.json();
+    }
+  } catch (err) {
+    console.error("Error fetching history:", err);
+  }
+
+  if (!Array.isArray(history) || history.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 60px 20px; background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 16px;">
+        <i data-lucide="history" style="width: 48px; height: 48px; stroke: var(--text-muted); margin-bottom: 16px;"></i>
+        <h3 style="font-family: var(--font-title); font-size: 1.2rem; color: var(--text-main); margin-bottom: 8px;">No hay historial registrado</h3>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">Los episodios que reproduzcas se mostrarán aquí con tu avance guardado.</p>
+        <a href="#/" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 8px;">
+          <i data-lucide="play" style="width: 16px; height: 16px;"></i> Empezar a ver
+        </a>
+      </div>
+    `;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    return;
+  }
+
+  container.innerHTML = history.map(item => {
+    const poster = item.thumbnail_path || item.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
+    const showTitle = item.show_title || 'Serie';
+    const epTitle = item.episode_title || item.title || `Episodio ${item.episode_number || ''}`;
+    const seasonEpStr = (item.season_number && item.episode_number) 
+      ? `T${item.season_number}:E${item.episode_number}` 
+      : (item.episode_number ? `Episodio ${item.episode_number}` : '');
+    
+    const progressSeconds = item.progress_seconds || 0;
+    const duration = item.duration || 0;
+    const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (progressSeconds / duration) * 100)) : 0;
+
+    let dateStr = '';
+    if (item.updated_at) {
+      try {
+        const d = new Date(item.updated_at);
+        dateStr = d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+      } catch(e) {}
+    }
+
+    return `
+      <div class="history-card" data-episode-id="${item.episode_id}">
+        <div class="history-card-poster">
+          <img src="${poster}" alt="${showTitle}" loading="lazy">
+          <button class="history-play-overlay-btn" onclick="location.hash='#/player/${item.episode_id}'" title="Reproducir">
+            <i data-lucide="play" style="width: 20px; height: 20px; fill: white; stroke: white;"></i>
+          </button>
+        </div>
+        <div class="history-card-info">
+          <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+            <div>
+              <span class="history-show-name">${showTitle}</span>
+              <h4 class="history-ep-title">${seasonEpStr ? seasonEpStr + ' - ' : ''}${epTitle}</h4>
+            </div>
+            <button class="btn-delete-history-item" data-episode-id="${item.episode_id}" title="Eliminar de historial">
+              <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i>
+            </button>
+          </div>
+          
+          <div class="history-progress-wrapper">
+            <div class="history-progress-track">
+              <div class="history-progress-fill" style="width: ${progressPercent}%;"></div>
+            </div>
+            <div class="history-meta-row">
+              <span class="history-percent-text">${Math.round(progressPercent)}% completado</span>
+              <span class="history-date-text">${dateStr}</span>
+            </div>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <a href="#/player/${item.episode_id}" class="btn btn-secondary" style="padding: 6px 14px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 6px;">
+              <i data-lucide="play" style="width: 14px; height: 14px;"></i> Continuar viendo
+            </a>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.btn-delete-history-item').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const episodeId = btn.getAttribute('data-episode-id');
+      try {
+        await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}&episode_id=${encodeURIComponent(episodeId)}`, {
+          method: 'DELETE',
+          headers
+        });
+        renderHistoryView();
+      } catch (err) {
+        console.error("Error deleting history item:", err);
+      }
+    });
+  });
+
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+const GENRE_LIST = [
+  { name: 'Acción', icon: 'zap', gradient: 'linear-gradient(135deg, #ff416c, #ff4b2b)' },
+  { name: 'Isekai', icon: 'sparkles', gradient: 'linear-gradient(135deg, #8a2be2, #4a00e0)' },
+  { name: 'Romance', icon: 'heart', gradient: 'linear-gradient(135deg, #ff758c, #ff7eb3)' },
+  { name: 'Shonen', icon: 'flame', gradient: 'linear-gradient(135deg, #f857a6, #ff5858)' },
+  { name: 'Fantasía', icon: 'wand-2', gradient: 'linear-gradient(135deg, #11998e, #38ef7d)' },
+  { name: 'Ciencia Ficción', icon: 'cpu', gradient: 'linear-gradient(135deg, #00c6ff, #0072ff)' },
+  { name: 'Terror', icon: 'ghost', gradient: 'linear-gradient(135deg, #434343, #000000)' },
+  { name: 'Slice of Life', icon: 'coffee', gradient: 'linear-gradient(135deg, #ffb347, #ffcc33)' },
+  { name: 'Comedia', icon: 'smile', gradient: 'linear-gradient(135deg, #f12711, #f5af19)' },
+  { name: 'Drama', icon: 'tv', gradient: 'linear-gradient(135deg, #3a1c71, #d76d77)' },
+  { name: 'Misterio', icon: 'compass', gradient: 'linear-gradient(135deg, #200122, #6f0000)' },
+  { name: 'Películas', icon: 'film', gradient: 'linear-gradient(135deg, #654ea3, #eaafc8)' }
+];
+
+async function renderGenresView(activeGenre = '') {
+  const gridContainer = document.getElementById('genres-grid');
+  const catalogSection = document.getElementById('genre-catalog-section');
+  const catalogGrid = document.getElementById('genre-catalog-grid');
+  const catalogTitle = document.getElementById('genre-catalog-title');
+
+  if (!gridContainer) return;
+
+  gridContainer.innerHTML = GENRE_LIST.map(g => {
+    const isActive = activeGenre && activeGenre.toLowerCase() === g.name.toLowerCase();
+    return `
+      <div class="genre-card ${isActive ? 'active' : ''}" data-genre="${g.name}" style="background: ${g.gradient};">
+        <div class="genre-card-overlay"></div>
+        <div class="genre-card-content">
+          <div class="genre-icon">
+            <i data-lucide="${g.icon}"></i>
+          </div>
+          <h3 class="genre-name">${g.name}</h3>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  gridContainer.querySelectorAll('.genre-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const selectedGenre = card.getAttribute('data-genre');
+      window.location.hash = `#/genres?genre=${encodeURIComponent(selectedGenre)}`;
+    });
+  });
+
+  if (!activeGenre) {
+    if (catalogSection) catalogSection.style.display = 'none';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    return;
+  }
+
+  if (catalogSection) catalogSection.style.display = 'block';
+  if (catalogTitle) catalogTitle.textContent = `Catálogo: ${activeGenre}`;
+  if (catalogGrid) {
+    catalogGrid.innerHTML = `<div style="grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--text-muted);"><div class="spinner" style="margin: 0 auto 15px auto;"></div>Cargando catálogo de ${activeGenre}...</div>`;
+  }
+
+  try {
+    let url = '/api/shows';
+    if (activeGenre.toLowerCase() === 'películas' || activeGenre.toLowerCase() === 'peliculas') {
+      url = '/api/shows?type=movie';
+    } else {
+      url = `/api/shows?genre=${encodeURIComponent(activeGenre)}`;
+    }
+    const res = await fetch(url);
+    let shows = [];
+    if (res.ok) {
+      shows = await res.json();
+    }
+
+    if (Array.isArray(shows) && activeGenre.toLowerCase() !== 'películas' && activeGenre.toLowerCase() !== 'peliculas') {
+      shows = shows.filter(s => {
+        if (!s.genres) return true;
+        return s.genres.toLowerCase().includes(activeGenre.toLowerCase());
+      });
+    }
+
+    if (!Array.isArray(shows) || shows.length === 0) {
+      if (catalogGrid) {
+        catalogGrid.innerHTML = `
+          <div style="grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted);">
+            <p>No se encontraron contenidos para la categoría "${activeGenre}".</p>
+          </div>
+        `;
+      }
+    } else {
+      if (catalogGrid) {
+        catalogGrid.innerHTML = shows.map(s => createShowCardHTML(s)).join('');
+      }
+    }
+  } catch (err) {
+    console.error("Error fetching genre catalog:", err);
+    if (catalogGrid) {
+      catalogGrid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: var(--danger-color);">Error al cargar contenidos de ${activeGenre}.</div>`;
+    }
+  }
+
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function formatTotalTime(seconds) {
+  if (!seconds || seconds <= 0) return '0m';
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (mins > 0 || parts.length === 0) parts.push(`${mins}m`);
+  return parts.join(' ');
+}
+
+async function renderStatsView() {
+  const cardsGrid = document.getElementById('stats-cards-grid');
+  const chartContainer = document.getElementById('stats-genre-chart');
+
+  if (!cardsGrid || !chartContainer) return;
+
+  cardsGrid.innerHTML = `<div style="grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--text-muted);"><div class="spinner" style="margin: 0 auto 15px auto;"></div>Cargando estadísticas...</div>`;
+  chartContainer.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-muted);">Cargando gráfico...</div>`;
+
+  const { activeUser, profileName } = getUserAndProfile();
+  const sessionStr = localStorage.getItem('kura_user_session');
+  let token = '';
+  if (sessionStr) {
+    try { token = JSON.parse(sessionStr).token || ''; } catch(e) {}
+  }
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  let stats = {
+    total_time_seconds: 0,
+    completed_shows: 0,
+    watched_episodes: 0,
+    top_genre: 'Ninguno',
+    genres_breakdown: {}
+  };
+
+  try {
+    const res = await fetch(`/api/user/stats?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.stats) stats = data.stats;
+      else if (data.total_time_seconds !== undefined) stats = data;
+    }
+  } catch (err) {
+    console.error("Error fetching stats:", err);
+  }
+
+  const timeFormatted = formatTotalTime(stats.total_time_seconds || 0);
+
+  cardsGrid.innerHTML = `
+    <div class="stat-card">
+      <div class="stat-card-icon" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;">
+        <i data-lucide="clock"></i>
+      </div>
+      <div>
+        <div class="stat-card-val">${timeFormatted}</div>
+        <div class="stat-card-lbl">Tiempo de Reproducción</div>
+      </div>
+    </div>
+    
+    <div class="stat-card">
+      <div class="stat-card-icon" style="background: rgba(0, 224, 143, 0.15); color: #00e08f;">
+        <i data-lucide="check-circle"></i>
+      </div>
+      <div>
+        <div class="stat-card-val">${stats.completed_shows || 0}</div>
+        <div class="stat-card-lbl">Animes Completados</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-card-icon" style="background: rgba(0, 198, 255, 0.15); color: #00c6ff;">
+        <i data-lucide="play-circle"></i>
+      </div>
+      <div>
+        <div class="stat-card-val">${stats.watched_episodes || 0}</div>
+        <div class="stat-card-lbl">Episodios Vistos</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-card-icon" style="background: rgba(255, 126, 179, 0.15); color: #ff7eb3;">
+        <i data-lucide="flame"></i>
+      </div>
+      <div>
+        <div class="stat-card-val">${stats.top_genre || 'Ninguno'}</div>
+        <div class="stat-card-lbl">Género Favorito</div>
+      </div>
+    </div>
+  `;
+
+  const breakdown = stats.genres_breakdown || {};
+  const entries = Object.entries(breakdown);
+
+  if (entries.length === 0) {
+    chartContainer.innerHTML = `
+      <p style="color: var(--text-muted); font-size: 0.9rem; text-align: center; padding: 20px 0;">
+        No hay suficientes datos para generar el gráfico por géneros.
+      </p>
+    `;
+  } else {
+    const maxVal = Math.max(...entries.map(([_, count]) => count), 1);
+    
+    chartContainer.innerHTML = entries.map(([genre, count]) => {
+      const percentage = Math.round((count / maxVal) * 100);
+      return `
+        <div class="genre-chart-item" style="margin-bottom: 16px;">
+          <div class="genre-chart-label-row" style="display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 6px;">
+            <span style="font-weight: 600; color: var(--text-main);">${genre}</span>
+            <span style="color: var(--text-muted); font-weight: 500;">${count} ${count === 1 ? 'título' : 'títulos'} (${percentage}%)</span>
+          </div>
+          <div class="genre-chart-track" style="height: 12px; background: rgba(255, 255, 255, 0.06); border-radius: 6px; overflow: hidden;">
+            <div class="genre-chart-bar" style="width: ${percentage}%; height: 100%; background: linear-gradient(90deg, var(--accent-color) 0%, #00e08f 100%); border-radius: 6px; transition: width 0.6s ease;"></div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
