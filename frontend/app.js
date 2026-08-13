@@ -1,4 +1,5 @@
 import { initPlayer, destroyPlayer } from './player.js?v=1.5';
+import { initHeaderDropdowns, updateActiveNavHighlight } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
   const originalFetch = window.fetch;
@@ -145,6 +146,7 @@ let carouselInterval = null;
 let currentShowsPage = 1;
 
 function initAppMain() {
+  initHeaderDropdowns();
   setupRouter();
   setupEasterEgg();
   setupForms();
@@ -189,6 +191,9 @@ function setupRouter() {
     }
 
     const hash = window.location.hash || '#/';
+
+    // Update active nav link highlights
+    updateActiveNavHighlight(hash);
 
     // Default main header visibility for logged-in users
     const mainHeader = document.querySelector('.app-header');
@@ -259,10 +264,6 @@ function setupRouter() {
       const stFilterEl = document.getElementById('status-filter');
       if (stFilterEl) stFilterEl.value = 'all';
       document.getElementById('dashboard-view').classList.add('active');
-      document.getElementById('nav-home').classList.add('active');
-      if (document.getElementById('nav-airing')) document.getElementById('nav-airing').classList.remove('active');
-      document.getElementById('nav-movies').classList.remove('active');
-      document.getElementById('nav-settings').classList.remove('active');
       loadDashboard('anime');
       initDashboardMosaic();
     } else if (hash === '#/airing') {
@@ -273,18 +274,11 @@ function setupRouter() {
       const stFilterEl = document.getElementById('status-filter');
       if (stFilterEl) stFilterEl.value = 'airing';
       document.getElementById('dashboard-view').classList.add('active');
-      document.getElementById('nav-home').classList.remove('active');
-      if (document.getElementById('nav-airing')) document.getElementById('nav-airing').classList.add('active');
-      document.getElementById('nav-movies').classList.remove('active');
-      document.getElementById('nav-settings').classList.remove('active');
       loadDashboard('anime');
       initDashboardMosaic();
     } else if (hash === '#/calendar') {
       currentView = 'calendar';
-      document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
-      document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
       document.getElementById('calendar-view').classList.add('active');
-      if (document.getElementById('nav-calendar')) document.getElementById('nav-calendar').classList.add('active');
       loadCalendarView();
     } else if (hash === '#/movies') {
       currentView = 'dashboard';
@@ -294,11 +288,14 @@ function setupRouter() {
       const stFilterEl = document.getElementById('status-filter');
       if (stFilterEl) stFilterEl.value = 'all';
       document.getElementById('dashboard-view').classList.add('active');
-      document.getElementById('nav-home').classList.remove('active');
-      if (document.getElementById('nav-airing')) document.getElementById('nav-airing').classList.remove('active');
-      document.getElementById('nav-movies').classList.add('active');
-      document.getElementById('nav-settings').classList.remove('active');
       loadDashboard('movie');
+      initDashboardMosaic();
+    } else if (hash === '#/genres' || hash === '#/my-list' || hash === '#/history') {
+      currentView = 'dashboard';
+      currentShowsPage = 1;
+      if (searchInputEl) searchInputEl.value = '';
+      document.getElementById('dashboard-view').classList.add('active');
+      loadDashboard('anime');
       initDashboardMosaic();
     } else if (hash.startsWith('#/show/')) {
       currentView = 'detail';
@@ -322,9 +319,6 @@ function setupRouter() {
       loadAdminPanel();
     } else if (hash === '#/settings') {
       currentView = 'settings';
-      document.getElementById('nav-home').classList.remove('active');
-      document.getElementById('nav-movies').classList.remove('active');
-      document.getElementById('nav-settings').classList.add('active');
       document.getElementById('settings-view').classList.add('active');
       loadSettingsView();
     }
