@@ -5665,29 +5665,68 @@ async function openRandomAnimeModal() {
   if (!modal || !cardBody) return;
 
   modal.style.display = 'flex';
-  cardBody.className = 'random-card roulette-spin';
+  cardBody.className = 'random-card';
+
+  // Render poster shuffle container
   cardBody.innerHTML = `
-    <div class="roulette-spinner-container">
-      <div class="slot-machine-reel">
-        <span class="slot-icon">🎲</span>
-        <span class="slot-icon">⚡</span>
-        <span class="slot-icon">🍁</span>
-        <span class="slot-icon">⭐</span>
+    <div class="poster-shuffle-container">
+      <div class="poster-shuffle-card">
+        <img id="shuffle-poster-img" src="/library/logo.png" alt="Mezclando..." class="shuffle-poster-img">
+        <div class="shuffle-poster-overlay">
+          <div class="shuffle-sparkle-badge">🎲 Mezclando Catálogo...</div>
+        </div>
       </div>
-      <p class="roulette-text">Seleccionando anime aleatorio...</p>
+      <p class="shuffle-status-text">¡Buscando tu próximo anime favorito!</p>
     </div>
   `;
 
+  const shuffleImg = document.getElementById('shuffle-poster-img');
+
   try {
-    const res = await fetch('/api/shows/random');
+    // Fetch all catalog shows for posters and the random target show concurrently
+    const [allShowsRes, randomShowRes] = await Promise.allSettled([
+      fetch('/api/shows'),
+      fetch('/api/shows/random')
+    ]);
+
+    let posterPool = [];
+    if (allShowsRes.status === 'fulfilled' && allShowsRes.value.ok) {
+      const showsData = await allShowsRes.value.json();
+      const showsList = Array.isArray(showsData) ? showsData : (showsData.shows || []);
+      posterPool = showsList.map(s => s.poster_path).filter(Boolean);
+    }
+
     let show = null;
-    if (res.ok) {
-      const data = await res.json();
+    if (randomShowRes.status === 'fulfilled' && randomShowRes.value.ok) {
+      const data = await randomShowRes.value.json();
       show = data.show || (data.id ? data : null);
     }
 
-    await new Promise(r => setTimeout(r, 400));
-    cardBody.classList.remove('roulette-spin');
+    if (posterPool.length === 0 && show && show.poster_path) {
+      posterPool.push(show.poster_path);
+    }
+
+    // Fast poster swapping interval (cycles posters every 75ms)
+    let shuffleCounter = 0;
+    const totalSwaps = 18; // ~1.5s total shuffle duration
+    const swapIntervalMs = 75;
+
+    await new Promise((resolve) => {
+      const intervalId = setInterval(() => {
+        shuffleCounter++;
+        if (posterPool.length > 0 && shuffleImg) {
+          const nextPoster = posterPool[shuffleCounter % posterPool.length];
+          shuffleImg.src = nextPoster;
+          shuffleImg.classList.add('poster-swap');
+          setTimeout(() => shuffleImg.classList.remove('poster-swap'), 45);
+        }
+
+        if (shuffleCounter >= totalSwaps) {
+          clearInterval(intervalId);
+          resolve();
+        }
+      }, swapIntervalMs);
+    });
 
     if (!show) {
       cardBody.innerHTML = `
@@ -5710,13 +5749,14 @@ async function openRandomAnimeModal() {
 
     const posterSrc = show.poster_path || `/api/placeholder-poster?title=${encodeURIComponent(show.title || 'Anime')}`;
 
+    // Reveal target anime with bounce-in card inner
     cardBody.innerHTML = `
-      <div class="random-card-inner">
+      <div class="random-card-inner random-card-revealed">
         <div class="random-poster-wrapper">
           <img src="${posterSrc}" alt="${show.title || 'Anime'}" class="random-poster-img">
         </div>
         <div class="random-info-wrapper">
-          <div class="random-badge">🎲 Recomendación Aleatoria</div>
+          <div class="random-badge">🎲 ¡Encontrado para ti!</div>
           <h2 class="random-title">${show.title || 'Anime Aleatorio'}</h2>
           <div class="random-meta">
             ${show.rating ? `<span class="rating"><i data-lucide="star"></i> ${show.rating}</span>` : ''}
@@ -5754,7 +5794,6 @@ async function openRandomAnimeModal() {
     }
   } catch (err) {
     console.error("Error in openRandomAnimeModal:", err);
-    cardBody.classList.remove('roulette-spin');
     cardBody.innerHTML = `
       <div class="random-show-empty" style="text-align: center; padding: 30px; color: var(--text-muted);">
         <p>Error al obtener anime aleatorio.</p>

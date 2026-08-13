@@ -1,21 +1,12 @@
-# SDD Progress Ledger - Auth & Profile Enhancements
+# SDD Progress Ledger
 
-- Task 1: complete (commit cdfee7d, review bypassed by user request)
-- Task 2: complete (commit b03f6c1, review bypassed by user request)
-- Task 3: complete (commit f07f7e6, review bypassed by user request)
-- Task 4: complete (commit bbce324, review bypassed by user request)
-- Auto-profile creation: complete (commit ace7453, review bypassed by user request)
-- Registration error handling & circular add button: complete (commit 1d756ea, review bypassed by user request)
-- Anime preset avatars: complete (commit d7e309d, review bypassed by user request)
-- Modal z-index overlays fix: complete (commit 753f6a7, review bypassed by user request)
-- HTML Landing Page & Router Setup: complete (commit 9dc446b, review bypassed by user request)
-- Unify Color Scheme & Cursors to Electric Violet: complete (commit by Task 2 implementer, review bypassed)
-- Redesign Profile Sizing & Netflix Animations: complete (commit by Task 3 implementer, review bypassed)
-- Dynamic Anime Mosaic Landing Page: complete (commit 2084f86, review bypassed)
-- Jikan & Kitsu Cover Image Scraper Tool: complete (commit 2084f86, review bypassed)
-- Clean Demos & DB: complete (commit e731c46, review bypassed)
-- Setup SSH Key & Passwordless Sync: complete (commit e731c46, review bypassed)
-- Pipeline Stream Tar Deployment: complete (commit e731c46, review bypassed)
-- Live File Sync Watcher: complete (commit e731c46, review bypassed)
-- Dashboard Mosaic Integration & Remove Intro Landing: complete (commit f0fc2e8, review bypassed)
-- Organize Backend Scripts into backend/scripts/: complete (commit f0fc2e8, review bypassed)
+Feature: Navigation Reorganization & 6 New Features
+Plan: docs/superpowers/plans/2026-08-13-navigation-and-new-features-plan.md
+Started: 2026-08-13
+
+## Tasks Progress
+
+- [x] Task 1: Backend PHP 8 API Endpoints & MySQL Helpers (commits 7ac071e..7f34438, review clean)
+- [x] Task 2: Header Navbar Reorganization & Styling (commits e09cebf..5b62d0d, review clean)
+- [x] Task 3: Dedicated SPA Views & Routing (#/my-list, #/history, #/genres, #/stats) (commits f9d5a87..a90eb22, review clean)
+- [x] Task 4: Interactive Modals & Notification Popover (Random Anime 🎲 & Notifications 🔔) (commits 88a916d..f697ec1, review clean)
