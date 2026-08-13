@@ -727,6 +727,9 @@ function setupPlayerEventListeners() {
     const effectiveIntroEnd = (introEnd !== null && introEnd !== undefined) ? introEnd : ((introStart !== null && introStart !== undefined) ? introStart + 90 : null);
     
     if (introStart !== null && introStart !== undefined && effectiveIntroEnd !== null) {
+      if (totalCurrentTime < introStart) {
+        hasSkippedIntroForCurrentEpisode = false;
+      }
       if (totalCurrentTime >= introStart && totalCurrentTime < effectiveIntroEnd) {
         if (isAutoSkip) {
           if (!hasSkippedIntroForCurrentEpisode) {
@@ -755,6 +758,7 @@ function setupPlayerEventListeners() {
       if (isAutoSkip && !hasSkippedOutroForCurrentEpisode) {
         hasSkippedOutroForCurrentEpisode = true;
         showVideoToast("Outro saltado automáticamente");
+        loadVideoStream(Math.max(0, duration - 1));
       }
       if (nextEpisodeId && !outroDismissed) {
         outroOverlayContainer.style.display = 'flex';

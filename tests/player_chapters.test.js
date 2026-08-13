@@ -155,3 +155,12 @@ test('renderChaptersDropdown populates chapter menu items with formatted timesta
   assert.ok(menuHtml.includes('01:30 - Episodio'), 'Chapters menu should render 01:30 - Episodio');
   assert.ok(menuHtml.includes('20:00 - Outro'), 'Chapters menu should render 20:00 - Outro');
 });
+
+test('player.js contains auto-skip outro jump and intro rewind flag reset logic', () => {
+  const playerPath = path.join(process.cwd(), 'frontend', 'player.js');
+  const content = fs.readFileSync(playerPath, 'utf8');
+
+  assert.ok(content.includes('hasSkippedIntroForCurrentEpisode = false;'), 'player.js must reset intro skip flag on rewind');
+  assert.ok(content.includes('loadVideoStream(Math.max(0, duration - 1))'), 'player.js must seek to duration - 1s on auto-skip outro');
+});
+
