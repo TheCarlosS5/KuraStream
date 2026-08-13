@@ -47,6 +47,8 @@ let selectedAudioTrackNum = 0;
 let selectedSubtitleTrackNum = -1; // -1 = Off
 let currentStreamStartOffset = 0;
 let outroDismissed = false;
+let hasSkippedIntroForCurrentEpisode = false;
+let hasSkippedOutroForCurrentEpisode = false;
 
 let ambilightCanvas = null;
 let ambilightCtx = null;
@@ -105,7 +107,7 @@ export async function initPlayer(episodeId) {
   fileInfoClose = document.getElementById('file-info-close');
   fullscreenBtn = document.getElementById('fullscreen-btn');
   pipBtn = document.getElementById('pip-btn');
-  skipIntroBtn = document.getElementById('skip-intro-btn');
+  skipIntroBtn = document.getElementById('skipIntroBtn') || document.getElementById('skip-intro-btn');
   skipOutroBtn = document.getElementById('skip-outro-btn');
   watchCreditsBtn = document.getElementById('watch-credits-btn');
   outroOverlayContainer = document.getElementById('outro-overlay-container');
@@ -137,9 +139,15 @@ export async function initPlayer(episodeId) {
       e.episode_number === currentEpisodeData.episode_number + 1
     );
     nextEpisodeId = nextEp ? nextEp.id : null;
-    
+    outroDismissed = false;
+    hasSkippedIntroForCurrentEpisode = false;
+    hasSkippedOutroForCurrentEpisode = false;
+
     document.getElementById('player-show-title').textContent = currentShowData.title;
     document.getElementById('player-episode-title').textContent = `${currentEpisodeData.season_number ? `Temporada ${currentEpisodeData.season_number} • ` : ''}Capítulo ${currentEpisodeData.episode_number}: ${currentEpisodeData.title}`;
+    
+    renderChapterTicks(currentEpisodeData);
+    renderChaptersDropdown(currentEpisodeData);
   } catch (e) {
     console.error(e);
     alert('Error al cargar datos del reproductor');
@@ -561,6 +569,10 @@ function setupPlayerEventListeners() {
       const currentSpeed = parseFloat(speedBtn.textContent) || 1.0;
       video.playbackRate = currentSpeed;
     }
+    if (currentEpisodeData) {
+      renderChapterTicks(currentEpisodeData);
+      renderChaptersDropdown(currentEpisodeData);
+    }
   };
 
   video.onpause = () => {
@@ -705,20 +717,50 @@ function setupPlayerEventListeners() {
     progressCurrent.style.width = `${progressPercent}%`;
     progressHandle.style.left = `${progressPercent}%`;
 
-    // Intro skipper overlay logic
+    // Auto-Skip and Skip Overlay logic
+    const isAutoSkip = window.userPreferences?.auto_skip_intro === true || 
+                       window.userPreferences?.auto_skip_intro === 'true' ||
+                       localStorage.getItem('kurastream_auto_skip_intro') === 'true';
+
     const introStart = currentEpisodeData.intro_start;
     const introEnd = currentEpisodeData.intro_end;
+    const effectiveIntroEnd = (introEnd !== null && introEnd !== undefined) ? introEnd : ((introStart !== null && introStart !== undefined) ? introStart + 90 : null);
     
-    if (introStart !== null && introStart !== undefined && totalCurrentTime >= introStart && totalCurrentTime < (introEnd || (introStart + 90))) {
-      skipIntroBtn.style.display = 'block';
+    if (introStart !== null && introStart !== undefined && effectiveIntroEnd !== null) {
+      if (totalCurrentTime >= introStart && totalCurrentTime < effectiveIntroEnd) {
+        if (isAutoSkip) {
+          if (!hasSkippedIntroForCurrentEpisode) {
+            hasSkippedIntroForCurrentEpisode = true;
+            if (skipIntroBtn) skipIntroBtn.style.display = 'none';
+            if (introEnd !== null && introEnd !== undefined) {
+              loadVideoStream(introEnd);
+            } else {
+              seekRelative(90);
+            }
+            showVideoToast("Intro saltada automáticamente");
+          }
+        } else {
+          if (skipIntroBtn) skipIntroBtn.style.display = 'block';
+        }
+      } else {
+        if (skipIntroBtn) skipIntroBtn.style.display = 'none';
+      }
     } else {
-      skipIntroBtn.style.display = 'none';
+      if (skipIntroBtn) skipIntroBtn.style.display = 'none';
     }
 
     // Outro skipper overlay logic (Next Episode and Credits container)
     const outroStart = currentEpisodeData.outro_start;
-    if (nextEpisodeId && outroStart !== null && outroStart !== undefined && totalCurrentTime >= outroStart && !outroDismissed) {
-      outroOverlayContainer.style.display = 'flex';
+    if (outroStart !== null && outroStart !== undefined && totalCurrentTime >= outroStart) {
+      if (isAutoSkip && !hasSkippedOutroForCurrentEpisode) {
+        hasSkippedOutroForCurrentEpisode = true;
+        showVideoToast("Outro saltado automáticamente");
+      }
+      if (nextEpisodeId && !outroDismissed) {
+        outroOverlayContainer.style.display = 'flex';
+      } else {
+        outroOverlayContainer.style.display = 'none';
+      }
     } else {
       outroOverlayContainer.style.display = 'none';
     }
@@ -902,16 +944,18 @@ function setupPlayerEventListeners() {
   }
 
   // Skip Intro button listener
-  skipIntroBtn.onclick = () => {
-    const introEnd = currentEpisodeData.intro_end;
-    if (introEnd !== null && introEnd !== undefined) {
-      const startOffset = parseFloat(new URL(video.src, window.location.origin).searchParams.get('start') || 0);
-      video.currentTime = introEnd - startOffset;
-    } else {
-      seekRelative(90);
-    }
-    skipIntroBtn.style.display = 'none';
-  };
+  if (skipIntroBtn) {
+    skipIntroBtn.onclick = () => {
+      hasSkippedIntroForCurrentEpisode = true;
+      const introEnd = currentEpisodeData.intro_end;
+      if (introEnd !== null && introEnd !== undefined) {
+        loadVideoStream(introEnd);
+      } else {
+        seekRelative(90);
+      }
+      skipIntroBtn.style.display = 'none';
+    };
+  }
 
   // Skip Outro button listener (Siguiente Capítulo)
   skipOutroBtn.onclick = () => {
@@ -1034,10 +1078,6 @@ function showTechnicalModal() {
     <div class="info-item">
       <span class="info-label">Duración total</span>
       <span class="info-val">${formatTime(ep.duration)}</span>
-    </div>
-    <div class="info-item">
-      <span class="info-label">Ruta local de origen</span>
-      <span class="info-val" style="font-size: 0.7rem; max-width: 60%;">${ep.filepath}</span>
     </div>
   `;
   fileInfoModal.style.display = 'block';
@@ -1428,4 +1468,143 @@ function showSeekIndicator(direction) {
   }, 400);
   indicator.dataset.timeoutId = timeoutId.toString();
 }
+
+// Chapter Markers & Dropdown Menu Helpers
+export function renderChapterTicks(episodeData) {
+  const bar = progressBar || (typeof document !== 'undefined' && typeof document.getElementById === 'function' ? document.getElementById('player-progress-bar') : null);
+  if (!bar || !episodeData) return;
+  
+  bar.querySelectorAll('.seekbar-chapter-tick').forEach(t => t.remove());
+  
+  const duration = episodeData.duration || (video ? video.duration : 0);
+  if (!duration || duration <= 0) return;
+  
+  let chaptersList = episodeData.chapters;
+  if (typeof chaptersList === 'string') {
+    try { chaptersList = JSON.parse(chaptersList); } catch(e) { chaptersList = []; }
+  }
+  
+  let ticks = [];
+  if (Array.isArray(chaptersList) && chaptersList.length > 0) {
+    chaptersList.forEach(ch => {
+      if (typeof ch.start === 'number' && ch.start >= 0 && ch.start < duration) {
+        ticks.push({ time: ch.start, title: ch.title || '' });
+      }
+    });
+  } else {
+    if (typeof episodeData.intro_start === 'number' && episodeData.intro_start >= 0) {
+      ticks.push({ time: episodeData.intro_start, title: 'Intro' });
+    }
+    if (typeof episodeData.intro_end === 'number' && episodeData.intro_end > 0) {
+      ticks.push({ time: episodeData.intro_end, title: 'Episodio' });
+    }
+    if (typeof episodeData.outro_start === 'number' && episodeData.outro_start > 0) {
+      ticks.push({ time: episodeData.outro_start, title: 'Outro' });
+    }
+  }
+  
+  ticks.forEach(t => {
+    const pct = (t.time / duration) * 100;
+    if (pct >= 0 && pct <= 100) {
+      const tickEl = document.createElement('div');
+      tickEl.className = 'seekbar-chapter-tick';
+      tickEl.style.left = `${pct}%`;
+      tickEl.setAttribute('data-time', t.time);
+      if (t.title) tickEl.title = `${formatChapterTime(t.time)} - ${t.title}`;
+      bar.appendChild(tickEl);
+    }
+  });
+}
+
+export function renderChaptersDropdown(episodeData) {
+  let chaptersContainer = document.getElementById('chapters-dropdown-container') || document.querySelector('.chapters-dropdown');
+  let chaptersMenuList = document.getElementById('chapters-menu-list') || document.querySelector('.chapters-dropdown-menu');
+  
+  if (!chaptersContainer) {
+    const controlsRight = document.querySelector('.player-controls-right');
+    if (controlsRight) {
+      chaptersContainer = document.createElement('div');
+      chaptersContainer.className = 'player-dropdown chapters-dropdown';
+      chaptersContainer.id = 'chapters-dropdown-container';
+      chaptersContainer.style.display = 'none';
+      chaptersContainer.innerHTML = `
+        <button class="player-btn dropdown-trigger chapters-btn" id="chapters-btn" title="Capítulos"><i data-lucide="bookmark"></i></button>
+        <div class="dropdown-menu chapters-dropdown-menu" id="chapters-menu-list"></div>
+      `;
+      controlsRight.insertBefore(chaptersContainer, controlsRight.firstChild);
+      chaptersMenuList = chaptersContainer.querySelector('#chapters-menu-list');
+      
+      const trigger = chaptersContainer.querySelector('.dropdown-trigger');
+      if (trigger) {
+        trigger.onclick = (e) => {
+          e.stopPropagation();
+          const isActive = chaptersContainer.classList.contains('active');
+          document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+          if (!isActive) chaptersContainer.classList.add('active');
+          triggerControlsActivity();
+        };
+      }
+    }
+  }
+  
+  if (!chaptersContainer || !chaptersMenuList || !episodeData) return;
+  
+  let chaptersList = episodeData.chapters;
+  if (typeof chaptersList === 'string') {
+    try { chaptersList = JSON.parse(chaptersList); } catch(e) { chaptersList = []; }
+  }
+  
+  let items = [];
+  if (Array.isArray(chaptersList) && chaptersList.length > 0) {
+    items = chaptersList;
+  } else {
+    const duration = episodeData.duration || (video ? video.duration : 0);
+    if (typeof episodeData.intro_start === 'number') {
+      const introEnd = typeof episodeData.intro_end === 'number' ? episodeData.intro_end : episodeData.intro_start + 90;
+      items.push({ title: 'Intro', start: episodeData.intro_start, end: introEnd });
+      items.push({ title: 'Episodio', start: introEnd, end: episodeData.outro_start || duration });
+    }
+    if (typeof episodeData.outro_start === 'number') {
+      items.push({ title: 'Outro', start: episodeData.outro_start, end: duration });
+    }
+  }
+  
+  if (items.length === 0) {
+    chaptersContainer.style.display = 'none';
+    chaptersMenuList.innerHTML = '';
+    return;
+  }
+  
+  chaptersContainer.style.display = '';
+  
+  chaptersMenuList.innerHTML = items.map(ch => {
+    const formatted = formatChapterTime(ch.start);
+    return `<button class="chapter-item" data-start="${ch.start}">${formatted} - ${ch.title}</button>`;
+  }).join('');
+  
+  chaptersMenuList.querySelectorAll('.chapter-item').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const start = parseFloat(btn.getAttribute('data-start'));
+      if (!isNaN(start)) {
+        loadVideoStream(start);
+        showVideoToast(`Saltar a: ${btn.textContent}`);
+      }
+      chaptersContainer.classList.remove('active');
+    };
+  });
+}
+
+export function formatChapterTime(seconds) {
+  if (isNaN(seconds) || seconds === null || seconds === undefined) return '00:00';
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  
+  if (hrs > 0) {
+    return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
 

@@ -1324,7 +1324,7 @@ button, input, select {
   z-index: 12;
   background: rgba(11, 12, 14, 0.85);
   backdrop-filter: blur(10px);
-  border: 1px solid var(--border-color);
+  border: 1px solid rgba(0, 240, 255, 0.4);
   color: var(--text-main);
   padding: 10px 24px;
   border-radius: 4px;
@@ -1332,6 +1332,7 @@ button, input, select {
   font-size: 0.95rem;
   cursor: pointer;
   transition: var(--transition-smooth);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5), 0 0 10px rgba(0, 240, 255, 0.2);
 }
 
 .skip-intro-btn:hover {
@@ -1339,6 +1340,64 @@ button, input, select {
   color: var(--text-inverse);
   box-shadow: 0 0 15px var(--accent-glow);
   transform: scale(1.05);
+}
+
+/* Chapter Ticks on Seek Bar */
+.seekbar-chapter-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.9);
+  z-index: 3;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.player-progress-bar:hover .seekbar-chapter-tick {
+  background: var(--accent-color, #00f0ff);
+  box-shadow: 0 0 6px var(--accent-color, #00f0ff);
+}
+
+/* Chapter Selector Dropdown Menu */
+.chapters-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chapters-dropdown {
+  position: relative;
+}
+
+.chapters-dropdown-menu {
+  min-width: 180px;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.chapters-dropdown-menu .chapter-item {
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: var(--transition-fast, all 0.2s ease);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chapters-dropdown-menu .chapter-item:hover,
+.chapters-dropdown-menu .chapter-item.active {
+  background-color: var(--surface-muted);
+  color: var(--accent-color);
+  font-weight: 600;
 }
 
 /* Countdown Autoplay Card */
@@ -1807,6 +1866,86 @@ button, input, select {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Neon Airing Badge & Pulse Animations */
+@keyframes pulseGlow {
+  0% { transform: scale(1); opacity: 0.9; box-shadow: 0 0 6px #00e08f; }
+  50% { transform: scale(1.25); opacity: 1; box-shadow: 0 0 12px #00e08f; }
+  100% { transform: scale(1); opacity: 0.9; box-shadow: 0 0 6px #00e08f; }
+}
+
+.badge-airing-neon {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #00e08f;
+  border: 1px solid #00e08f;
+  font-family: var(--font-title);
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  box-shadow: 0 0 10px rgba(0, 224, 143, 0.3);
+  z-index: 5;
+  letter-spacing: 0.5px;
+}
+
+/* Day Picker Tabs */
+.day-tab {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-family: var(--font-title);
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 10px 22px;
+  border-radius: 25px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+
+.day-tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.day-tab.active {
+  background: var(--accent-color);
+  color: #ffffff;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 14px var(--accent-glow);
+}
+
+/* Admin Status Toggle Button */
+.btn-status-toggle {
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-family: var(--font-title);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.btn-status-toggle.airing {
+  background: rgba(0, 224, 143, 0.15);
+  color: #00e08f;
+  border-color: #00e08f;
+  box-shadow: 0 0 10px rgba(0, 224, 143, 0.2);
+}
+
+.btn-status-toggle.finished {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  border-color: var(--border-color);
+}
+
 .admin-sub-title {
   font-family: var(--font-title);
   font-size: 1.8rem;
@@ -2026,6 +2165,84 @@ button, input, select {
   align-items: center;
   gap: 8px;
   animation: fadeIn 0.3s ease;
+}
+
+/* Settings Toggle Switch */
+.setting-item {
+  margin-top: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+}
+
+.setting-info {
+  flex: 1;
+}
+
+.setting-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.setting-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.2);
+  transition: .3s;
+  border-radius: 26px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: var(--accent-color, #e50914);
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px var(--accent-color, #e50914);
+}
+
+input:checked + .slider:before {
+  transform: translateX(22px);
 }
 
 /* User Account Dropdown Hover styling */
