@@ -2850,7 +2850,7 @@ async function loadUserPreferences() {
       const prefs = data.preferences || data;
       if (prefs) {
         if (typeof prefs.auto_skip_intro !== 'undefined') {
-          const isSkip = Boolean(Number(prefs.auto_skip_intro));
+          const isSkip = prefs.auto_skip_intro === true || prefs.auto_skip_intro === 'true' || prefs.auto_skip_intro == 1;
           window.userPreferences.auto_skip_intro = isSkip;
           localStorage.setItem('kurastream_auto_skip_intro', isSkip);
           if (toggle) {
@@ -2904,7 +2904,6 @@ function setupSettingsView() {
     autoSkipToggle.addEventListener('change', async function() {
       const isChecked = this.checked;
       window.userPreferences.auto_skip_intro = isChecked;
-      localStorage.setItem('kurastream_auto_skip_intro', isChecked);
 
       saveSetting('kurastream_auto_skip_intro', isChecked);
 
