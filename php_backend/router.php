@@ -75,11 +75,11 @@ if ($uri === '/api/shows/random' && $method === 'GET') {
 }
 
 if (preg_match('#^/api/shows/([^/]+)$#', $uri, $m) && $method === 'GET') {
-    ShowController::getShowDetails($m[1]);
+    ShowController::getShowDetails(urldecode($m[1]));
 }
 
 if (preg_match('#^/api/shows/([^/]+)$#', $uri, $m) && $method === 'DELETE') {
-    ShowController::deleteShow($m[1]);
+    ShowController::deleteShow(urldecode($m[1]));
 }
 
 if ($uri === '/api/calendar/schedule' && $method === 'GET') {
@@ -87,15 +87,15 @@ if ($uri === '/api/calendar/schedule' && $method === 'GET') {
 }
 
 if (preg_match('#^/api/episodes/([^/]+)/timestamps$#', $uri, $m) && $method === 'POST') {
-    PlayerController::saveTimestamps($m[1]);
+    PlayerController::saveTimestamps(urldecode($m[1]));
 }
 
 if (preg_match('#^/api/episodes/([^/]+)$#', $uri, $m) && $method === 'GET') {
-    PlayerController::getEpisodeDetails($m[1]);
+    PlayerController::getEpisodeDetails(urldecode($m[1]));
 }
 
 if (preg_match('#^/api/stream/([^/]+)$#', $uri, $m) && $method === 'GET') {
-    PlayerController::streamVideo($m[1]);
+    PlayerController::streamVideo(urldecode($m[1]));
 }
 
 if ($uri === '/api/stream' && $method === 'GET') {
@@ -119,11 +119,11 @@ if ($uri === '/api/history' && $method === 'GET') {
 }
 
 if (preg_match('#^/api/progress/([^/]+)$#', $uri, $m) && $method === 'GET') {
-    HistoryController::getProgress($m[1]);
+    HistoryController::getProgress(urldecode($m[1]));
 }
 
 if (preg_match('#^/api/progress/([^/]+)$#', $uri, $m) && $method === 'POST') {
-    HistoryController::saveProgress($m[1]);
+    HistoryController::saveProgress(urldecode($m[1]));
 }
 
 if ($uri === '/api/progress' && $method === 'POST') {
@@ -131,7 +131,7 @@ if ($uri === '/api/progress' && $method === 'POST') {
 }
 
 if (preg_match('#^/api/subtitles?/([^/]+)/([^/]+)$#', $uri, $m) && $method === 'GET') {
-    PlayerController::streamSubtitle($m[1], $m[2]);
+    PlayerController::streamSubtitle(urldecode($m[1]), urldecode($m[2]));
 }
 
 if ($uri === '/api/favorites/check' && $method === 'GET') {
@@ -163,7 +163,7 @@ if ($uri === '/api/admin/staged' && $method === 'GET') {
 }
 
 if (preg_match('#^/api/admin/staged/([^/]+)/publish$#', $uri, $m) && $method === 'POST') {
-    AdminController::publishStaged($m[1]);
+    AdminController::publishStaged(urldecode($m[1]));
 }
 
 if ($uri === '/api/admin/publish' && $method === 'POST') {
@@ -171,7 +171,7 @@ if ($uri === '/api/admin/publish' && $method === 'POST') {
 }
 
 if (preg_match('#^/api/admin/staged/([^/]+)$#', $uri, $m) && $method === 'DELETE') {
-    AdminController::deleteStaged($m[1]);
+    AdminController::deleteStaged(urldecode($m[1]));
 }
 
 if ($uri === '/api/admin/stats' && $method === 'GET') {
