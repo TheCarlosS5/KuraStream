@@ -1,5 +1,5 @@
 import { initPlayer, destroyPlayer } from './player.js?v=1.5';
-import { initHeaderDropdowns, updateActiveNavHighlight } from './js/modules/navigation.js';
+import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
   const originalFetch = window.fetch;
@@ -146,18 +146,26 @@ let carouselInterval = null;
 let currentShowsPage = 1;
 
 function initAppMain() {
-  initHeaderDropdowns();
-  setupRouter();
-  initAdminSidebar();
-  setupEasterEgg();
-  setupForms();
-  setupSettingsView();
-  loadUserPreferences();
-  setupUserAuth();
-  setupCommunityChat();
-  initCustomCursor();
-  setupRandomModalAndNotifications();
-  loadNotifications();
+  const safeRun = (fn, name) => {
+    try {
+      if (typeof fn === 'function') fn();
+    } catch(err) {
+      console.warn(`[Init Warning] ${name}:`, err);
+    }
+  };
+
+  safeRun(initHeaderDropdowns, 'initHeaderDropdowns');
+  safeRun(setupRouter, 'setupRouter');
+  safeRun(initAdminSidebar, 'initAdminSidebar');
+  safeRun(setupEasterEgg, 'setupEasterEgg');
+  safeRun(setupForms, 'setupForms');
+  safeRun(setupSettingsView, 'setupSettingsView');
+  safeRun(loadUserPreferences, 'loadUserPreferences');
+  safeRun(setupUserAuth, 'setupUserAuth');
+  safeRun(setupCommunityChat, 'setupCommunityChat');
+  safeRun(initCustomCursor, 'initCustomCursor');
+  safeRun(setupRandomModalAndNotifications, 'setupRandomModalAndNotifications');
+  safeRun(loadNotifications, 'loadNotifications');
 
   // Add search, status, sort and genre filter listeners
   const sInput = document.getElementById('search-input');
