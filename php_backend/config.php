@@ -50,7 +50,16 @@ define('JWT_SECRET', $jwtSecret);
 define('PASSWORD_SALT', getenv('PASSWORD_SALT') ?: 'kurasalt');
 
 define('ROOT_DIR', dirname(__DIR__));
-define('LIBRARY_DIR', ROOT_DIR . '/library');
+
+$configuredMediaPath = getenv('MEDIA_LIBRARY_PATH');
+if (!empty($configuredMediaPath)) {
+    if (!str_starts_with($configuredMediaPath, '/') && !preg_match('#^[a-zA-Z]:[/\\\\]#', $configuredMediaPath)) {
+        $configuredMediaPath = ROOT_DIR . '/' . ltrim($configuredMediaPath, './');
+    }
+    define('LIBRARY_DIR', rtrim($configuredMediaPath, '/\\'));
+} else {
+    define('LIBRARY_DIR', ROOT_DIR . '/library');
+}
 
 // Set JSON headers and CORS
 function setCorsHeaders() {

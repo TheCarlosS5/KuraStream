@@ -30,37 +30,43 @@ class HistoryController {
         jsonResponse($history);
     }
 
-    public static function updateProgress(): void {
+    public static function getProgress(?string $episodeId = null): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        $epId = $episodeId ?: ($_GET['episode_id'] ?? '');
+
+        if (empty($epId)) {
+            jsonError('episode_id requerido', 400);
+        }
+
+        $prog = DbHelper::getProgress($username, $profile, $epId);
+        if (!$prog) {
+            jsonResponse(['progress' => 0, 'completed' => false, 'duration' => 0]);
+        } else {
+            jsonResponse($prog);
+        }
+    }
+
+    public static function saveProgress(?string $episodeId = null): void {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
         list($username, $profile) = self::resolveUserAndProfile($data);
 
-        $episodeId = $data['episode_id'] ?? '';
-        $progress = (float)($data['progress_seconds'] ?? 0);
+        $epId = $episodeId ?: ($data['episode_id'] ?? ($_GET['episode_id'] ?? ''));
+        $progress = (float)($data['progress'] ?? ($data['progress_seconds'] ?? 0));
         $duration = (float)($data['duration'] ?? 0);
+        $completed = isset($data['completed']) ? (bool)$data['completed'] : null;
 
-        if (empty($episodeId)) {
+        if (empty($epId)) {
             jsonError('episode_id requerido', 400);
         }
 
-        $db = Database::getConnection();
-        $stmt = $db->prepare("
-            INSERT INTO watch_history (username, profile_name, episode_id, progress_seconds, duration)
-            VALUES (:user, :prof, :ep, :prog, :dur)
-            ON DUPLICATE KEY UPDATE
-                progress_seconds = VALUES(progress_seconds),
-                duration = VALUES(duration)
-        ");
-        $stmt->execute([
-            'user' => $username,
-            'prof' => $profile,
-            'ep' => $episodeId,
-            'prog' => $progress,
-            'dur' => $duration
-        ]);
-
+        DbHelper::saveProgress($username, $profile, $epId, $progress, $duration, $completed);
         jsonResponse(['success' => true]);
+    }
+
+    public static function updateProgress(): void {
+        self::saveProgress();
     }
 
     public static function getFavorites(): void {
@@ -79,13 +85,29 @@ class HistoryController {
         jsonResponse($favorites);
     }
 
+    public static function checkFavorite(): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        $showId = $_GET['showId'] ?? ($_GET['show_id'] ?? '');
+
+        if (empty($showId)) {
+            jsonResponse(['favorited' => false]);
+        }
+
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT * FROM favorites WHERE username = :user AND profile_name = :prof AND show_id = :show");
+        $stmt->execute(['user' => $username, 'prof' => $profile, 'show' => $showId]);
+        $existing = $stmt->fetch();
+
+        jsonResponse(['favorited' => !empty($existing)]);
+    }
+
     public static function toggleFavorite(): void {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
         list($username, $profile) = self::resolveUserAndProfile($data);
 
-        $showId = $data['show_id'] ?? '';
+        $showId = $data['show_id'] ?? ($data['showId'] ?? '');
 
         if (empty($showId)) {
             jsonError('show_id requerido', 400);

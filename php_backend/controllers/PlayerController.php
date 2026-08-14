@@ -24,6 +24,44 @@ class PlayerController {
         jsonResponse(['success' => true]);
     }
 
+    public static function streamSubtitle(string $episodeId, $trackNum = 0): void {
+        $ep = DbHelper::getEpisode($episodeId);
+        if (!$ep || empty($ep['filepath']) || !file_exists($ep['filepath'])) {
+            @header('Content-Type: text/vtt; charset=utf-8');
+            echo "WEBVTT\n\n";
+            if (defined('TESTING_MODE')) throw new ExitException("Subtitle not found", 404);
+            exit();
+        }
+
+        $filepath = $ep['filepath'];
+        // Check if external .vtt or .srt exists next to file
+        $baseNoExt = preg_replace('/\.[^.]+$/', '', $filepath);
+        $vttCandidate = $baseNoExt . '.vtt';
+        $srtCandidate = $baseNoExt . '.srt';
+
+        if (file_exists($vttCandidate)) {
+            @header('Content-Type: text/vtt; charset=utf-8');
+            readfile($vttCandidate);
+            if (defined('TESTING_MODE')) throw new ExitException("VTT delivered", 200);
+            exit();
+        }
+
+        // Extract subtitle track to WebVTT via ffmpeg
+        $trackIndex = (int)$trackNum;
+        $cmd = sprintf('ffmpeg -y -v error -i %s -map 0:s:%d? -f webvtt -', escapeshellarg($filepath), $trackIndex);
+        $vttOutput = @shell_exec($cmd);
+
+        @header('Content-Type: text/vtt; charset=utf-8');
+        if (!empty($vttOutput) && str_starts_with(trim($vttOutput), 'WEBVTT')) {
+            echo $vttOutput;
+        } else {
+            echo "WEBVTT\n\n";
+        }
+
+        if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200);
+        exit();
+    }
+
     public static function streamVideo(?string $episodeId = null): void {
         $filepath = $_GET['filepath'] ?? '';
 

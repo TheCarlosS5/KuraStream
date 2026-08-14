@@ -114,6 +114,26 @@ if ($uri === '/api/history' && $method === 'GET') {
     HistoryController::getHistory();
 }
 
+if (preg_match('#^/api/progress/([^/]+)$#', $uri, $m) && $method === 'GET') {
+    HistoryController::getProgress($m[1]);
+}
+
+if (preg_match('#^/api/progress/([^/]+)$#', $uri, $m) && $method === 'POST') {
+    HistoryController::saveProgress($m[1]);
+}
+
+if ($uri === '/api/progress' && $method === 'POST') {
+    HistoryController::saveProgress();
+}
+
+if (preg_match('#^/api/subtitles?/([^/]+)/([^/]+)$#', $uri, $m) && $method === 'GET') {
+    PlayerController::streamSubtitle($m[1], $m[2]);
+}
+
+if ($uri === '/api/favorites/check' && $method === 'GET') {
+    HistoryController::checkFavorite();
+}
+
 if ($uri === '/api/history' && $method === 'POST') {
     HistoryController::updateProgress();
 }
@@ -133,7 +153,6 @@ if ($uri === '/api/favorites' && $method === 'POST') {
 if ($uri === '/api/notifications' && $method === 'GET') {
     HistoryController::getNotifications();
 }
-
 
 if ($uri === '/api/admin/staged' && $method === 'GET') {
     AdminController::getStaged();
@@ -155,6 +174,38 @@ if ($uri === '/api/admin/stats' && $method === 'GET') {
     AdminController::getStats();
 }
 
+if ($uri === '/api/admin/active-streams' && $method === 'GET') {
+    AdminController::getActiveStreams();
+}
+
+if ($uri === '/api/admin/logs' && $method === 'GET') {
+    AdminController::getLogs();
+}
+
+if ($uri === '/api/admin/display/status' && $method === 'GET') {
+    AdminController::getDisplayStatus();
+}
+
+if ($uri === '/api/admin/display/power' && $method === 'POST') {
+    AdminController::setDisplayPower();
+}
+
+if ($uri === '/api/admin/update-show-title' && $method === 'POST') {
+    AdminController::updateShowTitle();
+}
+
+if ($uri === '/api/admin/save-episode-timings' && $method === 'POST') {
+    AdminController::saveEpisodeTimings();
+}
+
+if ($uri === '/api/admin/create-show-tmdb' && $method === 'POST') {
+    AdminController::createShowFromTmdb();
+}
+
+if ($uri === '/api/admin/detect-intros' && $method === 'POST') {
+    AdminController::detectIntros();
+}
+
 if ($uri === '/api/admin/toggle-show-status' && $method === 'POST') {
     AuthMiddleware::requireAdmin();
     ShowController::toggleStatus();
@@ -168,8 +219,29 @@ if ($uri === '/api/comments' && $method === 'POST') {
     ShowController::addComment();
 }
 
-if ($uri === '/api/admin/tmdb/search' && $method === 'GET') {
+if (($uri === '/api/admin/tmdb/search' || $uri === '/api/search-tmdb' || $uri === '/api/admin/search-tmdb-candidates') && $method === 'GET') {
     ShowController::searchTmdb();
+}
+
+if ($uri === '/api/placeholder-poster' && $method === 'GET') {
+    $title = htmlspecialchars($_GET['title'] ?? 'KuraStream', ENT_QUOTES, 'UTF-8');
+    @header('Content-Type: image/svg+xml; charset=utf-8');
+    echo <<<SVG
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#181824"/>
+      <stop offset="100%" stop-color="#0a0a10"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="450" fill="url(#g)"/>
+  <circle cx="150" cy="200" r="50" fill="#a855f7" opacity="0.2"/>
+  <polygon points="140,180 170,200 140,220" fill="#a855f7"/>
+  <text x="150" y="280" font-family="system-ui, sans-serif" font-size="16" font-weight="600" fill="#e2e8f0" text-anchor="middle">{$title}</text>
+  <text x="150" y="305" font-family="system-ui, sans-serif" font-size="12" fill="#94a3b8" text-anchor="middle">KuraStream</text>
+</svg>
+SVG;
+    exit();
 }
 
 if ($uri === '/api/subtitles' && $method === 'GET') {
@@ -180,8 +252,8 @@ if ($uri === '/api/torrents' && $method === 'GET') {
     jsonResponse([]);
 }
 
-// Rescan trigger
-if ($uri === '/api/admin/scan' && $method === 'POST') {
+// Rescan / Repair trigger
+if (($uri === '/api/admin/scan' || $uri === '/api/admin/repair-library') && $method === 'POST') {
     AuthMiddleware::requireAdmin();
     $res = LibraryScanner::runScan();
     jsonResponse($res);

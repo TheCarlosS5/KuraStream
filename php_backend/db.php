@@ -90,6 +90,7 @@ class Database {
                 episode_id VARCHAR(255) NOT NULL,
                 progress_seconds DOUBLE NOT NULL DEFAULT 0,
                 duration DOUBLE NOT NULL DEFAULT 0,
+                completed TINYINT(1) DEFAULT 0,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (username, profile_name, episode_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -150,6 +151,10 @@ class Database {
             if ($checkCol && $checkCol->rowCount() === 0) {
                 $db->exec("ALTER TABLE episodes ADD COLUMN chapters LONGTEXT NULL");
             }
+            $checkComp = $db->query("SHOW COLUMNS FROM watch_history LIKE 'completed'");
+            if ($checkComp && $checkComp->rowCount() === 0) {
+                $db->exec("ALTER TABLE watch_history ADD COLUMN completed TINYINT(1) DEFAULT 0");
+            }
         } catch (Throwable $e) {
             // Ignore if check or alter column fails
         }
@@ -187,6 +192,69 @@ class DbHelper {
         $show['rating'] = (float)$show['rating'];
         $show['year'] = $show['year'] !== null ? (int)$show['year'] : null;
         return $show;
+    }
+
+    public static function findShowByFolderOrTitle(string $folder, string $title): ?array {
+        $db = Database::getConnection();
+        $cleanFolder = str_replace('_', ' ', $folder);
+        $cleanTitle = trim($title);
+
+        $stmt = $db->prepare("
+            SELECT * FROM shows 
+            WHERE id = :f1 
+               OR id = :f2 
+               OR LOWER(title) = LOWER(:t1) 
+               OR LOWER(title) = LOWER(:t2)
+            LIMIT 1
+        ");
+        $stmt->execute([
+            'f1' => $folder,
+            'f2' => strtolower(preg_replace('/[^A-Za-z0-9]+/', '_', $folder)),
+            't1' => $cleanFolder,
+            't2' => $cleanTitle
+        ]);
+        $show = $stmt->fetch();
+        if (!$show) return null;
+        $show['rating'] = (float)$show['rating'];
+        $show['year'] = $show['year'] !== null ? (int)$show['year'] : null;
+        return $show;
+    }
+
+    public static function getProgress(string $username, string $profile, string $episodeId): ?array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT * FROM watch_history WHERE username = :u AND profile_name = :p AND episode_id = :e");
+        $stmt->execute(['u' => $username, 'p' => $profile, 'e' => $episodeId]);
+        $row = $stmt->fetch();
+        if (!$row) return null;
+        return [
+            'progress' => (float)$row['progress_seconds'],
+            'completed' => (bool)$row['completed'],
+            'duration' => (float)$row['duration']
+        ];
+    }
+
+    public static function saveProgress(string $username, string $profile, string $episodeId, float $progress, float $duration = 0, ?bool $completed = null): void {
+        $db = Database::getConnection();
+        if ($completed === null) {
+            $completed = ($duration > 0 && $progress >= ($duration * 0.85));
+        }
+
+        $stmt = $db->prepare("
+            INSERT INTO watch_history (username, profile_name, episode_id, progress_seconds, duration, completed)
+            VALUES (:u, :p, :e, :prog, :dur, :comp)
+            ON DUPLICATE KEY UPDATE 
+                progress_seconds = VALUES(progress_seconds),
+                duration = IF(VALUES(duration) > 0, VALUES(duration), duration),
+                completed = VALUES(completed)
+        ");
+        $stmt->execute([
+            'u' => $username,
+            'p' => $profile,
+            'e' => $episodeId,
+            'prog' => $progress,
+            'dur' => $duration,
+            'comp' => $completed ? 1 : 0
+        ]);
     }
 
     public static function saveShow(array $show): void {

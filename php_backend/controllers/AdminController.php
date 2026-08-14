@@ -98,4 +98,88 @@ class AdminController {
             'total_storage_gb' => round($totalBytes / (1024 * 1024 * 1024), 2)
         ]);
     }
+
+    public static function getActiveStreams(): void {
+        AuthMiddleware::requireAdmin();
+        jsonResponse([]);
+    }
+
+    public static function getLogs(): void {
+        AuthMiddleware::requireAdmin();
+        $logFile = '/home/dserver-calos/kurastream.log';
+        if (file_exists($logFile) && is_readable($logFile)) {
+            $lines = array_slice(file($logFile), -150);
+            jsonResponse(['logs' => implode("", $lines)]);
+        }
+        jsonResponse(['logs' => "Servidor PHP activo en ejecución."]);
+    }
+
+    public static function getDisplayStatus(): void {
+        AuthMiddleware::requireAdmin();
+        jsonResponse(['power' => 'on', 'brightness' => 100]);
+    }
+
+    public static function setDisplayPower(): void {
+        AuthMiddleware::requireAdmin();
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+        $power = $data['power'] ?? 'on';
+        jsonResponse(['success' => true, 'power' => $power]);
+    }
+
+    public static function updateShowTitle(): void {
+        AuthMiddleware::requireAdmin();
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+        $showId = $data['show_id'] ?? '';
+        $newTitle = trim($data['title'] ?? '');
+
+        if (empty($showId) || empty($newTitle)) {
+            jsonError('show_id y title requeridos', 400);
+        }
+
+        $db = Database::getConnection();
+        $stmt = $db->prepare("UPDATE shows SET title = :t WHERE id = :id");
+        $stmt->execute(['t' => $newTitle, 'id' => $showId]);
+        jsonResponse(['success' => true]);
+    }
+
+    public static function saveEpisodeTimings(): void {
+        AuthMiddleware::requireAdmin();
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+        $episodeId = $data['episode_id'] ?? '';
+
+        if (empty($episodeId)) {
+            jsonError('episode_id requerido', 400);
+        }
+
+        DbHelper::saveEpisodeTimestamps($episodeId, $data);
+        jsonResponse(['success' => true]);
+    }
+
+    public static function createShowFromTmdb(): void {
+        AuthMiddleware::requireAdmin();
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+        $tmdbId = (int)($data['tmdb_id'] ?? ($data['id'] ?? 0));
+        $mediaType = $data['media_type'] ?? 'anime';
+
+        if (!$tmdbId) {
+            jsonError('tmdb_id requerido', 400);
+        }
+
+        $details = TmdbScraper::getDetails($tmdbId, $mediaType);
+        if (!$details) {
+            jsonError('Detalles TMDB no encontrados', 404);
+        }
+
+        DbHelper::saveShow($details);
+        jsonResponse(['success' => true, 'show' => $details]);
+    }
+
+    public static function detectIntros(): void {
+        AuthMiddleware::requireAdmin();
+        jsonResponse(['success' => true, 'detected_count' => 0]);
+    }
 }
