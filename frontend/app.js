@@ -3617,15 +3617,30 @@ function setupUserAuth() {
   }
 
   // Open modal
+  const openLoginDialog = (tab = 'login') => {
+    if (!loginModal) return;
+    loginModal.style.display = 'flex';
+    switchAuthTab(tab);
+    const uIn = document.getElementById('login-username-input');
+    const pIn = document.getElementById('login-password-input');
+    const err = document.getElementById('login-error-msg');
+    if (uIn) { uIn.value = ''; setTimeout(() => uIn.focus(), 50); }
+    if (pIn) pIn.value = '';
+    if (err) err.style.display = 'none';
+  };
+
   if (loginTrigger) {
-    loginTrigger.onclick = () => {
-      loginModal.style.display = 'flex';
-      switchAuthTab('login');
-      document.getElementById('login-username-input').value = '';
-      document.getElementById('login-password-input').value = '';
-      document.getElementById('login-error-msg').style.display = 'none';
-    };
+    loginTrigger.onclick = () => openLoginDialog('login');
   }
+
+  // Delegated click listener for all login triggers across app
+  document.addEventListener('click', (e) => {
+    const trigger = e.target.closest('#btn-login-trigger, .btn-login-trigger, #landing-signin-btn');
+    if (trigger) {
+      e.preventDefault();
+      openLoginDialog('login');
+    }
+  });
 
   // Cancel modal
   if (modalCancel) {
@@ -3645,22 +3660,34 @@ function setupUserAuth() {
   function switchAuthTab(tab) {
     if (tab === 'login') {
       isRegisterTab = false;
-      tabLogin.classList.add('active');
-      tabLogin.style.borderBottomColor = 'var(--accent-color)';
-      tabRegister.classList.remove('active');
-      tabRegister.style.borderBottomColor = 'transparent';
-      tabRegister.style.color = 'var(--text-muted)';
-      tabLogin.style.color = 'var(--text-main)';
-      document.getElementById('login-modal-title').textContent = 'Inicia sesión en tu cuenta';
+      if (tabLogin) {
+        tabLogin.classList.add('active');
+        tabLogin.style.borderBottomColor = 'var(--accent-color)';
+        tabLogin.style.color = 'var(--text-main)';
+      }
+      if (tabRegister) {
+        tabRegister.classList.remove('active');
+        tabRegister.style.borderBottomColor = 'transparent';
+        tabRegister.style.color = 'var(--text-muted)';
+      }
+      const titleEl = document.getElementById('login-modal-title');
+      if (titleEl) titleEl.textContent = 'Inicia sesión en tu cuenta';
+      if (modalSubmit) modalSubmit.textContent = 'Iniciar Sesión';
     } else {
       isRegisterTab = true;
-      tabRegister.classList.add('active');
-      tabRegister.style.borderBottomColor = 'var(--accent-color)';
-      tabLogin.classList.remove('active');
-      tabLogin.style.borderBottomColor = 'transparent';
-      tabLogin.style.color = 'var(--text-muted)';
-      tabRegister.style.color = 'var(--text-main)';
-      document.getElementById('login-modal-title').textContent = 'Crea tu cuenta de usuario';
+      if (tabRegister) {
+        tabRegister.classList.add('active');
+        tabRegister.style.borderBottomColor = 'var(--accent-color)';
+        tabRegister.style.color = 'var(--text-main)';
+      }
+      if (tabLogin) {
+        tabLogin.classList.remove('active');
+        tabLogin.style.borderBottomColor = 'transparent';
+        tabLogin.style.color = 'var(--text-muted)';
+      }
+      const titleEl = document.getElementById('login-modal-title');
+      if (titleEl) titleEl.textContent = 'Crea tu cuenta de usuario';
+      if (modalSubmit) modalSubmit.textContent = 'Crear Cuenta';
     }
   }
 
@@ -3695,14 +3722,16 @@ function setupUserAuth() {
       const password = passwordInput ? passwordInput.value.trim() : '';
 
       if (!username || !password) {
-        errorMsg.textContent = 'Por favor, rellena todos los campos';
-        errorMsg.style.display = 'block';
+        if (errorMsg) {
+          errorMsg.textContent = 'Por favor, rellena todos los campos';
+          errorMsg.style.display = 'block';
+        }
         return;
       }
 
       modalSubmit.disabled = true;
       modalSubmit.textContent = 'Procesando...';
-      errorMsg.style.display = 'none';
+      if (errorMsg) errorMsg.style.display = 'none';
 
       try {
         const url = isRegisterTab ? '/api/register' : '/api/login';
@@ -3736,8 +3765,10 @@ function setupUserAuth() {
               }
               window.dispatchEvent(new Event('hashchange'));
             } else {
-              errorMsg.textContent = logData.error || logData.message || 'Error al iniciar sesión automáticamente';
-              errorMsg.style.display = 'block';
+              if (errorMsg) {
+                errorMsg.textContent = logData.error || logData.message || 'Error al iniciar sesión automáticamente';
+                errorMsg.style.display = 'block';
+              }
               return;
             }
           } else {
@@ -3762,16 +3793,20 @@ function setupUserAuth() {
             loadShowComments(showId);
           }
         } else {
-          errorMsg.textContent = data.error || data.message || (isRegisterTab ? 'Error al registrar el usuario' : 'Credenciales incorrectas');
-          errorMsg.style.display = 'block';
+          if (errorMsg) {
+            errorMsg.textContent = data.error || data.message || (isRegisterTab ? 'Error al registrar el usuario' : 'Credenciales incorrectas');
+            errorMsg.style.display = 'block';
+          }
         }
       } catch (err) {
         console.error(err);
-        errorMsg.textContent = 'Error de conexión con el servidor: ' + err.message;
-        errorMsg.style.display = 'block';
+        if (errorMsg) {
+          errorMsg.textContent = 'Error de conexión con el servidor: ' + err.message;
+          errorMsg.style.display = 'block';
+        }
       } finally {
         modalSubmit.disabled = false;
-        modalSubmit.textContent = 'Aceptar';
+        modalSubmit.textContent = isRegisterTab ? 'Crear Cuenta' : 'Iniciar Sesión';
       }
     };
   }
