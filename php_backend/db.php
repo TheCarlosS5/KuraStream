@@ -7,16 +7,7 @@ class Database {
     public static function getConnection(): PDO {
         if (self::$pdo === null) {
             try {
-                // First ensure database exists
-                $initPdo = new PDO(
-                    "mysql:host=" . DB_HOST . ";port=" . DB_PORT,
-                    DB_USER,
-                    DB_PASS,
-                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-                );
-                $initPdo->exec("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
-
-                // Connect to kurastream DB
+                // Connect directly to kurastream DB
                 self::$pdo = new PDO(
                     "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4",
                     DB_USER,
@@ -26,17 +17,18 @@ class Database {
                         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
                     ]
                 );
-
-                self::initializeSchema();
             } catch (PDOException $e) {
+                if (defined('TESTING_MODE')) {
+                    throw $e;
+                }
                 jsonError("Database Connection Failed: " . $e->getMessage(), 500);
             }
         }
         return self::$pdo;
     }
 
-    private static function initializeSchema() {
-        $db = self::$pdo;
+    public static function initializeSchema(?PDO $customPdo = null) {
+        $db = $customPdo ?: self::getConnection();
 
         $db->exec("
             CREATE TABLE IF NOT EXISTS shows (

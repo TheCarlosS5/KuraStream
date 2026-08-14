@@ -1,6 +1,16 @@
 <?php
 // Global Configuration for KuraStream PHP Backend
 
+class ExitException extends RuntimeException {
+    public int $statusCode;
+    public $data;
+    public function __construct(string $message = '', int $statusCode = 200, $data = null) {
+        parent::__construct($message);
+        $this->statusCode = $statusCode;
+        $this->data = $data;
+    }
+}
+
 // Load .env file if present in project root
 $envFile = dirname(__DIR__) . '/.env';
 if (file_exists($envFile) && is_readable($envFile)) {
@@ -24,9 +34,19 @@ define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
 define('DB_PORT', getenv('DB_PORT') ?: '3306');
 define('DB_NAME', getenv('DB_NAME') ?: 'kurastream');
 define('DB_USER', getenv('DB_USER') ?: 'kurastream');
-define('DB_PASS', getenv('DB_PASS') !== false ? getenv('DB_PASS') : 'kurastream');
+define('DB_PASS', getenv('DB_PASS') !== false ? getenv('DB_PASS') : '');
 
-define('JWT_SECRET', getenv('JWT_SECRET') ?: 'kurastream_jwt_secret_key_2026');
+// Require JWT_SECRET in production
+$jwtSecret = getenv('JWT_SECRET');
+if (empty($jwtSecret)) {
+    if (php_sapi_name() === 'cli' || defined('TESTING_MODE')) {
+        $jwtSecret = 'test_dev_jwt_secret_key_random_' . md5(__DIR__);
+    } else {
+        http_response_code(500);
+        die(json_encode(['error' => 'JWT_SECRET environment variable is missing and must be configured.']));
+    }
+}
+define('JWT_SECRET', $jwtSecret);
 define('PASSWORD_SALT', getenv('PASSWORD_SALT') ?: 'kurasalt');
 
 define('ROOT_DIR', dirname(__DIR__));
@@ -35,29 +55,39 @@ define('LIBRARY_DIR', ROOT_DIR . '/library');
 // Set JSON headers and CORS
 function setCorsHeaders() {
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-    $allowedOrigins = array_filter(explode(',', getenv('ALLOWED_ORIGINS') ?: ''));
+    $allowedOrigins = array_filter(array_map('trim', explode(',', getenv('ALLOWED_ORIGINS') ?: '')));
 
     if (!empty($allowedOrigins)) {
         if (in_array($origin, $allowedOrigins, true)) {
-            header("Access-Control-Allow-Origin: {$origin}");
+            @header("Access-Control-Allow-Origin: {$origin}");
         }
     } else {
-        header('Access-Control-Allow-Origin: ' . ($origin ?: '*'));
+        // Safe default: only match localhost, 127.0.0.1, or local LAN IP origins if request origin matches
+        if ($origin && preg_match('#^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$#', $origin)) {
+            @header("Access-Control-Allow-Origin: {$origin}");
+        }
     }
 
-    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-    header('Access-Control-Allow-Headers: Content-Type, Authorization');
+    @header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    @header('Access-Control-Allow-Headers: Content-Type, Authorization');
     if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
-        http_response_code(200);
+        @http_response_code(200);
+        if (defined('TESTING_MODE')) {
+            throw new ExitException('OPTIONS 200', 200);
+        }
         exit();
     }
 }
 
 function jsonResponse($data, $statusCode = 200) {
     setCorsHeaders();
-    http_response_code($statusCode);
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    @http_response_code($statusCode);
+    @header('Content-Type: application/json; charset=utf-8');
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    echo $json;
+    if (defined('TESTING_MODE')) {
+        throw new ExitException($json, $statusCode, $data);
+    }
     exit();
 }
 

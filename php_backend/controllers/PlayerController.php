@@ -36,8 +36,9 @@ class PlayerController {
         }
 
         if (empty($filepath)) {
-            http_response_code(404);
+            @http_response_code(404);
             echo "Video file not specified or episode not found";
+            if (defined('TESTING_MODE')) throw new ExitException("Video file not specified", 404);
             exit();
         }
 
@@ -46,16 +47,18 @@ class PlayerController {
         $realLibrary = realpath(LIBRARY_DIR);
 
         if (!$realPath || !file_exists($realPath) || !is_file($realPath)) {
-            http_response_code(404);
+            @http_response_code(404);
             echo "Video file not found";
+            if (defined('TESTING_MODE')) throw new ExitException("Video file not found", 404);
             exit();
         }
 
         // Ensure the path is strictly within the library directory
         $libraryPrefix = rtrim($realLibrary, '/\\') . DIRECTORY_SEPARATOR;
         if (!$realLibrary || ($realPath !== $realLibrary && !str_starts_with($realPath, $libraryPrefix))) {
-            http_response_code(403);
+            @http_response_code(403);
             echo "Access denied: File must reside within the library directory";
+            if (defined('TESTING_MODE')) throw new ExitException("Access denied: File must reside within the library directory", 403);
             exit();
         }
 
@@ -74,15 +77,17 @@ class PlayerController {
                 $length = $end - $offset + 1;
                 $isPartial = true;
 
-                header('HTTP/1.1 206 Partial Content');
-                header("Content-Range: bytes {$offset}-{$end}/{$fileSize}");
+                @header('HTTP/1.1 206 Partial Content');
+                @header("Content-Range: bytes {$offset}-{$end}/{$fileSize}");
             } else {
-                header('HTTP/1.1 416 Requested Range Not Satisfiable');
-                header("Content-Range: bytes */{$fileSize}");
+                @http_response_code(416);
+                @header('HTTP/1.1 416 Requested Range Not Satisfiable');
+                @header("Content-Range: bytes */{$fileSize}");
+                if (defined('TESTING_MODE')) throw new ExitException("416 Range Not Satisfiable", 416);
                 exit();
             }
         } else {
-            header('HTTP/1.1 200 OK');
+            @header('HTTP/1.1 200 OK');
         }
 
         // Detect correct video MIME type
@@ -97,9 +102,13 @@ class PlayerController {
         ];
         $mime = $mimeTypes[$ext] ?? (@mime_content_type($realPath) ?: 'video/mp4');
 
-        header("Content-Type: {$mime}");
-        header('Accept-Ranges: bytes');
-        header("Content-Length: {$length}");
+        @header("Content-Type: {$mime}");
+        @header('Accept-Ranges: bytes');
+        @header("Content-Length: {$length}");
+
+        if (defined('TESTING_MODE')) {
+            throw new ExitException("Stream success", $isPartial ? 206 : 200);
+        }
 
         $fp = fopen($realPath, 'rb');
         fseek($fp, $offset);
