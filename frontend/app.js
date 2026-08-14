@@ -148,6 +148,7 @@ let currentShowsPage = 1;
 function initAppMain() {
   initHeaderDropdowns();
   setupRouter();
+  initAdminSidebar();
   setupEasterEgg();
   setupForms();
   setupSettingsView();
@@ -2101,37 +2102,76 @@ function setupForms() {
     });
   }
 
-  // Setup Admin Sidebar Tabs switching via delegated click event listener
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('.admin-nav-item');
-    if (!btn) return;
-    
-    const targetId = btn.getAttribute('data-target');
+  // Unified Admin Sub-View Switcher
+  window.switchAdminSubView = function(targetId) {
     if (!targetId) return;
+
+    let resolvedId = targetId;
+    if (targetId === 'admin-sub-status') resolvedId = 'admin-sub-overview';
 
     const navItems = document.querySelectorAll('.admin-nav-item');
     const subViews = document.querySelectorAll('.admin-sub-view');
 
-    navItems.forEach(item => item.classList.remove('active'));
-    subViews.forEach(view => view.classList.remove('active'));
+    navItems.forEach(item => {
+      const itemTarget = item.getAttribute('data-target');
+      if (itemTarget === resolvedId || (itemTarget === 'admin-sub-overview' && resolvedId === 'admin-sub-status')) {
+        item.classList.add('active');
+      } else {
+        item.classList.remove('active');
+      }
+    });
 
-    btn.classList.add('active');
-    const targetView = document.getElementById(targetId);
-    if (targetView) targetView.classList.add('active');
+    subViews.forEach(view => {
+      if (view.id === resolvedId) {
+        view.classList.add('active');
+        view.style.display = 'block';
+      } else {
+        view.classList.remove('active');
+        view.style.display = 'none';
+      }
+    });
 
-    // Manage polling and data rendering based on active sub-view
+    // Stop previous sub-view pollers
     stopAdminPolling();
-    if (targetId === 'admin-sub-overview' || targetId === 'admin-sub-status') {
+
+    // Trigger tab-specific data loader
+    if (resolvedId === 'admin-sub-overview') {
       startAdminStatsPolling();
       fetchDisplayStatus();
-    } else if (targetId === 'admin-sub-console') {
-      startAdminLogsPolling();
-    } else if (targetId === 'admin-sub-library') {
-      loadAdminPanel();
-    } else if (targetId === 'admin-sub-staging') {
-      loadStagedImports();
-    } else if (targetId === 'admin-sub-torrents') {
+    } else if (resolvedId === 'admin-sub-import') {
+      loadImportShowsDropdown();
+    } else if (resolvedId === 'admin-sub-library') {
+      loadAdminLibraryList();
+    } else if (resolvedId === 'admin-sub-torrents') {
       setupAutoDownloaderControls();
+    } else if (resolvedId === 'admin-sub-staging') {
+      loadStagedImports();
+    } else if (resolvedId === 'admin-sub-console') {
+      startAdminLogsPolling();
+    }
+
+    if (window.lucide) window.lucide.createIcons();
+  };
+
+  window.initAdminSidebar = function() {
+    const navItems = document.querySelectorAll('.admin-nav-item');
+    navItems.forEach(btn => {
+      btn.onclick = (e) => {
+        e.preventDefault();
+        const targetId = btn.getAttribute('data-target');
+        if (targetId) window.switchAdminSubView(targetId);
+      };
+    });
+  };
+
+  // Delegated click listener as fallback
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.admin-nav-item');
+    if (!btn) return;
+    const targetId = btn.getAttribute('data-target');
+    if (targetId) {
+      e.preventDefault();
+      window.switchAdminSubView(targetId);
     }
   });
 
@@ -2140,7 +2180,7 @@ function setupForms() {
   if (btnClearLogs) {
     btnClearLogs.addEventListener('click', () => {
       const terminal = document.getElementById('terminal-box');
-      if (terminal) terminal.innerHTML = '<div style="color: var(--text-muted);">Pantalla limpia. Esperando nuevos registros...</div>';
+      if (terminal) terminal.innerHTML = '<div style="color: var(--text-muted); font-family: monospace;">Pantalla limpia. Esperando nuevos registros...</div>';
     });
   }
 
@@ -2151,23 +2191,24 @@ function setupForms() {
 
   if (btnSearchTmdb) {
     btnSearchTmdb.addEventListener('click', async () => {
-      const titleVal = document.getElementById('import-title').value.trim();
-      const typeVal = document.getElementById('import-type').value;
-      const tmdbIdVal = document.getElementById('import-tmdb').value.trim();
+      const titleVal = document.getElementById('import-title')?.value.trim() || '';
+      const typeVal = document.getElementById('import-type')?.value || 'anime';
+      const tmdbIdVal = document.getElementById('import-tmdb')?.value.trim() || '';
 
       if (!titleVal && !tmdbIdVal) {
         alert('Por favor, escribe un título o ID de TMDB primero.');
         return;
       }
 
-      previewPlaceholder.style.display = 'none';
-      previewContent.style.display = 'none';
+      if (previewPlaceholder) previewPlaceholder.style.display = 'none';
+      if (previewContent) previewContent.style.display = 'none';
       
-      // Spinner in placeholder
       const tempSpinner = document.createElement('div');
       tempSpinner.className = 'spinner';
       tempSpinner.style.margin = '30px auto';
-      previewPlaceholder.parentNode.insertBefore(tempSpinner, previewPlaceholder.nextSibling);
+      if (previewPlaceholder && previewPlaceholder.parentNode) {
+        previewPlaceholder.parentNode.insertBefore(tempSpinner, previewPlaceholder.nextSibling);
+      }
 
       try {
         let searchUrl = `/api/search-tmdb?query=${encodeURIComponent(titleVal)}&type=${typeVal}`;
@@ -2179,80 +2220,71 @@ function setupForms() {
         if (!res.ok) throw new Error('No se encontraron resultados.');
 
         const metadata = await res.json();
-        
         tempSpinner.remove();
-        previewContent.style.display = 'flex';
 
-        document.getElementById('preview-backdrop').src = metadata.backdrop_path ? `https://image.tmdb.org/t/p/w500${metadata.backdrop_path}` : 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
-        document.getElementById('preview-poster').src = metadata.poster_path ? `https://image.tmdb.org/t/p/w300${metadata.poster_path}` : 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=300&q=80';
-        document.getElementById('preview-title').textContent = metadata.title;
-        document.getElementById('preview-year-val').textContent = metadata.year || 'N/A';
-        document.getElementById('preview-rating-val').innerHTML = `<i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);display:inline-block;vertical-align:middle;margin-right:2px;"></i> ${(metadata.rating || 0).toFixed(1)}`;
-        document.getElementById('preview-overview').textContent = metadata.synopsis || 'Sin descripción disponible.';
+        if (previewContent) {
+          previewContent.style.display = 'flex';
+          const pBackdrop = document.getElementById('preview-backdrop');
+          const pPoster = document.getElementById('preview-poster');
+          const pTitle = document.getElementById('preview-title');
+          const pYear = document.getElementById('preview-year-val');
+          const pRating = document.getElementById('preview-rating-val');
+          const pOverview = document.getElementById('preview-overview');
 
-        if (metadata.id) {
-          document.getElementById('import-tmdb').value = metadata.id;
+          if (pBackdrop) pBackdrop.src = metadata.backdrop_path ? (metadata.backdrop_path.startsWith('http') ? metadata.backdrop_path : `https://image.tmdb.org/t/p/w500${metadata.backdrop_path}`) : 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
+          if (pPoster) pPoster.src = metadata.poster_path ? (metadata.poster_path.startsWith('http') ? metadata.poster_path : `https://image.tmdb.org/t/p/w300${metadata.poster_path}`) : 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=300&q=80';
+          if (pTitle) pTitle.textContent = metadata.title;
+          if (pYear) pYear.textContent = metadata.year || 'N/A';
+          if (pRating) pRating.innerHTML = `<i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);display:inline-block;vertical-align:middle;margin-right:2px;"></i> ${(metadata.rating || 0).toFixed(1)}`;
+          if (pOverview) pOverview.textContent = metadata.synopsis || 'Sin descripción disponible.';
+
+          const tmdbInput = document.getElementById('import-tmdb');
+          if (tmdbInput && metadata.id) tmdbInput.value = metadata.id;
+
+          if (window.lucide) window.lucide.createIcons();
         }
-
-        if (typeof lucide !== 'undefined') lucide.createIcons();
       } catch (err) {
         tempSpinner.remove();
-        previewPlaceholder.style.display = 'flex';
-        previewPlaceholder.innerHTML = `
-          <i data-lucide="alert-circle" style="width: 48px; height: 48px; stroke: var(--danger-color); margin-bottom: 12px;"></i>
-          <p style="color: var(--danger-color); text-align: center; font-size: 0.85rem;">Error al buscar: ${err.message}</p>
-        `;
-        if (typeof lucide !== 'undefined') lucide.createIcons();
+        if (previewPlaceholder) {
+          previewPlaceholder.style.display = 'flex';
+          previewPlaceholder.innerHTML = `
+            <i data-lucide="alert-circle" style="width: 48px; height: 48px; stroke: var(--danger-color); margin-bottom: 12px;"></i>
+            <p style="color: var(--danger-color); text-align: center; font-size: 0.85rem;">Error al buscar: ${err.message}</p>
+          `;
+          if (window.lucide) window.lucide.createIcons();
+        }
       }
     });
   }
 }
 
-async function loadAdminPanel() {
-  // Preserve current active tab selection if already selected
-  const activeTab = document.querySelector('.admin-nav-item.active');
-  const activeView = document.querySelector('.admin-sub-view.active');
-  
-  if (!activeTab || !activeView) {
-    const navItems = document.querySelectorAll('.admin-nav-item');
-    const subViews = document.querySelectorAll('.admin-sub-view');
-    
-    navItems.forEach(item => item.classList.remove('active'));
-    subViews.forEach(view => view.classList.remove('active'));
-    
-    const defaultTab = document.querySelector('[data-target="admin-sub-overview"]');
-    if (defaultTab) defaultTab.classList.add('active');
-    const defaultView = document.getElementById('admin-sub-overview');
-    if (defaultView) defaultView.classList.add('active');
+async function loadImportShowsDropdown() {
+  const showSelector = document.getElementById('import-show-selector');
+  if (!showSelector) return;
+  try {
+    const res = await fetch('/api/shows');
+    const shows = res.ok ? await res.json() : [];
+    const allShows = Array.isArray(shows) ? shows : [];
+    showSelector.innerHTML = '<option value="new">-- Crear Nueva Serie / Película --</option>' + 
+      allShows.map(s => {
+        const typeLabel = s.media_type === 'movie' ? 'Película' : 'Anime';
+        return `<option value="${s.id}" data-title="${escapeHTML(s.title || '')}" data-type="${s.media_type || 'anime'}" data-tmdb="${s.id}">${escapeHTML(s.title || '')} (${typeLabel})</option>`;
+      }).join('');
+  } catch (e) {}
+}
 
-    stopAdminPolling();
-    startAdminStatsPolling();
-  }
-
+async function loadAdminLibraryList() {
   const showsList = document.getElementById('admin-shows-list');
   if (!showsList) return;
-  showsList.innerHTML = '<div class="spinner"></div>';
+  showsList.innerHTML = '<div class="spinner" style="margin: 30px auto;"></div>';
   
   try {
-    const resAnime = await fetch('/api/shows?type=anime');
-    const anime = resAnime.ok ? await resAnime.json() : [];
-    
-    const resMovie = await fetch('/api/shows?type=movie');
-    const movies = resMovie.ok ? await resMovie.json() : [];
-    
-    const animeArr = Array.isArray(anime) ? anime : [];
-    const movieArr = Array.isArray(movies) ? movies : [];
-    const allShows = [...animeArr, ...movieArr];
+    const res = await fetch('/api/shows');
+    const shows = res.ok ? await res.json() : [];
+    const allShows = Array.isArray(shows) ? shows : [];
 
-    // Populate show selector in Import panel
-    const showSelector = document.getElementById('import-show-selector');
-    if (showSelector) {
-      showSelector.innerHTML = '<option value="new">-- Crear Nueva Serie / Película --</option>' + 
-        allShows.map(s => {
-          const typeLabel = s.media_type === 'movie' ? 'Película' : 'Anime';
-          return `<option value="${s.id}" data-title="${s.title}" data-type="${s.media_type}" data-tmdb="${s.id}">${s.title} (${typeLabel})</option>`;
-        }).join('');
-    }
+    // Also refresh the import shows dropdown
+    loadImportShowsDropdown();
 
     if (allShows.length === 0) {
       showsList.innerHTML = '<p style="color: var(--text-muted); padding: 20px 0;">No hay elementos en la biblioteca.</p>';
@@ -2260,30 +2292,58 @@ async function loadAdminPanel() {
     }
 
     showsList.innerHTML = allShows.map(show => {
-      const poster = show.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=100&q=80';
+      const poster = show.poster_path || '/api/placeholder-poster';
+      const safeTitle = escapeHTML(show.title || '');
+      const safeId = escapeHTML(show.id || '');
       return `
-        <div class="admin-show-item">
-          <div class="admin-show-info">
-            <img class="admin-show-poster" src="${poster}" alt="${show.title}">
-            <div>
-              <span class="admin-show-title">${show.title}</span>
-              <div class="admin-show-meta">${show.media_type === 'movie' ? 'Película' : 'Anime'} • ${show.year || 'N/A'}</div>
+        <div class="admin-show-item" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; gap: 10px;">
+          <div class="admin-show-info" style="display: flex; align-items: center; gap: 12px; max-width: 60%;">
+            <img class="admin-show-poster" src="${poster}" alt="${safeTitle}" style="width: 44px; height: 60px; object-fit: cover; border-radius: 4px; background: #000;" onerror="this.src='/api/placeholder-poster'">
+            <div style="overflow: hidden;">
+              <span class="admin-show-title" style="font-weight: 600; font-size: 0.95rem; color: var(--text-main); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${safeTitle}</span>
+              <div class="admin-show-meta" style="color: var(--text-muted); font-size: 0.78rem;">${show.media_type === 'movie' ? 'Película' : 'Anime'} • ${show.year || 'N/A'}</div>
             </div>
           </div>
-          <div style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <button class="btn-status-toggle ${show.status === 'airing' ? 'airing' : 'finished'}" onclick="toggleShowStatus('${show.id}', '${show.status}')" title="Haz clic para cambiar entre En Emisión y Finalizado">${show.status === 'airing' ? '● En Emisión' : 'Finalizado'}</button>
-            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(168, 85, 247, 0.2); border-color: #a855f7;" onclick="scrapeShowCover('${show.id}', '${show.title.replace(/'/g, "\\'")}')" id="btn-scrape-${show.id}"><i data-lucide="search" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Buscar Carátula HD</button>
-            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem; height: 32px;" onclick="openMediaEditor('${show.id}')">Editar Multimedia</button>
-            ${show.media_type === 'anime' ? `<button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(39, 201, 63, 0.2); border-color: #27c93f;" onclick="triggerSAID('${show.id}')" id="btn-said-${show.id}"><i data-lucide="scan" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Detectar Intros</button>` : ''}
-            <button class="btn-danger-small" onclick="deleteShow('${show.id}', '${show.title}')">Eliminar</button>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <button type="button" class="btn-status-toggle ${show.status === 'airing' ? 'airing' : 'finished'}" data-id="${safeId}" data-status="${show.status || 'finished'}" title="Haz clic para cambiar estado">${show.status === 'airing' ? '● En Emisión' : 'Finalizado'}</button>
+            <button type="button" class="btn btn-secondary btn-scrape-cover" data-id="${safeId}" data-title="${safeTitle}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(168, 85, 247, 0.2); border-color: #a855f7;"><i data-lucide="search" style="width:14px;height:14px;margin-right:4px;"></i> Carátula HD</button>
+            <button type="button" class="btn btn-secondary btn-edit-show" data-id="${safeId}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px;"><i data-lucide="edit" style="width:14px;height:14px;margin-right:4px;"></i> Editar</button>
+            ${show.media_type === 'anime' ? `<button type="button" class="btn btn-secondary btn-said-scan" data-id="${safeId}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(39, 201, 63, 0.2); border-color: #27c93f;"><i data-lucide="scan" style="width:14px;height:14px;margin-right:4px;"></i> Detectar Intros</button>` : ''}
+            <button type="button" class="btn-danger-small btn-delete-show" data-id="${safeId}" data-title="${safeTitle}">Eliminar</button>
           </div>
         </div>
       `;
     }).join('');
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    if (window.lucide) window.lucide.createIcons({ root: showsList });
+
+    showsList.querySelectorAll('.btn-status-toggle').forEach(btn => {
+      btn.onclick = () => toggleShowStatus(btn.dataset.id, btn.dataset.status);
+    });
+    showsList.querySelectorAll('.btn-scrape-cover').forEach(btn => {
+      btn.onclick = () => scrapeShowCover(btn.dataset.id, btn.dataset.title);
+    });
+    showsList.querySelectorAll('.btn-edit-show').forEach(btn => {
+      btn.onclick = () => openMediaEditor(btn.dataset.id);
+    });
+    showsList.querySelectorAll('.btn-said-scan').forEach(btn => {
+      btn.onclick = () => triggerSAID(btn.dataset.id);
+    });
+    showsList.querySelectorAll('.btn-delete-show').forEach(btn => {
+      btn.onclick = () => deleteShow(btn.dataset.id, btn.dataset.title);
+    });
+
   } catch (e) {
     console.error('Error loading admin shows list:', e);
-    showsList.innerHTML = '<p style="color: var(--danger-color)">Error al cargar la lista.</p>';
+    showsList.innerHTML = '<p style="color: var(--danger-color); padding: 20px 0;">Error al cargar la lista.</p>';
+  }
+}
+
+async function loadAdminPanel() {
+  const activeBtn = document.querySelector('.admin-nav-item.active');
+  const targetId = activeBtn ? activeBtn.getAttribute('data-target') : 'admin-sub-overview';
+  if (typeof window.switchAdminSubView === 'function') {
+    window.switchAdminSubView(targetId || 'admin-sub-overview');
   }
 }
 

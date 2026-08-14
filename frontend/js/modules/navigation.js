@@ -222,12 +222,18 @@ export function initAdminSidebar() {
 
     if (btn) btn.classList.add('active');
 
-    // Handle exact HTML ID mappings and legacy targets
     let resolvedId = targetId;
-    if (targetId === 'admin-sub-overview') resolvedId = 'admin-sub-status';
+    if (targetId === 'admin-sub-status') resolvedId = 'admin-sub-overview';
 
-    const targetView = document.getElementById(resolvedId);
-    if (targetView) targetView.classList.add('active');
+    subViews.forEach(view => {
+      if (view.id === resolvedId) {
+        view.classList.add('active');
+        view.style.display = 'block';
+      } else {
+        view.classList.remove('active');
+        view.style.display = 'none';
+      }
+    });
 
     // Stop previous sub-view pollers
     stopAdminStatsPolling();
@@ -235,7 +241,7 @@ export function initAdminSidebar() {
     stopAdminLogsPolling();
 
     // Trigger exact loader for each admin sub-view
-    if (resolvedId === 'admin-sub-status') {
+    if (resolvedId === 'admin-sub-overview') {
       startAdminStatsPolling();
     } else if (resolvedId === 'admin-sub-staging') {
       loadStagedImports();
