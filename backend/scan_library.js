@@ -11,6 +11,7 @@ const libraryDir = path.join(__dirname, '..', 'library');
 async function scanCategory(categoryName, mediaType) {
   const categoryPath = path.join(libraryDir, categoryName);
   try {
+    await fs.mkdir(categoryPath, { recursive: true });
     const shows = await fs.readdir(categoryPath);
     for (const showDir of shows) {
       if (showDir.startsWith('.') || showDir === 'logo.png') continue;
@@ -63,46 +64,66 @@ async function scanCategory(categoryName, mediaType) {
         showId = showDir.replace(/[\\/:*?"<>|]/g, '_');
       }
 
-      // Download images if they don't exist
+      // Download images if available from metadata, ensuring HD poster overwrites any extracted video frames
       let localPosterName = '';
       let localBackdropName = '';
       if (showDetails) {
         const posterDest = path.join(showPath, 'poster.jpg');
         const backdropDest = path.join(showPath, 'backdrop.jpg');
         
-        try {
-          await fs.access(posterDest);
-          localPosterName = 'poster.jpg';
-        } catch (e) {
-          if (showDetails.poster_path) {
+        if (showDetails.poster_path) {
+          try {
             localPosterName = await downloadImage(showDetails.poster_path, posterDest);
+          } catch (e) {
+            console.warn(`Failed to download poster for ${showDir}:`, e.message);
           }
+        }
+        if (!localPosterName) {
+          try {
+            await fs.access(posterDest);
+            localPosterName = 'poster.jpg';
+          } catch (e) {}
         }
 
-        try {
-          await fs.access(backdropDest);
-          localBackdropName = 'backdrop.jpg';
-        } catch (e) {
-          if (showDetails.backdrop_path) {
+        if (showDetails.backdrop_path) {
+          try {
             localBackdropName = await downloadImage(showDetails.backdrop_path, backdropDest);
+          } catch (e) {
+            console.warn(`Failed to download backdrop for ${showDir}:`, e.message);
           }
         }
+        if (!localBackdropName) {
+          try {
+            await fs.access(backdropDest);
+            localBackdropName = 'backdrop.jpg';
+          } catch (e) {}
+        }
+      } else {
+        const posterDest = path.join(showPath, 'poster.jpg');
+        const backdropDest = path.join(showPath, 'backdrop.jpg');
+        try { await fs.access(posterDest); localPosterName = 'poster.jpg'; } catch (e) {}
+        try { await fs.access(backdropDest); localBackdropName = 'backdrop.jpg'; } catch (e) {}
       }
+
+      const currentPoster = (dbShow?.poster_path && (dbShow.poster_path.startsWith('http') || dbShow.poster_path.includes('/api/covers/')))
+        ? dbShow.poster_path
+        : (localPosterName ? `/library/${categoryName}/${showDir}/${localPosterName}` : (dbShow?.poster_path || ''));
 
       // Save/update Show in DB
       dbHelper.saveShow({
         id: showId,
         title: (showDetails ? showDetails.title : showDir.replace(/_/g, ' ')).replace(/Ranma1\/?2/ig, 'Ranma ½'),
-        synopsis: showDetails ? showDetails.synopsis : '',
-        rating: showDetails ? showDetails.rating : 0.0,
-        year: showDetails ? showDetails.year : null,
-        studio: showDetails ? showDetails.studio : '',
-        director: showDetails ? showDetails.director : '',
-        writer: showDetails ? showDetails.writer : '',
-        cast_members: showDetails ? showDetails.cast_members : [],
-        poster_path: localPosterName ? `/library/${categoryName}/${showDir}/${localPosterName}` : (dbShow?.poster_path || ''),
+        synopsis: showDetails ? showDetails.synopsis : (dbShow ? dbShow.synopsis : ''),
+        rating: showDetails ? showDetails.rating : (dbShow ? dbShow.rating : 0.0),
+        year: showDetails ? showDetails.year : (dbShow ? dbShow.year : null),
+        studio: showDetails ? showDetails.studio : (dbShow ? dbShow.studio : ''),
+        director: showDetails ? showDetails.director : (dbShow ? dbShow.director : ''),
+        writer: showDetails ? showDetails.writer : (dbShow ? dbShow.writer : ''),
+        cast_members: showDetails ? showDetails.cast_members : (dbShow ? dbShow.cast_members : []),
+        poster_path: currentPoster,
         backdrop_path: localBackdropName ? `/library/${categoryName}/${showDir}/${localBackdropName}` : (dbShow?.backdrop_path || ''),
-        media_type: mediaType
+        media_type: mediaType,
+        status: showDetails?.status || (dbShow?.status ? dbShow.status : 'finished')
       });
 
       // Now scan episodes/files

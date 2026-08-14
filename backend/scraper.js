@@ -178,21 +178,25 @@ export const scraper = {
       }
     }
 
+    const releaseDate = details.first_air_date || details.release_date || '';
+    const isAiring = details.in_production === true || details.status === 'Returning Series' || details.status === 'In Production';
+    const status = isAiring ? 'airing' : 'finished';
+
     return {
       id: String(tmdbId),
       title: details.name || details.title,
       synopsis: details.overview || '',
       rating: details.vote_average || 0.0,
-      year: new Date(details.first_air_date || details.release_date || null).getFullYear() || null,
-      studio: studio,
-      director: director,
-      writer: writer,
+      year: parseInt(releaseDate.substring(0, 4), 10) || null,
+      studio,
+      director,
+      writer,
       cast_members: cast,
-      poster_path: details.poster_path,
-      backdrop_path: details.backdrop_path,
-      media_type: mediaType,
-      genres: genres,
-      trailer_key: trailerKey
+      genres,
+      poster_path: details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : '',
+      backdrop_path: details.backdrop_path ? `https://image.tmdb.org/t/p/w1280${details.backdrop_path}` : '',
+      trailer_key: trailerKey,
+      status
     };
   },
 
@@ -210,7 +214,7 @@ export const scraper = {
         still_path: ep.still_path ? `https://image.tmdb.org/t/p/w500${ep.still_path}` : null
       }));
     } catch (err) {
-      console.error(`Failed to fetch season ${seasonNumber} for show ${tmdbId}:`, err);
+      // 404 is normal if season does not exist on TMDB
       return [];
     }
   }
