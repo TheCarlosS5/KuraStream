@@ -122,5 +122,56 @@ class ShowController {
             'show' => $show
         ]);
     }
+
+    public static function deleteShow(string $id): void {
+        AuthMiddleware::requireAdmin();
+        $show = DbHelper::getShow($id);
+        if (!$show) {
+            $show = DbHelper::findShowByFolderOrTitle($id, $id);
+        }
+
+        $realId = $show ? $show['id'] : $id;
+        $mediaType = $show['media_type'] ?? 'anime';
+        $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
+
+        // 1. Delete DB records
+        DbHelper::deleteShow($realId);
+
+        // 2. Safely delete physical directory
+        $possiblePaths = [
+            LIBRARY_DIR . '/' . $catFolder . '/' . $realId,
+            LIBRARY_DIR . '/' . $catFolder . '/' . $id,
+            LIBRARY_DIR . '/Anime/' . $id,
+            LIBRARY_DIR . '/Movies/' . $id,
+            LIBRARY_DIR . '/Anime/' . str_replace(' ', '_', $id),
+            LIBRARY_DIR . '/Anime/' . str_replace('_', ' ', $id)
+        ];
+
+        $realLibPath = realpath(LIBRARY_DIR);
+        foreach ($possiblePaths as $folderPath) {
+            if (is_dir($folderPath)) {
+                $realFolderPath = realpath($folderPath);
+                if ($realFolderPath && $realLibPath && str_starts_with($realFolderPath, $realLibPath . DIRECTORY_SEPARATOR)) {
+                    self::deleteDirectoryRecursive($realFolderPath);
+                }
+            }
+        }
+
+        jsonResponse(['success' => true]);
+    }
+
+    private static function deleteDirectoryRecursive(string $dir): bool {
+        if (!is_dir($dir)) return false;
+        $files = array_diff(scandir($dir), ['.', '..']);
+        foreach ($files as $file) {
+            $path = $dir . '/' . $file;
+            if (is_dir($path)) {
+                self::deleteDirectoryRecursive($path);
+            } else {
+                @unlink($path);
+            }
+        }
+        return @rmdir($dir);
+    }
 }
 

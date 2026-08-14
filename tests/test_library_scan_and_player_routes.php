@@ -6,6 +6,8 @@ require_once __DIR__ . '/../php_backend/db.php';
 require_once __DIR__ . '/../php_backend/middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../php_backend/controllers/PlayerController.php';
 require_once __DIR__ . '/../php_backend/controllers/HistoryController.php';
+require_once __DIR__ . '/../php_backend/controllers/ShowController.php';
+require_once __DIR__ . '/../php_backend/controllers/AdminController.php';
 require_once __DIR__ . '/../php_backend/services/LibraryScanner.php';
 
 echo "Running Library Scanner & Player Routes Tests...\n";
@@ -72,6 +74,28 @@ try {
 }
 ob_get_clean();
 assert($caughtFav, "HistoryController::checkFavorite should return 200 OK");
-echo "✓ Check Favorite Endpoint OK\n";
+// 6. Test Delete Show Endpoint (Admin Restricted)
+$adminToken = AuthMiddleware::createToken(['username' => 'admin', 'role' => 'admin', 'exp' => time() + 3600]);
+$_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$adminToken}";
+
+$dummyShowId = 'dummy_test_delete_show';
+DbHelper::saveShow([
+    'id' => $dummyShowId,
+    'title' => 'Dummy Delete Test',
+    'media_type' => 'anime'
+]);
+assert(DbHelper::getShow($dummyShowId) !== null, "Dummy show should be in DB");
+
+$caughtDelete = false;
+ob_start();
+try {
+    ShowController::deleteShow($dummyShowId);
+} catch (ExitException $e) {
+    $caughtDelete = ($e->statusCode === 200);
+}
+ob_get_clean();
+assert($caughtDelete, "ShowController::deleteShow should return 200 OK");
+assert(DbHelper::getShow($dummyShowId) === null, "Dummy show should be deleted from DB");
+echo "✓ Delete Show Endpoint (Admin Restricted) OK\n";
 
 echo "\n🎉 ALL SCANNER, PLAYER, AND API ROUTE TESTS PASSED 100%!\n";

@@ -78,6 +78,10 @@ if (preg_match('#^/api/shows/([^/]+)$#', $uri, $m) && $method === 'GET') {
     ShowController::getShowDetails($m[1]);
 }
 
+if (preg_match('#^/api/shows/([^/]+)$#', $uri, $m) && $method === 'DELETE') {
+    ShowController::deleteShow($m[1]);
+}
+
 if ($uri === '/api/calendar/schedule' && $method === 'GET') {
     CalendarController::getSchedule();
 }
@@ -204,6 +208,10 @@ if ($uri === '/api/admin/create-show-tmdb' && $method === 'POST') {
 
 if ($uri === '/api/admin/detect-intros' && $method === 'POST') {
     AdminController::detectIntros();
+}
+
+if (($uri === '/api/admin/scrape-show-cover' || $uri === '/api/admin/scrape-cover') && $method === 'POST') {
+    AdminController::scrapeShowCover();
 }
 
 if ($uri === '/api/admin/toggle-show-status' && $method === 'POST') {
