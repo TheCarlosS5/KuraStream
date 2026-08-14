@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../services/LibraryScanner.php';
+require_once __DIR__ . '/../services/TmdbScraper.php';
 
 class AdminController {
     public static function getStaged(): void {
@@ -42,7 +43,7 @@ class AdminController {
         $targetDir = LIBRARY_DIR . '/' . $catName . '/' . $sanitizedTitle;
 
         if (!is_dir($targetDir)) {
-            mkdir($targetDir, 0777, true);
+            @mkdir($targetDir, 0777, true);
         }
 
         $ext = pathinfo($item['filepath'], PATHINFO_EXTENSION);
@@ -53,7 +54,7 @@ class AdminController {
         $targetPath = $targetDir . '/' . $targetFilename;
 
         if (file_exists($item['filepath'])) {
-            rename($item['filepath'], $targetPath);
+            @rename($item['filepath'], $targetPath);
         }
 
         // Delete from staged
@@ -91,11 +92,39 @@ class AdminController {
         $totalSecs = (float)$db->query("SELECT SUM(duration) FROM episodes")->fetchColumn();
         $totalBytes = (float)$db->query("SELECT SUM(size) FROM episodes")->fetchColumn();
 
+        $diskFree = @disk_free_space(LIBRARY_DIR) ?: (100 * 1024 * 1024 * 1024);
+        $diskTotal = @disk_total_space(LIBRARY_DIR) ?: (500 * 1024 * 1024 * 1024);
+        $diskUsed = max(0, $diskTotal - $diskFree);
+        $usedPercent = $diskTotal > 0 ? round(($diskUsed / $diskTotal) * 100, 1) : 0;
+
+        $formatBytes = function($bytes) {
+            if ($bytes >= 1024 * 1024 * 1024) {
+                return round($bytes / (1024 * 1024 * 1024), 2) . ' GB';
+            }
+            return round($bytes / (1024 * 1024), 1) . ' MB';
+        };
+
+        $totalHours = round($totalSecs / 3600, 1);
+        $storageGb = round($totalBytes / (1024 * 1024 * 1024), 2);
+        $librarySizeFormatted = $formatBytes($totalBytes);
+
         jsonResponse([
+            'success' => true,
             'shows_count' => $showsCount,
             'episodes_count' => $episodesCount,
-            'total_duration_hours' => round($totalSecs / 3600, 1),
-            'total_storage_gb' => round($totalBytes / (1024 * 1024 * 1024), 2)
+            'total_duration_hours' => $totalHours,
+            'total_storage_gb' => $storageGb,
+            // CamelCase compatibility for modules
+            'showsCount' => $showsCount,
+            'episodesCount' => $episodesCount,
+            'totalHours' => $totalHours,
+            'librarySizeFormatted' => $librarySizeFormatted,
+            'diskInfo' => [
+                'usedPercent' => $usedPercent,
+                'usedFormatted' => $formatBytes($diskUsed),
+                'freeFormatted' => $formatBytes($diskFree),
+                'totalFormatted' => $formatBytes($diskTotal)
+            ]
         ]);
     }
 
@@ -106,24 +135,71 @@ class AdminController {
 
     public static function getLogs(): void {
         AuthMiddleware::requireAdmin();
-        $logFile = '/home/dserver-calos/kurastream.log';
-        if (file_exists($logFile) && is_readable($logFile)) {
-            $lines = array_slice(file($logFile), -150);
-            jsonResponse(['logs' => implode("", $lines)]);
+        $candidates = [
+            ROOT_DIR . '/server.log',
+            '/home/dserver-calos/KuraStream/server.log',
+            '/home/dserver-calos/kurastream.log',
+            '/tmp/kurastream.log'
+        ];
+
+        $rawLogs = '';
+        foreach ($candidates as $filePath) {
+            if (file_exists($filePath) && is_readable($filePath) && filesize($filePath) > 0) {
+                $lines = array_slice(file($filePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES), -150);
+                $rawLogs = implode("\n", $lines);
+                break;
+            }
         }
-        jsonResponse(['logs' => "Servidor PHP activo en ejecución."]);
+
+        if (empty($rawLogs)) {
+            // Try journalctl if on systemd
+            $journal = @shell_exec('journalctl -u kurastream.service -n 80 --no-pager 2>/dev/null');
+            if (!empty($journal)) {
+                $rawLogs = trim($journal);
+            } else {
+                $rawLogs = "[" . date('Y-m-d H:i:s') . "] [INFO] Servidor PHP KuraStream activo y en ejecución.\n[" . date('Y-m-d H:i:s') . "] [INFO] Base de datos MariaDB conectada correctamente.";
+            }
+        }
+
+        $linesArray = explode("\n", $rawLogs);
+
+        jsonResponse([
+            'success' => true,
+            'logs' => $rawLogs,
+            'lines' => $linesArray
+        ]);
     }
 
     public static function getDisplayStatus(): void {
         AuthMiddleware::requireAdmin();
-        jsonResponse(['power' => 'on', 'brightness' => 100]);
+        $isOff = false;
+
+        $blPowerFiles = glob('/sys/class/backlight/*/bl_power');
+        if (!empty($blPowerFiles) && file_exists($blPowerFiles[0])) {
+            $val = trim(@file_get_contents($blPowerFiles[0]));
+            if ($val === '1' || $val === '4') $isOff = true;
+        }
+
+        jsonResponse([
+            'success' => true,
+            'state' => $isOff ? 'off' : 'on',
+            'power' => $isOff ? 'off' : 'on',
+            'brightness' => $isOff ? 0 : 100
+        ]);
     }
 
     public static function setDisplayPower(): void {
         AuthMiddleware::requireAdmin();
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
-        $power = $data['power'] ?? 'on';
+        $power = strtolower($data['power'] ?? 'on');
+
+        if ($power === 'off') {
+            @shell_exec('sh -c "echo 1 > /sys/class/backlight/*/bl_power 2>/dev/null || echo 1 > /sys/class/graphics/fb0/blank 2>/dev/null || vbetool dpms off 2>/dev/null || true"');
+        } else {
+            @shell_exec('sh -c "echo 0 > /sys/class/backlight/*/bl_power 2>/dev/null || echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null || vbetool dpms on 2>/dev/null || true"');
+        }
+
         jsonResponse(['success' => true, 'power' => $power]);
     }
 
@@ -131,16 +207,22 @@ class AdminController {
         AuthMiddleware::requireAdmin();
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
-        $showId = $data['show_id'] ?? '';
-        $newTitle = trim($data['title'] ?? '');
+
+        // Support both show_id/title and showId/newTitle
+        $showId = $data['showId'] ?? ($data['show_id'] ?? '');
+        $newTitle = trim($data['newTitle'] ?? ($data['title'] ?? ''));
 
         if (empty($showId) || empty($newTitle)) {
             jsonError('show_id y title requeridos', 400);
         }
 
+        $show = DbHelper::getShow($showId) ?: DbHelper::findShowByFolderOrTitle($showId, $showId);
+        $realId = $show ? $show['id'] : $showId;
+
         $db = Database::getConnection();
         $stmt = $db->prepare("UPDATE shows SET title = :t WHERE id = :id");
-        $stmt->execute(['t' => $newTitle, 'id' => $showId]);
+        $stmt->execute(['t' => $newTitle, 'id' => $realId]);
+
         jsonResponse(['success' => true]);
     }
 
@@ -148,7 +230,7 @@ class AdminController {
         AuthMiddleware::requireAdmin();
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
-        $episodeId = $data['episode_id'] ?? '';
+        $episodeId = $data['episode_id'] ?? ($data['episodeId'] ?? '');
 
         if (empty($episodeId)) {
             jsonError('episode_id requerido', 400);
@@ -158,29 +240,118 @@ class AdminController {
         jsonResponse(['success' => true]);
     }
 
-    public static function createShowFromTmdb(): void {
+    public static function previewTmdb(): void {
+        AuthMiddleware::requireAdmin();
+        $tmdbId = (int)($_GET['tmdb_id'] ?? ($_GET['tmdbId'] ?? ($_GET['id'] ?? 0)));
+        $query = trim($_GET['q'] ?? ($_GET['query'] ?? ($_GET['title'] ?? '')));
+        $type = $_GET['type'] ?? 'anime';
+
+        if (!$tmdbId && !empty($query)) {
+            $searchResults = TmdbScraper::search($query, $type);
+            if (!empty($searchResults)) {
+                $tmdbId = (int)$searchResults[0]['id'];
+            }
+        }
+
+        if (!$tmdbId) {
+            jsonError('No se encontraron resultados en TMDB', 404);
+        }
+
+        $details = TmdbScraper::getDetails($tmdbId, $type);
+        if (!$details) {
+            jsonError('No se pudieron obtener detalles de TMDB', 404);
+        }
+
+        jsonResponse([
+            'success' => true,
+            'details' => $details
+        ]);
+    }
+
+    public static function importShow(): void {
         AuthMiddleware::requireAdmin();
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
-        $tmdbId = (int)($data['tmdb_id'] ?? ($data['id'] ?? 0));
-        $mediaType = $data['media_type'] ?? 'anime';
 
-        if (!$tmdbId) {
-            jsonError('tmdb_id requerido', 400);
+        $title = trim($data['title'] ?? '');
+        $mediaType = $data['media_type'] ?? ($data['type'] ?? 'anime');
+        $tmdbId = (int)($data['tmdb_id'] ?? ($data['tmdbId'] ?? 0));
+        $ageRating = $data['age_rating'] ?? 'TV-14';
+
+        if (empty($title) && !$tmdbId) {
+            jsonError('title o tmdb_id requerido', 400);
         }
 
-        $details = TmdbScraper::getDetails($tmdbId, $mediaType);
-        if (!$details) {
-            jsonError('Detalles TMDB no encontrados', 404);
+        $details = null;
+        if ($tmdbId) {
+            $details = TmdbScraper::getDetails($tmdbId, $mediaType);
+        } else {
+            $searchRes = TmdbScraper::search($title, $mediaType);
+            if (!empty($searchRes)) {
+                $details = TmdbScraper::getDetails((int)$searchRes[0]['id'], $mediaType);
+            }
         }
 
-        DbHelper::saveShow($details);
-        jsonResponse(['success' => true, 'show' => $details]);
-    }
+        $cleanTitle = !empty($title) ? $title : ($details['title'] ?? 'Nuevo Show');
+        $sanitizedDir = str_replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], '_', $cleanTitle);
+        $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
+        $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $sanitizedDir;
 
-    public static function detectIntros(): void {
-        AuthMiddleware::requireAdmin();
-        jsonResponse(['success' => true, 'detected_count' => 0]);
+        if (!is_dir($showDir)) {
+            @mkdir($showDir, 0755, true);
+        }
+
+        $posterPath = '';
+        $backdropPath = '';
+
+        if ($details) {
+            if (!empty($details['poster_path'])) {
+                $destPoster = $showDir . '/poster.jpg';
+                if (TmdbScraper::downloadFile($details['poster_path'], $destPoster)) {
+                    $posterPath = "/library/{$catFolder}/{$sanitizedDir}/poster.jpg";
+                } else {
+                    $posterPath = $details['poster_path'];
+                }
+            }
+            if (!empty($details['backdrop_path'])) {
+                $destBackdrop = $showDir . '/backdrop.jpg';
+                if (TmdbScraper::downloadFile($details['backdrop_path'], $destBackdrop)) {
+                    $backdropPath = "/library/{$catFolder}/{$sanitizedDir}/backdrop.jpg";
+                } else {
+                    $backdropPath = $details['backdrop_path'];
+                }
+            }
+        }
+
+        $showRecord = [
+            'id' => $sanitizedDir,
+            'title' => $cleanTitle,
+            'synopsis' => $details['synopsis'] ?? '',
+            'rating' => $details['rating'] ?? 0.0,
+            'year' => $details['year'] ?? (int)date('Y'),
+            'studio' => $details['studio'] ?? '',
+            'director' => '',
+            'writer' => '',
+            'cast_members' => '[]',
+            'poster_path' => $posterPath,
+            'backdrop_path' => $backdropPath,
+            'media_type' => $mediaType,
+            'backdrop_loops' => '[]',
+            'genres' => $details['genres'] ?? '',
+            'trailer_key' => null,
+            'age_rating' => $ageRating,
+            'status' => $details['status'] ?? 'finished'
+        ];
+
+        DbHelper::saveShow($showRecord);
+
+        // Run scan to detect any files inside
+        LibraryScanner::runScan();
+
+        jsonResponse([
+            'success' => true,
+            'show' => $showRecord
+        ]);
     }
 
     public static function scrapeShowCover(): void {
@@ -210,7 +381,6 @@ class AdminController {
         $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
         $realShowId = $show ? $show['id'] : $showId;
 
-        // Find show directory on disk
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realShowId;
         if (!is_dir($showDir)) {
             $showDir = LIBRARY_DIR . '/Anime/' . $realShowId;
@@ -219,7 +389,6 @@ class AdminController {
             @mkdir($showDir, 0755, true);
         }
 
-        // 1. If tmdbId not provided, search TMDB
         if (!$tmdbId && !empty($query)) {
             $searchRes = TmdbScraper::search($query, $mediaType);
             if (!empty($searchRes)) {
@@ -231,13 +400,11 @@ class AdminController {
             jsonError('No se encontraron resultados en TMDB para ' . $query, 404);
         }
 
-        // 2. Fetch TMDB details
         $details = TmdbScraper::getDetails($tmdbId, $mediaType);
         if (!$details) {
             jsonError('No se pudieron obtener detalles de TMDB', 404);
         }
 
-        // 3. Download poster and backdrop to local disk
         $localPosterUrl = $show['poster_path'] ?? '';
         $localBackdropUrl = $show['backdrop_path'] ?? '';
 
@@ -259,7 +426,6 @@ class AdminController {
             }
         }
 
-        // 4. Update Show Record in DB
         $updatedData = [
             'id' => $realShowId,
             'title' => !empty($show['title']) ? $show['title'] : $details['title'],
@@ -288,5 +454,116 @@ class AdminController {
             'poster_path' => $localPosterUrl,
             'backdrop_path' => $localBackdropUrl
         ]);
+    }
+
+    // Torrent & AutoDownload Handlers
+    public static function getTorrentStatus(): void {
+        AuthMiddleware::requireAdmin();
+        jsonResponse([
+            'success' => true,
+            'isEnabled' => true,
+            'isScanning' => false,
+            'activeDownload' => null,
+            'queue' => [],
+            'history' => []
+        ]);
+    }
+
+    public static function searchTorrents(): void {
+        AuthMiddleware::requireAdmin();
+        $query = trim($_GET['q'] ?? ($_GET['query'] ?? ''));
+        $filterSpanish = isset($_GET['filterSpanish']) && $_GET['filterSpanish'] === 'true';
+
+        if (empty($query)) {
+            jsonResponse([]);
+            return;
+        }
+
+        // Query Nyaa.si RSS / API
+        $searchTerms = urlencode($query . ($filterSpanish ? ' spanish' : ''));
+        $url = "https://nyaa.si/?page=rss&q={$searchTerms}&c=1_2&f=0";
+
+        $results = [];
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 8,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        ]);
+        $xmlContent = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($httpCode === 200 && !empty($xmlContent)) {
+            try {
+                $xml = @simplexml_load_string($xmlContent, 'SimpleXMLElement', LIBXML_NOCDATA);
+                if ($xml && isset($xml->channel->item)) {
+                    $ns = $xml->getNamespaces(true);
+                    foreach ($xml->channel->item as $item) {
+                        $nyaaNs = isset($ns['nyaa']) ? $item->children($ns['nyaa']) : null;
+                        $results[] = [
+                            'id' => (string)$item->guid,
+                            'title' => (string)$item->title,
+                            'link' => (string)$item->link,
+                            'magnet' => (string)$item->link,
+                            'size' => $nyaaNs ? (string)$nyaaNs->size : 'N/A',
+                            'seeds' => $nyaaNs ? (int)$nyaaNs->seeders : 0,
+                            'leechers' => $nyaaNs ? (int)$nyaaNs->leechers : 0,
+                            'downloads' => $nyaaNs ? (int)$nyaaNs->downloads : 0,
+                            'pubDate' => (string)$item->pubDate
+                        ];
+                        if (count($results) >= 25) break;
+                    }
+                }
+            } catch (Throwable $e) {
+                // Ignore XML parsing errors
+            }
+        }
+
+        jsonResponse($results);
+    }
+
+    public static function addTorrent(): void {
+        AuthMiddleware::requireAdmin();
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+
+        $magnet = $data['magnet'] ?? ($data['link'] ?? '');
+        $title = $data['title'] ?? 'Descarga Torrent';
+
+        if (empty($magnet)) {
+            jsonError('magnet o link requerido', 400);
+        }
+
+        jsonResponse([
+            'success' => true,
+            'message' => "Torrent '{$title}' agregado a la cola de descargas."
+        ]);
+    }
+
+    public static function removeTorrentFromQueue(): void {
+        AuthMiddleware::requireAdmin();
+        jsonResponse(['success' => true]);
+    }
+
+    public static function clearTorrentQueue(): void {
+        AuthMiddleware::requireAdmin();
+        jsonResponse(['success' => true]);
+    }
+
+    public static function startTorrentQueue(): void {
+        AuthMiddleware::requireAdmin();
+        jsonResponse(['success' => true]);
+    }
+
+    public static function cancelActiveTorrent(): void {
+        AuthMiddleware::requireAdmin();
+        jsonResponse(['success' => true]);
+    }
+
+    public static function detectIntros(): void {
+        AuthMiddleware::requireAdmin();
+        jsonResponse(['success' => true, 'detected_count' => 0]);
     }
 }

@@ -98,4 +98,45 @@ assert($caughtDelete, "ShowController::deleteShow should return 200 OK");
 assert(DbHelper::getShow($dummyShowId) === null, "Dummy show should be deleted from DB");
 echo "✓ Delete Show Endpoint (Admin Restricted) OK\n";
 
+// 7. Test Admin Stats & Disk Info (both camelCase and snake_case)
+$caughtStats = false;
+ob_start();
+try {
+    AdminController::getStats();
+} catch (ExitException $e) {
+    $caughtStats = ($e->statusCode === 200);
+    assert(isset($e->data['showsCount']), "showsCount missing");
+    assert(isset($e->data['shows_count']), "shows_count missing");
+    assert(isset($e->data['diskInfo']), "diskInfo missing");
+}
+ob_get_clean();
+assert($caughtStats, "AdminController::getStats should return 200 OK");
+echo "✓ Admin Stats & Disk Info Endpoint OK\n";
+
+// 8. Test Admin Logs
+$caughtLogs = false;
+ob_start();
+try {
+    AdminController::getLogs();
+} catch (ExitException $e) {
+    $caughtLogs = ($e->statusCode === 200);
+    assert(isset($e->data['logs']), "logs missing");
+    assert(is_array($e->data['lines']), "lines should be array");
+}
+ob_get_clean();
+assert($caughtLogs, "AdminController::getLogs should return 200 OK");
+echo "✓ Admin Logs Endpoint OK\n";
+
+// 9. Test Autodownload Status
+$caughtTorrent = false;
+ob_start();
+try {
+    AdminController::getTorrentStatus();
+} catch (ExitException $e) {
+    $caughtTorrent = ($e->statusCode === 200);
+}
+ob_get_clean();
+assert($caughtTorrent, "AdminController::getTorrentStatus should return 200 OK");
+echo "✓ Torrent / Autodownload Status Endpoint OK\n";
+
 echo "\n🎉 ALL SCANNER, PLAYER, AND API ROUTE TESTS PASSED 100%!\n";

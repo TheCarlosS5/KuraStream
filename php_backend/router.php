@@ -202,8 +202,12 @@ if ($uri === '/api/admin/save-episode-timings' && $method === 'POST') {
     AdminController::saveEpisodeTimings();
 }
 
-if ($uri === '/api/admin/create-show-tmdb' && $method === 'POST') {
-    AdminController::createShowFromTmdb();
+if ($uri === '/api/admin/preview-tmdb' && $method === 'GET') {
+    AdminController::previewTmdb();
+}
+
+if (($uri === '/api/admin/import-show' || $uri === '/api/admin/create-show-tmdb') && $method === 'POST') {
+    AdminController::importShow();
 }
 
 if ($uri === '/api/admin/detect-intros' && $method === 'POST') {
@@ -212,6 +216,34 @@ if ($uri === '/api/admin/detect-intros' && $method === 'POST') {
 
 if (($uri === '/api/admin/scrape-show-cover' || $uri === '/api/admin/scrape-cover') && $method === 'POST') {
     AdminController::scrapeShowCover();
+}
+
+if ($uri === '/api/admin/autodownload/status' && $method === 'GET') {
+    AdminController::getTorrentStatus();
+}
+
+if ($uri === '/api/admin/torrents/search' && $method === 'GET') {
+    AdminController::searchTorrents();
+}
+
+if (($uri === '/api/admin/torrents/add' || $uri === '/api/admin/autodownload/add') && $method === 'POST') {
+    AdminController::addTorrent();
+}
+
+if ($uri === '/api/admin/autodownload/queue/remove' && $method === 'POST') {
+    AdminController::removeTorrentFromQueue();
+}
+
+if ($uri === '/api/admin/autodownload/queue/clear' && $method === 'POST') {
+    AdminController::clearTorrentQueue();
+}
+
+if ($uri === '/api/admin/autodownload/queue/start' && $method === 'POST') {
+    AdminController::startTorrentQueue();
+}
+
+if ($uri === '/api/admin/autodownload/cancel-active' && $method === 'POST') {
+    AdminController::cancelActiveTorrent();
 }
 
 if ($uri === '/api/admin/toggle-show-status' && $method === 'POST') {

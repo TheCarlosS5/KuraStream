@@ -1377,67 +1377,56 @@ function startAdminStatsPolling() {
       const resStats = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
       if (resStats.ok) {
         const stats = await resStats.json();
-        const statShows = document.getElementById('stat-shows');
-        const statEpisodes = document.getElementById('stat-episodes');
-        const statSize = document.getElementById('stat-size');
-        const statDuration = document.getElementById('stat-duration');
+        const statShows = document.getElementById('stat-shows') || document.getElementById('stat-shows-count');
+        const statEpisodes = document.getElementById('stat-episodes') || document.getElementById('stat-episodes-count');
+        const statSize = document.getElementById('stat-size') || document.getElementById('stat-library-size');
+        const statDuration = document.getElementById('stat-duration') || document.getElementById('stat-video-hours');
 
-        if (statShows) statShows.textContent = stats.showsCount || 0;
-        if (statEpisodes) statEpisodes.textContent = stats.episodesCount || 0;
-        
-        if (statSize) {
-          statSize.textContent = stats.libraryDiskSizeFormatted || `${(stats.totalSize / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-        }
-        
-        if (statDuration) {
-          const durationHours = (stats.totalDuration / 3600).toFixed(1);
-          statDuration.textContent = `${durationHours} h`;
-        }
+        const showsNum = stats.showsCount ?? stats.shows_count ?? 0;
+        const epsNum = stats.episodesCount ?? stats.episodes_count ?? 0;
+        const sizeFormatted = stats.librarySizeFormatted || (stats.total_storage_gb ? `${stats.total_storage_gb} GB` : '0 GB');
+        const hoursNum = stats.totalHours ?? stats.total_duration_hours ?? (stats.totalDuration ? (stats.totalDuration / 3600).toFixed(1) : 0);
 
-        const diskUsageBadge = document.getElementById('disk-usage-badge');
-        const diskProgressBar = document.getElementById('disk-progress-bar');
+        if (statShows) statShows.textContent = showsNum;
+        if (statEpisodes) statEpisodes.textContent = epsNum;
+        if (statSize) statSize.textContent = sizeFormatted;
+        if (statDuration) statDuration.textContent = `${hoursNum} h`;
+
+        const diskUsageBadge = document.getElementById('disk-usage-badge') || document.getElementById('stat-storage-percent');
+        const diskProgressBar = document.getElementById('disk-progress-bar') || document.getElementById('stat-storage-progress');
         const statLibraryFolderSize = document.getElementById('stat-library-folder-size');
         const statDiskUsed = document.getElementById('stat-disk-used');
         const statDiskFree = document.getElementById('stat-disk-free');
         const statDiskTotal = document.getElementById('stat-disk-total');
 
-        if (diskUsageBadge && stats.diskUsagePercentage) diskUsageBadge.textContent = `${stats.diskUsagePercentage} Usado`;
-        if (diskProgressBar && stats.diskUsagePercentage) diskProgressBar.style.width = stats.diskUsagePercentage;
-        if (statLibraryFolderSize) statLibraryFolderSize.textContent = stats.libraryDiskSizeFormatted || '--';
-        if (statDiskUsed) statDiskUsed.textContent = stats.diskUsedFormatted || '--';
-        if (statDiskFree) statDiskFree.textContent = stats.diskFreeFormatted || '--';
-        if (statDiskTotal) statDiskTotal.textContent = stats.diskTotalFormatted || '--';
+        const disk = stats.diskInfo || {};
+        const usedPct = disk.usedPercent ?? (parseFloat(stats.diskUsagePercentage) || 0);
+
+        if (diskUsageBadge) diskUsageBadge.textContent = `${usedPct}% USADO`;
+        if (diskProgressBar) diskProgressBar.style.width = `${usedPct}%`;
+        if (statLibraryFolderSize) statLibraryFolderSize.textContent = sizeFormatted;
+        if (statDiskUsed) statDiskUsed.textContent = disk.usedFormatted || stats.diskUsedFormatted || '--';
+        if (statDiskFree) statDiskFree.textContent = disk.freeFormatted || stats.diskFreeFormatted || '--';
+        if (statDiskTotal) statDiskTotal.textContent = disk.totalFormatted || stats.diskTotalFormatted || '--';
       }
 
       const resStreams = await fetch('/api/admin/active-streams', { headers: getAuthHeaders() });
       if (resStreams.ok) {
         const data = await resStreams.json();
         const streamsList = document.getElementById('active-streams-list');
+        const streamItems = Array.isArray(data) ? data : (data.streams || []);
         if (streamsList) {
-          if (data.streams.length === 0) {
+          if (streamItems.length === 0) {
             streamsList.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem; padding: 15px 0;">No hay transmisiones de vídeo activas en este momento.</p>';
           } else {
-            streamsList.innerHTML = data.streams.map(s => {
-              const minutesActive = Math.floor((Date.now() - s.timestamp) / 60000);
-              const detail = `${s.seasonNumber ? `T${s.seasonNumber} • ` : ''}Capítulo ${s.episodeNumber}: ${s.episodeTitle}`;
-              return `
-                <div class="active-stream-item">
-                  <div class="stream-meta">
-                    <span class="stream-title">${s.showTitle}</span>
-                    <span class="stream-details">${detail}</span>
-                  </div>
-                  <div style="text-align: right; font-size: 0.8rem; color: var(--text-muted);">
-                    <div>IP: ${s.ip}</div>
-                    <div>Activo hace ${minutesActive} min</div>
-                  </div>
-                </div>
-              `;
+            streamsList.innerHTML = streamItems.map(s => {
+              return `<div style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.85rem;"><strong>${s.title || 'Transmisión'}</strong> - ${s.user || 'Usuario'}</div>`;
             }).join('');
           }
         }
       }
-    } catch (err) {
-      console.warn('Error polling admin stats:', err);
+    } catch (e) {
+      console.warn('[Admin Stats Poll]', e);
     }
   };
 
