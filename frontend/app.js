@@ -187,11 +187,6 @@ if (document.readyState === 'loading') {
 function setupRouter() {
   const handleRoute = () => {
     updateMosaicBgVisibility();
-    const sessionStr = localStorage.getItem('kura_user_session');
-    if (!sessionStr) {
-      const loginModal = document.getElementById('login-modal');
-      if (loginModal) loginModal.style.display = 'flex';
-    }
 
     const hash = window.location.hash || '#/';
 
@@ -479,6 +474,9 @@ function setupEasterEgg() {
       if (res.ok && data.success && data.role === 'admin') {
         localStorage.setItem('adminToken', data.token);
         localStorage.setItem('kura_admin_token', data.token);
+        localStorage.setItem('kura_user_session', JSON.stringify(data));
+        localStorage.setItem('kura_base_user_session', JSON.stringify(data));
+        updateUserInterface(data);
         overlay.style.display = 'none';
         usernameInput.value = '';
         passwordInput.value = '';
@@ -3666,6 +3664,26 @@ function setupUserAuth() {
     }
   }
 
+  // Keyboard enter submit handlers
+  const loginUserInput = document.getElementById('login-username-input');
+  const loginPassInput = document.getElementById('login-password-input');
+  if (loginUserInput) {
+    loginUserInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (loginPassInput) loginPassInput.focus();
+      }
+    });
+  }
+  if (loginPassInput) {
+    loginPassInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (modalSubmit) modalSubmit.click();
+      }
+    });
+  }
+
   // Submit modal
   if (modalSubmit) {
     modalSubmit.onclick = async () => {
@@ -3673,8 +3691,8 @@ function setupUserAuth() {
       const passwordInput = document.getElementById('login-password-input');
       const errorMsg = document.getElementById('login-error-msg');
 
-      const username = usernameInput.value.trim();
-      const password = passwordInput.value.trim();
+      const username = usernameInput ? usernameInput.value.trim() : '';
+      const password = passwordInput ? passwordInput.value.trim() : '';
 
       if (!username || !password) {
         errorMsg.textContent = 'Por favor, rellena todos los campos';
@@ -3695,7 +3713,7 @@ function setupUserAuth() {
         });
         const data = await res.json();
 
-        if (res.ok) {
+        if (res.ok && data.success) {
           if (isRegisterTab) {
             // Auto login after registering successfully
             const logRes = await fetch('/api/login', {
@@ -3704,9 +3722,13 @@ function setupUserAuth() {
               body: JSON.stringify({ username, password })
             });
             const logData = await logRes.json();
-            if (logRes.ok) {
+            if (logRes.ok && logData.success) {
               localStorage.setItem('kura_user_session', JSON.stringify(logData));
               localStorage.setItem('kura_base_user_session', JSON.stringify(logData));
+              if (logData.role === 'admin') {
+                localStorage.setItem('adminToken', logData.token);
+                localStorage.setItem('kura_admin_token', logData.token);
+              }
               updateUserInterface(logData);
               if (loginModal) {
                 loginModal.classList.remove('lockout');
@@ -3714,7 +3736,7 @@ function setupUserAuth() {
               }
               window.dispatchEvent(new Event('hashchange'));
             } else {
-              errorMsg.textContent = logData.message || 'Error al iniciar sesión automáticamente';
+              errorMsg.textContent = logData.error || logData.message || 'Error al iniciar sesión automáticamente';
               errorMsg.style.display = 'block';
               return;
             }
@@ -3740,12 +3762,12 @@ function setupUserAuth() {
             loadShowComments(showId);
           }
         } else {
-          errorMsg.textContent = data.message || 'Error al registrar el usuario';
+          errorMsg.textContent = data.error || data.message || (isRegisterTab ? 'Error al registrar el usuario' : 'Credenciales incorrectas');
           errorMsg.style.display = 'block';
         }
       } catch (err) {
         console.error(err);
-        errorMsg.textContent = 'Error de conexión con el servidor';
+        errorMsg.textContent = 'Error de conexión con el servidor: ' + err.message;
         errorMsg.style.display = 'block';
       } finally {
         modalSubmit.disabled = false;
@@ -3760,6 +3782,8 @@ function setupUserAuth() {
       e.preventDefault();
       localStorage.removeItem('kura_user_session');
       localStorage.removeItem('kura_base_user_session');
+      localStorage.removeItem('adminToken');
+      localStorage.removeItem('kura_admin_token');
       updateUserInterface(null);
       window.dispatchEvent(new Event('hashchange'));
       // Refresh details comments if open
@@ -3791,13 +3815,16 @@ async function updateUserInterface(session) {
     if (loginTrigger) loginTrigger.style.display = 'none';
     if (userProfileMenu) userProfileMenu.style.display = 'block';
     if (userProfileName) userProfileName.textContent = session.username;
+    if (userAvatarInitial) userAvatarInitial.textContent = (session.username || 'U').charAt(0).toUpperCase();
     
     // Set token for admin panel auth checks
     if (session.role === 'admin') {
       localStorage.setItem('kura_admin_token', session.token);
+      localStorage.setItem('adminToken', session.token);
       if (adminDirectBtn) adminDirectBtn.style.display = 'flex';
     } else {
       localStorage.removeItem('kura_admin_token');
+      localStorage.removeItem('adminToken');
       if (adminDirectBtn) adminDirectBtn.style.display = 'none';
     }
 
@@ -3808,26 +3835,27 @@ async function updateUserInterface(session) {
           headers: { 'Authorization': `Bearer ${session.token}` }
         });
         const data = await res.json();
-        if (data && data.success) {
+        if (data && data.success && Array.isArray(data.profiles)) {
           listEl.innerHTML = '';
           data.profiles.forEach(p => {
-            if (decoded && p.profile_name === decoded.profile_name) return;
-            const pColor = p.avatar_color || '#a855f7';
-            const isImg = pColor.startsWith('/');
+            const pName = p.profile_name || p.name || 'Principal';
+            if (decoded && pName === decoded.profile_name) return;
+            const pColor = p.avatar_color || p.color || '#a855f7';
+            const isImg = typeof pColor === 'string' && pColor.startsWith('/');
             const avatarBg = isImg ? `background-image: url('${pColor}'); background-size: cover; background-position: center;` : `background: ${pColor};`;
             const item = document.createElement('div');
             item.className = 'dropdown-profile-item';
             item.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; cursor: pointer; transition: background 0.2s;';
             item.innerHTML = `
-              <div style="width: 24px; height: 24px; border-radius: 4px; ${avatarBg} display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: #fff;">${isImg ? '' : p.profile_name[0].toUpperCase()}</div>
-              <span style="font-size: 0.85rem; color: var(--text-main); font-weight: 500;">${p.profile_name}</span>
+              <div style="width: 24px; height: 24px; border-radius: 4px; ${avatarBg} display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: #fff;">${isImg ? '' : pName.charAt(0).toUpperCase()}</div>
+              <span style="font-size: 0.85rem; color: var(--text-main); font-weight: 500;">${pName}</span>
             `;
             item.onclick = (e) => {
               e.stopPropagation();
               const userDropdownCard = document.getElementById('user-dropdown-card');
               if (userDropdownCard) userDropdownCard.style.display = 'none';
               if (p.pin) openPinModal(p);
-              else selectProfile(p.profile_name, '');
+              else selectProfile(pName, '');
             };
             listEl.appendChild(item);
           });

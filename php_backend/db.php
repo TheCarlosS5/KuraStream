@@ -612,15 +612,25 @@ class DbHelper {
         $db = Database::getConnection();
         $stmt = $db->prepare("SELECT * FROM user_profiles WHERE username = :u ORDER BY created_at ASC");
         $stmt->execute(['u' => $username]);
-        return $stmt->fetchAll();
+        $rows = $stmt->fetchAll();
+        return array_map(function($p) {
+            $name = $p['name'] ?? 'Principal';
+            $color = $p['color'] ?? '#a855f7';
+            $p['profile_name'] = $name;
+            $p['name'] = $name;
+            $p['avatar_color'] = $color;
+            $p['color'] = $color;
+            $p['is_kids'] = (bool)($p['is_kids'] ?? 0);
+            return $p;
+        }, $rows);
     }
 
     public static function saveUserProfile(string $username, array $data): array {
         $db = Database::getConnection();
         $id = $data['id'] ?? ('prof_' . uniqid());
-        $name = trim($data['name'] ?? 'Perfil');
+        $name = trim($data['profile_name'] ?? $data['name'] ?? 'Perfil');
         $avatar = $data['avatar'] ?? '';
-        $color = $data['color'] ?? '#a855f7';
+        $color = $data['avatar_color'] ?? $data['color'] ?? '#a855f7';
         $isKids = !empty($data['is_kids']) ? 1 : 0;
         $pin = $data['pin'] ?? '';
 
@@ -648,8 +658,10 @@ class DbHelper {
             'id' => $id,
             'username' => $username,
             'name' => $name,
+            'profile_name' => $name,
             'avatar' => $avatar,
             'color' => $color,
+            'avatar_color' => $color,
             'is_kids' => (bool)$isKids,
             'pin' => $pin
         ];

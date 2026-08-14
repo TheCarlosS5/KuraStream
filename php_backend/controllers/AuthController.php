@@ -51,20 +51,36 @@ class AuthController {
 
         // DB user credentials check
         $user = DbHelper::getUser($username);
-        if ($user && password_verify($password, $user['password_hash'])) {
-            $tokenPayload = [
-                'username' => $username,
-                'role' => $user['role'] ?? 'user',
-                'exp' => time() + (30 * 24 * 3600)
-            ];
-            $token = AuthMiddleware::createToken($tokenPayload);
+        if ($user) {
+            $storedHash = $user['password_hash'] ?? '';
+            $isPassValid = false;
 
-            jsonResponse([
-                'success' => true,
-                'token' => $token,
-                'role' => $user['role'] ?? 'user',
-                'username' => $username
-            ]);
+            if (password_verify($password, $storedHash)) {
+                $isPassValid = true;
+            } elseif ($storedHash === hash_hmac('sha256', $password, PASSWORD_SALT) || $storedHash === hash('sha256', $password)) {
+                $isPassValid = true;
+                // Rehash to secure bcrypt
+                $newHash = password_hash($password, PASSWORD_BCRYPT);
+                $db = Database::getConnection();
+                $up = $db->prepare("UPDATE users SET password_hash = :p WHERE username = :u");
+                $up->execute(['p' => $newHash, 'u' => $username]);
+            }
+
+            if ($isPassValid) {
+                $tokenPayload = [
+                    'username' => $username,
+                    'role' => $user['role'] ?? 'user',
+                    'exp' => time() + (30 * 24 * 3600)
+                ];
+                $token = AuthMiddleware::createToken($tokenPayload);
+
+                jsonResponse([
+                    'success' => true,
+                    'token' => $token,
+                    'role' => $user['role'] ?? 'user',
+                    'username' => $username
+                ]);
+            }
         }
 
         jsonError('Credenciales incorrectas', 401);
