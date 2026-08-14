@@ -81,7 +81,7 @@
       </div>
       <!-- User Account Widget -->
       <div class="user-account-container" id="user-account-container" style="position: relative;">
-        <button class="btn btn-secondary" id="btn-login-trigger" style="padding: 8px 16px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); border-color: var(--border-color);">
+        <button class="btn btn-secondary" id="btn-login-trigger" onclick="typeof openLoginDialog === 'function' ? openLoginDialog('login') : (document.getElementById('login-modal').style.display='flex')" style="padding: 8px 16px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); border-color: var(--border-color);">
           <i data-lucide="user" style="width:16px; height:16px;"></i> Iniciar Sesión
         </button>
         <div class="user-profile-menu" id="user-profile-menu" style="display: none; position: relative;">

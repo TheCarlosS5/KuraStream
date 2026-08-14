@@ -3618,8 +3618,9 @@ function setupUserAuth() {
 
   // Open modal
   const openLoginDialog = (tab = 'login') => {
-    if (!loginModal) return;
-    loginModal.style.display = 'flex';
+    const modal = document.getElementById('login-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
     switchAuthTab(tab);
     const uIn = document.getElementById('login-username-input');
     const pIn = document.getElementById('login-password-input');
@@ -3628,6 +3629,10 @@ function setupUserAuth() {
     if (pIn) pIn.value = '';
     if (err) err.style.display = 'none';
   };
+
+  window.openLoginDialog = openLoginDialog;
+  window.openLoginModal = openLoginDialog;
+  window.openAdminLoginModal = openLoginDialog;
 
   if (loginTrigger) {
     loginTrigger.onclick = () => openLoginDialog('login');

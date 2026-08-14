@@ -602,7 +602,7 @@ class DbHelper {
 
     public static function getUser(string $username): ?array {
         $db = Database::getConnection();
-        $stmt = $db->prepare("SELECT * FROM users WHERE username = :u");
+        $stmt = $db->prepare("SELECT * FROM users WHERE LOWER(username) = LOWER(:u)");
         $stmt->execute(['u' => $username]);
         $row = $stmt->fetch();
         return $row ?: null;

@@ -53,16 +53,16 @@ export function setCurrentUser(user) {
 }
 
 export function openAdminLoginModal() {
-  const modal = document.getElementById('admin-login-modal-overlay');
+  const modal = document.getElementById('login-modal') || document.getElementById('admin-login-modal-overlay');
   if (modal) {
     modal.style.display = 'flex';
-    const input = document.getElementById('admin-login-password');
+    const input = document.getElementById('login-username-input') || document.getElementById('admin-login-password');
     if (input) input.focus();
   }
 }
 
 export function closeAdminLoginModal() {
-  const modal = document.getElementById('admin-login-modal-overlay');
+  const modal = document.getElementById('login-modal') || document.getElementById('admin-login-modal-overlay');
   if (modal) modal.style.display = 'none';
 }
 
