@@ -35,7 +35,9 @@ build/
 app/build/
 *.iml
 .idea/
-local.properties
-.cxx/
-.artifacts/
-
+# Bases de datos temporales y caches
+*.db
+*.db-shm
+*.db-wal
+cache_*.json
+php_backend/cache_*.json

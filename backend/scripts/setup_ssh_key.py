@@ -4,7 +4,7 @@ import pexpect
 import sys
 
 def main():
-    ip = "192.168.18.38"
+    ip = "192.168.18.4"
     user = "dserver-calos"
     pw = "0101"
     

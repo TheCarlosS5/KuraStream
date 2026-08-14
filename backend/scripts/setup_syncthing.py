@@ -39,7 +39,7 @@ def main():
         print(".stignore file is present.")
         
     # Remote installation step
-    ip = "192.168.18.38"
+    ip = "192.168.18.4"
     user = "dserver-calos"
     remote_host = f"{user}@{ip}"
     

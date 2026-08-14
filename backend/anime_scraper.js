@@ -76,7 +76,7 @@ export async function downloadAndSetShowCover(showId, query) {
   const metadata = await scrapeAnimeMetadata(query);
   
   // Resolve physical show folder
-  const category = show.media_type === 'movie' ? 'movie' : 'anime';
+  const category = show.media_type === 'movie' ? 'Movies' : 'Anime';
   let showDir = '';
   
   if (show.poster_path && show.poster_path.startsWith('/library/')) {

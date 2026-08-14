@@ -16,7 +16,7 @@ def run_local_command(cmd_list):
     return True
 
 def main():
-    ip = "192.168.18.38"
+    ip = "192.168.18.4"
     user = "dserver-calos"
     remote_host = f"{user}@{ip}"
     remote_dir = "/home/dserver-calos/KuraStream"
