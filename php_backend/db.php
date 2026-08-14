@@ -199,19 +199,24 @@ class DbHelper {
         $cleanFolder = str_replace('_', ' ', $folder);
         $cleanTitle = trim($title);
 
+        $prefix = '%' . trim(str_replace('_', '%', $folder)) . '%';
         $stmt = $db->prepare("
             SELECT * FROM shows 
             WHERE id = :f1 
                OR id = :f2 
                OR LOWER(title) = LOWER(:t1) 
                OR LOWER(title) = LOWER(:t2)
+               OR LOWER(title) LIKE LOWER(:p1)
+               OR LOWER(id) LIKE LOWER(:p2)
             LIMIT 1
         ");
         $stmt->execute([
             'f1' => $folder,
             'f2' => strtolower(preg_replace('/[^A-Za-z0-9]+/', '_', $folder)),
             't1' => $cleanFolder,
-            't2' => $cleanTitle
+            't2' => $cleanTitle,
+            'p1' => $prefix,
+            'p2' => $prefix
         ]);
         $show = $stmt->fetch();
         if (!$show) return null;
