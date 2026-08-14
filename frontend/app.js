@@ -475,13 +475,17 @@ function setupEasterEgg() {
       });
       
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success && data.role === 'admin') {
         localStorage.setItem('adminToken', data.token);
+        localStorage.setItem('kura_admin_token', data.token);
         overlay.style.display = 'none';
         usernameInput.value = '';
         passwordInput.value = '';
         window.location.hash = '#/admin';
       } else {
+        errorText.textContent = (data.success && data.role !== 'admin') 
+          ? 'No tienes permisos de administrador' 
+          : (data.error || 'Credenciales incorrectas');
         errorText.style.display = 'block';
         passwordInput.value = '';
         passwordInput.focus();
@@ -516,7 +520,7 @@ function showPinPrompt() {
 }
 
 function isAdmin() {
-  const token = localStorage.getItem('adminToken') || localStorage.getItem('kura_admin_token');
+  const token = localStorage.getItem('adminToken') || localStorage.getItem('kura_admin_token') || (JSON.parse(localStorage.getItem('kura_user_session') || '{}')).token;
   if (!token) return false;
   try {
     const parts = token.split('.');
@@ -526,7 +530,7 @@ function isAdmin() {
       body += '=';
     }
     const payload = JSON.parse(atob(body));
-    return payload.role === 'admin' && (!payload.exp || Date.now() < payload.exp);
+    return payload.role === 'admin' && (!payload.exp || Date.now() < payload.exp * 1000);
   } catch (e) {
     return false;
   }
@@ -3643,6 +3647,10 @@ function setupUserAuth() {
             // Standard login success
             localStorage.setItem('kura_user_session', JSON.stringify(data));
             localStorage.setItem('kura_base_user_session', JSON.stringify(data));
+            if (data.role === 'admin') {
+              localStorage.setItem('adminToken', data.token);
+              localStorage.setItem('kura_admin_token', data.token);
+            }
             updateUserInterface(data);
             if (loginModal) {
               loginModal.classList.remove('lockout');
