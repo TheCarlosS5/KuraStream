@@ -139,4 +139,33 @@ ob_get_clean();
 assert($caughtTorrent, "AdminController::getTorrentStatus should return 200 OK");
 echo "✓ Torrent / Autodownload Status Endpoint OK\n";
 
-echo "\n🎉 ALL SCANNER, PLAYER, AND API ROUTE TESTS PASSED 100%!\n";
+// 10. Test Show Details Dual Object Compatibility
+$caughtShowDetails = false;
+ob_start();
+try {
+    ShowController::getShowDetails('Akashic Records');
+} catch (ExitException $e) {
+    $caughtShowDetails = ($e->statusCode === 200);
+    assert(isset($e->data['title']), "Root title missing");
+    assert(isset($e->data['show']['title']), "Nested show.title missing");
+    assert(isset($e->data['episodes']), "episodes list missing");
+}
+ob_get_clean();
+assert($caughtShowDetails, "ShowController::getShowDetails should return dual-compatible payload");
+echo "✓ Show Details Dual Object Compatibility OK\n";
+
+// 11. Test Staged Imports Key Compatibility
+$caughtStaged = false;
+ob_start();
+try {
+    AdminController::getStaged();
+} catch (ExitException $e) {
+    $caughtStaged = ($e->statusCode === 200);
+    assert(is_array($e->data), "staged list should be array");
+}
+ob_get_clean();
+assert($caughtStaged, "AdminController::getStaged should return 200 OK");
+echo "✓ Staged Imports Endpoint OK\n";
+
+echo "\n🎉 ALL SCANNER, PLAYER, AND API ROUTE TESTS PASSED 100%!
+";

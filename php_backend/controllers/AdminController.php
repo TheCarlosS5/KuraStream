@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../services/LibraryScanner.php';
+require_once __DIR__ . '/../services/FfmpegScanner.php';
 require_once __DIR__ . '/../services/TmdbScraper.php';
 
 class AdminController {
@@ -10,7 +11,17 @@ class AdminController {
         AuthMiddleware::requireAdmin();
         $db = Database::getConnection();
         $stmt = $db->query("SELECT * FROM staged_imports ORDER BY created_at DESC");
-        jsonResponse($stmt->fetchAll());
+        $rows = $stmt->fetchAll();
+
+        // Ensure key compatibility with both old and new frontends
+        $items = array_map(function($r) {
+            $r['raw_title'] = $r['original_filename'];
+            $r['file_path'] = $r['filepath'];
+            $r['source_info'] = $r['media_type'] === 'movie' ? 'Película en Preparación' : 'Anime en Preparación';
+            return $r;
+        }, $rows);
+
+        jsonResponse($items);
     }
 
     public static function publishStaged(?string $id = null): void {
@@ -37,13 +48,16 @@ class AdminController {
             jsonError('Item staged no encontrado', 404);
         }
 
-        // Target folder
         $catName = ($mediaType === 'movie') ? 'Movies' : 'Anime';
         $sanitizedTitle = str_replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], '_', $cleanTitle);
         $targetDir = LIBRARY_DIR . '/' . $catName . '/' . $sanitizedTitle;
 
-        if (!is_dir($targetDir)) {
-            @mkdir($targetDir, 0777, true);
+        if ($mediaType === 'anime') {
+            $seasonDir = $targetDir . '/Season ' . sprintf('%02d', $season);
+            if (!is_dir($seasonDir)) @mkdir($seasonDir, 0777, true);
+            $targetDir = $seasonDir;
+        } else {
+            if (!is_dir($targetDir)) @mkdir($targetDir, 0777, true);
         }
 
         $ext = pathinfo($item['filepath'], PATHINFO_EXTENSION);
@@ -57,11 +71,9 @@ class AdminController {
             @rename($item['filepath'], $targetPath);
         }
 
-        // Delete from staged
         $del = $db->prepare("DELETE FROM staged_imports WHERE id = :id");
         $del->execute(['id' => $id]);
 
-        // Run rescan
         LibraryScanner::runScan();
 
         jsonResponse(['success' => true]);
@@ -114,7 +126,6 @@ class AdminController {
             'episodes_count' => $episodesCount,
             'total_duration_hours' => $totalHours,
             'total_storage_gb' => $storageGb,
-            // CamelCase compatibility for modules
             'showsCount' => $showsCount,
             'episodesCount' => $episodesCount,
             'totalHours' => $totalHours,
@@ -152,7 +163,6 @@ class AdminController {
         }
 
         if (empty($rawLogs)) {
-            // Try journalctl if on systemd
             $journal = @shell_exec('journalctl -u kurastream.service -n 80 --no-pager 2>/dev/null');
             if (!empty($journal)) {
                 $rawLogs = trim($journal);
@@ -208,7 +218,6 @@ class AdminController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        // Support both show_id/title and showId/newTitle
         $showId = $data['showId'] ?? ($data['show_id'] ?? '');
         $newTitle = trim($data['newTitle'] ?? ($data['title'] ?? ''));
 
@@ -344,14 +353,229 @@ class AdminController {
         ];
 
         DbHelper::saveShow($showRecord);
-
-        // Run scan to detect any files inside
         LibraryScanner::runScan();
 
         jsonResponse([
             'success' => true,
             'show' => $showRecord
         ]);
+    }
+
+    public static function handleImportUpload(): void {
+        AuthMiddleware::requireAdmin();
+
+        $title = trim($_POST['title'] ?? '');
+        $mediaType = $_POST['mediaType'] ?? ($_POST['media_type'] ?? 'anime');
+        $season = (int)($_POST['seasonNumber'] ?? ($_POST['season'] ?? 1));
+        $episode = (int)($_POST['episodeNumber'] ?? ($_POST['episode'] ?? 1));
+        $tmdbId = (int)($_POST['tmdbId'] ?? ($_POST['tmdb_id'] ?? 0));
+
+        if (empty($title)) {
+            jsonError('title requerido', 400);
+        }
+
+        $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
+        $sanitizedDir = str_replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], '_', $title);
+        $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $sanitizedDir;
+
+        if ($mediaType === 'anime') {
+            $targetDir = $showDir . '/Season ' . sprintf('%02d', $season);
+        } else {
+            $targetDir = $showDir;
+        }
+
+        if (!is_dir($targetDir)) {
+            @mkdir($targetDir, 0755, true);
+        }
+
+        // Check if file was uploaded
+        if (isset($_FILES['videoFile']) && $_FILES['videoFile']['error'] === UPLOAD_ERR_OK) {
+            $origName = $_FILES['videoFile']['name'];
+            $ext = pathinfo($origName, PATHINFO_EXTENSION);
+            $filename = ($mediaType === 'movie') 
+                ? "{$sanitizedDir}.{$ext}" 
+                : "{$sanitizedDir} - S" . sprintf("%02d", $season) . "E" . sprintf("%02d", $episode) . ".{$ext}";
+
+            $destPath = $targetDir . '/' . $filename;
+            move_uploaded_file($_FILES['videoFile']['tmp_name'], $destPath);
+        } else if (!empty($_POST['sourcePath']) && file_exists($_POST['sourcePath'])) {
+            $origName = basename($_POST['sourcePath']);
+            $ext = pathinfo($origName, PATHINFO_EXTENSION);
+            $filename = ($mediaType === 'movie') 
+                ? "{$sanitizedDir}.{$ext}" 
+                : "{$sanitizedDir} - S" . sprintf("%02d", $season) . "E" . sprintf("%02d", $episode) . ".{$ext}";
+            $destPath = $targetDir . '/' . $filename;
+            @copy($_POST['sourcePath'], $destPath);
+        }
+
+        // Enrich show metadata via TMDB if show record does not exist
+        $existingShow = DbHelper::findShowByFolderOrTitle($sanitizedDir, $title);
+        if (!$existingShow) {
+            $details = $tmdbId ? TmdbScraper::getDetails($tmdbId, $mediaType) : null;
+            if (!$details) {
+                $searchRes = TmdbScraper::search($title, $mediaType);
+                if (!empty($searchRes)) {
+                    $details = TmdbScraper::getDetails((int)$searchRes[0]['id'], $mediaType);
+                }
+            }
+
+            $posterPath = '';
+            $backdropPath = '';
+            if ($details) {
+                if (!empty($details['poster_path'])) {
+                    $destPoster = $showDir . '/poster.jpg';
+                    if (TmdbScraper::downloadFile($details['poster_path'], $destPoster)) {
+                        $posterPath = "/library/{$catFolder}/{$sanitizedDir}/poster.jpg";
+                    }
+                }
+                if (!empty($details['backdrop_path'])) {
+                    $destBackdrop = $showDir . '/backdrop.jpg';
+                    if (TmdbScraper::downloadFile($details['backdrop_path'], $destBackdrop)) {
+                        $backdropPath = "/library/{$catFolder}/{$sanitizedDir}/backdrop.jpg";
+                    }
+                }
+            }
+
+            DbHelper::saveShow([
+                'id' => $sanitizedDir,
+                'title' => $title,
+                'synopsis' => $details['synopsis'] ?? '',
+                'rating' => $details['rating'] ?? 0.0,
+                'year' => $details['year'] ?? (int)date('Y'),
+                'studio' => $details['studio'] ?? '',
+                'poster_path' => $posterPath,
+                'backdrop_path' => $backdropPath,
+                'media_type' => $mediaType,
+                'genres' => $details['genres'] ?? '',
+                'status' => $details['status'] ?? 'finished'
+            ]);
+        }
+
+        // Rescan to discover and probe the new video
+        LibraryScanner::runScan();
+
+        jsonResponse(['success' => true, 'message' => 'Archivo importado y organizado con éxito']);
+    }
+
+    public static function uploadLogo(): void {
+        AuthMiddleware::requireAdmin();
+        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            jsonError('Archivo de imagen requerido', 400);
+        }
+
+        $dest = LIBRARY_DIR . '/logo.png';
+        move_uploaded_file($_FILES['file']['tmp_name'], $dest);
+        jsonResponse(['success' => true]);
+    }
+
+    public static function resetLogo(): void {
+        AuthMiddleware::requireAdmin();
+        $logoFile = LIBRARY_DIR . '/logo.png';
+        if (file_exists($logoFile)) {
+            @unlink($logoFile);
+        }
+        jsonResponse(['success' => true]);
+    }
+
+    public static function uploadShowMedia(): void {
+        AuthMiddleware::requireAdmin();
+        $showId = $_POST['showId'] ?? ($_POST['show_id'] ?? '');
+        if (empty($showId)) {
+            jsonError('showId requerido', 400);
+        }
+
+        $show = DbHelper::getShow($showId) ?: DbHelper::findShowByFolderOrTitle($showId, $showId);
+        $realId = $show ? $show['id'] : $showId;
+        $mediaType = $show['media_type'] ?? 'anime';
+        $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
+        $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realId;
+        if (!is_dir($showDir)) @mkdir($showDir, 0755, true);
+
+        if (isset($_FILES['poster']) && $_FILES['poster']['error'] === UPLOAD_ERR_OK) {
+            move_uploaded_file($_FILES['poster']['tmp_name'], $showDir . '/poster.jpg');
+            $show['poster_path'] = "/library/{$catFolder}/{$realId}/poster.jpg";
+            DbHelper::saveShow($show);
+        } else if (isset($_FILES['backdrop']) && $_FILES['backdrop']['error'] === UPLOAD_ERR_OK) {
+            move_uploaded_file($_FILES['backdrop']['tmp_name'], $showDir . '/backdrop.jpg');
+            $show['backdrop_path'] = "/library/{$catFolder}/{$realId}/backdrop.jpg";
+            DbHelper::saveShow($show);
+        }
+
+        jsonResponse(['success' => true]);
+    }
+
+    public static function uploadShowLoop(): void {
+        AuthMiddleware::requireAdmin();
+        $showId = $_POST['showId'] ?? ($_POST['show_id'] ?? '');
+        if (empty($showId) || !isset($_FILES['video']) || $_FILES['video']['error'] !== UPLOAD_ERR_OK) {
+            jsonError('showId y video requerido', 400);
+        }
+
+        $show = DbHelper::getShow($showId) ?: DbHelper::findShowByFolderOrTitle($showId, $showId);
+        $realId = $show ? $show['id'] : $showId;
+        $catFolder = ($show['media_type'] ?? 'anime') === 'movie' ? 'Movies' : 'Anime';
+        $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realId;
+        if (!is_dir($showDir)) @mkdir($showDir, 0755, true);
+
+        $loopFilename = 'loop_' . uniqid() . '.mp4';
+        $destPath = $showDir . '/' . $loopFilename;
+        move_uploaded_file($_FILES['video']['tmp_name'], $destPath);
+
+        $loops = !empty($show['backdrop_loops']) ? (is_array($show['backdrop_loops']) ? $show['backdrop_loops'] : json_decode($show['backdrop_loops'], true)) : [];
+        $loops[] = "/library/{$catFolder}/{$realId}/{$loopFilename}";
+        $show['backdrop_loops'] = $loops;
+        DbHelper::saveShow($show);
+
+        jsonResponse(['success' => true]);
+    }
+
+    public static function deleteShowLoop(): void {
+        AuthMiddleware::requireAdmin();
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+        $showId = $data['showId'] ?? ($data['show_id'] ?? '');
+        $loopUrl = $data['loopUrl'] ?? ($data['loop_url'] ?? '');
+
+        if (empty($showId) || empty($loopUrl)) {
+            jsonError('showId y loopUrl requeridos', 400);
+        }
+
+        $show = DbHelper::getShow($showId) ?: DbHelper::findShowByFolderOrTitle($showId, $showId);
+        if ($show) {
+            $loops = !empty($show['backdrop_loops']) ? (is_array($show['backdrop_loops']) ? $show['backdrop_loops'] : json_decode($show['backdrop_loops'], true)) : [];
+            $loops = array_values(array_filter($loops, fn($u) => $u !== $loopUrl));
+            $show['backdrop_loops'] = $loops;
+            DbHelper::saveShow($show);
+
+            $localFile = ROOT_DIR . $loopUrl;
+            if (file_exists($localFile)) @unlink($localFile);
+        }
+
+        jsonResponse(['success' => true]);
+    }
+
+    public static function uploadEpisodeThumb(): void {
+        AuthMiddleware::requireAdmin();
+        $episodeId = $_POST['episodeId'] ?? ($_POST['episode_id'] ?? '');
+        if (empty($episodeId) || !isset($_FILES['image']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+            jsonError('episodeId e image requeridos', 400);
+        }
+
+        $ep = DbHelper::getEpisode($episodeId);
+        if (!$ep) jsonError('Episodio no encontrado', 404);
+
+        $show = DbHelper::getShow($ep['show_id']);
+        $catFolder = ($show['media_type'] ?? 'anime') === 'movie' ? 'Movies' : 'Anime';
+        $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $ep['show_id'];
+        $thumbName = "ep_{$ep['season_number']}_{$ep['episode_number']}_thumb.jpg";
+        $dest = $showDir . '/' . $thumbName;
+
+        move_uploaded_file($_FILES['image']['tmp_name'], $dest);
+
+        $ep['thumbnail_path'] = "/library/{$catFolder}/{$ep['show_id']}/{$thumbName}";
+        DbHelper::saveEpisode($ep);
+
+        jsonResponse(['success' => true]);
     }
 
     public static function scrapeShowCover(): void {
@@ -456,16 +680,45 @@ class AdminController {
         ]);
     }
 
-    // Torrent & AutoDownload Handlers
     public static function getTorrentStatus(): void {
         AuthMiddleware::requireAdmin();
         jsonResponse([
             'success' => true,
             'isEnabled' => true,
             'isScanning' => false,
+            'currentDownload' => null,
             'activeDownload' => null,
+            'downloadQueue' => [],
             'queue' => [],
             'history' => []
+        ]);
+    }
+
+    public static function toggleAutoDownload(): void {
+        AuthMiddleware::requireAdmin();
+        jsonResponse([
+            'success' => true,
+            'isEnabled' => true,
+            'isScanning' => false,
+            'currentDownload' => null,
+            'activeDownload' => null,
+            'downloadQueue' => [],
+            'queue' => [],
+            'history' => []
+        ]);
+    }
+
+    public static function scanAutoDownloadNow(): void {
+        AuthMiddleware::requireAdmin();
+        jsonResponse([
+            'success' => true,
+            'status' => [
+                'isEnabled' => true,
+                'isScanning' => false,
+                'currentDownload' => null,
+                'downloadQueue' => [],
+                'history' => []
+            ]
         ]);
     }
 
@@ -479,7 +732,6 @@ class AdminController {
             return;
         }
 
-        // Query Nyaa.si RSS / API
         $searchTerms = urlencode($query . ($filterSpanish ? ' spanish' : ''));
         $url = "https://nyaa.si/?page=rss&q={$searchTerms}&c=1_2&f=0";
 
@@ -517,7 +769,7 @@ class AdminController {
                     }
                 }
             } catch (Throwable $e) {
-                // Ignore XML parsing errors
+                // Ignore parsing errors
             }
         }
 

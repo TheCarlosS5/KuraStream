@@ -1037,8 +1037,9 @@ async function loadShowDetails(id) {
 
   try {
     const res = await fetch(`/api/shows/${id}`);
-    if (!res.ok) throw new Error('Show details not found');
-    const { show, episodes } = await res.json();
+    const data = await res.json();
+    const show = data.show || data;
+    const episodes = data.episodes || show.episodes || [];
     currentShowEpisodes = episodes;
 
     // Fetch active user
@@ -1440,17 +1441,40 @@ function startAdminLogsPolling() {
   const terminal = document.getElementById('terminal-box');
   const poll = async () => {
     try {
-      const res = await fetch('/api/admin/logs');
+      const res = await fetch('/api/admin/logs', { headers: getAuthHeaders() });
+      if (res.status === 401 || res.status === 403) {
+        if (terminal) terminal.innerHTML = '<div style="color: #ff5555; padding: 10px;">Acceso no autorizado a la consola. Inicia sesión como administrador.</div>';
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         if (!terminal) return;
-        
-        const isScrolledToBottom = terminal.scrollHeight - terminal.clientHeight <= terminal.scrollTop + 40;
-        
-        terminal.innerHTML = data.logs.map(log => {
-          const time = log.time.split('T')[1].split('.')[0];
-          const color = log.type === 'ERROR' ? '#ff334b' : '#4af626';
-          return `<div style="color: ${color}; font-family: monospace;">[${time}] ${log.message}</div>`;
+
+        let logList = [];
+        if (Array.isArray(data.logs)) {
+          logList = data.logs;
+        } else if (Array.isArray(data.lines)) {
+          logList = data.lines;
+        } else if (typeof data.logs === 'string') {
+          logList = data.logs.split('\n');
+        }
+
+        const isScrolledToBottom = terminal.scrollHeight - terminal.clientHeight <= terminal.scrollTop + 60;
+
+        terminal.innerHTML = logList.map(log => {
+          if (typeof log === 'object' && log !== null) {
+            const time = log.time ? (log.time.includes('T') ? log.time.split('T')[1].split('.')[0] : log.time) : '';
+            const isErr = log.type === 'ERROR' || log.type === 'WARN';
+            const color = isErr ? '#ff5555' : '#00e08f';
+            return `<div style="color: ${color}; font-family: monospace; font-size: 0.82rem; line-height: 1.4;">[${time}] ${escapeHTML(log.message || '')}</div>`;
+          } else {
+            const lineStr = String(log || '');
+            if (!lineStr.trim()) return '';
+            const isErr = lineStr.includes('ERROR') || lineStr.includes('Error') || lineStr.includes('Failed') || lineStr.includes('Fatal');
+            const isWarn = lineStr.includes('WARN') || lineStr.includes('Warning');
+            const color = isErr ? '#ff5555' : (isWarn ? '#f59e0b' : 'var(--text-muted)');
+            return `<div style="color: ${color}; font-family: monospace; font-size: 0.82rem; line-height: 1.4; word-break: break-all;">${escapeHTML(lineStr)}</div>`;
+          }
         }).join('');
 
         if (isScrolledToBottom) {
@@ -1463,7 +1487,7 @@ function startAdminLogsPolling() {
   };
 
   poll();
-  adminLogsInterval = setInterval(poll, 2000);
+  adminLogsInterval = setInterval(poll, 2500);
 }
 
 // ADMIN PANEL
@@ -2337,7 +2361,9 @@ window.openMediaEditor = async (showId) => {
       alert(`Error al cargar datos del anime: ${errData.error || 'No encontrado'}`);
       return;
     }
-    const { show, episodes } = await res.json();
+    const data = await res.json();
+    const show = data.show || data;
+    const episodes = data.episodes || show.episodes || [];
     
     titleHeader.textContent = `Editar Multimedia - ${show.title}`;
     if (showTitleInput) showTitleInput.value = show.title;

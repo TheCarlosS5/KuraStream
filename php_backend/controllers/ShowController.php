@@ -43,13 +43,20 @@ class ShowController {
     public static function getShowDetails(string $id): void {
         $show = DbHelper::getShow($id);
         if (!$show) {
+            $show = DbHelper::findShowByFolderOrTitle($id, $id);
+        }
+        if (!$show) {
             jsonError('Show no encontrado', 404);
         }
 
-        $episodes = DbHelper::getEpisodesForShow($id);
+        $episodes = DbHelper::getEpisodesForShow($show['id']);
         $show['episodes'] = $episodes;
 
-        jsonResponse($show);
+        $response = $show;
+        $response['show'] = $show;
+        $response['episodes'] = $episodes;
+
+        jsonResponse($response);
     }
 
     public static function toggleStatus(): void {

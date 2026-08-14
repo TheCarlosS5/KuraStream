@@ -222,6 +222,14 @@ if ($uri === '/api/admin/autodownload/status' && $method === 'GET') {
     AdminController::getTorrentStatus();
 }
 
+if ($uri === '/api/admin/autodownload/toggle' && $method === 'POST') {
+    AdminController::toggleAutoDownload();
+}
+
+if ($uri === '/api/admin/autodownload/scan' && $method === 'POST') {
+    AdminController::scanAutoDownloadNow();
+}
+
 if ($uri === '/api/admin/torrents/search' && $method === 'GET') {
     AdminController::searchTorrents();
 }
@@ -244,6 +252,34 @@ if ($uri === '/api/admin/autodownload/queue/start' && $method === 'POST') {
 
 if ($uri === '/api/admin/autodownload/cancel-active' && $method === 'POST') {
     AdminController::cancelActiveTorrent();
+}
+
+if ($uri === '/api/import' && $method === 'POST') {
+    AdminController::handleImportUpload();
+}
+
+if ($uri === '/api/admin/upload-logo' && $method === 'POST') {
+    AdminController::uploadLogo();
+}
+
+if ($uri === '/api/admin/reset-logo' && $method === 'POST') {
+    AdminController::resetLogo();
+}
+
+if ($uri === '/api/admin/upload-show-media' && $method === 'POST') {
+    AdminController::uploadShowMedia();
+}
+
+if ($uri === '/api/admin/upload-backdrop-loop' && $method === 'POST') {
+    AdminController::uploadShowLoop();
+}
+
+if ($uri === '/api/admin/delete-backdrop-loop' && $method === 'POST') {
+    AdminController::deleteShowLoop();
+}
+
+if ($uri === '/api/admin/upload-episode-thumb' && $method === 'POST') {
+    AdminController::uploadEpisodeThumb();
 }
 
 if ($uri === '/api/admin/toggle-show-status' && $method === 'POST') {
