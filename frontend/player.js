@@ -27,6 +27,12 @@ let watchCreditsBtn = null;
 let outroOverlayContainer = null;
 let countdownOverlay = null;
 
+// Helper to extract show ID safely without breaking on movies or shows with _S in name
+export function getShowIdFromEpisodeId(epId) {
+  if (!epId) return '';
+  return epId.replace(/_movie$/i, '').replace(/_S\d+_E\d+$/i, '');
+}
+
 // QR Share elements
 let qrShareBtn = null;
 let qrShareModal = null;
@@ -126,19 +132,27 @@ export async function initPlayer(episodeId) {
 
   // Load episode metadata
   try {
-    const res = await fetch(`/api/shows/${episodeId.split('_S')[0]}`);
+    const resolvedShowId = getShowIdFromEpisodeId(episodeId);
+    const res = await fetch(`/api/shows/${encodeURIComponent(resolvedShowId)}`);
     const data = await res.json();
-    currentShowData = data.show;
+    currentShowData = data.show || data;
     
-    currentEpisodeData = data.episodes.find(e => e.id === episodeId);
+    const episodesList = Array.isArray(data.episodes) ? data.episodes : (currentShowData.episodes || []);
+    currentEpisodeData = episodesList.find(e => e.id === episodeId);
     if (!currentEpisodeData) throw new Error('Episode not found');
     
-    // Check if next episode exists
-    const nextEp = data.episodes.find(e => 
-      e.season_number === currentEpisodeData.season_number && 
-      e.episode_number === currentEpisodeData.episode_number + 1
-    );
-    nextEpisodeId = nextEp ? nextEp.id : null;
+    // Sort episodes by Season and Episode number to support season transitions (e.g. S1E12 -> S2E1) and gap handling
+    const sortedEpisodes = [...episodesList].sort((a, b) => {
+      const sDiff = (parseInt(a.season_number, 10) || 1) - (parseInt(b.season_number, 10) || 1);
+      if (sDiff !== 0) return sDiff;
+      return (parseInt(a.episode_number, 10) || 1) - (parseInt(b.episode_number, 10) || 1);
+    });
+
+    const currentIdx = sortedEpisodes.findIndex(e => e.id === episodeId);
+    nextEpisodeId = (currentIdx !== -1 && currentIdx + 1 < sortedEpisodes.length) 
+      ? sortedEpisodes[currentIdx + 1].id 
+      : null;
+
     outroDismissed = false;
     hasSkippedIntroForCurrentEpisode = false;
     hasSkippedOutroForCurrentEpisode = false;
@@ -661,7 +675,7 @@ function setupPlayerEventListeners() {
       if (document.fullscreenElement) {
         document.exitFullscreen();
       } else {
-        location.hash = `#/show/${currentEpisodeId.split('_S')[0]}`;
+        location.hash = `#/show/${getShowIdFromEpisodeId(currentEpisodeId)}`;
       }
     }
   };
@@ -795,7 +809,7 @@ function setupPlayerEventListeners() {
       triggerCountdownAutoplay();
     } else {
       // Return to detail view
-      location.hash = `#/show/${currentEpisodeId.split('_S')[0]}`;
+      location.hash = `#/show/${getShowIdFromEpisodeId(currentEpisodeId)}`;
     }
   };
 
@@ -999,7 +1013,7 @@ function setupPlayerEventListeners() {
 
   // Exit button
   document.getElementById('player-back-btn').onclick = () => {
-    location.hash = `#/show/${currentEpisodeId.split('_S')[0]}`;
+    location.hash = `#/show/${getShowIdFromEpisodeId(currentEpisodeId)}`;
   };
 
   // Mouse activity tracker for controls fading
@@ -1133,8 +1147,9 @@ function triggerCountdownAutoplay() {
   nextTitleText.textContent = `Cargando siguiente capítulo...`;
   
   // Retrieve title of the next episode
-  fetch(`/api/shows/${currentEpisodeId.split('_S')[0]}`).then(res => res.json()).then(data => {
-    const nextEp = data.episodes.find(e => e.id === nextEpisodeId);
+  fetch(`/api/shows/${encodeURIComponent(getShowIdFromEpisodeId(currentEpisodeId))}`).then(res => res.json()).then(data => {
+    const epList = Array.isArray(data.episodes) ? data.episodes : ((data.show && data.show.episodes) || []);
+    const nextEp = epList.find(e => e.id === nextEpisodeId);
     if (nextEp) {
       nextTitleText.textContent = `Capítulo ${nextEp.episode_number}: ${nextEp.title}`;
     }

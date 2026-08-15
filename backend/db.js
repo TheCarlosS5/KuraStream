@@ -150,44 +150,34 @@ db.exec(`
   );
 `);
 
-// Run migrations for existing DBs
-try {
-  db.exec(`ALTER TABLE shows ADD COLUMN backdrop_loops TEXT DEFAULT '[]';`);
-} catch (e) {}
+function ensureColumn(databaseInstance, table, column, definition) {
+  try {
+    const columns = databaseInstance.prepare(`PRAGMA table_info(${table})`).all();
+    const exists = columns.some(c => c.name === column);
+    if (!exists) {
+      databaseInstance.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+    }
+  } catch (err) {
+    console.warn(`Column check/migration for ${table}.${column}:`, err.message);
+  }
+}
 
-try {
-  db.exec(`ALTER TABLE shows ADD COLUMN created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP;`);
-} catch (e) {}
-
-try {
-  db.exec(`ALTER TABLE shows ADD COLUMN genres TEXT DEFAULT '';`);
-} catch (e) {}
-
-try {
-  db.exec(`ALTER TABLE shows ADD COLUMN trailer_key TEXT;`);
-} catch (e) {}
-
-try {
-  db.exec(`ALTER TABLE episodes ADD COLUMN thumbnail_path TEXT DEFAULT '';`);
-} catch (e) {}
-
-try {
-  db.exec(`ALTER TABLE episodes ADD COLUMN intro_start INTEGER DEFAULT NULL;`);
-} catch (e) {}
-
-try {
-  db.exec(`ALTER TABLE episodes ADD COLUMN intro_end INTEGER DEFAULT NULL;`);
-} catch (e) {}
-
-try {
-  db.exec(`ALTER TABLE episodes ADD COLUMN outro_start INTEGER DEFAULT NULL;`);
-} catch (e) {}
+// Run column migrations for existing DBs safely
+ensureColumn(db, 'shows', 'backdrop_loops', "TEXT DEFAULT '[]'");
+ensureColumn(db, 'shows', 'created_at', "TEXT NOT NULL DEFAULT ''");
+ensureColumn(db, 'shows', 'genres', "TEXT DEFAULT ''");
+ensureColumn(db, 'shows', 'trailer_key', "TEXT");
+ensureColumn(db, 'shows', 'age_rating', "TEXT DEFAULT 'TV-14'");
+ensureColumn(db, 'shows', 'status', "TEXT DEFAULT 'finished'");
+ensureColumn(db, 'episodes', 'thumbnail_path', "TEXT DEFAULT ''");
+ensureColumn(db, 'episodes', 'intro_start', "INTEGER DEFAULT NULL");
+ensureColumn(db, 'episodes', 'intro_end', "INTEGER DEFAULT NULL");
+ensureColumn(db, 'episodes', 'outro_start', "INTEGER DEFAULT NULL");
+ensureColumn(db, 'episodes', 'chapters', "TEXT DEFAULT NULL");
 
 // Migration for user-specific watch_history
 export function runMigrations(databaseInstance) {
-  try {
-    databaseInstance.exec(`ALTER TABLE shows ADD COLUMN age_rating TEXT DEFAULT 'TV-14';`);
-  } catch (e) {}
+  ensureColumn(databaseInstance, 'shows', 'age_rating', "TEXT DEFAULT 'TV-14'");
 
   try {
     const tableInfo = databaseInstance.prepare("PRAGMA table_info(watch_history)").all();

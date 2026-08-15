@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=1.5';
+import { initPlayer, destroyPlayer } from './player.js?v=9.8_audit_fixes';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
@@ -12,9 +12,13 @@ if (typeof window !== 'undefined') {
     }
     
     const urlStr = typeof url === 'string' ? url : '';
-    const isApiTarget = urlStr.includes('/api/');
+    // Only intercept internal / same-origin API requests to avoid token leaks to external APIs (e.g. TMDB)
+    const isInternalApi = urlStr.startsWith('/api/') || 
+                          urlStr.startsWith('api/') || 
+                          (urlStr.startsWith(window.location.origin) && urlStr.includes('/api/')) ||
+                          (!urlStr.startsWith('http://') && !urlStr.startsWith('https://') && urlStr.includes('/api/'));
     
-    if (isApiTarget) {
+    if (isInternalApi) {
       // Determine active token (user session token or fallback to admin token)
       const sessionStr = localStorage.getItem('kura_user_session');
       let token = null;
@@ -51,14 +55,17 @@ if (typeof window !== 'undefined') {
 
 // Chameleon UI Engine
 function applyChameleonTheme(imgElement) {
-  if (!imgElement || !imgElement.complete) return;
+  if (!imgElement || !imgElement.complete || !imgElement.naturalWidth) return;
   const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return;
   canvas.width = 10;
   canvas.height = 10;
   try {
     ctx.drawImage(imgElement, 0, 0, 10, 10);
-    const data = ctx.getImageData(0, 0, 10, 10).data;
+    const imgDataObj = ctx.getImageData(0, 0, 10, 10);
+    if (!imgDataObj || !imgDataObj.data) return;
+    const data = imgDataObj.data;
     let r = 0, g = 0, b = 0, count = 0;
     
     // Pick the most vivid color by filtering out greys/blacks/whites
@@ -79,7 +86,7 @@ function applyChameleonTheme(imgElement) {
       b = Math.floor(b / count);
     } else {
       // Fallback if image is entirely greyscale
-      r = data[0]; g = data[1]; b = data[2];
+      r = data[0] || 168; g = data[1] || 85; b = data[2] || 247;
     }
     
     const root = document.documentElement.style;
@@ -92,7 +99,8 @@ function applyChameleonTheme(imgElement) {
     root.setProperty('--accent-hover', accentHover);
     root.setProperty('--accent-glow', accentGlow);
   } catch (e) {
-    console.warn("Chameleon extraction failed", e);
+    // Tainted canvas or security error when loading cross-origin images without CORS headers
+    console.debug("Chameleon extraction skipped (cross-origin or tainted canvas):", e.message || e);
   }
 }
 

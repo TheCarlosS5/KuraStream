@@ -112,7 +112,7 @@ async function scanCategory(categoryName, mediaType) {
       // Save/update Show in DB
       dbHelper.saveShow({
         id: showId,
-        title: (showDetails ? showDetails.title : showDir.replace(/_/g, ' ')).replace(/Ranma1\/?2/ig, 'Ranma ½'),
+        title: showDetails ? showDetails.title : showDir.replace(/_/g, ' '),
         synopsis: showDetails ? showDetails.synopsis : (dbShow ? dbShow.synopsis : ''),
         rating: showDetails ? showDetails.rating : (dbShow ? dbShow.rating : 0.0),
         year: showDetails ? showDetails.year : (dbShow ? dbShow.year : null),
@@ -158,19 +158,23 @@ async function scanCategory(categoryName, mediaType) {
           }
         }
       } else {
-        // TV Show: Scan Season folders
+        // TV Show: Scan Season folders and root video files
         const contents = await fs.readdir(showPath);
         for (const item of contents) {
           const itemPath = path.join(showPath, item);
           const itemStat = await fs.stat(itemPath);
           if (!itemStat.isDirectory()) continue;
           
-          const seasonMatch = item.match(/Season\s+(\d+)/i);
-          if (!seasonMatch) continue;
+          let seasonNumber = 1;
+          const sMatch = item.match(/(?:Season|Temporada|Temp\.?)\s*(\d+)/i) || item.match(/^(?:S|T)(\d+)$/i);
+          if (sMatch) {
+            seasonNumber = parseInt(sMatch[1], 10);
+          } else if (/(?:Specials|Especiales|OVA|OVAs|SP)/i.test(item)) {
+            seasonNumber = 0;
+          }
           
-          const seasonNumber = parseInt(seasonMatch[1], 10);
           const files = await fs.readdir(itemPath);
-          const videoFiles = files.filter(f => f.endsWith('.mkv') || f.endsWith('.mp4'));
+          const videoFiles = files.filter(f => f.endsWith('.mkv') || f.endsWith('.mp4') || f.endsWith('.avi') || f.endsWith('.webm'));
 
           // Cache TMDB episodes for this season
           let tmdbEpisodes = [];

@@ -61,12 +61,14 @@ function resolveMediaFilePath(filePath) {
   const idx = decoded.indexOf('library/');
   if (idx !== -1) {
     const rel = decoded.substring(idx);
-    const abs1 = path.resolve(__dirname, '..', rel);
-    if (fs.existsSync(abs1)) return abs1;
+    const candidate1 = path.resolve(__dirname, '..', rel);
+    if (fs.existsSync(candidate1)) return candidate1;
     
-    const altRel = rel.replace(/Oshi_no_Ko/g, 'Oshi no Ko').replace(/Oshi no Ko/g, 'Oshi_no_Ko');
-    const abs2 = path.resolve(__dirname, '..', altRel);
-    if (fs.existsSync(abs2)) return abs2;
+    const candidateSpaces = path.resolve(__dirname, '..', rel.replace(/_/g, ' '));
+    if (fs.existsSync(candidateSpaces)) return candidateSpaces;
+
+    const candidateUnderscores = path.resolve(__dirname, '..', rel.replace(/ /g, '_'));
+    if (fs.existsSync(candidateUnderscores)) return candidateUnderscores;
   }
   return decoded;
 }
@@ -74,9 +76,13 @@ function resolveMediaFilePath(filePath) {
 function getFfmpegPath() {
   const customBin = path.join(__dirname, '..', 'bin', 'ffmpeg');
   if (fs.existsSync(customBin)) return customBin;
-  const userHome = process.env.HOME || '/home/dserver-calos';
-  const userBin = path.join(userHome, 'bin', 'ffmpeg');
-  if (fs.existsSync(userBin)) return userBin;
+  const userHome = process.env.HOME || (typeof require !== 'undefined' ? require('os').homedir() : '');
+  if (userHome) {
+    const userBin = path.join(userHome, 'bin', 'ffmpeg');
+    if (fs.existsSync(userBin)) return userBin;
+  }
+  if (fs.existsSync('/usr/bin/ffmpeg')) return '/usr/bin/ffmpeg';
+  if (fs.existsSync('/usr/local/bin/ffmpeg')) return '/usr/local/bin/ffmpeg';
   return 'ffmpeg';
 }
 

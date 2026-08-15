@@ -156,10 +156,7 @@ class LibraryScanner {
         foreach ($entries as $entry) {
             $itemPath = $showPath . '/' . $entry;
             if (is_dir($itemPath)) {
-                $seasonNum = 1;
-                if (preg_match('/Season\s*(\d+)/i', $entry, $sm) || preg_match('/Temporada\s*(\d+)/i', $entry, $sm)) {
-                    $seasonNum = (int)$sm[1];
-                }
+                $seasonNum = self::parseSeasonNumber($entry);
 
                 $subFiles = array_diff(scandir($itemPath), ['.', '..']);
                 foreach ($subFiles as $subFile) {
@@ -167,11 +164,14 @@ class LibraryScanner {
                     if (!in_array($ext, $validExts)) continue;
 
                     $subFilePath = $itemPath . '/' . $subFile;
+                    // If episode filename contains an explicit season (e.g. S02E05), use it
+                    $fileSeason = self::parseSeasonFromFilename($subFile);
+                    $effectiveSeason = ($fileSeason !== null) ? $fileSeason : $seasonNum;
                     $epNum = self::parseEpisodeNumber($subFile);
 
                     $results[] = [
                         'filepath' => $subFilePath,
-                        'season' => $seasonNum,
+                        'season' => $effectiveSeason,
                         'episode' => $epNum
                     ];
                 }
@@ -179,10 +179,8 @@ class LibraryScanner {
                 $ext = strtolower(pathinfo($entry, PATHINFO_EXTENSION));
                 if (!in_array($ext, $validExts)) continue;
 
-                $seasonNum = 1;
-                if (preg_match('/S(\d+)E(\d+)/i', $entry, $sm)) {
-                    $seasonNum = (int)$sm[1];
-                }
+                $fileSeason = self::parseSeasonFromFilename($entry);
+                $seasonNum = ($fileSeason !== null) ? $fileSeason : 1;
                 $epNum = self::parseEpisodeNumber($entry);
 
                 $results[] = [
@@ -196,17 +194,43 @@ class LibraryScanner {
         return $results;
     }
 
+    private static function parseSeasonNumber(string $folderName): int {
+        if (preg_match('/(?:Season|Temporada|Temp\.?)\s*(\d+)/i', $folderName, $sm)) {
+            return (int)$sm[1];
+        }
+        if (preg_match('/^(?:S|T)(\d+)$/i', trim($folderName), $sm)) {
+            return (int)$sm[1];
+        }
+        if (preg_match('/(?:Specials|Especiales|OVA|OVAs|SP)/i', $folderName)) {
+            return 0;
+        }
+        return 1;
+    }
+
+    private static function parseSeasonFromFilename(string $filename): ?int {
+        if (preg_match('/S(\d+)E\d+/i', $filename, $m)) {
+            return (int)$m[1];
+        }
+        if (preg_match('/(\d+)x\d+/i', $filename, $m)) {
+            return (int)$m[1];
+        }
+        if (preg_match('/(?:Temporada|Temp\.?)\s*(\d+)/i', $filename, $m)) {
+            return (int)$m[1];
+        }
+        return null;
+    }
+
     private static function parseEpisodeNumber(string $filename): int {
-        if (preg_match('/S\d+E(\d+)/i', $filename, $m)) {
+        if (preg_match('/(?:S\d+)?E(\d+)/i', $filename, $m)) {
             return (int)$m[1];
         }
-        if (preg_match('/E(\d+)/i', $filename, $m)) {
+        if (preg_match('/(?:\d+x)(\d+)/i', $filename, $m)) {
             return (int)$m[1];
         }
-        if (preg_match('/Cap[ıí]tulo\s*(\d+)/i', $filename, $m) || preg_match('/Cap\s*(\d+)/i', $filename, $m)) {
+        if (preg_match('/(?:Cap[ıí]tulo|Cap\.?|Episodio|Ep\.?)\s*(\d+)/i', $filename, $m)) {
             return (int)$m[1];
         }
-        if (preg_match('/-\s*(\d+)\s*(?:\[|\.|$)/i', $filename, $m)) {
+        if (preg_match('/(?:-\s*|\s+#)(\d+)(?:\s|\.|\[|\(|$)/i', $filename, $m)) {
             return (int)$m[1];
         }
         return 1;
