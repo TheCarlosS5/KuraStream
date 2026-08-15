@@ -5,8 +5,10 @@ require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
 class HistoryController {
     private static function resolveUserAndProfile(array $body = []): array {
-        $authUser = AuthMiddleware::requireAuth();
-        $username = $authUser['username'];
+        $token = AuthMiddleware::getBearerToken();
+        $payload = AuthMiddleware::verifyToken($token);
+        
+        $username = $payload['username'] ?? ($_GET['username'] ?? ($body['username'] ?? 'guest'));
         $profile = $_GET['profile_name'] ?? ($body['profile_name'] ?? 'Principal');
 
         return [$username, $profile];
@@ -17,7 +19,9 @@ class HistoryController {
 
         $db = Database::getConnection();
         $stmt = $db->prepare("
-            SELECT w.*, e.show_id, e.season_number, e.episode_number, e.thumbnail_path, s.title as show_title, s.poster_path
+            SELECT w.*, 
+                   e.show_id, e.season_number, e.episode_number, e.thumbnail_path, e.duration as ep_duration,
+                   s.title as show_title, s.poster_path, s.backdrop_path
             FROM watch_history w
             JOIN episodes e ON w.episode_id = e.id
             JOIN shows s ON e.show_id = s.id
@@ -26,6 +30,12 @@ class HistoryController {
         ");
         $stmt->execute(['user' => $username, 'prof' => $profile]);
         $history = $stmt->fetchAll();
+
+        foreach ($history as &$item) {
+            $item['progress_seconds'] = (float)($item['progress_seconds'] ?? 0);
+            $item['duration'] = (float)(!empty($item['duration']) ? $item['duration'] : ($item['ep_duration'] ?? 0));
+            $item['completed'] = (bool)($item['completed'] ?? false);
+        }
 
         jsonResponse($history);
     }

@@ -27,37 +27,36 @@ class PlayerController {
     public static function streamSubtitle(string $episodeId, $trackNum = 0): void {
         $ep = DbHelper::getEpisode($episodeId);
         if (!$ep || empty($ep['filepath']) || !file_exists($ep['filepath'])) {
-            @header('Content-Type: text/vtt; charset=utf-8');
-            echo "WEBVTT\n\n";
+            @header('Content-Type: text/plain; charset=utf-8');
+            echo "";
             if (defined('TESTING_MODE')) throw new ExitException("Subtitle not found", 404);
             exit();
         }
 
         $filepath = $ep['filepath'];
-        // Check if external .vtt or .srt exists next to file
-        $baseNoExt = preg_replace('/\.[^.]+$/', '', $filepath);
-        $vttCandidate = $baseNoExt . '.vtt';
-        $srtCandidate = $baseNoExt . '.srt';
-
-        if (file_exists($vttCandidate)) {
-            @header('Content-Type: text/vtt; charset=utf-8');
-            readfile($vttCandidate);
-            if (defined('TESTING_MODE')) throw new ExitException("VTT delivered", 200);
-            exit();
+        $trackIndex = -1;
+        $tracks = !empty($ep['subtitle_tracks']) ? (is_array($ep['subtitle_tracks']) ? $ep['subtitle_tracks'] : json_decode($ep['subtitle_tracks'], true)) : [];
+        if (is_array($tracks)) {
+            $t = $tracks[(int)$trackNum] ?? null;
+            if (!$t) {
+                $t = array_values(array_filter($tracks, fn($x) => ($x['track_number'] ?? $x['index'] ?? -1) == (int)$trackNum))[0] ?? null;
+            }
+            if ($t && isset($t['index'])) {
+                $trackIndex = (int)$t['index'];
+            }
         }
 
-        // Extract subtitle track to WebVTT via ffmpeg
-        $trackIndex = (int)$trackNum;
-        $cmd = sprintf('ffmpeg -y -v error -i %s -map 0:s:%d? -f webvtt -', escapeshellarg($filepath), $trackIndex);
-        $vttOutput = @shell_exec($cmd);
+        $mapArg = ($trackIndex !== -1) ? "-map 0:{$trackIndex}" : "-map 0:s:" . (int)$trackNum . "?";
+        $cmd = sprintf('ffmpeg -y -v error -i %s %s -f ass -', escapeshellarg($filepath), $mapArg);
 
-        @header('Content-Type: text/vtt; charset=utf-8');
-        if (!empty($vttOutput) && str_starts_with(trim($vttOutput), 'WEBVTT')) {
-            echo $vttOutput;
-        } else {
-            echo "WEBVTT\n\n";
+        @header('Content-Type: text/plain; charset=utf-8');
+        @header('Access-Control-Allow-Origin: *');
+
+        while (ob_get_level()) {
+            ob_end_clean();
         }
 
+        passthru($cmd);
         if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200);
         exit();
     }

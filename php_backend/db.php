@@ -240,6 +240,14 @@ class DbHelper {
 
     public static function saveProgress(string $username, string $profile, string $episodeId, float $progress, float $duration = 0, ?bool $completed = null): void {
         $db = Database::getConnection();
+        
+        if ($duration <= 0) {
+            $ep = self::getEpisode($episodeId);
+            if ($ep && !empty($ep['duration'])) {
+                $duration = (float)$ep['duration'];
+            }
+        }
+
         if ($completed === null) {
             $completed = ($duration > 0 && $progress >= ($duration * 0.85));
         }

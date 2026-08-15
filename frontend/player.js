@@ -255,7 +255,7 @@ export async function initPlayer(rawEpisodeId) {
   if (prefAudio !== 'default' && audioTracks.length > 0) {
     const match = audioTracks.find(t => (t.language || '').toLowerCase().includes(prefAudio.toLowerCase()));
     if (match) {
-      chosenAudio = match.track_number;
+      chosenAudio = (match.track_number !== undefined) ? match.track_number : (match.index !== undefined ? match.index : 0);
     }
   }
   selectedAudioTrackNum = chosenAudio;
@@ -268,12 +268,12 @@ export async function initPlayer(rawEpisodeId) {
   } else if (prefSub !== 'default' && subTracks.length > 0) {
     const match = subTracks.find(t => (t.language || '').toLowerCase().includes(prefSub.toLowerCase()));
     if (match) {
-      chosenSub = match.track_number;
+      chosenSub = (match.track_number !== undefined) ? match.track_number : (match.index !== undefined ? match.index : 0);
     } else {
-      chosenSub = subTracks[0].track_number;
+      chosenSub = (subTracks[0].track_number !== undefined) ? subTracks[0].track_number : (subTracks[0].index !== undefined ? subTracks[0].index : 0);
     }
   } else if (prefSub === 'default' && subTracks.length > 0) {
-    chosenSub = subTracks[0].track_number;
+    chosenSub = (subTracks[0].track_number !== undefined) ? subTracks[0].track_number : (subTracks[0].index !== undefined ? subTracks[0].index : 0);
   }
   selectedSubtitleTrackNum = chosenSub;
 
@@ -298,13 +298,26 @@ export async function initPlayer(rawEpisodeId) {
   } else {
     try {
       let activeUser = 'guest';
+      let token = null;
       const sessionStr = localStorage.getItem('kura_user_session');
       if (sessionStr) {
-        try { activeUser = JSON.parse(sessionStr).username; } catch(e) {}
+        try {
+          const parsed = JSON.parse(sessionStr);
+          activeUser = parsed.username || 'guest';
+          token = parsed.token;
+        } catch(e) {}
       }
-      const progressRes = await fetch(`/api/progress/${encodeURIComponent(episodeId)}?username=${encodeURIComponent(activeUser)}`);
-      const progressData = await progressRes.json();
-      startProgress = progressData.progress || 0;
+      const activeProfile = localStorage.getItem('kura_active_profile') || 'Principal';
+      const headers = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const progressRes = await fetch(`/api/progress/${encodeURIComponent(episodeId)}?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(activeProfile)}`, { headers });
+      if (progressRes.ok) {
+        const progressData = await progressRes.json();
+        if (progressData && progressData.progress && !progressData.completed) {
+          startProgress = progressData.progress;
+        }
+      }
     } catch (e) {
       console.warn("Could not load watch progress:", e);
     }
@@ -328,9 +341,13 @@ export async function initPlayer(rawEpisodeId) {
   // Volume restore
   const savedVolume = localStorage.getItem('playerVolume');
   if (savedVolume !== null) {
-    video.volume = parseFloat(savedVolume);
-    volumeSlider.value = savedVolume;
-    updateVolumeIcon(video.volume);
+    const vol = parseFloat(savedVolume);
+    if (!isNaN(vol)) {
+      video.volume = vol;
+      video.muted = vol === 0;
+      volumeSlider.value = vol;
+      updateVolumeIcon(vol);
+    }
   }
 
   // Playback speed restore
@@ -347,10 +364,11 @@ export async function initPlayer(rawEpisodeId) {
     });
   }
 
-  // Watch progress saving interval (every 10 seconds)
+  // Periodic Progress Saving
+  if (progressSaveInterval) clearInterval(progressSaveInterval);
   progressSaveInterval = setInterval(() => {
     saveWatchProgress();
-  }, 10000);
+  }, 5000);
 
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
@@ -388,28 +406,52 @@ function loadVideoStream(startTime = 0) {
   }
 }
 
-function saveWatchProgress() {
-  if (!video || video.paused || video.ended) return;
+function saveWatchProgress(force = false) {
+  if (!video) return;
   
-  // If we seeked, we need to add the offset of the current seek start time
   const currentStreamSrc = video.src;
-  const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-  const startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-  const totalWatched = startOffset + video.currentTime;
+  if (!currentStreamSrc || currentStreamSrc.startsWith('blob:')) return;
   
-  // Only save if progress moved significantly
-  if (Math.abs(totalWatched - lastSavedTime) > 3) {
+  let startOffset = 0;
+  try {
+    const parsedUrl = new URL(currentStreamSrc, window.location.origin);
+    startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
+  } catch(e) {}
+  
+  const totalWatched = startOffset + (video.currentTime || 0);
+  const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 0);
+  
+  // Only save if forced or progress moved significantly
+  if (force || Math.abs(totalWatched - lastSavedTime) >= 3 || (duration > 0 && totalWatched >= duration - 5)) {
     lastSavedTime = totalWatched;
     let activeUser = 'guest';
+    let token = null;
     const sessionStr = localStorage.getItem('kura_user_session');
     if (sessionStr) {
-      try { activeUser = JSON.parse(sessionStr).username; } catch(e) {}
+      try {
+        const parsed = JSON.parse(sessionStr);
+        activeUser = parsed.username || 'guest';
+        token = parsed.token;
+      } catch(e) {}
     }
-    fetch(`/api/progress/${currentEpisodeId}`, {
+    const activeProfile = localStorage.getItem('kura_active_profile') || 'Principal';
+    
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    fetch(`/api/progress/${encodeURIComponent(currentEpisodeId)}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ progress: totalWatched, username: activeUser })
-    });
+      headers: headers,
+      body: JSON.stringify({
+        progress: totalWatched,
+        progress_seconds: totalWatched,
+        duration: duration,
+        username: activeUser,
+        profile_name: activeProfile
+      })
+    }).catch(err => console.warn('Failed to save watch progress:', err));
   }
 }
 
@@ -459,7 +501,7 @@ function startOctopusInstance(trackNum) {
     console.log(`Initializing SubtitlesOctopus with video dimensions: ${video.videoWidth}x${video.videoHeight} for track ${trackNum}`);
     octopusInstance = new SubtitlesOctopus({
       video: video,
-      subUrl: `/api/subtitle/${currentEpisodeId}/${trackNum}`,
+      subUrl: `/api/subtitles/${encodeURIComponent(currentEpisodeId)}/${trackNum}`,
       workerUrl: '/vendor/subtitles-octopus/subtitles-octopus-worker.js',
       legacyWorkerUrl: '/vendor/subtitles-octopus/subtitles-octopus-worker-legacy.js',
       fallbackFont: '/vendor/subtitles-octopus/default.ttf', // default fallback font
@@ -493,7 +535,7 @@ export function destroyPlayer() {
   isPlayerActive = false;
   currentStreamStartOffset = 0;
   // Save progress before destroying
-  saveWatchProgress();
+  saveWatchProgress(true);
 
   if (progressSaveInterval) {
     clearInterval(progressSaveInterval);
@@ -573,10 +615,15 @@ function setupTracksMenu() {
   if (audioTracks.length === 0) {
     audioMenu.innerHTML = `<button class="active">Audio por defecto</button>`;
   } else {
-    audioMenu.innerHTML = audioTracks.map(t => {
-      const activeClass = t.track_number === selectedAudioTrackNum ? 'class="active"' : '';
-      const name = `${t.track_number + 1}. ${t.title} (${t.language.toUpperCase()}) - ${t.codec.toUpperCase()} ${t.channels === 2 ? 'Estéreo' : t.channels + 'ch'}`;
-      return `<button ${activeClass} data-track="${t.track_number}">${name}</button>`;
+    audioMenu.innerHTML = audioTracks.map((t, idx) => {
+      const num = t.track_number !== undefined ? t.track_number : (t.index !== undefined ? t.index : idx);
+      const activeClass = num === selectedAudioTrackNum ? 'class="active"' : '';
+      const lang = (t.language || 'und').toUpperCase();
+      const title = t.title ? `${t.title} ` : '';
+      const codec = t.codec ? `- ${t.codec.toUpperCase()} ` : '';
+      const channels = t.channels === 2 ? 'Estéreo' : (t.channels ? `${t.channels}ch` : '');
+      const name = `${idx + 1}. ${title}(${lang}) ${codec}${channels}`.trim();
+      return `<button ${activeClass} data-track="${num}">${name}</button>`;
     }).join('');
 
     // Bind Audio Track selection
@@ -588,9 +635,12 @@ function setupTracksMenu() {
         
         // Reload stream from current position with new audio track
         const currentStreamSrc = video.src;
-        const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-        const startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-        const currentPos = startOffset + video.currentTime;
+        let startOffset = 0;
+        try {
+          const parsedUrl = new URL(currentStreamSrc, window.location.origin);
+          startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
+        } catch(e) {}
+        const currentPos = startOffset + (video.currentTime || 0);
         
         loadVideoStream(currentPos);
       };
@@ -602,10 +652,14 @@ function setupTracksMenu() {
   let subMenuHtml = `<button ${subOffActive} data-track="-1">Desactivados</button>`;
   
   if (subTracks.length > 0) {
-    subMenuHtml += subTracks.map(t => {
-      const activeClass = t.track_number === selectedSubtitleTrackNum ? 'class="active"' : '';
-      const name = `${t.track_number + 1}. ${t.title} (${t.language.toUpperCase()}) - ${t.codec.toUpperCase()}`;
-      return `<button ${activeClass} data-track="${t.track_number}">${name}</button>`;
+    subMenuHtml += subTracks.map((t, idx) => {
+      const num = t.track_number !== undefined ? t.track_number : (t.index !== undefined ? t.index : idx);
+      const activeClass = num === selectedSubtitleTrackNum ? 'class="active"' : '';
+      const lang = (t.language || 'und').toUpperCase();
+      const title = t.title ? `${t.title} ` : '';
+      const codec = t.codec ? `- ${t.codec.toUpperCase()}` : '';
+      const name = `${idx + 1}. ${title}(${lang}) ${codec}`.trim();
+      return `<button ${activeClass} data-track="${num}">${name}</button>`;
     }).join('');
   }
   

@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.4_player_ready';
+import { initPlayer, destroyPlayer } from './player.js?v=10.5_subtitles_progress_fix';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
@@ -795,7 +795,8 @@ async function loadDashboard(mediaType = 'anime') {
     // A. Continue Watching Row
     if (history.length > 0) {
       const historyCardsHTML = history.map(item => {
-        const progressPercent = Math.min(100, Math.max(0, (item.progress_seconds / item.duration) * 100));
+        const dur = (item.duration > 0) ? item.duration : (item.ep_duration || 1);
+        const progressPercent = Math.min(100, Math.max(0, ((item.progress_seconds || 0) / dur) * 100));
         const img = item.thumbnail_path || item.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
         const safeImg = img.replace(/'/g, "%27");
         const label = item.season_number ? `T${item.season_number} • Cap ${item.episode_number}` : 'Película';
