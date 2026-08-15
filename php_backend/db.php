@@ -364,16 +364,31 @@ class DbHelper {
         $stmt = $db->prepare("SELECT * FROM episodes WHERE id = :id");
         $stmt->execute(['id' => $id]);
         $ep = $stmt->fetch();
+
         if (!$ep) {
-            $candidateSpaces = str_replace('_', ' ', $id);
-            $stmt->execute(['id' => $candidateSpaces]);
+            $lastS = strrpos($id, '_S');
+            if ($lastS !== false) {
+                $prefix = substr($id, 0, $lastS);
+                $suffix = substr($id, $lastS);
+                
+                $cand1 = str_replace('_', ' ', $prefix) . $suffix;
+                $stmt->execute(['id' => $cand1]);
+                $ep = $stmt->fetch();
+                
+                if (!$ep) {
+                    $cand2 = str_replace(' ', '_', $prefix) . $suffix;
+                    $stmt->execute(['id' => $cand2]);
+                    $ep = $stmt->fetch();
+                }
+            }
+        }
+
+        if (!$ep) {
+            $candSpaces = str_replace('_', ' ', $id);
+            $stmt->execute(['id' => $candSpaces]);
             $ep = $stmt->fetch();
         }
-        if (!$ep) {
-            $candidateUnderscores = str_replace(' ', '_', $id);
-            $stmt->execute(['id' => $candidateUnderscores]);
-            $ep = $stmt->fetch();
-        }
+
         if (!$ep) return null;
         $ep['audio_tracks'] = !empty($ep['audio_tracks']) ? (is_array($ep['audio_tracks']) ? $ep['audio_tracks'] : json_decode($ep['audio_tracks'], true)) : [];
         $ep['subtitle_tracks'] = !empty($ep['subtitle_tracks']) ? (is_array($ep['subtitle_tracks']) ? $ep['subtitle_tracks'] : json_decode($ep['subtitle_tracks'], true)) : [];
