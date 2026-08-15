@@ -33,6 +33,8 @@ function parseSrt(srtText) {
   return subs;
 }
 
+const FFMPEG_CMD = process.env.FFMPEG_PATH || 'ffmpeg';
+
 export async function detectIntrosForSeason(showId, seasonNumber) {
   const episodes = db.prepare('SELECT * FROM episodes WHERE show_id = ? AND season_number = ? ORDER BY episode_number').all(showId, seasonNumber);
   if (episodes.length < 2) return { success: false, message: 'No hay suficientes episodios para detectar similitudes.' };
@@ -40,7 +42,7 @@ export async function detectIntrosForSeason(showId, seasonNumber) {
   const subsByEp = [];
   for (const ep of episodes) {
     try {
-      const { stdout } = await runCommand('ffmpeg', [
+      const { stdout } = await runCommand(FFMPEG_CMD, [
         '-i', ep.filepath,
         '-map', '0:s:0',
         '-f', 'srt',

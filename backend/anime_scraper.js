@@ -6,6 +6,27 @@ import { dbHelper } from './db.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const libraryDir = path.resolve(__dirname, '..', 'library');
 
+let lastJikanRequestTime = 0;
+const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+
+async function fetchJikanWithRateLimit(url) {
+  const now = Date.now();
+  const elapsed = now - lastJikanRequestTime;
+  if (elapsed < 400) {
+    await sleep(400 - elapsed);
+  }
+  lastJikanRequestTime = Date.now();
+
+  let res = await fetch(url);
+  if (res.status === 429) {
+    console.warn('[Scraper] Jikan 429 rate limit hit, backing off 1.2s and retrying...');
+    await sleep(1200);
+    lastJikanRequestTime = Date.now();
+    res = await fetch(url);
+  }
+  return res;
+}
+
 /**
  * Scrapes metadata and poster image url from Jikan (MyAnimeList) and Kitsu APIs
  */
@@ -13,7 +34,7 @@ export async function scrapeAnimeMetadata(query) {
   // Try Jikan (MyAnimeList) API first
   try {
     console.log(`[Scraper] Querying Jikan API for: "${query}"`);
-    const jikanRes = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=1`);
+    const jikanRes = await fetchJikanWithRateLimit(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=1`);
     if (jikanRes.ok) {
       const data = await jikanRes.json();
       if (data && data.data && data.data.length > 0) {

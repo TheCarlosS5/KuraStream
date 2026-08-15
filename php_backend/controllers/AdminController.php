@@ -68,7 +68,10 @@ class AdminController {
         $targetPath = $targetDir . '/' . $targetFilename;
 
         if (file_exists($item['filepath'])) {
-            @rename($item['filepath'], $targetPath);
+            if (!@rename($item['filepath'], $targetPath)) {
+                @copy($item['filepath'], $targetPath);
+                @unlink($item['filepath']);
+            }
         }
 
         $del = $db->prepare("DELETE FROM staged_imports WHERE id = :id");

@@ -1765,9 +1765,18 @@ const server = http.createServer(async (req, res) => {
         const targetFileName = mediaType === 'movie' ? `${cleanTitle}${ext}` : `${cleanTitle} - S${seasonPad}E${epPad}${ext}`;
         const targetPath = path.join(targetDir, targetFileName);
 
-        // Zero-copy move
+        // Zero-copy move with EXDEV cross-device fallback
         if (fs.existsSync(item.file_path)) {
-          await fsPromises.rename(item.file_path, targetPath);
+          try {
+            await fsPromises.rename(item.file_path, targetPath);
+          } catch (mErr) {
+            if (mErr.code === 'EXDEV' || mErr.code === 'EPERM' || mErr.code === 'EACCES') {
+              await fsPromises.copyFile(item.file_path, targetPath);
+              await fsPromises.unlink(item.file_path);
+            } else {
+              throw mErr;
+            }
+          }
         }
 
         // Delete staging entry

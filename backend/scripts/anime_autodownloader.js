@@ -136,6 +136,19 @@ export function filterSpanishAnimeTorrents(items) {
 
 const stagedDownloadDir = path.resolve(__dirname, '..', '..', 'library', 'downloads', 'staged');
 
+async function safeMoveFile(src, dest) {
+  try {
+    await fs.rename(src, dest);
+  } catch (err) {
+    if (err.code === 'EXDEV' || err.code === 'EPERM' || err.code === 'EACCES') {
+      await fs.copyFile(src, dest);
+      await fs.unlink(src);
+    } else {
+      throw err;
+    }
+  }
+}
+
 /**
  * Ingests all completed video files from temp download directory into staged directory
  * and records pending item in staged_imports database table for Admin review.
@@ -156,7 +169,7 @@ export async function ingestCompletedDownloads() {
         const targetPath = path.join(stagedDownloadDir, file);
 
         console.log(`[AutoDownloader] Moving completed download to staging: "${file}" -> "${targetPath}"`);
-        await fs.rename(fullPath, targetPath);
+        await safeMoveFile(fullPath, targetPath);
 
         const stageId = `stage_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         dbHelper.saveStagedImport({
