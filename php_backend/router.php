@@ -309,7 +309,7 @@ if ($uri === '/api/admin/upload-episode-thumb' && $method === 'POST') {
     AdminController::uploadEpisodeThumb();
 }
 
-if ($uri === '/api/admin/toggle-show-status' && $method === 'POST') {
+if (($uri === '/api/admin/toggle-show-status' || $uri === '/api/shows/toggle-status') && $method === 'POST') {
     AuthMiddleware::requireAdmin();
     ShowController::toggleStatus();
 }
