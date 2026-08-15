@@ -19,11 +19,13 @@ function runCommand(file, args, options = {}) {
   });
 }
 
+const FFMPEG_CMD = process.env.FFMPEG_PATH || 'ffmpeg';
+const FFPROBE_CMD = process.env.FFPROBE_PATH || 'ffprobe';
+
 // Extract technical details of a video file using ffprobe
 export async function probeVideo(filePath) {
   try {
-    const ffprobeCmd = process.env.FFPROBE_PATH || 'ffprobe';
-    const { stdout } = await runCommand(ffprobeCmd, [
+    const { stdout } = await runCommand(FFPROBE_CMD, [
       '-v', 'error',
       '-show_format',
       '-show_streams',
@@ -38,8 +40,9 @@ export async function probeVideo(filePath) {
     const duration = parseFloat(format.duration || 0);
     const size = parseInt(format.size || 0);
     
-    // Video stream details
-    const videoStream = streams.find(s => s.codec_type === 'video');
+    // Video stream details: filter out attached cover pictures/thumbnails
+    const videoStream = streams.find(s => s.codec_type === 'video' && (!s.disposition || s.disposition.attached_pic !== 1)) ||
+                        streams.find(s => s.codec_type === 'video');
     let videoCodec = '';
     let resolution = '';
     let fps = 0;
@@ -149,7 +152,7 @@ export async function extractCover(filePath, destDir, attachments = []) {
       const filename = coverAttachment.filename;
       // ffmpeg -dump_attachment:t "filename" -i "filePath" -y
       // We run in destDir so the file is saved directly there
-      await runCommand('ffmpeg', [
+      await runCommand(FFMPEG_CMD, [
         '-dump_attachment:t', filename,
         '-i', filePath,
         '-y'
@@ -171,7 +174,7 @@ export async function extractCover(filePath, destDir, attachments = []) {
   try {
     const destPoster = path.join(destDir, 'poster.jpg');
     // Extract thumbnail at 60 seconds (or 5 seconds if short video)
-    await runCommand('ffmpeg', [
+    await runCommand(FFMPEG_CMD, [
       '-ss', '60.0',
       '-i', filePath,
       '-vframes', '1',
@@ -184,7 +187,7 @@ export async function extractCover(filePath, destDir, attachments = []) {
     // If 60s failed (short video), try 2s
     try {
       const destPoster = path.join(destDir, 'poster.jpg');
-      await runCommand('ffmpeg', [
+      await runCommand(FFMPEG_CMD, [
         '-ss', '2.0',
         '-i', filePath,
         '-vframes', '1',

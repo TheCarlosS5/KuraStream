@@ -2,16 +2,44 @@
 require_once __DIR__ . '/../config.php';
 
 class TmdbScraper {
-    private static string $apiKey = '15d2ea6d0dc1d476efbca3eba2b9bbfb';
+    private static ?string $apiKey = null;
+    private static ?string $readToken = null;
     private static string $baseUrl = 'https://api.themoviedb.org/3';
 
+    private static function initConfig(): void {
+        if (self::$apiKey !== null) return;
+        self::$apiKey = '15d2ea6d0dc1d476efbca3eba2b9bbfb';
+        self::$readToken = '';
+
+        $keyFile = ROOT_DIR . '/apikeys.txt';
+        if (file_exists($keyFile)) {
+            $content = file_get_contents($keyFile);
+            if (preg_match('/API Read Access Token\s+([A-Za-z0-9\-_.]+)/i', $content, $m)) {
+                self::$readToken = trim($m[1]);
+            }
+            if (preg_match('/API Key\s+([a-f0-9]{32})/i', $content, $m)) {
+                self::$apiKey = trim($m[1]);
+            }
+        }
+    }
+
     private static function fetch(string $endpoint, array $params = []): array {
-        $params['api_key'] = self::$apiKey;
-        $url = self::$baseUrl . $endpoint . '?' . http_build_query($params);
+        self::initConfig();
+        $headers = ['Accept: application/json'];
+
+        if (!empty(self::$readToken)) {
+            $headers[] = 'Authorization: Bearer ' . self::$readToken;
+        } else if (!empty(self::$apiKey)) {
+            $params['api_key'] = self::$apiKey;
+        }
+
+        $query = http_build_query($params);
+        $url = self::$baseUrl . $endpoint . ($query ? '?' . $query : '');
 
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL => $url,
+            CURLOPT_HTTPHEADER => $headers,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 10,
             CURLOPT_SSL_VERIFYPEER => false

@@ -25,11 +25,26 @@ class FfmpegScanner {
         $streams = $data['streams'] ?? [];
 
         $duration = (float)($format['duration'] ?? 0);
-        $videoStream = array_values(array_filter($streams, fn($s) => ($s['codec_type'] ?? '') === 'video'))[0] ?? [];
+        $videoStreams = array_values(array_filter($streams, function($s) {
+            if (($s['codec_type'] ?? '') !== 'video') return false;
+            if (isset($s['disposition']['attached_pic']) && $s['disposition']['attached_pic'] == 1) return false;
+            return true;
+        }));
+        $videoStream = $videoStreams[0] ?? array_values(array_filter($streams, fn($s) => ($s['codec_type'] ?? '') === 'video'))[0] ?? [];
         
         $height = $videoStream['height'] ?? 1080;
         $resolution = "{$height}p";
         $videoCodec = $videoStream['codec_name'] ?? 'h264';
+        
+        $fps = 24.0;
+        if (!empty($videoStream['r_frame_rate'])) {
+            $parts = explode('/', $videoStream['r_frame_rate']);
+            if (count($parts) === 2 && (float)$parts[1] > 0) {
+                $fps = round((float)$parts[0] / (float)$parts[1], 3);
+            } else {
+                $fps = (float)$videoStream['r_frame_rate'] ?: 24.0;
+            }
+        }
         
         $audioTracks = [];
         $subtitleTracks = [];

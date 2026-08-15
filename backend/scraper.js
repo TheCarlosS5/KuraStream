@@ -49,18 +49,23 @@ async function getTMDBConfig() {
 }
 
 async function tmdbFetch(endpoint, params = {}) {
-  const { apiKey } = await getTMDBConfig();
-  if (!apiKey) {
-    throw new Error('TMDB API Key not found in apikeys.txt');
+  const { apiKey, readToken } = await getTMDBConfig();
+  if (!apiKey && !readToken) {
+    throw new Error('TMDB API Key or Read Access Token not found in apikeys.txt');
   }
   
-  const queryParams = new URLSearchParams({
-    api_key: apiKey,
-    ...params
-  });
+  const queryParams = new URLSearchParams({ ...params });
+  const headers = { 'Accept': 'application/json' };
   
-  const url = `https://api.themoviedb.org/3${endpoint}?${queryParams.toString()}`;
-  const response = await fetch(url);
+  if (readToken) {
+    headers['Authorization'] = `Bearer ${readToken}`;
+  } else if (apiKey) {
+    queryParams.set('api_key', apiKey);
+  }
+  
+  const queryString = queryParams.toString();
+  const url = `https://api.themoviedb.org/3${endpoint}${queryString ? '?' + queryString : ''}`;
+  const response = await fetch(url, { headers });
   if (!response.ok) {
     throw new Error(`TMDB API request failed: ${response.statusText} (${response.status})`);
   }
