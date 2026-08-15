@@ -2353,6 +2353,11 @@ async function loadAdminPanel() {
   }
 }
 
+window.loadAdminPanel = loadAdminPanel;
+window.loadAdminLibraryList = loadAdminLibraryList;
+window.loadStagedImports = loadStagedImports;
+window.startAdminLogsPolling = startAdminLogsPolling;
+
 // Global binding for deleteShow (so inline onclick works)
 window.triggerSAID = async (showId) => {
   const seasonNum = prompt("Introduce el número de temporada a escanear:", "1");
@@ -5605,8 +5610,8 @@ async function loadStagedImports() {
         <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; flex-wrap: wrap;">
           <div style="flex: 1; min-width: 280px;">
             <span class="badge" style="background: rgba(168,85,247,0.15); color: #c084fc; font-size: 0.75rem; margin-bottom: 6px; display: inline-block;">${item.source_info || 'Descarga Torrents'}</span>
-            <h4 style="margin: 4px 0 8px 0; font-size: 1rem; color: var(--text-main); word-break: break-all;">${item.raw_title}</h4>
-            <small style="color: var(--text-muted); font-size: 0.78rem; display: block;">Ruta física: ${item.file_path}</small>
+            <h4 style="margin: 4px 0 8px 0; font-size: 1rem; color: var(--text-main); word-break: break-all;">${escapeHTML(item.original_filename || item.raw_title || 'Elemento')}</h4>
+            <small style="color: var(--text-muted); font-size: 0.78rem; display: block;">Ruta física: ${escapeHTML(item.filepath || item.file_path || '')}</small>
             
             <div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap;">
               <div style="flex: 2; min-width: 200px;">

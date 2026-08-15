@@ -575,27 +575,27 @@
             <span style="font-family: var(--font-title); font-weight: 700; font-size: 1.1rem; letter-spacing: -0.5px;">Admin</span>
           </div>
           <nav class="admin-nav">
-            <button class="admin-nav-item active" data-target="admin-sub-overview">
+            <button class="admin-nav-item active" data-target="admin-sub-overview" onclick="switchAdminSubView('admin-sub-overview')">
               <i data-lucide="bar-chart-2"></i>
               <span>Estado</span>
             </button>
-            <button class="admin-nav-item" data-target="admin-sub-import">
+            <button class="admin-nav-item" data-target="admin-sub-import" onclick="switchAdminSubView('admin-sub-import')">
               <i data-lucide="download"></i>
               <span>Importar</span>
             </button>
-            <button class="admin-nav-item" data-target="admin-sub-library">
+            <button class="admin-nav-item" data-target="admin-sub-library" onclick="switchAdminSubView('admin-sub-library')">
               <i data-lucide="tv"></i>
               <span>Biblioteca</span>
             </button>
-            <button class="admin-nav-item" data-target="admin-sub-torrents">
+            <button class="admin-nav-item" data-target="admin-sub-torrents" onclick="switchAdminSubView('admin-sub-torrents')">
               <i data-lucide="download-cloud"></i>
               <span>Descargas Torrent</span>
             </button>
-            <button class="admin-nav-item" data-target="admin-sub-staging">
+            <button class="admin-nav-item" data-target="admin-sub-staging" onclick="switchAdminSubView('admin-sub-staging')">
               <i data-lucide="inbox"></i>
               <span>Por Organizar</span>
             </button>
-            <button class="admin-nav-item" data-target="admin-sub-console">
+            <button class="admin-nav-item" data-target="admin-sub-console" onclick="switchAdminSubView('admin-sub-console')">
               <i data-lucide="terminal"></i>
               <span>Consola</span>
             </button>
@@ -754,6 +754,7 @@
                   <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Escanear Ahora
                 </button>
               </div>
+            </div>
             <!-- Buscador de Torrents Nyaa.si -->
             <div class="admin-card" style="margin-bottom: 25px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);">
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">

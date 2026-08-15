@@ -214,61 +214,22 @@ function handleRoute() {
 
 export function initAdminSidebar() {
   const navItems = document.querySelectorAll('.admin-nav-item');
-  const subViews = document.querySelectorAll('.admin-sub-view');
-
-  const activateSubView = (targetId, btn) => {
-    navItems.forEach(item => item.classList.remove('active'));
-    subViews.forEach(view => view.classList.remove('active'));
-
-    if (btn) btn.classList.add('active');
-
-    let resolvedId = targetId;
-    if (targetId === 'admin-sub-status') resolvedId = 'admin-sub-overview';
-
-    subViews.forEach(view => {
-      if (view.id === resolvedId) {
-        view.classList.add('active');
-        view.style.display = 'block';
-      } else {
-        view.classList.remove('active');
-        view.style.display = 'none';
-      }
-    });
-
-    // Stop previous sub-view pollers
-    stopAdminStatsPolling();
-    stopTorrentStatusPolling();
-    stopAdminLogsPolling();
-
-    // Trigger exact loader for each admin sub-view
-    if (resolvedId === 'admin-sub-overview') {
-      startAdminStatsPolling();
-    } else if (resolvedId === 'admin-sub-staging') {
-      loadStagedImports();
-    } else if (resolvedId === 'admin-sub-library') {
-      loadAdminPanel();
-    } else if (resolvedId === 'admin-sub-torrents') {
-      startTorrentStatusPolling();
-    } else if (resolvedId === 'admin-sub-import') {
-      initImportForm();
-    } else if (resolvedId === 'admin-sub-console') {
-      startAdminLogsPolling();
-    }
-  };
 
   navItems.forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = (e) => {
+      e.preventDefault();
       const targetId = btn.getAttribute('data-target');
-      activateSubView(targetId, btn);
+      if (typeof window.switchAdminSubView === 'function') {
+        window.switchAdminSubView(targetId);
+      }
     };
   });
 
-  // Activate currently highlighted tab or default to status tab
+  // Activate currently highlighted tab or default to overview tab
   const currentActive = document.querySelector('.admin-nav-item.active');
-  if (currentActive) {
-    activateSubView(currentActive.getAttribute('data-target'), currentActive);
-  } else if (navItems.length > 0) {
-    activateSubView(navItems[0].getAttribute('data-target'), navItems[0]);
+  const targetId = currentActive ? currentActive.getAttribute('data-target') : 'admin-sub-overview';
+  if (typeof window.switchAdminSubView === 'function') {
+    window.switchAdminSubView(targetId);
   }
 
   // Setup Admin Action Buttons
