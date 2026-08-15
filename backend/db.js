@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
@@ -378,12 +379,26 @@ export const dbHelper = {
     const age_rating = show.age_rating !== undefined ? show.age_rating : (existing && existing.age_rating !== undefined ? existing.age_rating : 'TV-14');
     const status = show.status !== undefined ? show.status : (existing && existing.status !== undefined ? existing.status : 'finished');
 
-    // Delete any existing rows for this ID to guarantee 100% uniqueness
-    db.prepare("DELETE FROM shows WHERE id = ?").run(show.id);
-
     const stmt = db.prepare(`
       INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        synopsis = excluded.synopsis,
+        rating = excluded.rating,
+        year = excluded.year,
+        studio = excluded.studio,
+        director = excluded.director,
+        writer = excluded.writer,
+        cast_members = excluded.cast_members,
+        poster_path = excluded.poster_path,
+        backdrop_path = excluded.backdrop_path,
+        media_type = excluded.media_type,
+        backdrop_loops = excluded.backdrop_loops,
+        genres = excluded.genres,
+        trailer_key = excluded.trailer_key,
+        age_rating = excluded.age_rating,
+        status = excluded.status
     `);
     stmt.run(
       show.id,
@@ -424,10 +439,19 @@ export const dbHelper = {
     const oldShowFolder = path.join(__dirname, '..', 'library', mediaTypeDir, oldFolderBasename);
     const newShowFolder = path.join(__dirname, '..', 'library', mediaTypeDir, cleanNewTitle);
 
-    // If folder exists, move folder on disk
+    // If folder exists, move folder on disk with cross-device EXDEV fallback
     if (fs.existsSync(oldShowFolder) && oldShowFolder !== newShowFolder) {
       await fsPromises.mkdir(path.dirname(newShowFolder), { recursive: true });
-      await fsPromises.rename(oldShowFolder, newShowFolder);
+      try {
+        await fsPromises.rename(oldShowFolder, newShowFolder);
+      } catch (err) {
+        if (err.code === 'EXDEV' || err.code === 'EPERM' || err.code === 'EACCES') {
+          await fsPromises.cp(oldShowFolder, newShowFolder, { recursive: true });
+          await fsPromises.rm(oldShowFolder, { recursive: true, force: true });
+        } else {
+          throw err;
+        }
+      }
     }
 
     // Update shows table
