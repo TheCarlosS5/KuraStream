@@ -149,7 +149,18 @@ class PlayerController {
                 ob_end_clean();
             }
 
-            passthru($cmd);
+            // Stream chunks in real-time with immediate flushing to browser
+            $fp = popen($cmd, 'r');
+            if ($fp) {
+                while (!feof($fp) && !connection_aborted()) {
+                    $buffer = fread($fp, 65536);
+                    if ($buffer !== false && strlen($buffer) > 0) {
+                        echo $buffer;
+                        flush();
+                    }
+                }
+                pclose($fp);
+            }
             exit();
         }
 
