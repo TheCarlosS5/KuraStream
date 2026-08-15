@@ -100,6 +100,56 @@ class PlayerController {
             exit();
         }
 
+        $ext = strtolower(pathinfo($realPath, PATHINFO_EXTENSION));
+        $isMkv = ($ext === 'mkv');
+        $start = isset($_GET['start']) ? (float)$_GET['start'] : 0.0;
+        $audioTrack = isset($_GET['audio']) ? (int)$_GET['audio'] : -1;
+
+        // If file is MKV (not supported natively by HTML5 video tag) or seek/audio track specified:
+        if ($isMkv || $start > 0 || $audioTrack !== -1) {
+            @header('Content-Type: video/mp4');
+            @header('Accept-Ranges: none');
+            @header('Connection: keep-alive');
+            @header('Access-Control-Allow-Origin: *');
+
+            $cmd = 'ffmpeg -v error ';
+            if ($start > 0) {
+                $cmd .= '-noaccurate_seek -ss ' . escapeshellarg(strval($start)) . ' ';
+            }
+            $cmd .= '-i ' . escapeshellarg($realPath) . ' ';
+            $cmd .= '-map 0:v:0 ';
+            
+            // Map selected audio track or default to first audio stream
+            if ($audioTrack !== -1) {
+                $audioStreamIndex = $audioTrack;
+                if (!empty($episodeId)) {
+                    $epData = DbHelper::getEpisode($episodeId);
+                    if ($epData && !empty($epData['audio_tracks'])) {
+                        $tracks = is_array($epData['audio_tracks']) ? $epData['audio_tracks'] : json_decode($epData['audio_tracks'], true);
+                        if (is_array($tracks)) {
+                            $t = array_values(array_filter($tracks, fn($x) => ($x['track_number'] ?? $x['index'] ?? -1) == $audioTrack))[0] ?? null;
+                            if ($t && isset($t['index'])) {
+                                $audioStreamIndex = (int)$t['index'];
+                            }
+                        }
+                    }
+                }
+                $cmd .= "-map 0:{$audioStreamIndex}? ";
+            } else {
+                $cmd .= '-map 0:a:0? ';
+            }
+
+            // Remux video copy, audio aac for universal browser support, fast fragmented MP4 stream
+            $cmd .= '-c:v copy -c:a aac -b:a 192k -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
+
+            if (defined('TESTING_MODE')) {
+                throw new ExitException("Stream remux success", 200);
+            }
+
+            passthru($cmd);
+            exit();
+        }
+
         $fileSize = filesize($realPath);
         $offset = 0;
         $length = $fileSize;
@@ -129,10 +179,8 @@ class PlayerController {
         }
 
         // Detect correct video MIME type
-        $ext = strtolower(pathinfo($realPath, PATHINFO_EXTENSION));
         $mimeTypes = [
             'mp4' => 'video/mp4',
-            'mkv' => 'video/x-matroska',
             'webm' => 'video/webm',
             'avi' => 'video/x-msvideo',
             'mov' => 'video/quicktime',

@@ -21,22 +21,41 @@ if ($uri === '/' || $uri === '/index.html') {
     exit();
 }
 
-$staticFileFrontend = $frontendDir . $uri;
+$decodedUri = urldecode($uri);
+
+$staticFileFrontend = $frontendDir . $decodedUri;
 if (file_exists($staticFileFrontend) && is_file($staticFileFrontend)) {
     $mime = mime_content_type($staticFileFrontend);
-    if (str_ends_with($uri, '.css')) $mime = 'text/css';
-    if (str_ends_with($uri, '.js')) $mime = 'application/javascript';
+    if (str_ends_with($decodedUri, '.css')) $mime = 'text/css';
+    if (str_ends_with($decodedUri, '.js')) $mime = 'application/javascript';
     header("Content-Type: {$mime}");
     readfile($staticFileFrontend);
     exit();
 }
 
-$staticFileLibrary = $libraryDir . str_replace('/library', '', $uri);
-if (str_starts_with($uri, '/library/') && file_exists($staticFileLibrary) && is_file($staticFileLibrary)) {
-    $mime = mime_content_type($staticFileLibrary);
-    header("Content-Type: {$mime}");
-    readfile($staticFileLibrary);
-    exit();
+if (str_starts_with($decodedUri, '/library/')) {
+    $rel = str_replace('/library', '', $decodedUri);
+    $candidate = $libraryDir . $rel;
+    
+    if (!file_exists($candidate) || !is_file($candidate)) {
+        $candidateSpaces = $libraryDir . str_replace('_', ' ', $rel);
+        if (file_exists($candidateSpaces) && is_file($candidateSpaces)) {
+            $candidate = $candidateSpaces;
+        } else {
+            $candidateUnderscores = $libraryDir . str_replace(' ', '_', $rel);
+            if (file_exists($candidateUnderscores) && is_file($candidateUnderscores)) {
+                $candidate = $candidateUnderscores;
+            }
+        }
+    }
+
+    if (file_exists($candidate) && is_file($candidate)) {
+        $mime = mime_content_type($candidate);
+        header("Content-Type: {$mime}");
+        header("Cache-Control: public, max-age=3600");
+        readfile($candidate);
+        exit();
+    }
 }
 
 // API Routes

@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=9.8_audit_fixes';
+import { initPlayer, destroyPlayer } from './player.js?v=9.9_player_cover_fix';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
@@ -5129,10 +5129,13 @@ async function initDashboardMosaic() {
 window.scrapeShowCover = async (showId, currentTitle) => {
   if (!showId) return;
   const targetId = showId;
+  const safeId = targetId.replace(/[^a-zA-Z0-9_-]/g, '_');
   const defaultQuery = currentTitle || targetId.replace(/_/g, ' ');
 
-  const btn = document.getElementById(`btn-scrape-${targetId}`) || 
-              document.querySelector(`.btn-scrape-cover[data-id="${targetId}"]`);
+  const btn = document.getElementById(`btn-scrape-${safeId}`) ||
+              document.getElementById(`btn-scrape-${targetId}`) || 
+              document.querySelector(`.btn-scrape-cover[data-id="${targetId}"]`) ||
+              document.querySelector(`.btn-scrape-cover[data-id="${safeId}"]`);
   
   if (btn) {
     btn.disabled = true;
@@ -5166,13 +5169,27 @@ window.scrapeShowCover = async (showId, currentTitle) => {
 
     if (res.ok && data.success) {
       // Live DOM update for the poster image immediately!
-      const posterImg = document.getElementById(`admin-poster-${targetId}`) ||
+      const posterImg = document.getElementById(`admin-poster-${safeId}`) ||
+                        document.getElementById(`admin-poster-${targetId}`) ||
+                        document.querySelector(`#admin-show-card-${safeId} img.admin-show-poster`) ||
                         document.querySelector(`#admin-show-card-${targetId} img.admin-show-poster`);
       const newPosterUrl = (data.poster_path || (data.show && data.show.poster_path) || '') + '?t=' + Date.now();
+      const newBackdropUrl = (data.backdrop_path || (data.show && data.show.backdrop_path) || '') + '?t=' + Date.now();
+
       if (posterImg && newPosterUrl) {
         posterImg.src = newPosterUrl;
         posterImg.style.transform = 'scale(1.08)';
         setTimeout(() => { posterImg.style.transform = 'scale(1)'; }, 300);
+      }
+
+      // Update detail view if currently open
+      const detailPoster = document.querySelector('.show-poster-img') || document.getElementById('detail-poster');
+      if (detailPoster && newPosterUrl) {
+        detailPoster.src = newPosterUrl;
+      }
+      const detailHero = document.querySelector('.detail-hero') || document.getElementById('detail-backdrop') || document.querySelector('.hero-backdrop');
+      if (detailHero && newBackdropUrl) {
+        detailHero.style.backgroundImage = `url("${newBackdropUrl}")`;
       }
 
       if (btn) {

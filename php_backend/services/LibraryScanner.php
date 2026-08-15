@@ -33,7 +33,10 @@ class LibraryScanner {
                     continue; // Skip folders that contain no video files
                 }
 
-                $cleanTitle = str_replace('_', ' ', $showFolder);
+                $cleanTitle = preg_replace('/(\[.*?\]|\(.*?\)|1080p|720p|4k|2160p|hevc|x264|x265|aac|dvdrip|web-dl|bluray|bdrip|latino|sub|esp|dual)/i', '', $showFolder);
+                $cleanTitle = trim(preg_replace('/[._\-+]+/', ' ', $cleanTitle));
+                if (empty($cleanTitle)) $cleanTitle = str_replace('_', ' ', $showFolder);
+                
                 $dbShow = DbHelper::findShowByFolderOrTitle($showFolder, $cleanTitle);
                 $showId = $dbShow['id'] ?? $showFolder;
 

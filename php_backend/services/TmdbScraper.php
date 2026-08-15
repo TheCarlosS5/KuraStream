@@ -107,8 +107,8 @@ class TmdbScraper {
             'year' => $year,
             'studio' => $studio,
             'genres' => $genres,
-            'poster_path' => !empty($details['poster_path']) ? "https://image.tmdb.org/t/p/w500" . $details['poster_path'] : '',
-            'backdrop_path' => !empty($details['backdrop_path']) ? "https://image.tmdb.org/t/p/w1280" . $details['backdrop_path'] : '',
+            'poster_path' => !empty($details['poster_path']) ? "https://image.tmdb.org/t/p/original" . $details['poster_path'] : '',
+            'backdrop_path' => !empty($details['backdrop_path']) ? "https://image.tmdb.org/t/p/original" . $details['backdrop_path'] : '',
             'status' => $isAiring ? 'airing' : 'finished'
         ];
     }

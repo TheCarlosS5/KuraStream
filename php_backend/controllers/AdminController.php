@@ -610,10 +610,18 @@ class AdminController {
 
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realShowId;
         if (!is_dir($showDir)) {
-            $showDir = LIBRARY_DIR . '/Anime/' . $realShowId;
-        }
-        if (!is_dir($showDir)) {
-            @mkdir($showDir, 0755, true);
+            $candidateUnderscores = LIBRARY_DIR . '/' . $catFolder . '/' . str_replace(' ', '_', $realShowId);
+            $candidateSpaces = LIBRARY_DIR . '/' . $catFolder . '/' . str_replace('_', ' ', $realShowId);
+            if (is_dir($candidateUnderscores)) {
+                $showDir = $candidateUnderscores;
+            } else if (is_dir($candidateSpaces)) {
+                $showDir = $candidateSpaces;
+            } else {
+                $showDir = LIBRARY_DIR . '/Anime/' . $realShowId;
+                if (!is_dir($showDir)) {
+                    @mkdir($showDir, 0755, true);
+                }
+            }
         }
 
         if (!$tmdbId && !empty($query)) {
@@ -643,7 +651,7 @@ class AdminController {
         }
 
         if (!$tmdbId) {
-            jsonError('No se encontraron resultados en TMDB para "' . $query . '". Prueba escribiendo el nombre exacto o en inglés.', 404);
+            jsonError('No se encontraron resultados en TMDB para "' . $query . '". Prueba escribiendo el nombre oficial en inglés o español.', 404);
         }
 
         $details = TmdbScraper::getDetails($tmdbId, $mediaType);
@@ -651,13 +659,14 @@ class AdminController {
             jsonError('No se pudieron obtener detalles de TMDB', 404);
         }
 
+        $actualFolder = basename($showDir);
         $localPosterUrl = $show['poster_path'] ?? '';
         $localBackdropUrl = $show['backdrop_path'] ?? '';
 
         if (!empty($details['poster_path'])) {
             $posterDest = $showDir . '/poster.jpg';
             if (TmdbScraper::downloadFile($details['poster_path'], $posterDest)) {
-                $localPosterUrl = "/library/{$catFolder}/{$realShowId}/poster.jpg";
+                $localPosterUrl = "/library/{$catFolder}/{$actualFolder}/poster.jpg";
             } else {
                 $localPosterUrl = $details['poster_path'];
             }
@@ -666,7 +675,7 @@ class AdminController {
         if (!empty($details['backdrop_path'])) {
             $backdropDest = $showDir . '/backdrop.jpg';
             if (TmdbScraper::downloadFile($details['backdrop_path'], $backdropDest)) {
-                $localBackdropUrl = "/library/{$catFolder}/{$realShowId}/backdrop.jpg";
+                $localBackdropUrl = "/library/{$catFolder}/{$actualFolder}/backdrop.jpg";
             } else {
                 $localBackdropUrl = $details['backdrop_path'];
             }
