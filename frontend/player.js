@@ -27,10 +27,21 @@ let watchCreditsBtn = null;
 let outroOverlayContainer = null;
 let countdownOverlay = null;
 
+function setLucideIcon(elementId, iconName) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  const i = document.createElement('i');
+  i.setAttribute('data-lucide', iconName);
+  i.id = elementId;
+  el.replaceWith(i);
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
 // Helper to extract show ID safely without breaking on movies or shows with _S in name
 export function getShowIdFromEpisodeId(epId) {
   if (!epId) return '';
-  return epId.replace(/_movie$/i, '').replace(/_S\d+_E\d+$/i, '');
+  const decoded = decodeURIComponent(epId);
+  return decoded.replace(/_movie$/i, '').replace(/_S\d+_E\d+$/i, '');
 }
 
 // QR Share elements
@@ -204,8 +215,10 @@ export async function initPlayer(rawEpisodeId) {
     hasSkippedIntroForCurrentEpisode = false;
     hasSkippedOutroForCurrentEpisode = false;
 
-    document.getElementById('player-show-title').textContent = currentShowData.title || '';
-    document.getElementById('player-episode-title').textContent = `${currentEpisodeData.season_number ? `Temporada ${currentEpisodeData.season_number} • ` : ''}Capítulo ${currentEpisodeData.episode_number}: ${currentEpisodeData.title || ''}`;
+    const showTitleEl = document.getElementById('player-show-title');
+    const epTitleEl = document.getElementById('player-episode-title');
+    if (showTitleEl) showTitleEl.textContent = currentShowData.title || '';
+    if (epTitleEl) epTitleEl.textContent = `${currentEpisodeData.season_number ? `Temporada ${currentEpisodeData.season_number} • ` : ''}Capítulo ${currentEpisodeData.episode_number}: ${currentEpisodeData.title || ''}`;
     
     renderChapterTicks(currentEpisodeData);
     renderChaptersDropdown(currentEpisodeData);
@@ -273,7 +286,7 @@ export async function initPlayer(rawEpisodeId) {
       if (sessionStr) {
         try { activeUser = JSON.parse(sessionStr).username; } catch(e) {}
       }
-      const progressRes = await fetch(`/api/progress/${episodeId}?username=${encodeURIComponent(activeUser)}`);
+      const progressRes = await fetch(`/api/progress/${encodeURIComponent(episodeId)}?username=${encodeURIComponent(activeUser)}`);
       const progressData = await progressRes.json();
       startProgress = progressData.progress || 0;
     } catch (e) {
@@ -281,11 +294,11 @@ export async function initPlayer(rawEpisodeId) {
     }
   }
 
+  // Set up event listeners FIRST so all controls are active
+  setupPlayerEventListeners();
+
   // Load video source
   loadVideoStream(startProgress);
-
-  // Set up event listeners
-  setupPlayerEventListeners();
 
   // Setup Ambilight
   setupAmbilight();
@@ -330,8 +343,12 @@ function loadVideoStream(startTime = 0) {
   currentStreamStartOffset = startTime;
   destroySubtitles();
   
-  // Build Stream URL
-  let streamUrl = `/api/stream/${currentEpisodeId}?audio=${selectedAudioTrackNum}`;
+  // Show glowing buffer loader on stream start
+  const loader = document.getElementById('player-loader');
+  if (loader) loader.style.display = 'flex';
+
+  // Build Stream URL with encoded episode ID
+  let streamUrl = `/api/stream/${encodeURIComponent(currentEpisodeId)}?audio=${selectedAudioTrackNum}`;
   if (startTime > 0) {
     streamUrl += `&start=${startTime}`;
   }
@@ -340,17 +357,13 @@ function loadVideoStream(startTime = 0) {
   video.load();
   
   // Set playback speed state
-  const currentSpeed = parseFloat(speedBtn.textContent) || 1.0;
+  const currentSpeed = speedBtn ? (parseFloat(speedBtn.textContent) || 1.0) : 1.0;
   video.playbackRate = currentSpeed;
 
   video.play().catch(e => {
-    // Autoplay block fallback
-    const playIcon = document.getElementById('play-icon');
-    const centerPlayIcon = document.getElementById('center-play-icon');
-    if (playIcon) playIcon.setAttribute('data-lucide', 'play');
-    if (centerPlayIcon) centerPlayIcon.setAttribute('data-lucide', 'play');
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-    centerPlayBtn.style.display = 'flex';
+    setLucideIcon('play-icon', 'play');
+    setLucideIcon('center-play-icon', 'play');
+    if (centerPlayBtn) centerPlayBtn.style.display = 'flex';
   });
 
   // Reinitialize Subtitles if selected
@@ -595,6 +608,16 @@ function setupTracksMenu() {
 }
 
 function setupPlayerEventListeners() {
+  const showLoader = () => {
+    const loader = document.getElementById('player-loader');
+    if (loader) loader.style.display = 'flex';
+  };
+
+  const hideLoader = () => {
+    const loader = document.getElementById('player-loader');
+    if (loader) loader.style.display = 'none';
+  };
+
   // Play/Pause toggling
   const togglePlay = () => {
     if (video.paused) {
@@ -605,27 +628,35 @@ function setupPlayerEventListeners() {
     triggerControlsActivity();
   };
 
+  // Buffer Loader Event Listeners
+  video.onloadstart = showLoader;
+  video.onwaiting = showLoader;
+  video.onseeking = showLoader;
+  video.onseeked = hideLoader;
+  video.oncanplay = hideLoader;
+  video.onplaying = hideLoader;
+
   video.onerror = () => {
+    hideLoader();
     console.error("Video element error occurred:", video.error);
     showPlayerErrorOverlay("Error de reproducción. ¿Reintentar?");
   };
 
   video.onplay = () => {
-    const playIcon = document.getElementById('play-icon');
-    const centerPlayIcon = document.getElementById('center-play-icon');
-    if (playIcon) playIcon.setAttribute('data-lucide', 'pause');
-    if (centerPlayIcon) centerPlayIcon.setAttribute('data-lucide', 'pause');
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    hideLoader();
+    setLucideIcon('play-icon', 'pause');
+    setLucideIcon('center-play-icon', 'pause');
     
     // Fade out center button quickly
     setTimeout(() => {
-      if (!video.paused) centerPlayBtn.style.display = 'none';
-    }, 500);
+      if (!video.paused && centerPlayBtn) centerPlayBtn.style.display = 'none';
+    }, 400);
 
     stopSakuraEffect();
   };
 
   video.onloadedmetadata = () => {
+    hideLoader();
     if (speedBtn) {
       const currentSpeed = parseFloat(speedBtn.textContent) || 1.0;
       video.playbackRate = currentSpeed;
@@ -637,13 +668,11 @@ function setupPlayerEventListeners() {
   };
 
   video.onpause = () => {
-    const playIcon = document.getElementById('play-icon');
-    const centerPlayIcon = document.getElementById('center-play-icon');
-    if (playIcon) playIcon.setAttribute('data-lucide', 'play');
-    if (centerPlayIcon) centerPlayIcon.setAttribute('data-lucide', 'play');
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    hideLoader();
+    setLucideIcon('play-icon', 'play');
+    setLucideIcon('center-play-icon', 'play');
     
-    centerPlayBtn.style.display = 'flex';
+    if (centerPlayBtn) centerPlayBtn.style.display = 'flex';
     saveWatchProgress();
 
     startSakuraEffect();
@@ -733,28 +762,24 @@ function setupPlayerEventListeners() {
     document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }
   handleFullscreenChange = () => {
-    const fsIcon = document.getElementById('fullscreen-icon');
+    const isFs = !!document.fullscreenElement;
+    setLucideIcon('fullscreen-icon', isFs ? 'minimize' : 'maximize');
+    showVideoToast(isFs ? 'Pantalla Completa' : 'Ventana');
+    
     const dot = document.getElementById('custom-cursor-dot');
     const ring = document.getElementById('custom-cursor-ring');
 
     if (document.fullscreenElement) {
-      if (fsIcon) fsIcon.setAttribute('data-lucide', 'minimize');
-      showVideoToast('Pantalla Completa');
-      
       if (dot && ring) {
         document.fullscreenElement.appendChild(dot);
         document.fullscreenElement.appendChild(ring);
       }
     } else {
-      if (fsIcon) fsIcon.setAttribute('data-lucide', 'maximize');
-      showVideoToast('Ventana');
-      
       if (dot && ring) {
         document.body.appendChild(dot);
         document.body.appendChild(ring);
       }
     }
-    if (typeof lucide !== 'undefined') lucide.createIcons();
   };
   document.addEventListener('fullscreenchange', handleFullscreenChange);
 
@@ -1107,16 +1132,13 @@ function toggleFullscreen() {
 }
 
 function updateVolumeIcon(vol) {
-  const volIcon = document.getElementById('volume-icon');
-  if (!volIcon) return;
   let iconName = 'volume-2';
-  if (vol === 0 || video.muted) {
+  if (vol === 0 || (video && video.muted)) {
     iconName = 'volume-x';
   } else if (vol < 0.5) {
     iconName = 'volume-1';
   }
-  volIcon.setAttribute('data-lucide', iconName);
-  if (typeof lucide !== 'undefined') lucide.createIcons();
+  setLucideIcon('volume-icon', iconName);
 }
 
 function showTechnicalModal() {
