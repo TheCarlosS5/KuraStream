@@ -2302,17 +2302,17 @@ async function loadAdminLibraryList() {
       const safeTitle = escapeHTML(show.title || '');
       const safeId = escapeHTML(show.id || '');
       return `
-        <div class="admin-show-item" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; gap: 10px;">
+        <div class="admin-show-item" id="admin-show-card-${safeId}" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; gap: 10px;">
           <div class="admin-show-info" style="display: flex; align-items: center; gap: 12px; max-width: 60%;">
-            <img class="admin-show-poster" src="${poster}" alt="${safeTitle}" style="width: 44px; height: 60px; object-fit: cover; border-radius: 4px; background: #000;" onerror="this.src='/api/placeholder-poster'">
+            <img class="admin-show-poster" id="admin-poster-${safeId}" src="${poster}" alt="${safeTitle}" style="width: 44px; height: 60px; object-fit: cover; border-radius: 4px; background: #000; transition: transform 0.2s;" onerror="this.src='/api/placeholder-poster'">
             <div style="overflow: hidden;">
-              <span class="admin-show-title" style="font-weight: 600; font-size: 0.95rem; color: var(--text-main); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${safeTitle}</span>
+              <span class="admin-show-title" id="admin-title-${safeId}" style="font-weight: 600; font-size: 0.95rem; color: var(--text-main); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${safeTitle}</span>
               <div class="admin-show-meta" style="color: var(--text-muted); font-size: 0.78rem;">${show.media_type === 'movie' ? 'Película' : 'Anime'} • ${show.year || 'N/A'}</div>
             </div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
             <button type="button" class="btn-status-toggle ${show.status === 'airing' ? 'airing' : 'finished'}" data-id="${safeId}" data-status="${show.status || 'finished'}" title="Haz clic para cambiar estado">${show.status === 'airing' ? '● En Emisión' : 'Finalizado'}</button>
-            <button type="button" class="btn btn-secondary btn-scrape-cover" data-id="${safeId}" data-title="${safeTitle}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(168, 85, 247, 0.2); border-color: #a855f7;"><i data-lucide="search" style="width:14px;height:14px;margin-right:4px;"></i> Carátula HD</button>
+            <button type="button" class="btn btn-secondary btn-scrape-cover" id="btn-scrape-${safeId}" data-id="${safeId}" data-title="${safeTitle}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(168, 85, 247, 0.2); border-color: #a855f7; display: inline-flex; align-items: center; cursor: pointer;"><i data-lucide="search" style="width:14px;height:14px;margin-right:4px;"></i> Carátula HD</button>
             <button type="button" class="btn btn-secondary btn-edit-show" data-id="${safeId}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px;"><i data-lucide="edit" style="width:14px;height:14px;margin-right:4px;"></i> Editar</button>
             ${show.media_type === 'anime' ? `<button type="button" class="btn btn-secondary btn-said-scan" data-id="${safeId}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(39, 201, 63, 0.2); border-color: #27c93f;"><i data-lucide="scan" style="width:14px;height:14px;margin-right:4px;"></i> Detectar Intros</button>` : ''}
             <button type="button" class="btn-danger-small btn-delete-show" data-id="${safeId}" data-title="${safeTitle}">Eliminar</button>
@@ -5120,38 +5120,74 @@ async function initDashboardMosaic() {
 // Scrape cover button globally
 window.scrapeShowCover = async (showId, currentTitle) => {
   if (!showId) return;
-  const defaultQuery = currentTitle || showId.replace(/_/g, ' ');
-  const query = prompt("Escribe el nombre del anime/película para buscar la carátula oficial en HD (TMDB):", defaultQuery);
-  if (query === null) return;
+  const targetId = showId;
+  const defaultQuery = currentTitle || targetId.replace(/_/g, ' ');
+
+  const btn = document.getElementById(`btn-scrape-${targetId}`) || 
+              document.querySelector(`.btn-scrape-cover[data-id="${targetId}"]`);
   
-  const btn = document.getElementById(`btn-scrape-${showId}`);
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:4px;"></div> Descargando...`;
+    btn.innerHTML = `<div class="spinner" style="width:13px;height:13px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:5px;"></div> Buscando HD...`;
   }
   
   try {
-    const res = await fetch('/api/admin/scrape-show-cover', {
+    let res = await fetch('/api/admin/scrape-show-cover', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ showId, query: query.trim() || defaultQuery })
+      body: JSON.stringify({ showId: targetId, query: defaultQuery })
     });
     
-    const data = await res.json();
-    if (res.ok && data.success) {
-      alert("¡Carátula HD y metadatos actualizados con éxito!");
-      if (typeof loadAdminLibraryList === 'function') {
-        loadAdminLibraryList();
-      } else if (typeof loadAdminPanel === 'function') {
-        loadAdminPanel();
+    let data = await res.json();
+    
+    // If not found automatically, ask the user for a manual query
+    if (!res.ok || !data.success) {
+      const customQuery = prompt(`No se encontró carátula para "${defaultQuery}".\nEscribe el nombre oficial en inglés o español para TMDB:`, defaultQuery);
+      if (customQuery && customQuery.trim()) {
+        if (btn) {
+          btn.innerHTML = `<div class="spinner" style="width:13px;height:13px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:5px;"></div> Reintentando...`;
+        }
+        res = await fetch('/api/admin/scrape-show-cover', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ showId: targetId, query: customQuery.trim() })
+        });
+        data = await res.json();
       }
+    }
+
+    if (res.ok && data.success) {
+      // Live DOM update for the poster image immediately!
+      const posterImg = document.getElementById(`admin-poster-${targetId}`) ||
+                        document.querySelector(`#admin-show-card-${targetId} img.admin-show-poster`);
+      const newPosterUrl = (data.poster_path || (data.show && data.show.poster_path) || '') + '?t=' + Date.now();
+      if (posterImg && newPosterUrl) {
+        posterImg.src = newPosterUrl;
+        posterImg.style.transform = 'scale(1.08)';
+        setTimeout(() => { posterImg.style.transform = 'scale(1)'; }, 300);
+      }
+
+      if (btn) {
+        btn.innerHTML = `<i data-lucide="check" style="width:14px;height:14px;color:#00e08f;margin-right:4px;vertical-align:middle;"></i> <span style="color:#00e08f;font-weight:700;">¡Actualizado!</span>`;
+        if (typeof lucide !== 'undefined') lucide.createIcons({ root: btn });
+      }
+
+      setTimeout(() => {
+        if (typeof loadAdminLibraryList === 'function') {
+          loadAdminLibraryList();
+        }
+      }, 1200);
     } else {
       alert("Error al buscar carátula en TMDB: " + (data.error || data.message || "No se encontró ninguna coincidencia."));
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="search" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Carátula HD`;
+        if (typeof lucide !== 'undefined') lucide.createIcons({ root: btn });
+      }
     }
   } catch (err) {
     console.error(err);
     alert("Error de conexión al buscar carátula: " + err.message);
-  } finally {
     if (btn) {
       btn.disabled = false;
       btn.innerHTML = `<i data-lucide="search" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Carátula HD`;
