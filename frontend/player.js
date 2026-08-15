@@ -82,7 +82,8 @@ let lastSavedTime = 0;
 // Active state tracker for keyboard inputs
 let isPlayerActive = false;
 
-export async function initPlayer(episodeId) {
+export async function initPlayer(rawEpisodeId) {
+  let episodeId = decodeURIComponent(rawEpisodeId || '');
   if (episodeId && episodeId.includes('?')) {
     episodeId = episodeId.split('?')[0];
   }
@@ -115,7 +116,20 @@ export async function initPlayer(episodeId) {
   pipBtn = document.getElementById('pip-btn');
   skipIntroBtn = document.getElementById('skipIntroBtn') || document.getElementById('skip-intro-btn');
   skipOutroBtn = document.getElementById('skip-outro-btn');
-  setupPlayerDOMElements();
+  watchCreditsBtn = document.getElementById('watch-credits-btn');
+  outroOverlayContainer = document.getElementById('outro-overlay-container');
+  countdownOverlay = document.getElementById('autoplay-countdown-overlay');
+  ambilightToggleBtn = document.getElementById('ambilight-toggle-btn');
+  ambilightCanvas = document.getElementById('player-ambilight-canvas');
+
+  // Immediately bind back button so user can always navigate back
+  const backBtn = document.getElementById('player-back-btn');
+  if (backBtn) {
+    backBtn.onclick = () => {
+      const showId = getShowIdFromEpisodeId(currentEpisodeId);
+      location.hash = showId ? `#/show/${encodeURIComponent(showId)}` : '#/';
+    };
+  }
 
   // Reset state
   lastSavedTime = 0;
