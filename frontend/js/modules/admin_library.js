@@ -108,20 +108,28 @@ export async function updateShowTitle(showId, newTitle) {
   }
 }
 
-export async function scrapeShowCover(showId) {
+export async function scrapeShowCover(showId, currentTitle) {
   if (!showId) return;
+  const defaultQuery = currentTitle || showId.replace(/_/g, ' ');
+  const query = prompt("Escribe el nombre del anime/película para buscar la carátula oficial en HD (TMDB):", defaultQuery);
+  if (query === null) return;
+
   try {
-    const res = await fetch('/api/admin/scrape-cover', {
+    const res = await fetch('/api/admin/scrape-show-cover', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ showId })
+      body: JSON.stringify({ showId, query: query.trim() || defaultQuery })
     });
     const data = await res.json();
     if (res.ok && data.success) {
-      alert('Carátula descargada y actualizada con éxito.');
-      loadAdminPanel();
+      alert('¡Carátula HD y metadatos actualizados con éxito!');
+      if (typeof window.loadAdminLibraryList === 'function') {
+        window.loadAdminLibraryList();
+      } else if (typeof loadAdminPanel === 'function') {
+        loadAdminPanel();
+      }
     } else {
-      alert('No se pudo encontrar carátula en TMDB: ' + (data.error || 'Se usó imagen por defecto'));
+      alert('Error al consultar TMDB: ' + (data.error || data.message || 'No se encontró carátula'));
     }
   } catch (err) {
     alert('Error al consultar TMDB: ' + err.message);

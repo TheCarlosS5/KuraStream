@@ -5119,8 +5119,10 @@ async function initDashboardMosaic() {
 
 // Scrape cover button globally
 window.scrapeShowCover = async (showId, currentTitle) => {
-  const query = prompt("Escribe el nombre del anime para buscar la carátula en internet (MyAnimeList / Kitsu):", currentTitle);
-  if (!query) return;
+  if (!showId) return;
+  const defaultQuery = currentTitle || showId.replace(/_/g, ' ');
+  const query = prompt("Escribe el nombre del anime/película para buscar la carátula oficial en HD (TMDB):", defaultQuery);
+  if (query === null) return;
   
   const btn = document.getElementById(`btn-scrape-${showId}`);
   if (btn) {
@@ -5132,23 +5134,27 @@ window.scrapeShowCover = async (showId, currentTitle) => {
     const res = await fetch('/api/admin/scrape-show-cover', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ showId, query })
+      body: JSON.stringify({ showId, query: query.trim() || defaultQuery })
     });
     
     const data = await res.json();
     if (res.ok && data.success) {
-      alert("Carátula y metadatos actualizados con éxito.");
-      loadAdminPanel();
+      alert("¡Carátula HD y metadatos actualizados con éxito!");
+      if (typeof loadAdminLibraryList === 'function') {
+        loadAdminLibraryList();
+      } else if (typeof loadAdminPanel === 'function') {
+        loadAdminPanel();
+      }
     } else {
-      alert("Error: " + (data.error || "No se encontró ninguna carátula."));
+      alert("Error al buscar carátula en TMDB: " + (data.error || data.message || "No se encontró ninguna coincidencia."));
     }
   } catch (err) {
     console.error(err);
-    alert("Error de conexión al buscar carátula.");
+    alert("Error de conexión al buscar carátula: " + err.message);
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = `<i data-lucide="search" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Buscar Carátula HD`;
+      btn.innerHTML = `<i data-lucide="search" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i> Carátula HD`;
       if (typeof lucide !== 'undefined') lucide.createIcons({ root: btn });
     }
   }

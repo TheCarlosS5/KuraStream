@@ -615,13 +615,32 @@ class AdminController {
 
         if (!$tmdbId && !empty($query)) {
             $searchRes = TmdbScraper::search($query, $mediaType);
+            
+            // Fallback 1: Try cleaned query (replace dots/underscores, remove release tags)
+            if (empty($searchRes)) {
+                $cleanQuery = preg_replace('/(\[.*?\]|\(.*?\)|1080p|720p|4k|2160p|hevc|x264|x265|aac|dvdrip|web-dl|bluray|bdrip|latino|sub|esp|dual)/i', '', $query);
+                $cleanQuery = trim(preg_replace('/[._\-+]+/', ' ', $cleanQuery));
+                if (!empty($cleanQuery) && $cleanQuery !== $query) {
+                    $searchRes = TmdbScraper::search($cleanQuery, $mediaType);
+                }
+            }
+
+            // Fallback 2: Try first 3 words of query
+            if (empty($searchRes)) {
+                $words = explode(' ', preg_replace('/[._\-+]+/', ' ', $query));
+                if (count($words) > 3) {
+                    $shortQuery = implode(' ', array_slice($words, 0, 3));
+                    $searchRes = TmdbScraper::search($shortQuery, $mediaType);
+                }
+            }
+
             if (!empty($searchRes)) {
                 $tmdbId = (int)$searchRes[0]['id'];
             }
         }
 
         if (!$tmdbId) {
-            jsonError('No se encontraron resultados en TMDB para ' . $query, 404);
+            jsonError('No se encontraron resultados en TMDB para "' . $query . '". Prueba escribiendo el nombre exacto o en inglés.', 404);
         }
 
         $details = TmdbScraper::getDetails($tmdbId, $mediaType);
