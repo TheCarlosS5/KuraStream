@@ -36,10 +36,13 @@ class PlayerController {
         $filepath = $ep['filepath'];
         $trackIndex = -1;
         $tracks = !empty($ep['subtitle_tracks']) ? (is_array($ep['subtitle_tracks']) ? $ep['subtitle_tracks'] : json_decode($ep['subtitle_tracks'], true)) : [];
-        if (is_array($tracks)) {
-            $t = $tracks[(int)$trackNum] ?? null;
+        if (is_array($tracks) && count($tracks) > 0) {
+            $t = array_values(array_filter($tracks, fn($x) => isset($x['index']) && (int)$x['index'] === (int)$trackNum))[0] ?? null;
             if (!$t) {
-                $t = array_values(array_filter($tracks, fn($x) => ($x['track_number'] ?? $x['index'] ?? -1) == (int)$trackNum))[0] ?? null;
+                $t = array_values(array_filter($tracks, fn($x) => isset($x['track_number']) && (int)$x['track_number'] === (int)$trackNum))[0] ?? null;
+            }
+            if (!$t && isset($tracks[(int)$trackNum])) {
+                $t = $tracks[(int)$trackNum];
             }
             if ($t && isset($t['index'])) {
                 $trackIndex = (int)$t['index'];
@@ -124,17 +127,29 @@ class PlayerController {
             if ($audioTrack >= 0 && !empty($episodeId)) {
                 $epData = DbHelper::getEpisode($episodeId);
                 $tracks = !empty($epData['audio_tracks']) ? (is_array($epData['audio_tracks']) ? $epData['audio_tracks'] : json_decode($epData['audio_tracks'], true)) : [];
-                $targetTrack = $tracks[$audioTrack] ?? null;
-                if (!$targetTrack) {
-                    $targetTrack = array_values(array_filter($tracks, fn($x) => ($x['track_number'] ?? $x['index'] ?? -1) == $audioTrack))[0] ?? null;
-                }
-                if ($targetTrack && isset($targetTrack['index'])) {
-                    $cmd .= "-map 0:" . intval($targetTrack['index']) . "? ";
-                    $mappedAudio = true;
+                if (is_array($tracks) && count($tracks) > 0) {
+                    // Match by stream index first
+                    $targetTrack = array_values(array_filter($tracks, fn($x) => isset($x['index']) && (int)$x['index'] === $audioTrack))[0] ?? null;
+                    if (!$targetTrack) {
+                        // Match by track_number
+                        $targetTrack = array_values(array_filter($tracks, fn($x) => isset($x['track_number']) && (int)$x['track_number'] === $audioTrack))[0] ?? null;
+                    }
+                    if (!$targetTrack && isset($tracks[$audioTrack])) {
+                        // Match by array offset
+                        $targetTrack = $tracks[$audioTrack];
+                    }
+                    if ($targetTrack && isset($targetTrack['index'])) {
+                        $cmd .= "-map 0:" . intval($targetTrack['index']) . "? ";
+                        $mappedAudio = true;
+                    }
                 }
             }
             if (!$mappedAudio) {
-                $cmd .= '-map 0:a:0? ';
+                if ($audioTrack >= 0) {
+                    $cmd .= "-map 0:a:{$audioTrack}? ";
+                } else {
+                    $cmd .= '-map 0:a:0? ';
+                }
             }
 
             // Remux video copy, audio aac for universal browser support, fast fragmented MP4 stream

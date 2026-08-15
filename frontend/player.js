@@ -681,17 +681,30 @@ function setupPlayerEventListeners() {
   const showLoader = () => {
     const loader = document.getElementById('player-loader');
     if (loader) loader.style.display = 'flex';
+    if (centerPlayBtn) centerPlayBtn.style.display = 'none';
   };
 
   const hideLoader = () => {
     const loader = document.getElementById('player-loader');
     if (loader) loader.style.display = 'none';
+    if (video && video.paused && centerPlayBtn) {
+      centerPlayBtn.style.display = 'flex';
+    }
   };
 
   // Play/Pause toggling
   const togglePlay = () => {
+    if (!video) return;
     if (video.paused) {
-      video.play();
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(err => {
+          console.warn("Video play was prevented:", err);
+          setLucideIcon('play-icon', 'play');
+          setLucideIcon('center-play-icon', 'play');
+          if (centerPlayBtn) centerPlayBtn.style.display = 'flex';
+        });
+      }
     } else {
       video.pause();
     }
@@ -716,12 +729,7 @@ function setupPlayerEventListeners() {
     hideLoader();
     setLucideIcon('play-icon', 'pause');
     setLucideIcon('center-play-icon', 'pause');
-    
-    // Fade out center button quickly
-    setTimeout(() => {
-      if (!video.paused && centerPlayBtn) centerPlayBtn.style.display = 'none';
-    }, 400);
-
+    if (centerPlayBtn) centerPlayBtn.style.display = 'none';
     stopSakuraEffect();
   };
 
@@ -738,11 +746,14 @@ function setupPlayerEventListeners() {
   };
 
   video.onpause = () => {
-    hideLoader();
     setLucideIcon('play-icon', 'play');
     setLucideIcon('center-play-icon', 'play');
     
-    if (centerPlayBtn) centerPlayBtn.style.display = 'flex';
+    const loader = document.getElementById('player-loader');
+    const isBuffering = loader && loader.style.display !== 'none';
+    if (!isBuffering && centerPlayBtn) {
+      centerPlayBtn.style.display = 'flex';
+    }
     saveWatchProgress();
 
     startSakuraEffect();
@@ -1045,34 +1056,35 @@ function setupPlayerEventListeners() {
   fullscreenBtn.onclick = toggleFullscreen;
 
   // Picture-in-Picture controller
-  if (pipBtn) {
-    if (document.pictureInPictureEnabled || (video && video.webkitSupportsPresentationMode && typeof video.webkitSetPresentationMode === 'function')) {
-      pipBtn.style.display = 'flex';
-      pipBtn.onclick = async (e) => {
-        e.stopPropagation();
-        try {
-          if (document.pictureInPictureElement) {
-            await document.exitPictureInPicture();
-            showVideoToast('PiP Desactivado');
-          } else if (document.pictureInPictureEnabled) {
-            await video.requestPictureInPicture();
-            showVideoToast('PiP Activado');
-          } else if (video && video.webkitSupportsPresentationMode && typeof video.webkitSetPresentationMode === 'function') {
-            const nextMode = video.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture';
-            video.webkitSetPresentationMode(nextMode);
-            showVideoToast(nextMode === 'picture-in-picture' ? 'PiP Activado' : 'PiP Desactivado');
-          }
-        } catch (err) {
-          console.error("Failed to toggle Picture-in-Picture:", err);
-        }
-      };
-    } else {
-      pipBtn.style.display = 'none';
+  const handlePipToggle = async (e) => {
+    if (e) e.stopPropagation();
+    document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        showVideoToast('PiP Desactivado');
+      } else if (document.pictureInPictureEnabled) {
+        await video.requestPictureInPicture();
+        showVideoToast('PiP Activado');
+      } else if (video && video.webkitSupportsPresentationMode && typeof video.webkitSetPresentationMode === 'function') {
+        const nextMode = video.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture';
+        video.webkitSetPresentationMode(nextMode);
+        showVideoToast(nextMode === 'picture-in-picture' ? 'PiP Activado' : 'PiP Desactivado');
+      }
+    } catch (err) {
+      console.error("Failed to toggle Picture-in-Picture:", err);
     }
-  }
+  };
+
+  const menuPipBtn = document.getElementById('menu-pip-btn');
+  if (menuPipBtn) menuPipBtn.onclick = handlePipToggle;
+  if (pipBtn) pipBtn.onclick = handlePipToggle;
 
   // Technical file info overlay modal toggles
-  fileInfoBtn.onclick = () => {
+  const handleFileInfoToggle = (e) => {
+    if (e) e.stopPropagation();
+    document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+    if (!fileInfoModal) return;
     if (fileInfoModal.style.display === 'none') {
       showTechnicalModal();
     } else {
@@ -1081,25 +1093,36 @@ function setupPlayerEventListeners() {
     triggerControlsActivity();
   };
 
-  fileInfoClose.onclick = () => {
-    fileInfoModal.style.display = 'none';
-  };
+  const menuFileInfoBtn = document.getElementById('menu-file-info-btn');
+  if (menuFileInfoBtn) menuFileInfoBtn.onclick = handleFileInfoToggle;
+  if (fileInfoBtn) fileInfoBtn.onclick = handleFileInfoToggle;
 
-  // QR Share overlay modal toggles
-  if (qrShareBtn) {
-    qrShareBtn.onclick = () => {
-      if (qrShareModal.style.display === 'none') {
-        showQRModal();
-      } else {
-        qrShareModal.style.display = 'none';
-      }
-      triggerControlsActivity();
+  if (fileInfoClose) {
+    fileInfoClose.onclick = () => {
+      if (fileInfoModal) fileInfoModal.style.display = 'none';
     };
   }
 
+  // QR Share overlay modal toggles
+  const handleQRToggle = (e) => {
+    if (e) e.stopPropagation();
+    document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+    if (!qrShareModal) return;
+    if (qrShareModal.style.display === 'none') {
+      showQRModal();
+    } else {
+      qrShareModal.style.display = 'none';
+    }
+    triggerControlsActivity();
+  };
+
+  const menuQrBtn = document.getElementById('menu-qr-btn');
+  if (menuQrBtn) menuQrBtn.onclick = handleQRToggle;
+  if (qrShareBtn) qrShareBtn.onclick = handleQRToggle;
+
   if (qrShareClose) {
     qrShareClose.onclick = () => {
-      qrShareModal.style.display = 'none';
+      if (qrShareModal) qrShareModal.style.display = 'none';
     };
   }
 

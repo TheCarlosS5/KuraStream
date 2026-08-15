@@ -1519,6 +1519,43 @@ button, input, select {
   font-weight: 600;
 }
 
+/* Player More Options Menu (...) */
+.player-more-menu {
+  min-width: 200px;
+  padding: 6px;
+  gap: 4px;
+}
+
+.more-menu-item {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px !important;
+  border-radius: 8px !important;
+  color: var(--text-main) !important;
+  font-size: 0.88rem !important;
+  font-weight: 500;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.more-menu-item svg {
+  width: 17px;
+  height: 17px;
+  stroke: var(--text-muted);
+  flex-shrink: 0;
+  transition: stroke 0.2s ease;
+}
+
+.more-menu-item:hover {
+  background: rgba(168, 85, 247, 0.15) !important;
+  color: #fff !important;
+  transform: translateX(3px);
+}
+
+.more-menu-item:hover svg {
+  stroke: var(--accent-color);
+}
+
 /* File Technical Info Overlay Modal */
 .file-info-modal {
   position: absolute;

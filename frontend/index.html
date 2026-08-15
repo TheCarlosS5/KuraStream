@@ -38,7 +38,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=10.5_subtitles_progress_fix">
+  <link rel="stylesheet" href="style.css?v=10.6_more_menu_audio_fix">
 </head>
 <body>
 
@@ -498,17 +498,27 @@
                   </div>
                 </div>
 
-                <!-- Technical File Info (VLC / Nova Player style) -->
-                <button class="player-btn" id="file-info-btn" title="Información del archivo"><i data-lucide="info"></i></button>
-
                 <!-- Ambilight Toggle -->
                 <button class="player-btn" id="ambilight-toggle-btn" title="Activar/Desactivar Ambilight"><i data-lucide="sparkles"></i></button>
 
-                <!-- QR Share Button -->
-                <button class="player-btn" id="qr-share-btn" title="Compartir con QR (Celular)"><i data-lucide="qr-code"></i></button>
-
-                <!-- Picture-in-Picture Button -->
-                <button class="player-btn" id="pip-btn" title="Pantalla en Pantalla (PiP)" style="display: none;"><i data-lucide="external-link"></i></button>
+                <!-- More Options Dropdown (...) -->
+                <div class="player-dropdown" id="more-options-dropdown">
+                  <button class="player-btn dropdown-trigger" id="more-options-btn" title="Más opciones"><i data-lucide="more-vertical"></i></button>
+                  <div class="dropdown-menu player-more-menu" id="more-options-menu">
+                    <button class="more-menu-item" id="menu-pip-btn">
+                      <i data-lucide="picture-in-picture"></i>
+                      <span>Ventana en ventana</span>
+                    </button>
+                    <button class="more-menu-item" id="menu-qr-btn">
+                      <i data-lucide="qr-code"></i>
+                      <span>Compartir con QR</span>
+                    </button>
+                    <button class="more-menu-item" id="menu-file-info-btn">
+                      <i data-lucide="info"></i>
+                      <span>Información técnica</span>
+                    </button>
+                  </div>
+                </div>
 
                 <!-- Fullscreen Toggle -->
                 <button class="player-btn" id="fullscreen-btn"><i data-lucide="maximize" id="fullscreen-icon"></i></button>
@@ -1457,7 +1467,7 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="app.js?v=10.5_subtitles_progress_fix" type="module"></script>
-  <script src="player.js?v=10.5_subtitles_progress_fix" type="module"></script>
+  <script src="app.js?v=10.6_more_menu_audio_fix" type="module"></script>
+  <script src="player.js?v=10.6_more_menu_audio_fix" type="module"></script>
 </body>
 </html>
