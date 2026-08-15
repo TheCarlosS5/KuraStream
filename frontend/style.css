@@ -929,62 +929,45 @@ button, input, select {
 }
 
 .cast-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 12px;
-  max-height: 240px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-height: 220px;
   overflow-y: auto;
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 16px;
-  background: rgba(255, 255, 255, 0.01);
-  backdrop-filter: blur(5px);
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(8px);
 }
 
-.cast-card {
-  width: 100%;
-  background: var(--surface-glass);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
+.cast-chip {
+  display: inline-flex;
   align-items: center;
-  text-align: center;
-  transition: var(--transition-fast);
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 0.86rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.cast-card:hover {
+.cast-chip:hover {
+  background: rgba(168, 85, 247, 0.15);
   border-color: var(--accent-color);
-  transform: translateY(-3px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.2);
 }
 
-.cast-photo {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  object-fit: cover;
-  margin-bottom: 8px;
-  background-color: var(--surface-muted);
-}
-
-.cast-name {
-  font-size: 0.8rem;
+.cast-chip .cast-character {
   font-weight: 600;
-  color: var(--text-main);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  width: 100%;
+  color: #fff;
 }
 
-.cast-character {
-  font-size: 0.7rem;
+.cast-chip .cast-actor {
   color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  width: 100%;
+  font-size: 0.8rem;
 }
 
 /* Episodes Section */

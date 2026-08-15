@@ -152,11 +152,9 @@ class TmdbScraper {
             $charName = trim(preg_replace('/\s*\((?:voice|voz|japanese)\)/i', '', $charName));
 
             if (!empty($actorName)) {
-                $profilePath = !empty($c['profile_path']) ? "https://image.tmdb.org/t/p/w300" . $c['profile_path'] : null;
                 $castMembers[] = [
                     'name' => $actorName,
-                    'character' => $charName ?: 'Personaje',
-                    'profile_path' => $profilePath
+                    'character' => $charName ?: 'Personaje'
                 ];
             }
         }

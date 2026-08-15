@@ -40,6 +40,9 @@ foreach ($shows as $show) {
     }
 
     // Update Show Data
+    if (strcasecmp($showId, 'Ranma1_2') === 0) {
+        $show['title'] = 'Ranma 1/2';
+    }
     $show['synopsis'] = !empty($details['synopsis']) ? $details['synopsis'] : ($show['synopsis'] ?? '');
     $show['rating'] = ($details['rating'] > 0) ? $details['rating'] : ($show['rating'] ?? 0.0);
     $show['year'] = $details['year'] ?: ($show['year'] ?? null);

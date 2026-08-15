@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.9_cast_episodes_metadata';
+import { initPlayer, destroyPlayer } from './player.js?v=10.10_lightweight_cast_chips_ranma_fix';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
@@ -1282,16 +1282,12 @@ async function loadShowDetails(id) {
     if (cast.length === 0) {
       detailCast.innerHTML = '<p style="color: var(--text-muted);">Sin información de reparto.</p>';
     } else {
-      detailCast.innerHTML = cast.map(c => {
-        const photoUrl = c.profile_path ? (c.profile_path.startsWith('http') ? c.profile_path : 'https://image.tmdb.org/t/p/w300' + c.profile_path) : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&q=80';
-        return `
-          <div class="cast-card">
-            <img class="cast-photo" src="${photoUrl}" alt="${c.name || 'Actor'}" loading="lazy">
-            <span class="cast-name">${c.name || 'Desconocido'}</span>
-            <span class="cast-character">${c.character || ''}</span>
-          </div>
-        `;
-      }).join('');
+      detailCast.innerHTML = cast.map(c => `
+        <div class="cast-chip">
+          <span class="cast-character">${c.character || 'Personaje'}</span>
+          <span class="cast-actor">(${c.name || 'Actor'})</span>
+        </div>
+      `).join('');
     }
 
     if (show.media_type === 'movie') {
