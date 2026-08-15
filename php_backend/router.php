@@ -69,6 +69,14 @@ if ($uri === '/api/register' && $method === 'POST') {
     AuthController::register();
 }
 
+if ($uri === '/api/debug-log' && $method === 'POST') {
+    $input = file_get_contents('php://input');
+    file_put_contents(ROOT_DIR . '/browser_debug.log', "[" . date('Y-m-d H:i:s') . "] " . $input . "\n", FILE_APPEND);
+    header('Content-Type: application/json');
+    echo json_encode(['ok' => true]);
+    exit();
+}
+
 if ($uri === '/api/profiles' && $method === 'GET') {
     AuthController::getProfiles();
 }

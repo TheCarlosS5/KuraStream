@@ -111,6 +111,7 @@ class PlayerController {
             @header('Accept-Ranges: none');
             @header('Connection: keep-alive');
             @header('Access-Control-Allow-Origin: *');
+            @header('X-Content-Type-Options: nosniff');
 
             $cmd = 'ffmpeg -v error ';
             if ($start > 0) {
@@ -121,26 +122,15 @@ class PlayerController {
             
             // Map selected audio track or default to first audio stream
             $mappedAudio = false;
-            if ($audioTrack >= 0) {
-                if (!empty($episodeId)) {
-                    $epData = DbHelper::getEpisode($episodeId);
-                    if ($epData && !empty($epData['audio_tracks'])) {
-                        $tracks = is_array($epData['audio_tracks']) ? $epData['audio_tracks'] : json_decode($epData['audio_tracks'], true);
-                        if (is_array($tracks)) {
-                            // Find matching track by index or track_number or by array offset
-                            $t = $tracks[$audioTrack] ?? null;
-                            if (!$t) {
-                                $t = array_values(array_filter($tracks, fn($x) => ($x['track_number'] ?? $x['index'] ?? -1) == $audioTrack))[0] ?? null;
-                            }
-                            if ($t && isset($t['index'])) {
-                                $cmd .= "-map 0:" . intval($t['index']) . "? ";
-                                $mappedAudio = true;
-                            }
-                        }
-                    }
+            if ($audioTrack >= 0 && !empty($episodeId)) {
+                $epData = DbHelper::getEpisode($episodeId);
+                $tracks = !empty($epData['audio_tracks']) ? (is_array($epData['audio_tracks']) ? $epData['audio_tracks'] : json_decode($epData['audio_tracks'], true)) : [];
+                $targetTrack = $tracks[$audioTrack] ?? null;
+                if (!$targetTrack) {
+                    $targetTrack = array_values(array_filter($tracks, fn($x) => ($x['track_number'] ?? $x['index'] ?? -1) == $audioTrack))[0] ?? null;
                 }
-                if (!$mappedAudio) {
-                    $cmd .= "-map 0:a:{$audioTrack}? ";
+                if ($targetTrack && isset($targetTrack['index'])) {
+                    $cmd .= "-map 0:" . intval($targetTrack['index']) . "? ";
                     $mappedAudio = true;
                 }
             }
@@ -149,10 +139,14 @@ class PlayerController {
             }
 
             // Remux video copy, audio aac for universal browser support, fast fragmented MP4 stream
-            $cmd .= '-c:v copy -c:a aac -b:a 192k -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
+            $cmd .= '-c:v copy -avoid_negative_ts make_zero -c:a aac -b:a 128k -af aresample=async=1 -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
 
             if (defined('TESTING_MODE')) {
                 throw new ExitException("Stream remux success", 200);
+            }
+
+            while (ob_get_level()) {
+                ob_end_clean();
             }
 
             passthru($cmd);
