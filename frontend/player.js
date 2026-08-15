@@ -477,7 +477,7 @@ function initSubtitles(trackNum) {
   }
 }
 
-function startOctopusInstance(trackNum) {
+async function startOctopusInstance(trackNum) {
   if (trackNum === -1) return;
 
   if (subtitleMetadataAbortController) {
@@ -497,15 +497,25 @@ function startOctopusInstance(trackNum) {
   }
 
   try {
+    // Pre-fetch subtitle content so SubtitlesOctopus worker parses immediately from memory
+    const subFetchUrl = `/api/subtitles/${encodeURIComponent(currentEpisodeId)}/${trackNum}`;
+    const subRes = await fetch(subFetchUrl);
+    if (!subRes.ok) throw new Error(`HTTP ${subRes.status}`);
+    const subContent = await subRes.text();
+
+    if (trackNum !== selectedSubtitleTrackNum) return; // Discard if user changed track while fetching
+
     destroySubtitles();
     console.log(`Initializing SubtitlesOctopus with video dimensions: ${video.videoWidth}x${video.videoHeight} for track ${trackNum}`);
     octopusInstance = new SubtitlesOctopus({
       video: video,
-      subUrl: `/api/subtitles/${encodeURIComponent(currentEpisodeId)}/${trackNum}`,
+      subContent: subContent,
       workerUrl: '/vendor/subtitles-octopus/subtitles-octopus-worker.js',
       legacyWorkerUrl: '/vendor/subtitles-octopus/subtitles-octopus-worker-legacy.js',
-      fallbackFont: '/vendor/subtitles-octopus/default.ttf', // default fallback font
+      fallbackFont: '/vendor/subtitles-octopus/default.ttf',
       timeOffset: currentStreamStartOffset,
+      targetFps: 60,
+      renderMode: 'wasm-blend',
       container: document.getElementById('subtitles-container'),
       onError: (err) => {
         console.error('SubtitlesOctopus critical error:', err);

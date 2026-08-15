@@ -117,7 +117,7 @@ class PlayerController {
 
             $cmd = 'ffmpeg -v error ';
             if ($start > 0) {
-                $cmd .= '-noaccurate_seek -ss ' . escapeshellarg(strval($start)) . ' ';
+                $cmd .= '-ss ' . escapeshellarg(strval($start)) . ' ';
             }
             $cmd .= '-i ' . escapeshellarg($realPath) . ' ';
             $cmd .= '-map 0:v:0 ';
@@ -153,7 +153,7 @@ class PlayerController {
             }
 
             // Remux video copy, audio aac for universal browser support, fast fragmented MP4 stream
-            $cmd .= '-c:v copy -avoid_negative_ts make_zero -c:a aac -b:a 128k -af aresample=async=1 -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
+            $cmd .= '-c:v copy -avoid_negative_ts make_zero -c:a aac -b:a 192k -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
 
             if (defined('TESTING_MODE')) {
                 throw new ExitException("Stream remux success", 200);

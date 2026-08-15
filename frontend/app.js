@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.6_more_menu_audio_fix';
+import { initPlayer, destroyPlayer } from './player.js?v=10.7_subtitles_sync_opt';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
