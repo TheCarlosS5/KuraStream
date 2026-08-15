@@ -109,7 +109,7 @@ export async function loadShowDetail(showId) {
             ${castArray.length > 0 ? `
               <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 10px;">Reparto de Voces:</h4>
               <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                ${castArray.map(c => `<span class="badge" style="background: rgba(255,255,255,0.06); color: var(--text-main); font-weight: 500;">${c.character ? `${c.character} (${c.actor || 'Actor'})` : c.actor || c}</span>`).join('')}
+                ${castArray.map(c => `<span class="badge" style="background: rgba(255,255,255,0.06); color: var(--text-main); font-weight: 500;">${c.character ? `${c.character} (${c.name || c.actor || 'Actor'})` : (c.name || c.actor || c)}</span>`).join('')}
               </div>
             ` : ''}
           </div>

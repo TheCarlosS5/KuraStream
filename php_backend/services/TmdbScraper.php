@@ -87,12 +87,89 @@ class TmdbScraper {
 
     public static function getDetails(int $tmdbId, string $type = 'anime'): ?array {
         $endpoint = ($type === 'movie') ? "/movie/{$tmdbId}" : "/tv/{$tmdbId}";
-        $details = self::fetch($endpoint, ['language' => 'es-ES', 'append_to_response' => 'credits,videos']);
+        $details = self::fetch($endpoint, ['language' => 'es-ES', 'append_to_response' => 'credits,aggregate_credits,videos']);
         if (empty($details)) return null;
 
-        $studio = ($type === 'movie') 
-            ? ($details['production_companies'][0]['name'] ?? '') 
-            : ($details['networks'][0]['name'] ?? $details['production_companies'][0]['name'] ?? '');
+        // Fallback overview to English if Spanish is empty
+        $overview = trim($details['overview'] ?? '');
+        if (empty($overview)) {
+            $enDetails = self::fetch($endpoint, ['language' => 'en-US']);
+            $overview = trim($enDetails['overview'] ?? '');
+        }
+
+        // Identify studio: Prioritize animation / production company over broadcasting network
+        $studio = '';
+        $companies = $details['production_companies'] ?? [];
+        if (!empty($companies) && is_array($companies)) {
+            // Pick first production company (which in anime is usually the primary animation studio)
+            $studio = $companies[0]['name'] ?? '';
+        }
+        if (empty($studio) && !empty($details['networks'][0]['name'])) {
+            $studio = $details['networks'][0]['name'];
+        }
+
+        // Identify Director & Writer
+        $crew = array_merge(
+            $details['credits']['crew'] ?? [],
+            $details['aggregate_credits']['crew'] ?? []
+        );
+
+        $director = '';
+        $writer = '';
+
+        foreach ($crew as $cr) {
+            $job = strtolower($cr['job'] ?? '');
+            $dept = strtolower($cr['department'] ?? '');
+            $name = $cr['name'] ?? '';
+
+            if (empty($director) && (str_contains($job, 'director') || $dept === 'directing')) {
+                $director = $name;
+            }
+            if (empty($writer) && (str_contains($job, 'writer') || str_contains($job, 'author') || str_contains($job, 'novel') || str_contains($job, 'comic') || str_contains($job, 'original story') || str_contains($job, 'creator') || $dept === 'writing')) {
+                $writer = $name;
+            }
+        }
+
+        if (empty($writer) && !empty($details['created_by'][0]['name'])) {
+            $writer = $details['created_by'][0]['name'];
+        }
+
+        // Parse Cast & Voice Actors
+        $castRaw = !empty($details['aggregate_credits']['cast']) ? $details['aggregate_credits']['cast'] : ($details['credits']['cast'] ?? []);
+        $castMembers = [];
+
+        foreach (array_slice($castRaw, 0, 20) as $c) {
+            $actorName = $c['name'] ?? '';
+            $charName = '';
+
+            if (!empty($c['roles'][0]['character'])) {
+                $charName = $c['roles'][0]['character'];
+            } else if (!empty($c['character'])) {
+                $charName = $c['character'];
+            }
+
+            // Clean '(voice)' or '(voz)' suffix
+            $charName = trim(preg_replace('/\s*\((?:voice|voz|japanese)\)/i', '', $charName));
+
+            if (!empty($actorName)) {
+                $profilePath = !empty($c['profile_path']) ? "https://image.tmdb.org/t/p/w300" . $c['profile_path'] : null;
+                $castMembers[] = [
+                    'name' => $actorName,
+                    'character' => $charName ?: 'Personaje',
+                    'profile_path' => $profilePath
+                ];
+            }
+        }
+
+        // Extract YouTube trailer key
+        $trailerKey = null;
+        $videos = $details['videos']['results'] ?? [];
+        foreach ($videos as $v) {
+            if (($v['site'] ?? '') === 'YouTube' && (($v['type'] ?? '') === 'Trailer' || ($v['type'] ?? '') === 'Teaser')) {
+                $trailerKey = $v['key'];
+                break;
+            }
+        }
 
         $genres = implode(', ', array_map(fn($g) => $g['name'], $details['genres'] ?? []));
         $releaseDate = $details['first_air_date'] ?? $details['release_date'] ?? '';
@@ -102,15 +179,85 @@ class TmdbScraper {
         return [
             'id' => (string)$tmdbId,
             'title' => $details['name'] ?? $details['title'] ?? '',
-            'synopsis' => $details['overview'] ?? '',
+            'synopsis' => $overview,
             'rating' => (float)($details['vote_average'] ?? 0),
             'year' => $year,
             'studio' => $studio,
+            'director' => $director,
+            'writer' => $writer,
+            'cast_members' => $castMembers,
+            'trailer_key' => $trailerKey,
             'genres' => $genres,
             'poster_path' => !empty($details['poster_path']) ? "https://image.tmdb.org/t/p/original" . $details['poster_path'] : '',
             'backdrop_path' => !empty($details['backdrop_path']) ? "https://image.tmdb.org/t/p/original" . $details['backdrop_path'] : '',
             'status' => $isAiring ? 'airing' : 'finished'
         ];
+    }
+
+    public static function getSeasonEpisodes(int $tmdbId, int $seasonNumber = 1): array {
+        $dataEs = self::fetch("/tv/{$tmdbId}/season/{$seasonNumber}", ['language' => 'es-ES']);
+        $episodesEs = $dataEs['episodes'] ?? [];
+
+        // Fetch English fallback for missing titles/descriptions
+        $episodesEn = [];
+        $hasMissing = false;
+        foreach ($episodesEs as $ep) {
+            if (empty($ep['name']) || empty($ep['overview'])) {
+                $hasMissing = true;
+                break;
+            }
+        }
+        if ($hasMissing || empty($episodesEs)) {
+            $dataEn = self::fetch("/tv/{$tmdbId}/season/{$seasonNumber}", ['language' => 'en-US']);
+            foreach ($dataEn['episodes'] ?? [] as $ep) {
+                $episodesEn[(int)$ep['episode_number']] = $ep;
+            }
+        }
+
+        $result = [];
+        // Index ES episodes
+        foreach ($episodesEs as $ep) {
+            $num = (int)($ep['episode_number'] ?? 0);
+            if ($num <= 0) continue;
+
+            $title = trim($ep['name'] ?? '');
+            $synopsis = trim($ep['overview'] ?? '');
+            $still = !empty($ep['still_path']) ? "https://image.tmdb.org/t/p/w500" . $ep['still_path'] : '';
+
+            // English fallback
+            if (isset($episodesEn[$num])) {
+                if (empty($title) || preg_match('/^Episodio\s+\d+$/i', $title) || preg_match('/^Episode\s+\d+$/i', $title)) {
+                    if (!empty($episodesEn[$num]['name'])) {
+                        $title = $episodesEn[$num]['name'];
+                    }
+                }
+                if (empty($synopsis) && !empty($episodesEn[$num]['overview'])) {
+                    $synopsis = $episodesEn[$num]['overview'];
+                }
+                if (empty($still) && !empty($episodesEn[$num]['still_path'])) {
+                    $still = "https://image.tmdb.org/t/p/w500" . $episodesEn[$num]['still_path'];
+                }
+            }
+
+            $result[$num] = [
+                'title' => $title,
+                'synopsis' => $synopsis,
+                'still_path' => $still
+            ];
+        }
+
+        // Include any EN episode not in ES
+        foreach ($episodesEn as $num => $ep) {
+            if (!isset($result[$num])) {
+                $result[$num] = [
+                    'title' => $ep['name'] ?? '',
+                    'synopsis' => $ep['overview'] ?? '',
+                    'still_path' => !empty($ep['still_path']) ? "https://image.tmdb.org/t/p/w500" . $ep['still_path'] : ''
+                ];
+            }
+        }
+
+        return $result;
     }
 
     public static function downloadFile(string $url, string $destPath): bool {

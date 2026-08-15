@@ -68,19 +68,37 @@ class LibraryScanner {
                     'status' => $dbShow['status'] ?? 'finished'
                 ];
 
+                $tmdbId = 0;
                 // If show is missing metadata, attempt TMDB enrichment
-                if (empty($showData['synopsis']) || empty($showData['poster_path'])) {
+                if (empty($showData['synopsis']) || empty($showData['poster_path']) || empty($showData['director']) || empty($showData['writer']) || empty($showData['cast_members']) || $showData['cast_members'] === '[]') {
                     try {
                         $tmdbResults = TmdbScraper::search($cleanTitle, $mediaType);
                         if (!empty($tmdbResults)) {
                             $first = $tmdbResults[0];
-                            $details = TmdbScraper::getDetails((int)$first['id'], $mediaType);
+                            $tmdbId = (int)$first['id'];
+                            $details = TmdbScraper::getDetails($tmdbId, $mediaType);
                             if ($details) {
                                 if (empty($showData['synopsis'])) $showData['synopsis'] = $details['synopsis'] ?? '';
                                 if ($showData['rating'] == 0) $showData['rating'] = $details['rating'] ?? 0.0;
                                 if ($showData['year'] === null) $showData['year'] = $details['year'] ?? null;
-                                if (empty($showData['studio'])) $showData['studio'] = $details['studio'] ?? '';
-                                if (empty($showData['genres'])) $showData['genres'] = $details['genres'] ?? '';
+                                if (empty($showData['studio']) || in_array($showData['studio'], ['Nippon TV', 'Tokyo MX', 'TV Tokyo', 'AT-X', 'TBS'])) {
+                                    if (!empty($details['studio'])) $showData['studio'] = $details['studio'];
+                                }
+                                if (empty($showData['director']) && !empty($details['director'])) {
+                                    $showData['director'] = $details['director'];
+                                }
+                                if (empty($showData['writer']) && !empty($details['writer'])) {
+                                    $showData['writer'] = $details['writer'];
+                                }
+                                if (empty($showData['cast_members']) || $showData['cast_members'] === '[]') {
+                                    $showData['cast_members'] = $details['cast_members'] ?? [];
+                                }
+                                if (empty($showData['genres']) && !empty($details['genres'])) {
+                                    $showData['genres'] = $details['genres'];
+                                }
+                                if (empty($showData['trailer_key']) && !empty($details['trailer_key'])) {
+                                    $showData['trailer_key'] = $details['trailer_key'];
+                                }
                                 if (empty($showData['poster_path']) && !empty($details['poster_path'])) {
                                     $showData['poster_path'] = $details['poster_path'];
                                 }
@@ -98,6 +116,21 @@ class LibraryScanner {
                 DbHelper::saveShow($showData);
                 $showsCount++;
 
+                $seasonEpsCache = [];
+                if ($tmdbId > 0 && $mediaType !== 'movie') {
+                    // Pre-fetch seasons for episode names and synopses
+                    foreach ($videoFiles as $vf) {
+                        $s = (int)$vf['season'];
+                        if (!isset($seasonEpsCache[$s])) {
+                            try {
+                                $seasonEpsCache[$s] = TmdbScraper::getSeasonEpisodes($tmdbId, $s);
+                            } catch (Throwable $e) {
+                                $seasonEpsCache[$s] = [];
+                            }
+                        }
+                    }
+                }
+
                 // Process discovered video files
                 foreach ($videoFiles as $vf) {
                     $fullPath = $vf['filepath'];
@@ -105,6 +138,27 @@ class LibraryScanner {
                     $episode = $vf['episode'];
 
                     $epId = "{$showId}_S{$season}_E{$episode}";
+                    $existingEp = DbHelper::getEpisode($epId);
+
+                    $epTitle = "Capítulo {$episode}";
+                    $epSynopsis = '';
+                    $tmdbStill = '';
+
+                    if (!empty($seasonEpsCache[$season][$episode])) {
+                        $meta = $seasonEpsCache[$season][$episode];
+                        if (!empty($meta['title'])) $epTitle = $meta['title'];
+                        if (!empty($meta['synopsis'])) $epSynopsis = $meta['synopsis'];
+                        if (!empty($meta['still_path'])) $tmdbStill = $meta['still_path'];
+                    }
+
+                    if ($existingEp) {
+                        if (!empty($existingEp['title']) && $existingEp['title'] !== "Capítulo {$episode}") {
+                            $epTitle = $existingEp['title'];
+                        }
+                        if (!empty($existingEp['synopsis'])) {
+                            $epSynopsis = $existingEp['synopsis'];
+                        }
+                    }
 
                     $thumbFilename = "ep_{$season}_{$episode}_thumb.jpg";
                     $thumbLocalPath = $showPath . '/' . $thumbFilename;
@@ -117,6 +171,8 @@ class LibraryScanner {
                         $extracted = FfmpegScanner::extractThumbnail($fullPath, $thumbLocalPath, 120.0);
                         if ($extracted) {
                             $thumbUrl = "/library/{$dirName}/{$showFolder}/{$thumbFilename}";
+                        } else if (!empty($tmdbStill)) {
+                            $thumbUrl = $tmdbStill;
                         }
                     }
 
@@ -127,8 +183,8 @@ class LibraryScanner {
                         'show_id' => $showId,
                         'season_number' => $season,
                         'episode_number' => $episode,
-                        'title' => "Capítulo {$episode}",
-                        'synopsis' => '',
+                        'title' => $epTitle,
+                        'synopsis' => $epSynopsis,
                         'filepath' => $fullPath,
                         'duration' => $probe['duration'],
                         'size' => filesize($fullPath),

@@ -342,15 +342,15 @@ class AdminController {
             'rating' => $details['rating'] ?? 0.0,
             'year' => $details['year'] ?? (int)date('Y'),
             'studio' => $details['studio'] ?? '',
-            'director' => '',
-            'writer' => '',
-            'cast_members' => '[]',
+            'director' => $details['director'] ?? '',
+            'writer' => $details['writer'] ?? '',
+            'cast_members' => $details['cast_members'] ?? [],
             'poster_path' => $posterPath,
             'backdrop_path' => $backdropPath,
             'media_type' => $mediaType,
             'backdrop_loops' => '[]',
             'genres' => $details['genres'] ?? '',
-            'trailer_key' => null,
+            'trailer_key' => $details['trailer_key'] ?? null,
             'age_rating' => $ageRating,
             'status' => $details['status'] ?? 'finished'
         ];
@@ -688,20 +688,46 @@ class AdminController {
             'rating' => ($details['rating'] > 0) ? $details['rating'] : ($show['rating'] ?? 0.0),
             'year' => $details['year'] ?: ($show['year'] ?? null),
             'studio' => !empty($details['studio']) ? $details['studio'] : ($show['studio'] ?? ''),
-            'director' => $show['director'] ?? '',
-            'writer' => $show['writer'] ?? '',
-            'cast_members' => $show['cast_members'] ?? '[]',
+            'director' => !empty($details['director']) ? $details['director'] : ($show['director'] ?? ''),
+            'writer' => !empty($details['writer']) ? $details['writer'] : ($show['writer'] ?? ''),
+            'cast_members' => !empty($details['cast_members']) ? $details['cast_members'] : ($show['cast_members'] ?? []),
             'poster_path' => $localPosterUrl,
             'backdrop_path' => $localBackdropUrl,
             'media_type' => $mediaType,
             'backdrop_loops' => $show['backdrop_loops'] ?? '[]',
             'genres' => !empty($details['genres']) ? $details['genres'] : ($show['genres'] ?? ''),
-            'trailer_key' => $show['trailer_key'] ?? null,
+            'trailer_key' => $details['trailer_key'] ?? ($show['trailer_key'] ?? null),
             'age_rating' => $show['age_rating'] ?? 'TV-14',
             'status' => !empty($details['status']) ? $details['status'] : ($show['status'] ?? 'finished')
         ];
 
         DbHelper::saveShow($updatedData);
+
+        // Also enrich existing episodes with TMDB titles and synopses
+        if ($mediaType !== 'movie') {
+            $episodes = DbHelper::getEpisodesForShow($realShowId);
+            $seasonsMap = [];
+            foreach ($episodes as $ep) {
+                $s = (int)($ep['season_number'] ?? 1);
+                if (!isset($seasonsMap[$s])) {
+                    try {
+                        $seasonsMap[$s] = TmdbScraper::getSeasonEpisodes($tmdbId, $s);
+                    } catch (Throwable $e) {
+                        $seasonsMap[$s] = [];
+                    }
+                }
+                $epNum = (int)($ep['episode_number'] ?? 1);
+                $epMeta = $seasonsMap[$s][$epNum] ?? null;
+                if ($epMeta) {
+                    if (!empty($epMeta['title'])) $ep['title'] = $epMeta['title'];
+                    if (!empty($epMeta['synopsis'])) $ep['synopsis'] = $epMeta['synopsis'];
+                    if (empty($ep['thumbnail_path']) && !empty($epMeta['still_path'])) {
+                        $ep['thumbnail_path'] = $epMeta['still_path'];
+                    }
+                    DbHelper::saveEpisode($ep);
+                }
+            }
+        }
 
         jsonResponse([
             'success' => true,
