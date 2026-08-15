@@ -339,6 +339,12 @@ class DbHelper {
         $db->prepare("DELETE FROM shows WHERE id = :id")->execute(['id' => $id]);
     }
 
+    public static function updateShowStatus(string $showId, string $status): bool {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("UPDATE shows SET status = :status WHERE id = :id");
+        return $stmt->execute(['status' => $status, 'id' => $showId]);
+    }
+
     public static function getUserPreferences(string $username, string $profile = 'Principal'): array {
         $db = Database::getConnection();
         $stmt = $db->prepare("SELECT * FROM user_preferences WHERE username = :u AND profile_name = :p");

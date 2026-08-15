@@ -70,12 +70,17 @@ class ShowController {
             jsonError('showId y status requeridos', 400);
         }
 
+        if (!in_array($status, ['airing', 'upcoming', 'finished'])) {
+            if ($status === 'true' || $status === true) $status = 'airing';
+            else $status = 'finished';
+        }
+
         $success = DbHelper::updateShowStatus($showId, $status);
         if (!$success) {
             jsonError('Error al actualizar el estado del show', 500);
         }
 
-        jsonResponse(['success' => true]);
+        jsonResponse(['success' => true, 'status' => $status]);
     }
 
     public static function getComments(): void {

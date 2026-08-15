@@ -2268,21 +2268,68 @@ button, input, select {
   font-family: var(--font-title);
   border-radius: 20px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  user-select: none;
+}
+
+.btn-status-toggle:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.15);
 }
 
 .btn-status-toggle.airing {
   background: rgba(0, 224, 143, 0.15);
   color: #00e08f;
   border-color: #00e08f;
-  box-shadow: 0 0 10px rgba(0, 224, 143, 0.2);
+  box-shadow: 0 0 12px rgba(0, 224, 143, 0.25);
+}
+
+.btn-status-toggle.upcoming {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border-color: #f59e0b;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.25);
 }
 
 .btn-status-toggle.finished {
   background: rgba(255, 255, 255, 0.05);
   color: var(--text-muted);
   border-color: var(--border-color);
+}
+
+/* Public Show Status Badges */
+.badge-status-airing {
+  background: rgba(0, 224, 143, 0.15) !important;
+  color: #00e08f !important;
+  border: 1px solid rgba(0, 224, 143, 0.4) !important;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.badge-status-upcoming {
+  background: rgba(245, 158, 11, 0.15) !important;
+  color: #f59e0b !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.badge-status-finished {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--text-muted) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .admin-sub-title {

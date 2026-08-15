@@ -74,6 +74,9 @@ export async function loadShowDetail(showId) {
             <h1 class="show-detail-title">${show.title}</h1>
             <div class="show-detail-badges">
               <span class="badge badge-accent">${show.media_type === 'movie' ? 'Película' : 'Anime'}</span>
+              <span class="badge ${show.status === 'airing' ? 'badge-status-airing' : (show.status === 'upcoming' ? 'badge-status-upcoming' : 'badge-status-finished')}">
+                ${show.status === 'airing' ? '● En Emisión' : (show.status === 'upcoming' ? '⏳ En Espera (Próx. Temp.)' : '✔ Finalizado')}
+              </span>
               <span class="badge">${show.year || '2026'}</span>
               <span class="badge">${show.age_rating || 'TV-14'}</span>
               <span class="badge badge-rating">★ ${show.rating ? show.rating.toFixed(1) : '8.5'}</span>

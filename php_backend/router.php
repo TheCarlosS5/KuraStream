@@ -314,6 +314,11 @@ if ($uri === '/api/admin/toggle-show-status' && $method === 'POST') {
     ShowController::toggleStatus();
 }
 
+if ($uri === '/api/admin/sync-statuses' && $method === 'POST') {
+    AuthMiddleware::requireAdmin();
+    AdminController::syncAllStatuses();
+}
+
 if ($uri === '/api/comments' && $method === 'GET') {
     ShowController::getComments();
 }

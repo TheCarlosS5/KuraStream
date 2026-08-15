@@ -172,7 +172,41 @@ class TmdbScraper {
         $genres = implode(', ', array_map(fn($g) => $g['name'], $details['genres'] ?? []));
         $releaseDate = $details['first_air_date'] ?? $details['release_date'] ?? '';
         $year = !empty($releaseDate) ? (int)substr($releaseDate, 0, 4) : null;
-        $isAiring = ($details['in_production'] ?? false) === true || ($details['status'] ?? '') === 'Returning Series';
+        
+        // Smart 3-state status calculation: 'airing' (En Emisión), 'upcoming' (En Espera / Próx. Temp.), 'finished' (Finalizado)
+        $rawStatus = $details['status'] ?? '';
+        $inProduction = ($details['in_production'] ?? false) === true;
+        $lastAirDate = $details['last_air_date'] ?? '';
+        $nextEp = $details['next_episode_to_air'] ?? null;
+
+        $computedStatus = 'finished';
+        if ($type === 'movie') {
+            $computedStatus = 'finished';
+        } else if ($rawStatus === 'Returning Series' || $rawStatus === 'In Production' || $inProduction) {
+            $isCurrentlyAiring = false;
+
+            if (!empty($nextEp) && !empty($nextEp['air_date'])) {
+                $nextTs = strtotime($nextEp['air_date']);
+                $diffDays = ($nextTs - time()) / 86400;
+                if ($diffDays >= -7 && $diffDays <= 35) {
+                    $isCurrentlyAiring = true;
+                }
+            }
+
+            if (!$isCurrentlyAiring && !empty($lastAirDate)) {
+                $lastTs = strtotime($lastAirDate);
+                $daysSinceLast = (time() - $lastTs) / 86400;
+                if ($daysSinceLast >= 0 && $daysSinceLast <= 35) {
+                    $isCurrentlyAiring = true;
+                }
+            }
+
+            $computedStatus = $isCurrentlyAiring ? 'airing' : 'upcoming';
+        } else if ($rawStatus === 'Planned') {
+            $computedStatus = 'upcoming';
+        } else {
+            $computedStatus = 'finished';
+        }
 
         return [
             'id' => (string)$tmdbId,
@@ -188,7 +222,7 @@ class TmdbScraper {
             'genres' => $genres,
             'poster_path' => !empty($details['poster_path']) ? "https://image.tmdb.org/t/p/original" . $details['poster_path'] : '',
             'backdrop_path' => !empty($details['backdrop_path']) ? "https://image.tmdb.org/t/p/original" . $details['backdrop_path'] : '',
-            'status' => $isAiring ? 'airing' : 'finished'
+            'status' => $computedStatus
         ];
     }
 

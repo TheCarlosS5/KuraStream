@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.10_lightweight_cast_chips_ranma_fix';
+import { initPlayer, destroyPlayer } from './player.js?v=10.11_status_airing_upcoming_finished';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
@@ -1169,6 +1169,21 @@ async function loadShowDetails(id) {
     detailDirector.textContent = show.director || 'N/A';
     detailWriter.textContent = show.writer || 'N/A';
 
+    const statusBadge = document.getElementById('detail-status-badge');
+    if (statusBadge) {
+      const st = show.status || 'finished';
+      if (st === 'airing') {
+        statusBadge.className = 'badge badge-status-airing';
+        statusBadge.innerHTML = '● En Emisión';
+      } else if (st === 'upcoming') {
+        statusBadge.className = 'badge badge-status-upcoming';
+        statusBadge.innerHTML = '⏳ En Espera (Próx. Temp.)';
+      } else {
+        statusBadge.className = 'badge badge-status-finished';
+        statusBadge.innerHTML = '✔ Finalizado';
+      }
+    }
+
     // Renders dynamic backdrop loop video(s)
     const showTypeDir = show.media_type === 'movie' ? 'Movies' : 'Anime';
     const sanitizedTitle = show.title.replace(/[\\/:*?"<>|]/g, '_');
@@ -2308,9 +2323,20 @@ async function loadAdminLibraryList() {
       const poster = show.poster_path || '/api/placeholder-poster';
       const safeTitle = escapeHTML(show.title || '');
       const safeId = escapeHTML(show.id || '');
+      const st = show.status || 'finished';
+      let stClass = 'finished';
+      let stLabel = '✔ Finalizado';
+      if (st === 'airing') {
+        stClass = 'airing';
+        stLabel = '● En Emisión';
+      } else if (st === 'upcoming') {
+        stClass = 'upcoming';
+        stLabel = '⏳ En Espera';
+      }
+
       return `
         <div class="admin-show-item" id="admin-show-card-${safeId}" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; gap: 10px;">
-          <div class="admin-show-info" style="display: flex; align-items: center; gap: 12px; max-width: 60%;">
+          <div class="admin-show-info" style="display: flex; align-items: center; gap: 12px; max-width: 55%;">
             <img class="admin-show-poster" id="admin-poster-${safeId}" src="${poster}" alt="${safeTitle}" style="width: 44px; height: 60px; object-fit: cover; border-radius: 4px; background: #000; transition: transform 0.2s;" onerror="this.src='/api/placeholder-poster'">
             <div style="overflow: hidden;">
               <span class="admin-show-title" id="admin-title-${safeId}" style="font-weight: 600; font-size: 0.95rem; color: var(--text-main); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${safeTitle}</span>
@@ -2318,7 +2344,7 @@ async function loadAdminLibraryList() {
             </div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <button type="button" class="btn-status-toggle ${show.status === 'airing' ? 'airing' : 'finished'}" data-id="${safeId}" data-status="${show.status || 'finished'}" title="Haz clic para cambiar estado">${show.status === 'airing' ? '● En Emisión' : 'Finalizado'}</button>
+            <button type="button" class="btn-status-toggle ${stClass}" data-id="${safeId}" data-status="${st}" title="Clic para alternar: En Emisión ➔ En Espera ➔ Finalizado">${stLabel}</button>
             <button type="button" class="btn btn-secondary btn-scrape-cover" id="btn-scrape-${safeId}" data-id="${safeId}" data-title="${safeTitle}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(168, 85, 247, 0.2); border-color: #a855f7; display: inline-flex; align-items: center; cursor: pointer;"><i data-lucide="search" style="width:14px;height:14px;margin-right:4px;"></i> Carátula HD</button>
             <button type="button" class="btn btn-secondary btn-edit-show" data-id="${safeId}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px;"><i data-lucide="edit" style="width:14px;height:14px;margin-right:4px;"></i> Editar</button>
             ${show.media_type === 'anime' ? `<button type="button" class="btn btn-secondary btn-said-scan" data-id="${safeId}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(39, 201, 63, 0.2); border-color: #27c93f;"><i data-lucide="scan" style="width:14px;height:14px;margin-right:4px;"></i> Detectar Intros</button>` : ''}
@@ -2329,6 +2355,30 @@ async function loadAdminLibraryList() {
     }).join('');
 
     if (window.lucide) window.lucide.createIcons({ root: showsList });
+
+    const syncStatusesBtn = document.getElementById('btn-sync-all-statuses');
+    if (syncStatusesBtn) {
+      syncStatusesBtn.onclick = async () => {
+        syncStatusesBtn.disabled = true;
+        syncStatusesBtn.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px;display:inline-block;vertical-align:middle;"></div> Sincronizando...`;
+        try {
+          const res = await fetch('/api/admin/sync-statuses', { method: 'POST' });
+          const data = await res.json();
+          if (data.success) {
+            alert(`¡Estados sincronizados con TMDB! Se actualizaron ${data.count} animes.`);
+            loadAdminLibraryList();
+          } else {
+            alert("Error al sincronizar estados: " + (data.error || 'Desconocido'));
+          }
+        } catch (err) {
+          alert("Error de conexión al sincronizar estados.");
+        } finally {
+          syncStatusesBtn.disabled = false;
+          syncStatusesBtn.innerHTML = `<i data-lucide="refresh-cw" style="width: 14px; height: 14px; margin-right: 6px;"></i> Auto-Detectar Estados (TMDB)`;
+          if (window.lucide) window.lucide.createIcons();
+        }
+      };
+    }
 
     showsList.querySelectorAll('.btn-status-toggle').forEach(btn => {
       btn.onclick = () => toggleShowStatus(btn.dataset.id, btn.dataset.status);
@@ -2445,31 +2495,50 @@ window.openMediaEditor = async (showId) => {
     
     titleHeader.textContent = `Editar Multimedia - ${show.title}`;
     if (showTitleInput) showTitleInput.value = show.title;
+    const statusSelect = document.getElementById('edit-show-status-select');
+    if (statusSelect) {
+      statusSelect.value = show.status || 'finished';
+    }
 
     if (btnSaveTitle) {
       btnSaveTitle.onclick = async () => {
         const newTitle = showTitleInput ? showTitleInput.value.trim() : '';
+        const newStatus = statusSelect ? statusSelect.value : (show.status || 'finished');
         if (!newTitle) return alert('Por favor introduce un nombre válido.');
         btnSaveTitle.disabled = true;
         try {
-          const updateRes = await fetch('/api/admin/update-show-title', {
-            method: 'POST',
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ showId: show.id, newTitle })
-          });
-          const updateData = await updateRes.json();
-          if (updateRes.ok && updateData.success) {
-            alert('¡Nombre del anime actualizado con éxito!');
-            titleHeader.textContent = `Editar Multimedia - ${newTitle}`;
-            if (window.location.hash.startsWith('#/show/')) {
-              const currentId = window.location.hash.split('/').pop();
-              loadShowDetails(currentId);
+          if (newTitle !== show.title) {
+            const updateRes = await fetch('/api/admin/update-show-title', {
+              method: 'POST',
+              headers: getAuthHeaders(),
+              body: JSON.stringify({ showId: show.id, newTitle })
+            });
+            const updateData = await updateRes.json();
+            if (!updateRes.ok || !updateData.success) {
+              alert('Error al renombrar: ' + (updateData.error || 'Desconocido'));
+              btnSaveTitle.disabled = false;
+              return;
             }
-          } else {
-            alert('Error al renombrar: ' + (updateData.error || 'Desconocido'));
           }
+
+          // Update status
+          await fetch('/api/admin/toggle-show-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ showId: show.id, status: newStatus })
+          });
+
+          alert('¡Nombre y estado actualizados con éxito!');
+          titleHeader.textContent = `Editar Multimedia - ${newTitle}`;
+          show.title = newTitle;
+          show.status = newStatus;
+          if (window.location.hash.startsWith('#/show/')) {
+            const currentId = window.location.hash.split('/').pop();
+            loadShowDetails(currentId);
+          }
+          if (typeof loadAdminLibraryList === 'function') loadAdminLibraryList();
         } catch (e) {
-          alert('Error de red: ' + e.message);
+          alert('Error al guardar cambios: ' + e.message);
         } finally {
           btnSaveTitle.disabled = false;
         }
@@ -5872,7 +5941,11 @@ function renderCalendarDay(dayName) {
 }
 
 async function toggleShowStatus(showId, currentStatus) {
-  const newStatus = currentStatus === 'airing' ? 'finished' : 'airing';
+  let newStatus = 'finished';
+  if (currentStatus === 'airing') newStatus = 'upcoming';
+  else if (currentStatus === 'upcoming') newStatus = 'finished';
+  else newStatus = 'airing';
+
   try {
     const res = await fetch('/api/admin/toggle-show-status', {
       method: 'POST',
@@ -5881,7 +5954,8 @@ async function toggleShowStatus(showId, currentStatus) {
     });
     const data = await res.json();
     if (data.success) {
-      if (typeof loadAdminLibrary === 'function') loadAdminLibrary();
+      if (typeof loadAdminLibraryList === 'function') loadAdminLibraryList();
+      else if (typeof loadAdminLibrary === 'function') loadAdminLibrary();
       else if (typeof loadAdminPanel === 'function') loadAdminPanel();
     }
   } catch (e) {

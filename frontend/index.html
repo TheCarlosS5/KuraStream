@@ -38,7 +38,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=10.10_lightweight_cast_chips_ranma_fix">
+  <link rel="stylesheet" href="style.css?v=10.11_status_airing_upcoming_finished">
 </head>
 <body>
 
@@ -299,6 +299,9 @@
             </div>
             <div class="stat-item detail-year-badge">
               <span class="badge" id="detail-year">--</span>
+            </div>
+            <div class="stat-item">
+              <span class="badge badge-status-airing" id="detail-status-badge">--</span>
             </div>
           </div>
           <button id="detail-favorite-btn" class="btn btn-secondary" style="width: 100%; margin-top: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: var(--font-title); font-size: 0.9rem;">
@@ -1108,7 +1111,14 @@
 
           <!-- SUB-VIEW: LIBRARY -->
           <div id="admin-sub-library" class="admin-sub-view">
-            <h2 class="admin-sub-title">Gestionar Biblioteca Existente</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+              <h2 class="admin-sub-title" style="margin-bottom: 0;">Gestionar Biblioteca Existente</h2>
+              <div style="display: flex; gap: 10px;">
+                <button type="button" class="btn btn-secondary" id="btn-sync-all-statuses" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 0.85rem;">
+                  <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Auto-Detectar Estados (TMDB)
+                </button>
+              </div>
+            </div>
             <div class="admin-card">
               <div class="admin-shows-list" id="admin-shows-list">
                 <!-- Show items with delete buttons will be injected here -->
@@ -1209,14 +1219,24 @@
       <h3 id="edit-media-title">Editar Multimedia del Anime</h3>
       <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Cambia el nombre oficial del anime, sus portadas, administra fondos dinámicos y edita miniaturas de capítulos.</p>
       
-      <!-- Edit Anime Title Section -->
+      <!-- Edit Anime Title & Status Section -->
       <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 14px; border-radius: 8px; margin-bottom: 20px; text-align: left;">
-        <label style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; display: block; color: var(--text-main);">Nombre del Anime / Serie:</label>
-        <div style="display: flex; gap: 10px;">
-          <input type="text" id="edit-show-title-input" class="form-control" placeholder="Escribe el nombre oficial..." style="flex: 1; font-size: 0.88rem; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: #fff;">
-          <button type="button" class="btn btn-primary" id="btn-save-show-title" style="padding: 8px 16px; font-size: 0.82rem; white-space: nowrap;">Guardar Nombre</button>
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 10px;">
+          <div>
+            <label style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; display: block; color: var(--text-main);">Nombre del Anime / Serie:</label>
+            <input type="text" id="edit-show-title-input" class="form-control" placeholder="Escribe el nombre oficial..." style="width: 100%; font-size: 0.88rem; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: #fff;">
+          </div>
+          <div>
+            <label style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; display: block; color: var(--text-main);">Estado:</label>
+            <select id="edit-show-status-select" class="form-control" style="width: 100%; font-size: 0.88rem; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: #181824; color: #fff;">
+              <option value="airing">🟢 En Emisión</option>
+              <option value="upcoming">⏳ En Espera</option>
+              <option value="finished">🔴 Finalizado</option>
+            </select>
+          </div>
         </div>
-        <small style="color: var(--text-muted); font-size: 0.78rem; display: block; margin-top: 6px;">Renombrará automáticamente la carpeta física en el servidor sin desvincular los capítulos.</small>
+        <button type="button" class="btn btn-primary" id="btn-save-show-title" style="padding: 8px 16px; font-size: 0.82rem; width: 100%;">Guardar Nombre y Estado</button>
+        <small style="color: var(--text-muted); font-size: 0.78rem; display: block; margin-top: 6px;">Actualiza el nombre, estado y renombra la carpeta física en el servidor sin desvincular los capítulos.</small>
       </div>
 
       <!-- Show Poster & Backdrop Drag & Drop Zones -->
@@ -1469,7 +1489,7 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="app.js?v=10.10_lightweight_cast_chips_ranma_fix" type="module"></script>
-  <script src="player.js?v=10.10_lightweight_cast_chips_ranma_fix" type="module"></script>
+  <script src="app.js?v=10.11_status_airing_upcoming_finished" type="module"></script>
+  <script src="player.js?v=10.11_status_airing_upcoming_finished" type="module"></script>
 </body>
 </html>

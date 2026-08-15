@@ -737,6 +737,48 @@ class AdminController {
         ]);
     }
 
+    public static function syncAllStatuses(): void {
+        AuthMiddleware::requireAdmin();
+        $shows = DbHelper::getShows('all');
+        $updated = [];
+
+        foreach ($shows as $show) {
+            $id = $show['id'];
+            $title = $show['title'];
+            $mediaType = $show['media_type'] ?? 'anime';
+
+            $searchQuery = str_replace('_', ' ', $title);
+            if (strcasecmp($id, 'Ranma1_2') === 0 || strcasecmp($title, 'Ranma1 2') === 0) {
+                $searchQuery = 'Ranma 1/2';
+            } else if (strcasecmp($id, 'Oshi_no_Ko') === 0 || strcasecmp($title, 'Oshi no Ko') === 0) {
+                $searchQuery = 'Oshi no Ko';
+            }
+
+            try {
+                $res = TmdbScraper::search($searchQuery, $mediaType);
+                if (!empty($res[0]['id'])) {
+                    $det = TmdbScraper::getDetails((int)$res[0]['id'], $mediaType);
+                    if ($det && !empty($det['status'])) {
+                        DbHelper::updateShowStatus($id, $det['status']);
+                        $updated[] = [
+                            'id' => $id,
+                            'title' => $title,
+                            'status' => $det['status']
+                        ];
+                    }
+                }
+            } catch (Throwable $e) {
+                // Ignore individual show errors
+            }
+        }
+
+        jsonResponse([
+            'success' => true,
+            'count' => count($updated),
+            'shows' => $updated
+        ]);
+    }
+
     public static function getTorrentStatus(): void {
         AuthMiddleware::requireAdmin();
         jsonResponse([

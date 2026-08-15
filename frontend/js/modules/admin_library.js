@@ -18,33 +18,50 @@ export async function loadAdminPanel() {
       return;
     }
 
-    showsList.innerHTML = shows.map(show => `
-      <div class="admin-show-card" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; margin-bottom: 8px;">
-        <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; max-width: 70%;">
-          <img src="${show.poster_path || '/api/placeholder-poster'}" style="width: 44px; height: 60px; object-fit: cover; border-radius: 4px; background: #000;" onerror="this.src='/api/placeholder-poster'">
-          <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-            <h4 style="margin: 0; font-size: 0.95rem; color: var(--text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${show.title}">${show.title}</h4>
-            <small style="color: var(--text-muted); font-size: 0.78rem;">${show.media_type === 'movie' ? 'Película' : 'Anime'} · Año ${show.year || 'N/A'} · Clasificación: ${show.age_rating || 'TV-14'}</small>
+    showsList.innerHTML = shows.map(show => {
+      const st = show.status || 'finished';
+      let stClass = 'finished';
+      let stLabel = '✔ Finalizado';
+      if (st === 'airing') {
+        stClass = 'airing';
+        stLabel = '● En Emisión';
+      } else if (st === 'upcoming') {
+        stClass = 'upcoming';
+        stLabel = '⏳ En Espera';
+      }
+
+      return `
+        <div class="admin-show-card" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; max-width: 60%;">
+            <img src="${show.poster_path || '/api/placeholder-poster'}" style="width: 44px; height: 60px; object-fit: cover; border-radius: 4px; background: #000;" onerror="this.src='/api/placeholder-poster'">
+            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              <h4 style="margin: 0; font-size: 0.95rem; color: var(--text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${show.title}">${show.title}</h4>
+              <small style="color: var(--text-muted); font-size: 0.78rem;">${show.media_type === 'movie' ? 'Película' : 'Anime'} · Año ${show.year || 'N/A'} · Clasificación: ${show.age_rating || 'TV-14'}</small>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap;">
+            <button type="button" class="btn-status-toggle ${stClass}" data-id="${show.id}" data-status="${st}" title="Clic para cambiar estado">${stLabel}</button>
+            <button type="button" class="btn btn-secondary btn-edit-media" data-id="${show.id}" style="padding: 6px 12px; font-size: 0.78rem;">
+              <i data-lucide="edit" style="width: 13px; height: 13px;"></i> Editar
+            </button>
+            <button type="button" class="btn btn-danger-small btn-delete-show" data-id="${show.id}" data-title="${show.title.replace(/"/g, '&quot;')}" style="padding: 6px 12px; font-size: 0.78rem; background: rgba(255,85,85,0.12); color: #ff5555; border: 1px solid rgba(255,85,85,0.3);">
+              <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i> Eliminar
+            </button>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-          <button type="button" class="btn btn-secondary btn-edit-media" data-id="${show.id}" style="padding: 6px 12px; font-size: 0.78rem;">
-            <i data-lucide="edit" style="width: 13px; height: 13px;"></i> Editar
-          </button>
-          <button type="button" class="btn btn-danger-small btn-delete-show" data-id="${show.id}" data-title="${show.title.replace(/"/g, '&quot;')}" style="padding: 6px 12px; font-size: 0.78rem; background: rgba(255,85,85,0.12); color: #ff5555; border: 1px solid rgba(255,85,85,0.3);">
-            <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i> Eliminar
-          </button>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     if (window.lucide) window.lucide.createIcons({ root: showsList });
 
+    showsList.querySelectorAll('.btn-status-toggle').forEach(btn => {
+      btn.onclick = () => window.toggleShowStatus(btn.dataset.id, btn.dataset.status);
+    });
     showsList.querySelectorAll('.btn-edit-media').forEach(btn => {
-      btn.onclick = () => openMediaEditor(btn.dataset.id);
+      btn.onclick = () => window.openMediaEditor(btn.dataset.id);
     });
     showsList.querySelectorAll('.btn-delete-show').forEach(btn => {
-      btn.onclick = () => deleteShow(btn.dataset.id, btn.dataset.title);
+      btn.onclick = () => window.deleteShow(btn.dataset.id, btn.dataset.title);
     });
 
   } catch (err) {
