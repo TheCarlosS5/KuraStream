@@ -6,10 +6,15 @@ if (process.env.PATH && !process.env.PATH.includes('/home/dserver-calos/bin')) {
   process.env.PATH = `${process.env.PATH}:/home/dserver-calos/bin:/usr/local/bin:/usr/bin`;
 }
 
-// Helper to run execFile as a promise
+// Helper to run execFile as a promise with 15s timeout
 function runCommand(file, args, options = {}) {
+  const finalOptions = {
+    timeout: 15000,
+    maxBuffer: 10 * 1024 * 1024,
+    ...options
+  };
   return new Promise((resolve, reject) => {
-    execFile(file, args, options, (error, stdout, stderr) => {
+    execFile(file, args, finalOptions, (error, stdout, stderr) => {
       if (error) {
         reject(error);
       } else {

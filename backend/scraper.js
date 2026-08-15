@@ -48,6 +48,9 @@ async function getTMDBConfig() {
   }
 }
 
+const tmdbCache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 async function tmdbFetch(endpoint, params = {}) {
   const { apiKey, readToken } = await getTMDBConfig();
   if (!apiKey && !readToken) {
@@ -55,6 +58,12 @@ async function tmdbFetch(endpoint, params = {}) {
   }
   
   const queryParams = new URLSearchParams({ ...params });
+  const cacheKey = `${endpoint}?${queryParams.toString()}`;
+  const cached = tmdbCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.data;
+  }
+
   const headers = { 'Accept': 'application/json' };
   
   if (readToken) {
@@ -65,11 +74,13 @@ async function tmdbFetch(endpoint, params = {}) {
   
   const queryString = queryParams.toString();
   const url = `https://api.themoviedb.org/3${endpoint}${queryString ? '?' + queryString : ''}`;
-  const response = await fetch(url, { headers });
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
   if (!response.ok) {
     throw new Error(`TMDB API request failed: ${response.statusText} (${response.status})`);
   }
-  return response.json();
+  const data = await response.json();
+  tmdbCache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+  return data;
 }
 
 export async function downloadImage(urlPath, destPath) {

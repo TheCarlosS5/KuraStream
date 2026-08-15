@@ -51,26 +51,31 @@ function verifyToken(token) {
   }
 }
 
+const libraryBaseDir = path.resolve(__dirname, '..', 'library');
+
 function resolveMediaFilePath(filePath) {
   if (!filePath) return filePath;
   let decoded = filePath;
   try { decoded = decodeURIComponent(filePath); } catch(e) {}
   
-  if (fs.existsSync(decoded)) return decoded;
+  const absPath = path.resolve(decoded);
+  if (absPath.startsWith(libraryBaseDir) && fs.existsSync(absPath)) {
+    return absPath;
+  }
   
   const idx = decoded.indexOf('library/');
   if (idx !== -1) {
     const rel = decoded.substring(idx);
     const candidate1 = path.resolve(__dirname, '..', rel);
-    if (fs.existsSync(candidate1)) return candidate1;
+    if (candidate1.startsWith(libraryBaseDir) && fs.existsSync(candidate1)) return candidate1;
     
     const candidateSpaces = path.resolve(__dirname, '..', rel.replace(/_/g, ' '));
-    if (fs.existsSync(candidateSpaces)) return candidateSpaces;
+    if (candidateSpaces.startsWith(libraryBaseDir) && fs.existsSync(candidateSpaces)) return candidateSpaces;
 
     const candidateUnderscores = path.resolve(__dirname, '..', rel.replace(/ /g, '_'));
-    if (fs.existsSync(candidateUnderscores)) return candidateUnderscores;
+    if (candidateUnderscores.startsWith(libraryBaseDir) && fs.existsSync(candidateUnderscores)) return candidateUnderscores;
   }
-  return decoded;
+  return absPath.startsWith(libraryBaseDir) ? absPath : null;
 }
 
 function getFfmpegPath() {

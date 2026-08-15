@@ -149,6 +149,12 @@ db.exec(`
     show_id TEXT NOT NULL,
     PRIMARY KEY (username, profile_name, show_id)
   );
+
+  CREATE INDEX IF NOT EXISTS idx_watch_history_user_profile ON watch_history(username, profile_name);
+  CREATE INDEX IF NOT EXISTS idx_watch_history_episode ON watch_history(episode_id);
+  CREATE INDEX IF NOT EXISTS idx_favorites_user_profile ON favorites(username, profile_name);
+  CREATE INDEX IF NOT EXISTS idx_episodes_show_season_ep ON episodes(show_id, season_number, episode_number);
+  CREATE INDEX IF NOT EXISTS idx_shows_media_type ON shows(media_type);
 `);
 
 function ensureColumn(databaseInstance, table, column, definition) {
@@ -757,6 +763,7 @@ export const dbHelper = {
   transferGuestHistory: (username, profileName = 'Principal') => {
     if (!username || username === 'guest') return;
     try {
+      db.exec("BEGIN TRANSACTION;");
       // Find guest watch history records for the target profileName
       const guestRecords = db.prepare("SELECT * FROM watch_history WHERE username = 'guest' AND profile_name = ?").all(profileName);
       
@@ -784,7 +791,9 @@ export const dbHelper = {
       
       // Delete guest records after transfer
       db.prepare("DELETE FROM watch_history WHERE username = 'guest' AND profile_name = ?").run(profileName);
+      db.exec("COMMIT;");
     } catch (e) {
+      try { db.exec("ROLLBACK;"); } catch(_) {}
       console.error("Failed to transfer guest watch history:", e);
     }
   },

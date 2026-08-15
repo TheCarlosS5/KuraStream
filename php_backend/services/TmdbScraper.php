@@ -5,6 +5,7 @@ class TmdbScraper {
     private static ?string $apiKey = null;
     private static ?string $readToken = null;
     private static string $baseUrl = 'https://api.themoviedb.org/3';
+    private static array $cache = [];
 
     private static function initConfig(): void {
         if (self::$apiKey !== null) return;
@@ -25,6 +26,12 @@ class TmdbScraper {
 
     private static function fetch(string $endpoint, array $params = []): array {
         self::initConfig();
+        
+        $cacheKey = $endpoint . '?' . http_build_query($params);
+        if (isset(self::$cache[$cacheKey])) {
+            return self::$cache[$cacheKey];
+        }
+
         $headers = ['Accept: application/json'];
 
         if (!empty(self::$readToken)) {
@@ -51,7 +58,9 @@ class TmdbScraper {
         if ($httpCode !== 200 || !$response) {
             return [];
         }
-        return json_decode($response, true) ?: [];
+        $data = json_decode($response, true) ?: [];
+        self::$cache[$cacheKey] = $data;
+        return $data;
     }
 
     public static function search(string $query, string $type = 'anime'): array {
