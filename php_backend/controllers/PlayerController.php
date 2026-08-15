@@ -120,22 +120,31 @@ class PlayerController {
             $cmd .= '-map 0:v:0 ';
             
             // Map selected audio track or default to first audio stream
-            if ($audioTrack !== -1) {
-                $audioStreamIndex = $audioTrack;
+            $mappedAudio = false;
+            if ($audioTrack >= 0) {
                 if (!empty($episodeId)) {
                     $epData = DbHelper::getEpisode($episodeId);
                     if ($epData && !empty($epData['audio_tracks'])) {
                         $tracks = is_array($epData['audio_tracks']) ? $epData['audio_tracks'] : json_decode($epData['audio_tracks'], true);
                         if (is_array($tracks)) {
-                            $t = array_values(array_filter($tracks, fn($x) => ($x['track_number'] ?? $x['index'] ?? -1) == $audioTrack))[0] ?? null;
+                            // Find matching track by index or track_number or by array offset
+                            $t = $tracks[$audioTrack] ?? null;
+                            if (!$t) {
+                                $t = array_values(array_filter($tracks, fn($x) => ($x['track_number'] ?? $x['index'] ?? -1) == $audioTrack))[0] ?? null;
+                            }
                             if ($t && isset($t['index'])) {
-                                $audioStreamIndex = (int)$t['index'];
+                                $cmd .= "-map 0:" . intval($t['index']) . "? ";
+                                $mappedAudio = true;
                             }
                         }
                     }
                 }
-                $cmd .= "-map 0:{$audioStreamIndex}? ";
-            } else {
+                if (!$mappedAudio) {
+                    $cmd .= "-map 0:a:{$audioTrack}? ";
+                    $mappedAudio = true;
+                }
+            }
+            if (!$mappedAudio) {
                 $cmd .= '-map 0:a:0? ';
             }
 

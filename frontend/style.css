@@ -1209,11 +1209,13 @@ button, input, select {
   justify-content: space-between;
   opacity: 1;
   transition: opacity 0.5s ease;
+  pointer-events: none;
 }
 
 .player-controls-overlay.hide {
   opacity: 0;
   cursor: none;
+  pointer-events: none;
 }
 
 /* Top bar */
@@ -1222,6 +1224,7 @@ button, input, select {
   display: flex;
   align-items: center;
   gap: 20px;
+  pointer-events: auto;
 }
 
 .player-btn {
@@ -1237,6 +1240,12 @@ button, input, select {
   width: 40px;
   height: 40px;
   border-radius: 50%;
+  pointer-events: auto;
+}
+
+.player-btn svg,
+.center-action-btn svg {
+  pointer-events: none;
 }
 
 .player-btn:hover {
@@ -1276,6 +1285,7 @@ button, input, select {
   align-items: center;
   justify-content: center;
   transition: var(--transition-smooth);
+  pointer-events: auto;
 }
 
 .center-action-btn:hover {
@@ -1346,6 +1356,7 @@ button, input, select {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  pointer-events: auto;
 }
 
 /* Timeline */

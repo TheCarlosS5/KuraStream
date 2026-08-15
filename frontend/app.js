@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.2_yt_loader_player';
+import { initPlayer, destroyPlayer } from './player.js?v=10.3_audio_stream_fix';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
