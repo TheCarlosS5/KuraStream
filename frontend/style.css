@@ -1376,51 +1376,100 @@ button, input, select {
 .player-progress-bar {
   flex-grow: 1;
   height: 6px;
-  background: rgba(255,255,255,0.2);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
   position: relative;
   cursor: pointer;
-  transition: height 0.15s ease;
+  transition: height 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .player-progress-bar:hover {
-  height: 8px;
+  height: 9px;
 }
 
+/* Loaded Buffer Trace / Sombra de carga */
 .player-progress-buffered {
   position: absolute;
   top: 0;
   left: 0;
   height: 100%;
-  background: rgba(255, 255, 255, 0.4);
-  border-radius: 3px;
+  width: 0%;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  pointer-events: none;
+  transition: width 0.2s ease-out;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.15);
 }
 
+/* Hover Ghost Track / Rastro interactivo del cursor */
+.player-progress-hover {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  pointer-events: none;
+  transition: width 0.05s linear;
+}
+
+/* Current Playback Progress */
 .player-progress-current {
   position: absolute;
   top: 0;
   left: 0;
   height: 100%;
-  background: var(--accent-color);
-  border-radius: 3px;
-  box-shadow: 0 0 8px var(--accent-color);
+  width: 0%;
+  background: linear-gradient(90deg, #9333ea, var(--accent-color));
+  border-radius: 4px;
+  box-shadow: 0 0 10px var(--accent-glow);
+  pointer-events: none;
+  z-index: 2;
 }
 
+/* Scrubber Handle Knob */
 .player-progress-handle {
   position: absolute;
   top: 50%;
+  left: 0%;
   transform: translate(-50%, -50%) scale(0);
-  width: 14px;
-  height: 14px;
-  background: var(--text-main);
-  border: 2px solid var(--accent-color);
+  width: 15px;
+  height: 15px;
+  background: #ffffff;
+  border: 3px solid var(--accent-color);
   border-radius: 50%;
-  transition: transform 0.15s ease;
+  box-shadow: 0 0 10px var(--accent-color), 0 2px 6px rgba(0, 0, 0, 0.6);
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
+  z-index: 3;
 }
 
 .player-progress-bar:hover .player-progress-handle {
   transform: translate(-50%, -50%) scale(1);
+}
+
+/* Timeline Hover Tooltip */
+.player-progress-tooltip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0%;
+  transform: translateX(-50%);
+  background: rgba(15, 17, 23, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border-color);
+  color: #fff;
+  font-family: var(--font-title);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.05s linear;
+  white-space: nowrap;
+  z-index: 25;
 }
 
 /* Control Buttons row */

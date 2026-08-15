@@ -23,6 +23,8 @@ let playPauseBtn = null;
 let centerPlayBtn = null;
 let progressCurrent = null;
 let progressBuffered = null;
+let progressHover = null;
+let progressTooltip = null;
 let progressBar = null;
 let progressHandle = null;
 let timeCurrent = null;
@@ -127,6 +129,8 @@ export async function initPlayer(rawEpisodeId) {
   centerPlayBtn = document.getElementById('center-play-pause-btn');
   progressCurrent = document.getElementById('player-progress-current');
   progressBuffered = document.getElementById('player-progress-buffered');
+  progressHover = document.getElementById('player-progress-hover');
+  progressTooltip = document.getElementById('player-progress-tooltip');
   progressBar = document.getElementById('player-progress-bar');
   progressHandle = document.getElementById('player-progress-handle');
   timeCurrent = document.getElementById('player-time-current');
@@ -894,6 +898,8 @@ function setupPlayerEventListeners() {
     progressCurrent.style.width = `${progressPercent}%`;
     progressHandle.style.left = `${progressPercent}%`;
 
+    updateBufferTrack();
+
     // Auto-Skip and Skip Overlay logic
     const isAutoSkip = window.userPreferences?.auto_skip_intro === true || 
                        window.userPreferences?.auto_skip_intro === 'true' ||
@@ -947,31 +953,46 @@ function setupPlayerEventListeners() {
     }
   };
 
-  // Buffer range updates
-  video.onprogress = () => {
-    if (!video) return;
-    if (video.buffered.length > 0) {
-      const currentStreamSrc = video.src;
-      const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-      const startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-      const duration = currentEpisodeData.duration || video.duration || 1;
-      
-      const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+  // Buffer range updates (Sombra / Rastro de carga)
+  const updateBufferTrack = () => {
+    if (!video || !progressBuffered) return;
+    try {
+      const currentStreamSrc = video.src || '';
+      let startOffset = 0;
+      if (currentStreamSrc) {
+        const parsedUrl = new URL(currentStreamSrc, window.location.origin);
+        startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
+      }
+      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
+
+      let bufferedEnd = 0;
+      if (video.buffered && video.buffered.length > 0) {
+        for (let i = 0; i < video.buffered.length; i++) {
+          if (video.buffered.start(i) <= video.currentTime && video.currentTime <= video.buffered.end(i)) {
+            bufferedEnd = video.buffered.end(i);
+            break;
+          }
+        }
+        if (bufferedEnd === 0) {
+          bufferedEnd = video.buffered.end(video.buffered.length - 1);
+        }
+      }
+
       const totalBuffered = startOffset + bufferedEnd;
-      
-      const bufferedPercent = (totalBuffered / duration) * 100;
+      const bufferedPercent = Math.min(100, Math.max(0, (totalBuffered / duration) * 100));
       progressBuffered.style.width = `${bufferedPercent}%`;
-    }
+    } catch(e) {}
   };
+
+  video.onprogress = updateBufferTrack;
 
   // Video Ending Logic (Countdown)
   video.onended = () => {
     if (!video) return;
-    saveWatchProgress();
+    saveWatchProgress(true);
     if (nextEpisodeId) {
       triggerCountdownAutoplay();
     } else {
-      // Return to detail view
       location.hash = `#/show/${getShowIdFromEpisodeId(currentEpisodeId)}`;
     }
   };
@@ -983,36 +1004,80 @@ function setupPlayerEventListeners() {
     return Math.max(0, Math.min(1, pos));
   };
 
-  progressBar.onmousedown = (e) => {
-    isDraggingProgress = true;
-    updateProgressOnDrag(e);
-  };
+  // Hover Ghost Scrubber and Timestamp Tooltip
+  if (progressBar) {
+    progressBar.onmousemove = (e) => {
+      const pos = getTimelineClickPos(e);
+      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
+      const hoverTime = pos * duration;
 
-  window.onmousemove = (e) => {
+      if (progressHover) {
+        progressHover.style.width = `${pos * 100}%`;
+      }
+
+      if (progressTooltip) {
+        progressTooltip.style.left = `${pos * 100}%`;
+        progressTooltip.textContent = formatTime(hoverTime);
+        progressTooltip.style.opacity = '1';
+      }
+
+      if (isDraggingProgress) {
+        updateProgressOnDrag(e);
+      }
+    };
+
+    progressBar.onmouseleave = () => {
+      if (!isDraggingProgress && progressHover) {
+        progressHover.style.width = '0%';
+      }
+      if (progressTooltip) {
+        progressTooltip.style.opacity = '0';
+      }
+    };
+
+    progressBar.onmousedown = (e) => {
+      isDraggingProgress = true;
+      updateProgressOnDrag(e);
+    };
+  }
+
+  const handleGlobalMouseMove = (e) => {
     if (isDraggingProgress) {
       updateProgressOnDrag(e);
+      const pos = getTimelineClickPos(e);
+      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
+      if (progressTooltip) {
+        progressTooltip.style.left = `${pos * 100}%`;
+        progressTooltip.textContent = formatTime(pos * duration);
+        progressTooltip.style.opacity = '1';
+      }
     }
   };
+  window.addEventListener('mousemove', handleGlobalMouseMove);
 
-  window.onmouseup = () => {
+  const handleGlobalMouseUp = () => {
     if (isDraggingProgress) {
       isDraggingProgress = false;
+      if (progressTooltip) {
+        progressTooltip.style.opacity = '0';
+      }
       
       const percent = parseFloat(progressCurrent.style.width) / 100;
-      const duration = currentEpisodeData.duration || video.duration || 1;
+      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
       const targetTime = percent * duration;
       
-      // Perform seek by reloading the video stream starting at this time!
       loadVideoStream(targetTime);
     }
   };
+  window.addEventListener('mouseup', handleGlobalMouseUp);
 
   function updateProgressOnDrag(e) {
     const pos = getTimelineClickPos(e);
     progressCurrent.style.width = `${pos * 100}%`;
     progressHandle.style.left = `${pos * 100}%`;
+    if (progressHover) progressHover.style.width = `${pos * 100}%`;
     
-    const duration = currentEpisodeData.duration || video.duration || 1;
+    const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
     timeCurrent.textContent = formatTime(pos * duration);
   }
 

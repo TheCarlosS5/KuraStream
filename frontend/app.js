@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.7_subtitles_sync_opt';
+import { initPlayer, destroyPlayer } from './player.js?v=10.8_buffer_ghost_scrubber';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
