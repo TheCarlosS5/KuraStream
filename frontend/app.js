@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.3_audio_stream_fix';
+import { initPlayer, destroyPlayer } from './player.js?v=10.4_player_ready';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
@@ -4161,8 +4161,9 @@ async function loadShowComments(showId) {
 
   // Fetch and display
   try {
-    const res = await fetch(`/api/comments?showId=${showId}`);
-    const comments = await res.json();
+    const res = await fetch(`/api/comments?showId=${encodeURIComponent(showId)}`);
+    const data = await res.json();
+    const comments = Array.isArray(data) ? data : (data.comments || []);
     
     if (comments.length === 0) {
       commentsList.innerHTML = `<p style="color: var(--text-muted); font-size: 0.85rem; padding: 20px 0; text-align: center;">No hay comentarios todavía. ¡Sé el primero en comentar!</p>`;

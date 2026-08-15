@@ -1,5 +1,21 @@
 // player.js - Custom VLC-style video player logic with SubtitlesOctopus integration
 
+function parseJsonArray(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'object') return Object.values(val);
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && typeof parsed === 'object') return Object.values(parsed);
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+}
+
 let video = null;
 let container = null;
 let controlsOverlay = null;
