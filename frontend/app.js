@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=9.9_player_cover_fix';
+import { initPlayer, destroyPlayer } from './player.js?v=10.0_player_metadata_fix';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
@@ -348,13 +348,13 @@ function setupRouter() {
       renderStatsView();
     } else if (hash.startsWith('#/show/')) {
       currentView = 'detail';
-      const id = hash.split('/').pop();
+      const id = decodeURIComponent(hash.replace(/^#\/show\//, ''));
       const detView = document.getElementById('detail-view');
       if (detView) { detView.classList.add('active'); detView.style.display = 'block'; }
       loadShowDetails(id);
     } else if (hash.startsWith('#/player/')) {
       currentView = 'player';
-      const id = hash.split('/').pop();
+      const id = decodeURIComponent(hash.replace(/^#\/player\//, ''));
       document.querySelector('.app-header').style.display = 'none';
       const playView = document.getElementById('player-view');
       if (playView) { playView.classList.add('active'); playView.style.display = 'block'; }

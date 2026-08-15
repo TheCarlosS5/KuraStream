@@ -115,13 +115,12 @@ export async function initPlayer(episodeId) {
   pipBtn = document.getElementById('pip-btn');
   skipIntroBtn = document.getElementById('skipIntroBtn') || document.getElementById('skip-intro-btn');
   skipOutroBtn = document.getElementById('skip-outro-btn');
-  watchCreditsBtn = document.getElementById('watch-credits-btn');
-  outroOverlayContainer = document.getElementById('outro-overlay-container');
-  countdownOverlay = document.getElementById('autoplay-countdown-overlay');
-  ambilightToggleBtn = document.getElementById('ambilight-toggle-btn');
-  ambilightCanvas = document.getElementById('player-ambilight-canvas');
-  
-  // Cache QR Share elements
+  setupPlayerDOMElements();
+
+  // Reset state
+  lastSavedTime = 0;
+  if (progressSaveInterval) clearInterval(progressSaveInterval);
+
   qrShareBtn = document.getElementById('qr-share-btn');
   qrShareModal = document.getElementById('qr-share-modal');
   qrShareClose = document.getElementById('qr-share-close');
@@ -132,14 +131,48 @@ export async function initPlayer(episodeId) {
 
   // Load episode metadata
   try {
-    const resolvedShowId = getShowIdFromEpisodeId(episodeId);
-    const res = await fetch(`/api/shows/${encodeURIComponent(resolvedShowId)}`);
-    const data = await res.json();
+    const rawShowId = getShowIdFromEpisodeId(episodeId);
+    let res = await fetch(`/api/shows/${encodeURIComponent(rawShowId)}`);
+    let data = await res.json();
+
+    if (!res.ok || (!data.show && !data.id && !data.title)) {
+      const altShowId = rawShowId.includes('_') ? rawShowId.replace(/_/g, ' ') : rawShowId.replace(/ /g, '_');
+      res = await fetch(`/api/shows/${encodeURIComponent(altShowId)}`);
+      data = await res.json();
+    }
+
     currentShowData = data.show || data;
     
     const episodesList = Array.isArray(data.episodes) ? data.episodes : (currentShowData.episodes || []);
-    currentEpisodeData = episodesList.find(e => e.id === episodeId);
-    if (!currentEpisodeData) throw new Error('Episode not found');
+    currentEpisodeData = episodesList.find(e => 
+      e.id === episodeId || 
+      decodeURIComponent(e.id) === episodeId ||
+      e.id === rawEpisodeId ||
+      e.id.toLowerCase() === episodeId.toLowerCase()
+    );
+
+    if (!currentEpisodeData && episodesList.length > 0) {
+      const match = episodeId.match(/_S(\d+)_E(\d+)$/i);
+      if (match) {
+        const sNum = parseInt(match[1], 10);
+        const eNum = parseInt(match[2], 10);
+        currentEpisodeData = episodesList.find(e => 
+          parseInt(e.season_number, 10) === sNum && 
+          parseInt(e.episode_number, 10) === eNum
+        );
+      }
+    }
+
+    if (!currentEpisodeData) {
+      try {
+        const epRes = await fetch(`/api/episodes/${encodeURIComponent(episodeId)}`);
+        if (epRes.ok) {
+          currentEpisodeData = await epRes.json();
+        }
+      } catch (err) {}
+    }
+
+    if (!currentEpisodeData) throw new Error('Episode not found: ' + episodeId);
     
     // Sort episodes by Season and Episode number to support season transitions (e.g. S1E12 -> S2E1) and gap handling
     const sortedEpisodes = [...episodesList].sort((a, b) => {
@@ -148,7 +181,7 @@ export async function initPlayer(episodeId) {
       return (parseInt(a.episode_number, 10) || 1) - (parseInt(b.episode_number, 10) || 1);
     });
 
-    const currentIdx = sortedEpisodes.findIndex(e => e.id === episodeId);
+    const currentIdx = sortedEpisodes.findIndex(e => e.id === episodeId || decodeURIComponent(e.id) === episodeId);
     nextEpisodeId = (currentIdx !== -1 && currentIdx + 1 < sortedEpisodes.length) 
       ? sortedEpisodes[currentIdx + 1].id 
       : null;
@@ -157,14 +190,14 @@ export async function initPlayer(episodeId) {
     hasSkippedIntroForCurrentEpisode = false;
     hasSkippedOutroForCurrentEpisode = false;
 
-    document.getElementById('player-show-title').textContent = currentShowData.title;
-    document.getElementById('player-episode-title').textContent = `${currentEpisodeData.season_number ? `Temporada ${currentEpisodeData.season_number} • ` : ''}Capítulo ${currentEpisodeData.episode_number}: ${currentEpisodeData.title}`;
+    document.getElementById('player-show-title').textContent = currentShowData.title || '';
+    document.getElementById('player-episode-title').textContent = `${currentEpisodeData.season_number ? `Temporada ${currentEpisodeData.season_number} • ` : ''}Capítulo ${currentEpisodeData.episode_number}: ${currentEpisodeData.title || ''}`;
     
     renderChapterTicks(currentEpisodeData);
     renderChaptersDropdown(currentEpisodeData);
   } catch (e) {
     console.error(e);
-    alert('Error al cargar datos del reproductor');
+    alert('Error al cargar datos del reproductor: ' + (e.message || e));
     location.hash = '#/';
     return;
   }
@@ -174,7 +207,7 @@ export async function initPlayer(episodeId) {
   const prefSub = localStorage.getItem('kura_pref_sub_lang') || 'default';
 
   // 1. Resolve Audio Track
-  const audioTracks = JSON.parse(currentEpisodeData.audio_tracks || '[]');
+  const audioTracks = parseJsonArray(currentEpisodeData.audio_tracks);
   let chosenAudio = 0; // Default fallback to first track
   if (prefAudio !== 'default' && audioTracks.length > 0) {
     const match = audioTracks.find(t => (t.language || '').toLowerCase().includes(prefAudio.toLowerCase()));
@@ -185,7 +218,7 @@ export async function initPlayer(episodeId) {
   selectedAudioTrackNum = chosenAudio;
 
   // 2. Resolve Subtitle Track
-  const subTracks = JSON.parse(currentEpisodeData.subtitle_tracks || '[]');
+  const subTracks = parseJsonArray(currentEpisodeData.subtitle_tracks);
   let chosenSub = -1; // Default fallback to Off
   if (prefSub === 'off') {
     chosenSub = -1;
@@ -194,10 +227,10 @@ export async function initPlayer(episodeId) {
     if (match) {
       chosenSub = match.track_number;
     } else {
-      chosenSub = subTracks[0].track_number; // "si nop hay español tonce el subtitulo que traiga"
+      chosenSub = subTracks[0].track_number;
     }
   } else if (prefSub === 'default' && subTracks.length > 0) {
-    chosenSub = subTracks[0].track_number; // Default select first
+    chosenSub = subTracks[0].track_number;
   }
   selectedSubtitleTrackNum = chosenSub;
 
@@ -490,8 +523,8 @@ function setupTracksMenu() {
   const audioMenu = document.getElementById('audio-menu-list');
   const subMenu = document.getElementById('subtitle-menu-list');
   
-  const audioTracks = JSON.parse(currentEpisodeData.audio_tracks || '[]');
-  const subTracks = JSON.parse(currentEpisodeData.subtitle_tracks || '[]');
+  const audioTracks = parseJsonArray(currentEpisodeData.audio_tracks);
+  const subTracks = parseJsonArray(currentEpisodeData.subtitle_tracks);
 
   // Setup Audio Track menu
   if (audioTracks.length === 0) {
