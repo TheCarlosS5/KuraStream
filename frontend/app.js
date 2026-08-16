@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.14_episode_management_tmdb_sync';
+import { initPlayer, destroyPlayer } from './player.js?v=10.15_fixes_subtitles_guest_isolation_cursor_outro';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
@@ -568,15 +568,26 @@ async function loadDashboard(mediaType = 'anime') {
     // Fetch watch history
     let history = [];
     let activeUser = 'guest';
+    let token = null;
     const sessionStr = localStorage.getItem('kura_user_session');
     if (sessionStr) {
-      try { activeUser = JSON.parse(sessionStr).username; } catch(e) {}
+      try {
+        const parsed = JSON.parse(sessionStr);
+        activeUser = parsed.username || 'guest';
+        token = parsed.token;
+      } catch(e) {}
     }
-    try {
-      const histRes = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}`);
-      history = await histRes.json();
-    } catch(e) {
-      console.warn("History fetch failed:", e);
+
+    const isGuest = !token || activeUser === 'guest';
+    if (!isGuest) {
+      try {
+        const activeProfile = localStorage.getItem('kura_active_profile') || 'Principal';
+        const headers = { 'Authorization': `Bearer ${token}` };
+        const histRes = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(activeProfile)}`, { headers });
+        if (histRes.ok) history = await histRes.json();
+      } catch(e) {
+        console.warn("History fetch failed:", e);
+      }
     }
 
     const historyMap = new Map();
@@ -589,11 +600,15 @@ async function loadDashboard(mediaType = 'anime') {
 
     // Fetch favorites
     let favorites = [];
-    try {
-      const favRes = await fetch(`/api/favorites?username=${encodeURIComponent(activeUser)}`);
-      favorites = await favRes.json();
-    } catch(e) {
-      console.warn("Favorites fetch failed:", e);
+    if (!isGuest) {
+      try {
+        const activeProfile = localStorage.getItem('kura_active_profile') || 'Principal';
+        const headers = { 'Authorization': `Bearer ${token}` };
+        const favRes = await fetch(`/api/favorites?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(activeProfile)}`, { headers });
+        if (favRes.ok) favorites = await favRes.json();
+      } catch(e) {
+        console.warn("Favorites fetch failed:", e);
+      }
     }
     
     if (allShows.length === 0) {
@@ -1060,19 +1075,37 @@ async function loadShowDetails(id) {
 
     // Fetch active user
     let activeUser = 'guest';
+    let token = null;
     const sessionStr = localStorage.getItem('kura_user_session');
     if (sessionStr) {
-      try { activeUser = JSON.parse(sessionStr).username; } catch(e) {}
+      try {
+        const parsed = JSON.parse(sessionStr);
+        activeUser = parsed.username || 'guest';
+        token = parsed.token;
+      } catch(e) {}
     }
+
+    const isGuest = !token || activeUser === 'guest';
+    const activeProfile = localStorage.getItem('kura_active_profile') || 'Principal';
 
     // Check if in favorites
     let isFav = false;
-    try {
-      const favCheckRes = await fetch(`/api/favorites/check?username=${encodeURIComponent(activeUser)}&showId=${encodeURIComponent(id)}`);
-      const checkData = await favCheckRes.json();
-      isFav = checkData.isFavorite;
-    } catch (e) {
-      console.warn("Could not check favorites state:", e);
+    if (isGuest) {
+      try {
+        const guestFavs = JSON.parse(localStorage.getItem('kura_guest_favorites') || '[]');
+        isFav = guestFavs.includes(id);
+      } catch (e) {}
+    } else {
+      try {
+        const headers = { 'Authorization': `Bearer ${token}` };
+        const favCheckRes = await fetch(`/api/favorites/check?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(activeProfile)}&showId=${encodeURIComponent(id)}`, { headers });
+        if (favCheckRes.ok) {
+          const checkData = await favCheckRes.json();
+          isFav = checkData.favorited || checkData.isFavorite;
+        }
+      } catch (e) {
+        console.warn("Could not check favorites state:", e);
+      }
     }
 
     const favBtn = document.getElementById('detail-favorite-btn');
@@ -1103,11 +1136,25 @@ async function loadShowDetails(id) {
       favBtn.onclick = async () => {
         const newState = !isFav;
         updateFavBtnState(newState);
+        if (isGuest) {
+          try {
+            let guestFavs = JSON.parse(localStorage.getItem('kura_guest_favorites') || '[]');
+            if (newState) {
+              if (!guestFavs.includes(id)) guestFavs.push(id);
+            } else {
+              guestFavs = guestFavs.filter(x => x !== id);
+            }
+            localStorage.setItem('kura_guest_favorites', JSON.stringify(guestFavs));
+          } catch(e) {}
+          return;
+        }
+
         try {
+          const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
           await fetch('/api/favorites', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: activeUser, showId: id, isFavorite: newState })
+            headers: headers,
+            body: JSON.stringify({ username: activeUser, profile_name: activeProfile, show_id: id, showId: id, isFavorite: newState })
           });
         } catch (e) {
           console.error("Failed to toggle favorite:", e);
@@ -1401,8 +1448,17 @@ function stopAdminPolling() {
 
 function startAdminStatsPolling() {
   if (adminPollInterval) clearInterval(adminPollInterval);
+
+  const sessionStr = localStorage.getItem('kura_user_session');
+  let isAdmin = false;
+  try { isAdmin = JSON.parse(sessionStr).role === 'admin'; } catch(e) {}
+  if (!isAdmin || !window.location.hash.startsWith('#/admin')) return;
   
   const poll = async () => {
+    if (!window.location.hash.startsWith('#/admin')) {
+      if (adminPollInterval) clearInterval(adminPollInterval);
+      return;
+    }
     try {
       const resStats = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
       if (resStats.ok) {
@@ -1467,12 +1523,22 @@ function startAdminStatsPolling() {
 function startAdminLogsPolling() {
   if (adminLogsInterval) clearInterval(adminLogsInterval);
 
+  const sessionStr = localStorage.getItem('kura_user_session');
+  let isAdmin = false;
+  try { isAdmin = JSON.parse(sessionStr).role === 'admin'; } catch(e) {}
+  if (!isAdmin || !window.location.hash.startsWith('#/admin')) return;
+
   const terminal = document.getElementById('terminal-box');
   const poll = async () => {
+    if (!window.location.hash.startsWith('#/admin')) {
+      if (adminLogsInterval) clearInterval(adminLogsInterval);
+      return;
+    }
     try {
       const res = await fetch('/api/admin/logs', { headers: getAuthHeaders() });
       if (res.status === 401 || res.status === 403) {
         if (terminal) terminal.innerHTML = '<div style="color: #ff5555; padding: 10px;">Acceso no autorizado a la consola. Inicia sesión como administrador.</div>';
+        if (adminLogsInterval) clearInterval(adminLogsInterval);
         return;
       }
       if (res.ok) {
@@ -3244,16 +3310,22 @@ function loadSettingsView() {
 function getUserAndProfile() {
   let activeUser = 'guest';
   let profileName = 'Principal';
+  let isGuest = true;
+  let token = null;
   const sessionStr = localStorage.getItem('kura_user_session');
   if (sessionStr) {
     try {
       const sess = JSON.parse(sessionStr);
-      if (sess.username) activeUser = sess.username;
+      if (sess.username && sess.token) {
+        activeUser = sess.username;
+        token = sess.token;
+        isGuest = false;
+      }
       const decoded = getDecodedToken(sess.token);
       if (decoded && decoded.profile_name) profileName = decoded.profile_name;
     } catch(e) {}
   }
-  return { activeUser, profileName };
+  return { activeUser, profileName, isGuest, token };
 }
 
 let mylistSortValue = 'recent';
@@ -3264,23 +3336,30 @@ async function renderMyListView() {
 
   container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--text-muted); grid-column: 1 / -1;"><div class="spinner" style="margin: 0 auto 15px auto;"></div>Cargando tu lista...</div>`;
 
-  const { activeUser, profileName } = getUserAndProfile();
-  const sessionStr = localStorage.getItem('kura_user_session');
-  let token = '';
-  if (sessionStr) {
-    try { token = JSON.parse(sessionStr).token || ''; } catch(e) {}
-  }
-  const headers = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
+  const { activeUser, profileName, isGuest, token } = getUserAndProfile();
   let favorites = [];
-  try {
-    const res = await fetch(`/api/favorites?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
-    if (res.ok) {
-      favorites = await res.json();
+
+  if (isGuest) {
+    try {
+      const guestFavIds = JSON.parse(localStorage.getItem('kura_guest_favorites') || '[]');
+      if (guestFavIds.length > 0) {
+        const showsRes = await fetch('/api/shows');
+        if (showsRes.ok) {
+          const allShows = await showsRes.json();
+          favorites = allShows.filter(s => guestFavIds.includes(s.id));
+        }
+      }
+    } catch(e) {}
+  } else {
+    const headers = { 'Authorization': `Bearer ${token}` };
+    try {
+      const res = await fetch(`/api/favorites?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
+      if (res.ok) {
+        favorites = await res.json();
+      }
+    } catch (err) {
+      console.error("Error fetching favorites:", err);
     }
-  } catch (err) {
-    console.error("Error fetching favorites:", err);
   }
 
   if (!Array.isArray(favorites) || favorites.length === 0) {
@@ -3352,6 +3431,16 @@ async function renderMyListView() {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const showId = btn.getAttribute('data-show-id');
+      if (isGuest) {
+        try {
+          let guestFavIds = JSON.parse(localStorage.getItem('kura_guest_favorites') || '[]');
+          guestFavIds = guestFavIds.filter(x => x !== showId);
+          localStorage.setItem('kura_guest_favorites', JSON.stringify(guestFavIds));
+          renderMyListView();
+        } catch(e) {}
+        return;
+      }
+
       try {
         await fetch('/api/favorites', {
           method: 'POST',
@@ -3383,12 +3472,7 @@ async function renderHistoryView() {
 
   container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--text-muted);"><div class="spinner" style="margin: 0 auto 15px auto;"></div>Cargando historial...</div>`;
 
-  const { activeUser, profileName } = getUserAndProfile();
-  const sessionStr = localStorage.getItem('kura_user_session');
-  let token = '';
-  if (sessionStr) {
-    try { token = JSON.parse(sessionStr).token || ''; } catch(e) {}
-  }
+  const { activeUser, profileName, isGuest, token } = getUserAndProfile();
   const headers = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -3396,6 +3480,11 @@ async function renderHistoryView() {
   if (clearBtn) {
     clearBtn.onclick = async () => {
       if (confirm('¿Estás seguro de que deseas borrar todo tu historial de reproducción?')) {
+        if (isGuest) {
+          localStorage.removeItem('kura_guest_progress');
+          renderHistoryView();
+          return;
+        }
         try {
           await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}&clear=all`, {
             method: 'DELETE',
@@ -3410,13 +3499,15 @@ async function renderHistoryView() {
   }
 
   let history = [];
-  try {
-    const res = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
-    if (res.ok) {
-      history = await res.json();
+  if (!isGuest) {
+    try {
+      const res = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
+      if (res.ok) {
+        history = await res.json();
+      }
+    } catch (err) {
+      console.error("Error fetching history:", err);
     }
-  } catch (err) {
-    console.error("Error fetching history:", err);
   }
 
   if (!Array.isArray(history) || history.length === 0) {

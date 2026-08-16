@@ -11,11 +11,18 @@ class HistoryController {
         $username = $payload['username'] ?? ($_GET['username'] ?? ($body['username'] ?? 'guest'));
         $profile = $_GET['profile_name'] ?? ($body['profile_name'] ?? 'Principal');
 
-        return [$username, $profile];
+        $isGuest = empty($payload) && ($username === 'guest' || empty($username));
+
+        return [$username, $profile, $isGuest];
     }
 
     public static function getHistory(): void {
-        list($username, $profile) = self::resolveUserAndProfile();
+        list($username, $profile, $isGuest) = self::resolveUserAndProfile();
+
+        if ($isGuest) {
+            jsonResponse([]);
+            return;
+        }
 
         $db = Database::getConnection();
         $stmt = $db->prepare("
@@ -41,11 +48,16 @@ class HistoryController {
     }
 
     public static function getProgress(?string $episodeId = null): void {
-        list($username, $profile) = self::resolveUserAndProfile();
+        list($username, $profile, $isGuest) = self::resolveUserAndProfile();
         $epId = $episodeId ?: ($_GET['episode_id'] ?? '');
 
         if (empty($epId)) {
             jsonError('episode_id requerido', 400);
+        }
+
+        if ($isGuest) {
+            jsonResponse(['progress' => 0, 'completed' => false, 'duration' => 0]);
+            return;
         }
 
         $prog = DbHelper::getProgress($username, $profile, $epId);
@@ -60,7 +72,7 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        list($username, $profile) = self::resolveUserAndProfile($data);
+        list($username, $profile, $isGuest) = self::resolveUserAndProfile($data);
 
         $epId = $episodeId ?: ($data['episode_id'] ?? ($_GET['episode_id'] ?? ''));
         $progress = (float)($data['progress'] ?? ($data['progress_seconds'] ?? 0));
@@ -69,6 +81,12 @@ class HistoryController {
 
         if (empty($epId)) {
             jsonError('episode_id requerido', 400);
+        }
+
+        if ($isGuest) {
+            // Guest progress is tracked locally in browser localStorage, do not persist to server DB
+            jsonResponse(['success' => true, 'guest' => true]);
+            return;
         }
 
         DbHelper::saveProgress($username, $profile, $epId, $progress, $duration, $completed);
@@ -80,7 +98,12 @@ class HistoryController {
     }
 
     public static function getFavorites(): void {
-        list($username, $profile) = self::resolveUserAndProfile();
+        list($username, $profile, $isGuest) = self::resolveUserAndProfile();
+
+        if ($isGuest) {
+            jsonResponse([]);
+            return;
+        }
 
         $db = Database::getConnection();
         $stmt = $db->prepare("
@@ -96,11 +119,12 @@ class HistoryController {
     }
 
     public static function checkFavorite(): void {
-        list($username, $profile) = self::resolveUserAndProfile();
+        list($username, $profile, $isGuest) = self::resolveUserAndProfile();
         $showId = $_GET['showId'] ?? ($_GET['show_id'] ?? '');
 
-        if (empty($showId)) {
+        if (empty($showId) || $isGuest) {
             jsonResponse(['favorited' => false]);
+            return;
         }
 
         $db = Database::getConnection();
@@ -115,12 +139,17 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        list($username, $profile) = self::resolveUserAndProfile($data);
+        list($username, $profile, $isGuest) = self::resolveUserAndProfile($data);
 
         $showId = $data['show_id'] ?? ($data['showId'] ?? '');
 
         if (empty($showId)) {
             jsonError('show_id requerido', 400);
+        }
+
+        if ($isGuest) {
+            jsonResponse(['favorited' => false, 'guest' => true]);
+            return;
         }
 
         $db = Database::getConnection();

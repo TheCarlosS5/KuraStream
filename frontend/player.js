@@ -103,6 +103,7 @@ let isSakuraActive = false;
 let octopusInstance = null;
 let subtitleMetadataAbortController = null;
 let isSubtitlesLoadingScript = false;
+const subtitleContentCache = new Map();
 
 // Progress Save Interval
 let progressSaveInterval = null;
@@ -311,15 +312,27 @@ export async function initPlayer(rawEpisodeId) {
           token = parsed.token;
         } catch(e) {}
       }
-      const activeProfile = localStorage.getItem('kura_active_profile') || 'Principal';
-      const headers = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const progressRes = await fetch(`/api/progress/${encodeURIComponent(episodeId)}?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(activeProfile)}`, { headers });
-      if (progressRes.ok) {
-        const progressData = await progressRes.json();
-        if (progressData && progressData.progress && !progressData.completed) {
-          startProgress = progressData.progress;
+      const isGuest = !token || activeUser === 'guest';
+      if (isGuest) {
+        // Read local-only guest progress
+        try {
+          const guestProg = JSON.parse(localStorage.getItem('kura_guest_progress') || '{}');
+          if (guestProg[episodeId] && guestProg[episodeId].progress && !guestProg[episodeId].completed) {
+            startProgress = guestProg[episodeId].progress;
+          }
+        } catch(e) {}
+      } else {
+        const activeProfile = localStorage.getItem('kura_active_profile') || 'Principal';
+        const headers = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const progressRes = await fetch(`/api/progress/${encodeURIComponent(episodeId)}?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(activeProfile)}`, { headers });
+        if (progressRes.ok) {
+          const progressData = await progressRes.json();
+          if (progressData && progressData.progress && !progressData.completed) {
+            startProgress = progressData.progress;
+          }
         }
       }
     } catch (e) {
@@ -438,6 +451,22 @@ function saveWatchProgress(force = false) {
         token = parsed.token;
       } catch(e) {}
     }
+
+    const isGuest = !token || activeUser === 'guest';
+    if (isGuest) {
+      try {
+        const guestProg = JSON.parse(localStorage.getItem('kura_guest_progress') || '{}');
+        guestProg[currentEpisodeId] = {
+          progress: totalWatched,
+          duration: duration,
+          completed: duration > 0 && totalWatched >= (duration - 30),
+          updated_at: Date.now()
+        };
+        localStorage.setItem('kura_guest_progress', JSON.stringify(guestProg));
+      } catch(e) {}
+      return;
+    }
+
     const activeProfile = localStorage.getItem('kura_active_profile') || 'Principal';
     
     const headers = { 'Content-Type': 'application/json' };
@@ -501,16 +530,21 @@ async function startOctopusInstance(trackNum) {
   }
 
   try {
-    // Pre-fetch subtitle content so SubtitlesOctopus worker parses immediately from memory
-    const subFetchUrl = `/api/subtitles/${encodeURIComponent(currentEpisodeId)}/${trackNum}`;
-    const subRes = await fetch(subFetchUrl);
-    if (!subRes.ok) throw new Error(`HTTP ${subRes.status}`);
-    const subContent = await subRes.text();
+    const cacheKey = `${currentEpisodeId}_${trackNum}`;
+    let subContent = subtitleContentCache.get(cacheKey);
+
+    if (!subContent) {
+      const subFetchUrl = `/api/subtitles/${encodeURIComponent(currentEpisodeId)}/${trackNum}`;
+      const subRes = await fetch(subFetchUrl);
+      if (!subRes.ok) throw new Error(`HTTP ${subRes.status}`);
+      subContent = await subRes.text();
+      subtitleContentCache.set(cacheKey, subContent);
+    }
 
     if (trackNum !== selectedSubtitleTrackNum) return; // Discard if user changed track while fetching
 
     destroySubtitles();
-    console.log(`Initializing SubtitlesOctopus with video dimensions: ${video.videoWidth}x${video.videoHeight} for track ${trackNum}`);
+    console.log(`Initializing SubtitlesOctopus with video dimensions: ${video.videoWidth}x${video.videoHeight} for track ${trackNum}, offset: ${currentStreamStartOffset}s`);
     octopusInstance = new SubtitlesOctopus({
       video: video,
       subContent: subContent,
@@ -548,6 +582,11 @@ function destroySubtitles() {
 export function destroyPlayer() {
   isPlayerActive = false;
   currentStreamStartOffset = 0;
+  clearTimeout(hideControlsTimeout);
+  hideControlsTimeout = null;
+  document.body.style.cursor = '';
+  if (container) container.classList.remove('hide-cursor');
+
   // Save progress before destroying
   saveWatchProgress(true);
 
@@ -936,20 +975,23 @@ function setupPlayerEventListeners() {
     }
 
     // Outro skipper overlay logic (Next Episode and Credits container)
-    const outroStart = currentEpisodeData.outro_start;
-    if (outroStart !== null && outroStart !== undefined && totalCurrentTime >= outroStart) {
+    const rawOutroStart = currentEpisodeData ? currentEpisodeData.outro_start : null;
+    const outroStart = parseFloat(rawOutroStart);
+    const isValidOutro = !isNaN(outroStart) && outroStart > 60 && duration > 0 && outroStart < (duration - 5);
+
+    if (isValidOutro && totalCurrentTime >= outroStart) {
       if (isAutoSkip && !hasSkippedOutroForCurrentEpisode) {
         hasSkippedOutroForCurrentEpisode = true;
         showVideoToast("Outro saltado automáticamente");
         loadVideoStream(Math.max(0, duration - 1));
       }
       if (nextEpisodeId && !outroDismissed) {
-        outroOverlayContainer.style.display = 'flex';
+        if (outroOverlayContainer) outroOverlayContainer.style.display = 'flex';
       } else {
-        outroOverlayContainer.style.display = 'none';
+        if (outroOverlayContainer) outroOverlayContainer.style.display = 'none';
       }
     } else {
-      outroOverlayContainer.style.display = 'none';
+      if (outroOverlayContainer) outroOverlayContainer.style.display = 'none';
     }
   };
 
@@ -1348,36 +1390,25 @@ function showTechnicalModal() {
 }
 
 function triggerControlsActivity() {
+  if (!controlsOverlay) return;
   controlsOverlay.classList.remove('hide');
   isControlsVisible = true;
-  document.body.style.cursor = 'default';
+  if (container) container.classList.remove('hide-cursor');
+  document.body.style.cursor = '';
 
-  // Show custom cursor elements
-  const dot = document.getElementById('custom-cursor-dot');
-  const ring = document.getElementById('custom-cursor-ring');
-  if (dot && ring) {
-    dot.style.opacity = '1';
-    ring.style.opacity = '1';
-  }
-  
   clearTimeout(hideControlsTimeout);
   
   // Hide after 3 seconds of inactivity if playing
   if (video && !video.paused) {
     hideControlsTimeout = setTimeout(() => {
+      if (!isPlayerActive) return;
       controlsOverlay.classList.add('hide');
       isControlsVisible = false;
-      document.body.style.cursor = 'none';
-
-      // Hide custom cursor elements
-      if (dot && ring) {
-        dot.style.opacity = '0';
-        ring.style.opacity = '0';
-      }
+      if (container) container.classList.add('hide-cursor');
 
       // Close open dropdowns
       document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
-      fileInfoModal.style.display = 'none';
+      if (fileInfoModal) fileInfoModal.style.display = 'none';
     }, 3000);
   }
 }

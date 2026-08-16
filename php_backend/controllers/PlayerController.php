@@ -49,17 +49,39 @@ class PlayerController {
             }
         }
 
-        $mapArg = ($trackIndex !== -1) ? "-map 0:{$trackIndex}" : "-map 0:s:" . (int)$trackNum . "?";
-        $cmd = sprintf('ffmpeg -y -v error -i %s %s -f ass -', escapeshellarg($filepath), $mapArg);
+        $cacheDir = sys_get_temp_dir() . '/kura_subs_cache';
+        if (!is_dir($cacheDir)) {
+            @mkdir($cacheDir, 0777, true);
+        }
+        $cacheKey = md5($filepath . '_' . $trackIndex . '_' . (int)$trackNum . '_' . @filemtime($filepath));
+        $cacheFile = $cacheDir . '/' . $cacheKey . '.ass';
 
         @header('Content-Type: text/plain; charset=utf-8');
         @header('Access-Control-Allow-Origin: *');
+        @header('Cache-Control: public, max-age=86400');
 
         while (ob_get_level()) {
             ob_end_clean();
         }
 
-        passthru($cmd);
+        if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
+            readfile($cacheFile);
+            if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream cached success", 200);
+            exit();
+        }
+
+        $mapArg = ($trackIndex !== -1) ? "-map 0:{$trackIndex}" : "-map 0:s:" . (int)$trackNum . "?";
+        $cmd = sprintf('ffmpeg -y -v error -i %s %s -f ass %s', escapeshellarg($filepath), $mapArg, escapeshellarg($cacheFile));
+        @shell_exec($cmd);
+
+        if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
+            readfile($cacheFile);
+        } else {
+            // Fallback passthru if file write failed
+            $fallbackCmd = sprintf('ffmpeg -y -v error -i %s %s -f ass -', escapeshellarg($filepath), $mapArg);
+            passthru($fallbackCmd);
+        }
+
         if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200);
         exit();
     }
