@@ -90,6 +90,7 @@ let ambilightCtx = null;
 let ambilightInterval = null;
 let ambilightActive = false;
 let ambilightToggleBtn = null;
+let countdownAutoplayInterval = null;
 
 // Sakura Rain Pause Effect
 let sakuraCanvas = null;
@@ -622,8 +623,20 @@ export function destroyPlayer() {
     container.onmouseleave = null;
   }
 
+  // Clean up timers and intervals
+  if (countdownAutoplayInterval) {
+    clearInterval(countdownAutoplayInterval);
+    countdownAutoplayInterval = null;
+  }
+  if (seekDebounceTimer) {
+    clearTimeout(seekDebounceTimer);
+    seekDebounceTimer = null;
+  }
+  pendingSeekTarget = null;
+
   // Hide overlays
   if (countdownOverlay) countdownOverlay.style.display = 'none';
+  if (outroOverlayContainer) outroOverlayContainer.style.display = 'none';
   if (fileInfoModal) fileInfoModal.style.display = 'none';
   if (qrShareModal) qrShareModal.style.display = 'none';
   const errorOverlay = document.getElementById('player-error-overlay');
@@ -800,6 +813,12 @@ function setupPlayerEventListeners() {
     setLucideIcon('center-play-icon', 'pause');
     if (centerPlayBtn) centerPlayBtn.style.display = 'none';
     stopSakuraEffect();
+    if (speedBtn) {
+      const currentSpeed = parseFloat(speedBtn.textContent) || 1.0;
+      if (video && video.playbackRate !== currentSpeed) {
+        video.playbackRate = currentSpeed;
+      }
+    }
   };
 
   video.onloadedmetadata = () => {
@@ -1450,6 +1469,11 @@ function triggerControlsActivity() {
 }
 
 function triggerCountdownAutoplay() {
+  if (countdownAutoplayInterval) {
+    clearInterval(countdownAutoplayInterval);
+    countdownAutoplayInterval = null;
+  }
+
   countdownOverlay.style.display = 'flex';
   const countdownNumber = document.getElementById('countdown-number');
   const cancelBtn = document.getElementById('countdown-cancel');
@@ -1466,31 +1490,41 @@ function triggerCountdownAutoplay() {
     if (nextEp) {
       nextTitleText.textContent = `Capítulo ${nextEp.episode_number}: ${nextEp.title}`;
     }
-  });
+  }).catch(() => {});
 
   let secondsLeft = 5;
   countdownNumber.textContent = secondsLeft;
   
-  const timer = setInterval(() => {
+  countdownAutoplayInterval = setInterval(() => {
     secondsLeft--;
     countdownNumber.textContent = secondsLeft;
     if (secondsLeft <= 0) {
-      clearInterval(timer);
+      if (countdownAutoplayInterval) {
+        clearInterval(countdownAutoplayInterval);
+        countdownAutoplayInterval = null;
+      }
       countdownOverlay.style.display = 'none';
-      location.hash = `#/player/${nextEpisodeId}`;
+      if (isPlayerActive && nextEpisodeId) {
+        location.hash = `#/player/${nextEpisodeId}`;
+      }
     }
   }, 1000);
 
   playNowBtn.onclick = () => {
-    clearInterval(timer);
+    if (countdownAutoplayInterval) {
+      clearInterval(countdownAutoplayInterval);
+      countdownAutoplayInterval = null;
+    }
     countdownOverlay.style.display = 'none';
     location.hash = `#/player/${nextEpisodeId}`;
   };
 
   cancelBtn.onclick = () => {
-    clearInterval(timer);
+    if (countdownAutoplayInterval) {
+      clearInterval(countdownAutoplayInterval);
+      countdownAutoplayInterval = null;
+    }
     countdownOverlay.style.display = 'none';
-    // Just stay on player, video is paused
   };
 }
 
