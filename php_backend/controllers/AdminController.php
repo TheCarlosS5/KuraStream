@@ -146,6 +146,13 @@ class AdminController {
         $item = $stmt->fetch();
 
         if (!$item) {
+            // Fallback search by original_filename or filepath or partial match
+            $stmt = $db->prepare("SELECT * FROM staged_imports WHERE original_filename = :id OR filepath = :id OR id LIKE :id_like LIMIT 1");
+            $stmt->execute(['id' => $id, 'id_like' => "%{$id}%"]);
+            $item = $stmt->fetch();
+        }
+
+        if (!$item) {
             jsonError('Item staged no encontrado', 404);
         }
 
@@ -176,7 +183,7 @@ class AdminController {
         }
 
         $del = $db->prepare("DELETE FROM staged_imports WHERE id = :id");
-        $del->execute(['id' => $id]);
+        $del->execute(['id' => $item['id']]);
 
         LibraryScanner::runScan();
 

@@ -83,10 +83,10 @@ export async function loadStagedImports() {
     if (window.lucide) window.lucide.createIcons({ root: container });
 
     container.querySelectorAll('.btn-publish-staged').forEach(btn => {
-      btn.addEventListener('click', () => publishStagedItem(btn.dataset.id));
+      btn.addEventListener('click', () => publishStagedItem(btn.dataset.id, btn));
     });
     container.querySelectorAll('.btn-delete-staged').forEach(btn => {
-      btn.addEventListener('click', () => deleteStagedItem(btn.dataset.id));
+      btn.addEventListener('click', () => deleteStagedItem(btn.dataset.id, btn));
     });
 
   } catch (e) {
@@ -95,7 +95,12 @@ export async function loadStagedImports() {
   }
 }
 
-export async function publishStagedItem(id) {
+export async function publishStagedItem(id, btn) {
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px;display:inline-block;vertical-align:middle;"></div> Publicando...`;
+  }
+
   const cleanTitleEl = document.getElementById(`stage-title-${id}`);
   const seasonEl = document.getElementById(`stage-season-${id}`);
   const episodeEl = document.getElementById(`stage-episode-${id}`);
@@ -106,11 +111,16 @@ export async function publishStagedItem(id) {
 
   if (!cleanTitle) {
     alert('Por favor, indica un nombre limpio para el anime o película.');
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i data-lucide="check" style="width: 14px; height: 14px;"></i> Publicar al Catálogo`;
+      if (window.lucide) window.lucide.createIcons();
+    }
     return;
   }
 
   try {
-    const res = await fetch(`/api/admin/staged/${id}/publish`, {
+    const res = await fetch(`/api/admin/staged/${encodeURIComponent(id)}/publish`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ clean_title: cleanTitle, season, episode })
@@ -121,9 +131,19 @@ export async function publishStagedItem(id) {
       loadStagedImports();
     } else {
       alert('Error al publicar: ' + (data.error || 'Desconocido'));
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="check" style="width: 14px; height: 14px;"></i> Publicar al Catálogo`;
+        if (window.lucide) window.lucide.createIcons();
+      }
     }
   } catch (err) {
     alert('Error de conexión: ' + err.message);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i data-lucide="check" style="width: 14px; height: 14px;"></i> Publicar al Catálogo`;
+      if (window.lucide) window.lucide.createIcons();
+    }
   }
 }
 

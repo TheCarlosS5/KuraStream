@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.12_staged_auto_discovery';
+import { initPlayer, destroyPlayer } from './player.js?v=10.13_staged_publish_robust';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
@@ -5788,12 +5788,12 @@ async function loadStagedImports() {
     `).join('');
 
     if (window.lucide) window.lucide.createIcons();
-
-    document.querySelectorAll('.btn-publish-staged').forEach(btn => {
-      btn.addEventListener('click', () => publishStagedItem(btn.dataset.id));
+ 
+    container.querySelectorAll('.btn-publish-staged').forEach(btn => {
+      btn.addEventListener('click', () => publishStagedItem(btn.dataset.id, btn));
     });
-    document.querySelectorAll('.btn-delete-staged').forEach(btn => {
-      btn.addEventListener('click', () => deleteStagedItem(btn.dataset.id));
+    container.querySelectorAll('.btn-delete-staged').forEach(btn => {
+      btn.addEventListener('click', () => deleteStagedItem(btn.dataset.id, btn));
     });
 
   } catch (e) {
@@ -5802,7 +5802,12 @@ async function loadStagedImports() {
   }
 }
 
-async function publishStagedItem(id) {
+async function publishStagedItem(id, btn) {
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px;display:inline-block;vertical-align:middle;"></div> Publicando...`;
+  }
+
   const cleanTitleEl = document.getElementById(`stage-title-${id}`);
   const seasonEl = document.getElementById(`stage-season-${id}`);
   const epEl = document.getElementById(`stage-episode-${id}`);
@@ -5814,8 +5819,18 @@ async function publishStagedItem(id) {
     media_type: 'anime'
   };
 
+  if (!payload.clean_title) {
+    alert('Por favor, indica un nombre limpio para el anime o película.');
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i data-lucide="check" style="width: 14px; height: 14px;"></i> Publicar al Catálogo`;
+      if (window.lucide) window.lucide.createIcons();
+    }
+    return;
+  }
+
   try {
-    const res = await fetch(`/api/admin/staged/${id}/publish`, {
+    const res = await fetch(`/api/admin/staged/${encodeURIComponent(id)}/publish`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(payload)
@@ -5826,9 +5841,19 @@ async function publishStagedItem(id) {
     } else {
       const err = await res.json();
       alert(`Error al publicar: ${err.error || 'Desconocido'}`);
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="check" style="width: 14px; height: 14px;"></i> Publicar al Catálogo`;
+        if (window.lucide) window.lucide.createIcons();
+      }
     }
   } catch (e) {
     alert(`Error de red: ${e.message}`);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i data-lucide="check" style="width: 14px; height: 14px;"></i> Publicar al Catálogo`;
+      if (window.lucide) window.lucide.createIcons();
+    }
   }
 }
 
