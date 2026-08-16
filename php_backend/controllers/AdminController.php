@@ -15,9 +15,9 @@ class AdminController {
         $searchDirs = [
             LIBRARY_DIR . '/downloads/staged',
             LIBRARY_DIR . '/downloads',
-            BASE_DIR . '/downloads/staged',
-            BASE_DIR . '/downloads',
-            BASE_DIR . '/staging'
+            ROOT_DIR . '/downloads/staged',
+            ROOT_DIR . '/downloads',
+            ROOT_DIR . '/staging'
         ];
 
         foreach ($searchDirs as $dir) {
