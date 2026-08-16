@@ -685,6 +685,12 @@ function setupTracksMenu() {
         audioMenu.querySelectorAll('button').forEach(b => b.classList.remove('active'));
         e.target.classList.add('active');
         selectedAudioTrackNum = parseInt(e.target.getAttribute('data-track'), 10);
+
+        // Remember audio language preference across episodes
+        const targetObj = audioTracks.find(t => ((t.track_number !== undefined ? t.track_number : t.index) === selectedAudioTrackNum));
+        if (targetObj && targetObj.language) {
+          localStorage.setItem('kura_pref_audio_lang', targetObj.language.toLowerCase());
+        }
         
         // Reload stream from current position with new audio track
         const currentStreamSrc = video.src;
@@ -725,6 +731,16 @@ function setupTracksMenu() {
       e.target.classList.add('active');
       selectedSubtitleTrackNum = parseInt(e.target.getAttribute('data-track'), 10);
       
+      // Remember subtitle preference across episodes
+      if (selectedSubtitleTrackNum === -1) {
+        localStorage.setItem('kura_pref_sub_lang', 'off');
+      } else {
+        const targetSub = subTracks.find(t => ((t.track_number !== undefined ? t.track_number : t.index) === selectedSubtitleTrackNum));
+        if (targetSub && targetSub.language) {
+          localStorage.setItem('kura_pref_sub_lang', targetSub.language.toLowerCase());
+        }
+      }
+
       initSubtitles(selectedSubtitleTrackNum);
     };
   });
@@ -1319,16 +1335,36 @@ function setupPlayerEventListeners() {
   };
 }
 
+let seekDebounceTimer = null;
+let pendingSeekTarget = null;
+
 function seekRelative(seconds) {
+  if (!video) return;
   const currentStreamSrc = video.src;
-  const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-  const startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-  const totalCurrentTime = startOffset + video.currentTime;
+  let startOffset = 0;
+  try {
+    const parsedUrl = new URL(currentStreamSrc, window.location.origin);
+    startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
+  } catch(e) {}
   
-  const duration = currentEpisodeData.duration || video.duration || 1;
-  const targetTime = Math.max(0, Math.min(duration, totalCurrentTime + seconds));
+  const baseTime = (pendingSeekTarget !== null) ? pendingSeekTarget : (startOffset + (video.currentTime || 0));
+  const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
+  const targetTime = Math.max(0, Math.min(duration, baseTime + seconds));
   
-  loadVideoStream(targetTime);
+  pendingSeekTarget = targetTime;
+  
+  // Instant visual feedback on UI
+  const progressPercent = (targetTime / duration) * 100;
+  if (progressCurrent) progressCurrent.style.width = `${progressPercent}%`;
+  if (progressHandle) progressHandle.style.left = `${progressPercent}%`;
+  if (timeCurrent) timeCurrent.textContent = formatTime(targetTime);
+  
+  if (seekDebounceTimer) clearTimeout(seekDebounceTimer);
+  seekDebounceTimer = setTimeout(() => {
+    const finalTarget = pendingSeekTarget;
+    pendingSeekTarget = null;
+    loadVideoStream(finalTarget);
+  }, 160);
 }
 
 function toggleFullscreen() {
