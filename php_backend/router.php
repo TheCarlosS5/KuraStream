@@ -319,6 +319,16 @@ if ($uri === '/api/admin/sync-statuses' && $method === 'POST') {
     AdminController::syncAllStatuses();
 }
 
+if ($uri === '/api/admin/episodes/update' && $method === 'POST') {
+    AuthMiddleware::requireAdmin();
+    AdminController::updateEpisodeMetadata();
+}
+
+if (preg_match('#^/api/admin/shows/([^/]+)/sync-episodes-tmdb$#', $uri, $m) && $method === 'POST') {
+    AuthMiddleware::requireAdmin();
+    AdminController::syncShowEpisodesTmdb(urldecode($m[1]));
+}
+
 if ($uri === '/api/comments' && $method === 'GET') {
     ShowController::getComments();
 }

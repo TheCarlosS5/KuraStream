@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.13_staged_publish_robust';
+import { initPlayer, destroyPlayer } from './player.js?v=10.14_episode_management_tmdb_sync';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
@@ -2591,31 +2591,40 @@ window.openMediaEditor = async (showId) => {
         const epsHtml = eps.map(ep => {
           const thumbImg = ep.thumbnail_path || (show ? show.poster_path : null) || 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=150&q=80';
           return `
-            <div style="display: flex; gap: 12px; align-items: center; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px;">
-              <img src="${thumbImg}" alt="Episodio ${ep.episode_number}" style="width: 60px; height: 90px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);">
-              <div style="flex-grow: 1;">
-                <span style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 4px;">Capítulo ${ep.episode_number}: ${ep.title}</span>
-                <div class="drop-zone ep-thumb-drop-zone" data-episode-id="${ep.id}" style="padding: 10px; margin-top: 5px; flex-direction: row; border-style: dotted; gap: 10px;">
-                  <i data-lucide="camera" style="width: 16px; height: 16px; stroke: var(--text-muted);"></i>
-                  <span class="drop-zone-text" style="font-size: 0.75rem;">Arrastra aquí miniatura o haz clic</span>
+            <div style="display: flex; gap: 12px; align-items: flex-start; padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+              <img src="${thumbImg}" alt="Episodio ${ep.episode_number}" style="width: 60px; height: 90px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color); flex-shrink: 0;">
+              <div style="flex: 1; min-width: 220px;">
+                <div style="margin-bottom: 8px;">
+                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--accent-color); display: block; margin-bottom: 4px;">Capítulo ${ep.episode_number}</span>
+                  <div style="display: flex; gap: 6px; align-items: center;">
+                    <input type="text" id="ep-title-input-${ep.id}" value="${escapeHTML(ep.title || '')}" placeholder="Nombre del capítulo..." class="form-control" style="flex: 1; font-size: 0.82rem; padding: 4px 8px; height: 28px; background: rgba(0,0,0,0.3);">
+                    <button type="button" class="btn btn-primary btn-save-ep-title" data-episode-id="${ep.id}" style="padding: 0 10px; height: 28px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px;" title="Guardar título">
+                      <i data-lucide="save" style="width:12px;height:12px;"></i> Guardar
+                    </button>
+                  </div>
+                </div>
+
+                <div class="drop-zone ep-thumb-drop-zone" data-episode-id="${ep.id}" style="padding: 8px 10px; margin-top: 5px; flex-direction: row; border-style: dotted; gap: 8px;">
+                  <i data-lucide="camera" style="width: 14px; height: 14px; stroke: var(--text-muted);"></i>
+                  <span class="drop-zone-text" style="font-size: 0.72rem;">Cambiar miniatura</span>
                   <input type="file" class="ep-thumb-file-input" accept="image/*" style="display: none;">
                 </div>
                 <!-- Time Skipping settings -->
-                <div style="display: flex; gap: 8px; margin-top: 10px; align-items: center;">
+                <div style="display: flex; gap: 6px; margin-top: 8px; align-items: center;">
                   <div style="flex: 1;">
-                    <label style="font-size: 0.65rem; color: var(--text-muted); display: block; margin-bottom: 2px;">Inicio Op (MM:SS)</label>
-                    <input type="text" placeholder="MM:SS" class="ep-time-input ep-intro-start" data-episode-id="${ep.id}" value="${formatSecondsToMMSS(ep.intro_start)}" style="width: 100%; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.75rem; height: 26px; outline: none;">
+                    <label style="font-size: 0.65rem; color: var(--text-muted); display: block; margin-bottom: 2px;">Inicio Op</label>
+                    <input type="text" placeholder="MM:SS" class="ep-time-input ep-intro-start" data-episode-id="${ep.id}" value="${formatSecondsToMMSS(ep.intro_start)}" style="width: 100%; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.72rem; height: 24px; outline: none;">
                   </div>
                   <div style="flex: 1;">
-                    <label style="font-size: 0.65rem; color: var(--text-muted); display: block; margin-bottom: 2px;">Fin Op (MM:SS)</label>
-                    <input type="text" placeholder="MM:SS" class="ep-time-input ep-intro-end" data-episode-id="${ep.id}" value="${formatSecondsToMMSS(ep.intro_end)}" style="width: 100%; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.75rem; height: 26px; outline: none;">
+                    <label style="font-size: 0.65rem; color: var(--text-muted); display: block; margin-bottom: 2px;">Fin Op</label>
+                    <input type="text" placeholder="MM:SS" class="ep-time-input ep-intro-end" data-episode-id="${ep.id}" value="${formatSecondsToMMSS(ep.intro_end)}" style="width: 100%; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.72rem; height: 24px; outline: none;">
                   </div>
                   <div style="flex: 1;">
-                    <label style="font-size: 0.65rem; color: var(--text-muted); display: block; margin-bottom: 2px;">Inicio Ed (MM:SS)</label>
-                    <input type="text" placeholder="MM:SS" class="ep-time-input ep-outro-start" data-episode-id="${ep.id}" value="${formatSecondsToMMSS(ep.outro_start)}" style="width: 100%; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.75rem; height: 26px; outline: none;">
+                    <label style="font-size: 0.65rem; color: var(--text-muted); display: block; margin-bottom: 2px;">Inicio Ed</label>
+                    <input type="text" placeholder="MM:SS" class="ep-time-input ep-outro-start" data-episode-id="${ep.id}" value="${formatSecondsToMMSS(ep.outro_start)}" style="width: 100%; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.72rem; height: 24px; outline: none;">
                   </div>
-                  <button class="btn btn-primary btn-save-ep-times" data-episode-id="${ep.id}" style="height: 26px; padding: 0 8px; font-size: 0.75rem; margin-top: 15px; display: flex; align-items: center; justify-content: center; min-width: 32px;" title="Guardar tiempos">
-                    <i data-lucide="check" style="width: 12px; height: 12px; margin: 0;"></i>
+                  <button class="btn btn-secondary btn-save-ep-times" data-episode-id="${ep.id}" style="height: 24px; padding: 0 6px; font-size: 0.7rem; margin-top: 12px; display: flex; align-items: center; justify-content: center; min-width: 28px;" title="Guardar tiempos">
+                    <i data-lucide="clock" style="width: 11px; height: 11px; margin: 0;"></i>
                   </button>
                 </div>
               </div>
@@ -2753,6 +2762,91 @@ window.openMediaEditor = async (showId) => {
         }
       });
     });
+
+    // Bind individual episode title save buttons
+    thumbsList.querySelectorAll('.btn-save-ep-title').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const epId = btn.dataset.episodeId;
+        const titleInput = document.getElementById(`ep-title-input-${epId}`);
+        const newTitle = titleInput ? titleInput.value.trim() : '';
+        if (!newTitle) return alert('Por favor introduce un nombre válido para el capítulo.');
+
+        btn.disabled = true;
+        btn.innerHTML = `<div class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;"></div>`;
+
+        try {
+          const res = await fetch('/api/admin/episodes/update', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ episode_id: epId, title: newTitle })
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            btn.style.background = '#4af626';
+            btn.style.borderColor = '#4af626';
+            btn.style.color = '#000';
+            btn.innerHTML = '<i data-lucide="check" style="width: 12px; height: 12px; margin: 0;"></i>';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            setTimeout(() => {
+              btn.style.background = '';
+              btn.style.borderColor = '';
+              btn.style.color = '';
+              btn.innerHTML = `<i data-lucide="save" style="width:12px;height:12px;"></i> Guardar`;
+              btn.disabled = false;
+              if (typeof lucide !== 'undefined') lucide.createIcons();
+            }, 1800);
+
+            if (window.location.hash.startsWith('#/show/')) {
+              const currentId = window.location.hash.split('/').pop();
+              loadShowDetails(currentId);
+            }
+          } else {
+            alert('Error al guardar título: ' + (data.error || 'Desconocido'));
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="save" style="width:12px;height:12px;"></i> Guardar`;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+          }
+        } catch (err) {
+          alert('Error de conexión al guardar título.');
+          btn.disabled = false;
+          btn.innerHTML = `<i data-lucide="save" style="width:12px;height:12px;"></i> Guardar`;
+          if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+      };
+    });
+
+    // Bind TMDB bulk episode names auto-detection
+    const syncEpisodesBtn = document.getElementById('btn-sync-episodes-tmdb');
+    if (syncEpisodesBtn) {
+      syncEpisodesBtn.onclick = async () => {
+        syncEpisodesBtn.disabled = true;
+        syncEpisodesBtn.innerHTML = `<div class="spinner" style="width:13px;height:13px;border-width:2px;margin-right:5px;display:inline-block;vertical-align:middle;"></div> Sincronizando TMDB...`;
+        try {
+          const res = await fetch(`/api/admin/shows/${encodeURIComponent(show.id)}/sync-episodes-tmdb`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            alert(`¡Metadatos de episodios actualizados con éxito! Se detectaron los nombres de ${data.updated} capítulos de ${data.total} con TMDB (${data.tmdb_title}).`);
+            openMediaEditor(show.id);
+            if (window.location.hash.startsWith('#/show/')) {
+              const currentId = window.location.hash.split('/').pop();
+              loadShowDetails(currentId);
+            }
+          } else {
+            alert('Error al sincronizar con TMDB: ' + (data.error || 'Desconocido'));
+          }
+        } catch (err) {
+          alert('Error de conexión al sincronizar episodios con TMDB.');
+        } finally {
+          syncEpisodesBtn.disabled = false;
+          syncEpisodesBtn.innerHTML = `<i data-lucide="sparkles" style="width:13px;height:13px;margin-right:5px;color:#c084fc;"></i> Auto-Detectar Nombres (TMDB)`;
+          if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+      };
+    }
     
     if (typeof lucide !== 'undefined') lucide.createIcons();
 

@@ -38,7 +38,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=10.13_staged_publish_robust">
+  <link rel="stylesheet" href="style.css?v=10.14_episode_management_tmdb_sync">
 </head>
 <body>
 
@@ -1278,10 +1278,18 @@
         </div>
       </div>
 
-      <!-- Manage Episode Thumbnails -->
+      <!-- Manage Episode Details & Thumbnails -->
       <div style="border-top: 1px solid var(--border-color); padding-top: 20px; margin-bottom: 20px;">
-        <h4>Miniaturas de Capítulos</h4>
-        <div id="edit-episodes-thumbs-list" style="display: flex; flex-direction: column; gap: 12px; max-height: 250px; overflow-y: auto; padding-right: 5px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <h4 style="margin: 0;">Gestión y Títulos de Capítulos</h4>
+            <p style="color: var(--text-muted); font-size: 0.78rem; margin: 2px 0 0 0;">Edita nombres manualmente o auto-detecta todos los nombres y sinopsis oficiales con TMDB.</p>
+          </div>
+          <button type="button" class="btn btn-secondary" id="btn-sync-episodes-tmdb" style="font-size: 0.78rem; padding: 6px 12px; background: rgba(168, 85, 247, 0.18); border-color: #a855f7; display: inline-flex; align-items: center; cursor: pointer;">
+            <i data-lucide="sparkles" style="width:13px;height:13px;margin-right:5px;color:#c084fc;"></i> Auto-Detectar Nombres (TMDB)
+          </button>
+        </div>
+        <div id="edit-episodes-thumbs-list" style="display: flex; flex-direction: column; gap: 12px; max-height: 380px; overflow-y: auto; padding-right: 5px;">
           <!-- Episode list with thumb inputs injected here -->
         </div>
       </div>
@@ -1490,7 +1498,7 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="app.js?v=10.13_staged_publish_robust" type="module"></script>
-  <script src="player.js?v=10.13_staged_publish_robust" type="module"></script>
+  <script src="app.js?v=10.14_episode_management_tmdb_sync" type="module"></script>
+  <script src="player.js?v=10.14_episode_management_tmdb_sync" type="module"></script>
 </body>
 </html>

@@ -116,6 +116,15 @@ class LibraryScanner {
                 DbHelper::saveShow($showData);
                 $showsCount++;
 
+                if ($tmdbId <= 0 && $mediaType !== 'movie') {
+                    try {
+                        $tmdbResults = TmdbScraper::search($cleanTitle, $mediaType);
+                        if (!empty($tmdbResults)) {
+                            $tmdbId = (int)$tmdbResults[0]['id'];
+                        }
+                    } catch (Throwable $e) {}
+                }
+
                 $seasonEpsCache = [];
                 if ($tmdbId > 0 && $mediaType !== 'movie') {
                     // Pre-fetch seasons for episode names and synopses
@@ -152,7 +161,8 @@ class LibraryScanner {
                     }
 
                     if ($existingEp) {
-                        if (!empty($existingEp['title']) && $existingEp['title'] !== "Capítulo {$episode}") {
+                        // Preserve custom title only if it is not the default generic fallback
+                        if (!empty($existingEp['title']) && !preg_match('/^Cap[ií]tulo\s+\d+$/i', trim($existingEp['title'])) && $existingEp['title'] !== "Capítulo {$episode}") {
                             $epTitle = $existingEp['title'];
                         }
                         if (!empty($existingEp['synopsis'])) {

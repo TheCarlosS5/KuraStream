@@ -441,6 +441,17 @@ class DbHelper {
         return true;
     }
 
+    public static function updateEpisodeDetails(string $epId, string $title, ?string $synopsis = null): bool {
+        $db = Database::getConnection();
+        if ($synopsis !== null) {
+            $stmt = $db->prepare("UPDATE episodes SET title = :t, synopsis = :s WHERE id = :id");
+            return $stmt->execute(['t' => $title, 's' => $synopsis, 'id' => $epId]);
+        } else {
+            $stmt = $db->prepare("UPDATE episodes SET title = :t WHERE id = :id");
+            return $stmt->execute(['t' => $title, 'id' => $epId]);
+        }
+    }
+
     public static function getEpisodesForShow($showId): array {
         $db = Database::getConnection();
         $stmt = $db->prepare("SELECT * FROM episodes WHERE show_id = :show_id ORDER BY season_number ASC, episode_number ASC");

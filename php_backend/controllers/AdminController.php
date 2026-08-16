@@ -1021,8 +1021,74 @@ class AdminController {
         jsonResponse(['success' => true]);
     }
 
-    public static function detectIntros(): void {
+    public static function updateEpisodeMetadata(): void {
         AuthMiddleware::requireAdmin();
-        jsonResponse(['success' => true, 'detected_count' => 0]);
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+
+        $epId = trim($data['episode_id'] ?? '');
+        $title = trim($data['title'] ?? '');
+        $synopsis = isset($data['synopsis']) ? trim($data['synopsis']) : null;
+
+        if (empty($epId) || empty($title)) {
+            jsonError('episode_id y title requeridos', 400);
+        }
+
+        $ok = DbHelper::updateEpisodeDetails($epId, $title, $synopsis);
+        if ($ok) {
+            jsonResponse(['success' => true, 'message' => 'Episodio actualizado correctamente']);
+        } else {
+            jsonError('Error al actualizar episodio', 500);
+        }
+    }
+
+    public static function syncShowEpisodesTmdb(string $showId): void {
+        AuthMiddleware::requireAdmin();
+        $show = DbHelper::getShow($showId);
+        if (!$show) {
+            $show = DbHelper::findShowByFolderOrTitle($showId, $showId);
+        }
+        if (!$show) {
+            jsonError('Anime o serie no encontrada', 404);
+        }
+
+        $mediaType = $show['media_type'] ?? 'anime';
+        $tmdbResults = TmdbScraper::search($show['title'], $mediaType);
+        if (empty($tmdbResults)) {
+            jsonError('No se encontró información en TMDB para este anime', 404);
+        }
+
+        $tmdbId = (int)$tmdbResults[0]['id'];
+        $episodes = DbHelper::getEpisodesForShow($show['id']);
+        $updatedCount = 0;
+
+        $seasonEpsCache = [];
+        foreach ($episodes as $ep) {
+            $s = (int)$ep['season_number'];
+            if (!isset($seasonEpsCache[$s])) {
+                try {
+                    $seasonEpsCache[$s] = TmdbScraper::getSeasonEpisodes($tmdbId, $s);
+                } catch (Throwable $e) {
+                    $seasonEpsCache[$s] = [];
+                }
+            }
+
+            $eNum = (int)$ep['episode_number'];
+            if (!empty($seasonEpsCache[$s][$eNum])) {
+                $meta = $seasonEpsCache[$s][$eNum];
+                $newTitle = !empty($meta['title']) ? $meta['title'] : $ep['title'];
+                $newSyn = !empty($meta['synopsis']) ? $meta['synopsis'] : $ep['synopsis'];
+                
+                DbHelper::updateEpisodeDetails($ep['id'], $newTitle, $newSyn);
+                $updatedCount++;
+            }
+        }
+
+        jsonResponse([
+            'success' => true,
+            'updated' => $updatedCount,
+            'total' => count($episodes),
+            'tmdb_title' => $tmdbResults[0]['title'] ?? $show['title']
+        ]);
     }
 }
