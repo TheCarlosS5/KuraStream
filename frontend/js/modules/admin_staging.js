@@ -24,6 +24,16 @@ export async function loadStagedImports() {
     if (!res.ok) throw new Error('Error al cargar elementos en preparación.');
 
     const items = await res.json();
+    const countBadge = document.getElementById('staging-counter-badge');
+    if (countBadge) {
+      if (Array.isArray(items) && items.length > 0) {
+        countBadge.textContent = items.length;
+        countBadge.style.display = 'inline-block';
+      } else {
+        countBadge.style.display = 'none';
+      }
+    }
+
     if (!Array.isArray(items) || items.length === 0) {
       container.innerHTML = `<div class="admin-card" style="text-align: center; padding: 40px 20px;">
         <i data-lucide="check-circle-2" style="width: 48px; height: 48px; color: #00e08f; margin-bottom: 12px; display: inline-block;"></i>
