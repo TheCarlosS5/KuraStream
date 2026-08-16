@@ -10,6 +10,61 @@ class AdminController {
     public static function getStaged(): void {
         AuthMiddleware::requireAdmin();
         $db = Database::getConnection();
+
+        // 1. Scan physical staging directories for unindexed video files
+        $searchDirs = [
+            LIBRARY_DIR . '/downloads/staged',
+            LIBRARY_DIR . '/downloads',
+            BASE_DIR . '/downloads/staged',
+            BASE_DIR . '/downloads',
+            BASE_DIR . '/staging'
+        ];
+
+        foreach ($searchDirs as $dir) {
+            if (!is_dir($dir)) continue;
+            $files = scandir($dir);
+            foreach ($files as $file) {
+                if ($file === '.' || $file === '..') continue;
+                $fullPath = $dir . '/' . $file;
+                if (!is_file($fullPath)) continue;
+
+                $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                if (!in_array($ext, ['mkv', 'mp4', 'avi', 'mov', 'webm', 'ts'])) continue;
+
+                // Check if this filepath or filename is already in staged_imports
+                $chk = $db->prepare("SELECT id FROM staged_imports WHERE filepath = :fp OR original_filename = :fn");
+                $chk->execute(['fp' => $fullPath, 'fn' => $file]);
+                if (!$chk->fetch()) {
+                    $meta = self::parseFilenameMetadata($file);
+                    $newId = 'staged_' . md5($fullPath . $file);
+
+                    $ins = $db->prepare("
+                        INSERT INTO staged_imports (id, original_filename, filepath, media_type, clean_title, season, episode, filesize, created_at)
+                        VALUES (:id, :orig, :fp, :mt, :ct, :s, :e, :sz, NOW())
+                    ");
+                    $ins->execute([
+                        'id' => $newId,
+                        'orig' => $file,
+                        'fp' => $fullPath,
+                        'mt' => $meta['media_type'],
+                        'ct' => $meta['clean_title'],
+                        's' => $meta['season'],
+                        'e' => $meta['episode'],
+                        'sz' => filesize($fullPath)
+                    ]);
+                }
+            }
+        }
+
+        // 2. Clean up any staged rows whose files no longer exist
+        $existing = $db->query("SELECT id, filepath FROM staged_imports")->fetchAll();
+        foreach ($existing as $ex) {
+            if (!file_exists($ex['filepath'])) {
+                $db->prepare("DELETE FROM staged_imports WHERE id = :id")->execute(['id' => $ex['id']]);
+            }
+        }
+
+        // 3. Return all current staged items
         $stmt = $db->query("SELECT * FROM staged_imports ORDER BY created_at DESC");
         $rows = $stmt->fetchAll();
 
@@ -17,11 +72,57 @@ class AdminController {
         $items = array_map(function($r) {
             $r['raw_title'] = $r['original_filename'];
             $r['file_path'] = $r['filepath'];
-            $r['source_info'] = $r['media_type'] === 'movie' ? 'Película en Preparación' : 'Anime en Preparación';
+            $r['source_info'] = ($r['media_type'] === 'movie') ? 'Película en Preparación' : 'Anime en Preparación';
             return $r;
         }, $rows);
 
         jsonResponse($items);
+    }
+
+    public static function parseFilenameMetadata(string $filename): array {
+        $info = pathinfo($filename);
+        $name = $info['filename'];
+
+        // Remove release group tags like [Group]
+        $clean = preg_replace('/^\[[^\]]+\]\s*/', '', $name);
+        $clean = preg_replace('/\s*\[[^\]]+\]$/', '', $clean);
+
+        $season = 1;
+        $episode = 1;
+        $mediaType = 'anime';
+
+        if (preg_match('/(?:S|Season\s*)(\d+)[._ -]*(?:E|Episode\s*|EP\s*)(\d+)/i', $clean, $m)) {
+            $season = (int)$m[1];
+            $episode = (int)$m[2];
+            $pos = strpos($clean, $m[0]);
+            $clean = substr($clean, 0, $pos);
+        } else if (preg_match('/(?:E|Episode\s*|EP\s*|#\s*)(\d+)/i', $clean, $m)) {
+            $episode = (int)$m[1];
+            $pos = strpos($clean, $m[0]);
+            $clean = substr($clean, 0, $pos);
+        } else if (preg_match('/(?:Movie|Pel[ií]cula|Infinity Castle)/i', $clean)) {
+            $mediaType = 'movie';
+        }
+
+        $clean = str_replace(['.', '_'], ' ', $clean);
+        $clean = preg_replace('/\b(?:1080p|720p|2160p|4k|HEVC|H\.?264|AAC.*|CR|WEB-DL|REPACK|Multi-Subs|MSubs.*|V\d+)\b.*$/i', '', $clean);
+        $clean = trim(preg_replace('/\s+/', ' ', $clean));
+
+        if (stripos($clean, 'Villager of Level 999') !== false || stripos($clean, 'Lv999') !== false) {
+            $clean = 'The Villager of Level 999';
+        } else if (stripos($clean, 'Demon Slayer') !== false || stripos($clean, 'Kimetsu no Yaiba') !== false) {
+            $clean = 'Demon Slayer Kimetsu no Yaiba Infinity Castle';
+            $mediaType = 'movie';
+        } else if (stripos($clean, 'Kaiju Girl') !== false) {
+            $clean = 'Kaiju Girl Caramelise';
+        }
+
+        return [
+            'clean_title' => $clean ?: $name,
+            'season' => $season,
+            'episode' => $episode,
+            'media_type' => $mediaType
+        ];
     }
 
     public static function publishStaged(?string $id = null): void {
