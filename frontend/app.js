@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.15_fixes_subtitles_guest_isolation_cursor_outro';
+import { initPlayer, destroyPlayer } from './player.js?v=10.16_audio_video_pts_sync_fixed';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 
 if (typeof window !== 'undefined') {
