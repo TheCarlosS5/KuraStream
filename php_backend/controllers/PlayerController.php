@@ -174,8 +174,8 @@ class PlayerController {
                 }
             }
 
-            // Remux video copy, audio aac for universal browser support, fast fragmented MP4 stream
-            $cmd .= '-c:v copy -avoid_negative_ts make_zero -c:a aac -b:a 192k -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
+            // Remux video copy, audio aac with aresample for perfect PTS sync, avoiding negative TS corruption
+            $cmd .= '-c:v copy -c:a aac -b:a 192k -af "aresample=async=1" -avoid_negative_ts disabled -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
 
             if (defined('TESTING_MODE')) {
                 throw new ExitException("Stream remux success", 200);
