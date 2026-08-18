@@ -1,89 +1,287 @@
-# 蔵 KuraStream — Personal Anime & Media Server
+# 蔵 KuraStream — Cloud Anime & Streaming Media Platform
 
-**KuraStream** es un servidor privado y ligero de transmisión de medios (Anime y Películas) optimizado para reproducción offline y streaming local en redes LAN/Internet.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/TheCarlosS5/KuraStream/main/frontend/icons/icon-512.png" alt="KuraStream Logo" width="120" height="120" style="border-radius: 24px; box-shadow: 0 8px 30px rgba(0, 224, 143, 0.3);" />
+</p>
+
+<p align="center">
+  <strong>Plataforma moderna de streaming de anime y medios en la nube</strong><br>
+  Sincronización en tiempo real, salas virtuales Watch Party, reproductor avanzado con subtítulos estilizados (.ass), descarga automatizada de torrents en español y perfiles multi-usuario.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/PHP-8.4+-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP 8.4">
+  <img src="https://img.shields.io/badge/MySQL-8.0+-4479A1?style=for-the-badge&logo=mysql&logoColor=white" alt="MySQL">
+  <img src="https://img.shields.io/badge/JavaScript-ES_Modules-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black" alt="JavaScript">
+  <img src="https://img.shields.io/badge/FFmpeg-Live_Remuxing-007808?style=for-the-badge&logo=ffmpeg&logoColor=white" alt="FFmpeg">
+  <img src="https://img.shields.io/badge/Aria2c-Auto_Downloader-EB4034?style=for-the-badge" alt="Aria2">
+  <img src="https://img.shields.io/badge/Real--time-SSE_%2B_REST-00E08F?style=for-the-badge" alt="SSE">
+</p>
 
 ---
 
-## 🏛️ Arquitectura del Sistema (PHP 8.x + MySQL + Frontend Vanilla JS)
+## 🌟 Características Principales
 
-El backend de KuraStream fue migrado a una arquitectura altamente modular y limpia en **PHP 8.x**, desacoplada por controladores y servicios, utilizando **MySQL / MariaDB (PDO)** para eliminar la dependencia de archivos de base de datos dentro del repositorio del proyecto.
+### 🎬 1. Reproductor de Video de Alto Rendimiento (Estilo VLC / Crunchyroll)
+* **Remuxing y Transmisión Fragmentada al Vuelo**: Transmisión instantánea de archivos `.mkv` y `.mp4` con audio AAC multicanal (`/api/stream`) sin demoras de búfer.
+* **Subtítulos Estilizados por WebAssembly (`JavascriptSubtitlesOctopus`)**: Renderizado pixel-perfect en canvas de fuentes, efectos de karaoke, tipografías y posiciones de subtítulos `.ass` y `.ssa` nativos de fansubs de anime.
+* **Selector Multi-Audio y Multi-Sub**: Detección y cambio instantáneo de pistas de audio (Japonés, Latino, Castellano, Inglés) y subtítulos, con memoria persistente de tus idiomas preferidos.
+* **Salto Automático de Intro & Outro (Auto-Skip OP/ED)**: Detección visual inteligente y botones para saltar aperturas o finales automáticamente.
+* **Efectos Ambientales & PiP**: Modo **Ambilight** dinámico reactivo a los colores de la escena, animación ambiental de pétalos de sakura en pausa y soporte para **Picture-in-Picture (PiP)**.
+* **Handoff a Móvil mediante QR**: Genera códigos QR instantáneos en pantalla para transferir la reproducción y el segundo exacto a tu teléfono o tablet.
+
+---
+
+### 🎉 2. Watch Party — Salas Virtuales en Vivo con Sincronización en Tiempo Real
+* **Ver Sincronizado con Amigos**: Reproducción compartida donde el anfitrión controla el Play, Pausa, Adelantar y cambio de episodio para todos los espectadores.
+* **Tecnología Server-Sent Events (SSE)**: Canal de comunicación de baja latencia (`/api/party/stream`) compatible de forma nativa con **Cloudflare Tunnels, Proxies Inversos y WAN** sin necesidad de abrir puertos adicionales ni levantar daemons WebSocket externos.
+* **Algoritmo Inteligente de Corrección de Desfase (*Drift Correction*)**: Ajusta micro-desfases (<1.5s) acelerando o ralentizando sutilmente la velocidad (`1.06x` / `0.94x`) sin saltos de audio molestos, y sincroniza por fotograma en saltos temporales grandes.
+* **Chat Flotante y Reacciones Voladoras (*Flying Emojis*)**: Barra lateral de chat retráctil con glassmorphism dentro del reproductor (incluso en pantalla completa) y botones de reacciones rápidas (🔥, 😭, 😱, ❤️, 🎉, 👏) que lanzan partículas animadas sobre la pantalla de todos los miembros.
+* **Salas Públicas y Códigos Cortos**: Entra con un clic mediante enlace directo (`/#/party/KURA-EA6402`), código de 6 caracteres o descubre salas activas de la comunidad.
+
+---
+
+### 📥 3. Auto-Descargador de Torrents Nyaa con Filtro en Español
+* **Motor Integrado `aria2c`**: Descargas ultrarrápidas multihilo en segundo plano con control de pausa (`kill -STOP`) y reanudación (`kill -CONT`) en vivo.
+* **Filtros Automáticos de Idioma**: Monitoreo continuo de RSS que detecta y prioriza animes en **Sub Español, Doblaje Latino, Castellano, Multi-Audio y Multi-Sub**.
+* **Protección Anti-Duplicados**: Compara automáticamente cada torrent contra la base de datos de episodios ya organizados y la cola activa para evitar descargas redundantes.
+* **Organizador Automático ("Por Organizar")**: Los animes descargados pasan a una bandeja de preparación donde el sistema parsea títulos, temporadas y números de capítulo para publicarlos con 1 solo clic en el catálogo.
+
+---
+
+### 👤 4. Cuentas, Perfiles Multi-Usuario y Modo Infantil
+* **Selector de Perfiles Estilo Netflix ("¿Quién está viendo?")**: Múltiples perfiles independientes bajo una misma cuenta, cada uno con su propio historial de *Seguir Viendo*, lista de favoritos y preferencias de audio/subtítulos.
+* **Bloqueo por PIN y Perfil Infantil (Kids)**: Bloqueo de perfiles mediante código PIN y modo seguro para niños que filtra contenido no apto para menores.
+* **Autenticación Segura**: Tokens JWT con hashing de contraseñas de alta seguridad.
+
+---
+
+### 📅 5. Calendario Simulcast y Scraper Inteligente de Metadatos
+* **Integración con AniList GraphQL API**: Calendario de estrenos simulcast actualizado en tiempo real con caché inteligente de 6 horas y cruce automático con tu catálogo local.
+* **Scraper TMDB**: Descarga automática de sinopsis en español, carátulas en alta resolución, fondos panorámicos, reparto de voces, estudios de animación y trailers de YouTube.
+
+---
+
+## 🏛️ Arquitectura del Sistema
+
+```mermaid
+graph TD
+    subgraph "Clientes (Web, Móvil, Smart TV)"
+        Client1[Usuario 1 - Navegador / App]
+        Client2[Usuario 2 - Amigo en Watch Party]
+    end
+
+    subgraph "Capa de Red & Proxy"
+        CF[Cloudflare Tunnel / Nginx / Caddy]
+    end
+
+    subgraph "KuraStream Backend (PHP 8.4 + Modular MVC)"
+        Router[router.php - Front Controller]
+        
+        subgraph "Controladores"
+            Auth[AuthController]
+            Shows[ShowController]
+            Player[PlayerController & FFmpeg]
+            Party[PartyController - SSE Streamer]
+            History[HistoryController]
+            Admin[AdminController]
+        end
+
+        subgraph "Servicios"
+            TorrentSvc[TorrentDownloader - aria2c Engine]
+            ScannerSvc[LibraryScanner & FfmpegScanner]
+            TmdbSvc[TmdbScraper - Metadata & Posters]
+        end
+    end
+
+    subgraph "Almacenamiento & Datos"
+        DB[(MySQL / MariaDB Database)]
+        Storage[(Biblioteca de Anime & Películas)]
+    end
+
+    Client1 & Client2 <-->|HTTPS / SSE| CF
+    CF <--> Router
+    Router --> Auth & Shows & Player & Party & History & Admin
+    Party <-->|Live Events & Sync| DB
+    Admin --> TorrentSvc & ScannerSvc & TmdbSvc
+    Player -->|Stream Fragmentado| Storage
+    Shows & History --> DB
+```
+
+---
+
+## 📂 Estructura del Código
 
 ```
 KuraStream/
-├── frontend/                     # Interfaz de Usuario (HTML5, JS, CSS3)
-│   ├── index.html                # Documento principal SPA (Single Page App)
-│   ├── style.css                 # Sistema de diseño con modo oscuro y animaciones neón
-│   └── app.js                    # Enrutador cliente, llamadas a API y reproducción
+├── frontend/                         # Cliente Web SPA (Vanilla JS + CSS3 Moderno)
+│   ├── index.html                    # Documento raíz, vistas, modales y reproductor
+│   ├── style.css                     # Sistema de diseño (Glassmorphism, Neon Dark Theme)
+│   ├── app.js                        # Enrutador cliente, navegación, auth y modales
+│   ├── player.js                     # Motor de reproducción, SubtitlesOctopus y eventos
+│   └── js/modules/                   # Módulos JS independientes
+│       ├── party.js                  # Motor cliente de Watch Party (SSE + Drift Sync)
+│       ├── admin_torrents.js         # Panel de descargas aria2c y cola de torrents
+│       ├── navigation.js             # Dropdowns, cursor interactivo y barra superior
+│       └── auth.js                   # Gestión de sesiones y cabeceras JWT
 │
-├── php_backend/                  # Servidor Backend Modular en PHP 8
-│   ├── config.php                # Constantes globales, secretos JWT y headers CORS
-│   ├── db.php                    # Conexión PDO MySQL y consultas a la Base de Datos
-│   ├── router.php                # Enrutador principal (Front Controller) para PHP -S / Nginx
+├── php_backend/                      # Backend Modular en PHP 8.4
+│   ├── config.php                    # Variables de entorno, constantes globales y CORS
+│   ├── db.php                        # Conexión PDO MySQL y capa de datos (DbHelper)
+│   ├── router.php                    # Front Controller (Enrutador de API y estáticos)
 │   │
-│   ├── controllers/              # Controladores de Endpoints por Módulo
-│   │   ├── AuthController.php    # Autenticación, hashing de contraseñas y tokens JWT
-│   │   ├── ShowController.php    # Catálogo, búsquedas, carátulas HD e insignias
-│   │   ├── CalendarController.php# Calendario Simulcast (AniList API GraphQL + Caché)
-│   │   ├── PlayerController.php  # Streaming de vídeo con HTTP 206 Partial Content (Range)
-│   │   ├── HistoryController.php # Historial de reproducción "Seguir Viendo" y Favoritos
-│   │   └── AdminController.php   # Panel Admin: Importaciones preparadas y estadísticas
+│   ├── controllers/                  # Controladores de la API REST / SSE
+│   │   ├── AuthController.php        # Registro, login y tokens JWT
+│   │   ├── PartyController.php       # Watch Party (SSE streaming, sync, chat, reacciones)
+│   │   ├── ShowController.php        # Catálogo, búsquedas, filtrado y comentarios
+│   │   ├── PlayerController.php      # Streaming de video con HTTP 206 y remuxing FFmpeg
+│   │   ├── CalendarController.php    # Calendario simulcast vía AniList API
+│   │   ├── HistoryController.php     # Historial de reproducción y favoritos
+│   │   └── AdminController.php       # Gestión de descargas, staged y mantenimiento
 │   │
-│   └── services/                 # Servicios Lógicos Independientes
-│       ├── TmdbScraper.php       # Cliente API para metadata e imágenes de TMDB
-│       ├── FfmpegScanner.php     # Análisis técnico de vídeos (FFprobe) y thumbnails
-│       └── LibraryScanner.php    # Escáner de la biblioteca física (/library/Anime)
+│   ├── services/                     # Servicios y Motores en Segundo Plano
+│   │   ├── TorrentDownloader.php     # Gestor de descargas aria2c y RSS de Nyaa
+│   │   ├── LibraryScanner.php        # Escaneo y organización de archivos físicos
+│   │   ├── FfmpegScanner.php         # Análisis técnico FFprobe y generación de thumbnails
+│   │   └── TmdbScraper.php           # Scraper de sinopsis e imágenes de TMDB
+│   │
+│   └── tests/                        # Suite de Pruebas Automatizadas
+│       ├── test_party_rooms.php      # Pruebas unitarias de Watch Party y SSE
+│       └── test_torrent_downloader.php# Pruebas del descargador aria2c y filtros
 │
-├── library/                      # Almacén de Vídeos y Carátulas
-│   ├── Anime/                    # Carpetas por serie con archivos .mkv / .mp4
-│   └── Movies/                   # Películas independientes
+├── library/                          # Almacén de Medios
+│   ├── Anime/                        # Series organizadas por carpeta
+│   ├── Movies/                       # Películas independientes
+│   └── Por Organizar/                # Descargas automáticas pendientes de catalogar
 │
-├── docs/                         # Especificaciones técnicas y planes de arquitectura
-└── README.md                     # Documentación general del proyecto
+├── bin/                              # Binarios Estáticos del Sistema (aria2c)
+├── docs/                             # Especificaciones técnicas y documentación
+├── Dockerfile                        # Imagen Docker para despliegue en contenedores
+├── docker-compose.yml                # Configuración de Docker Compose con MySQL
+└── README.md                         # Documentación oficial
 ```
 
 ---
 
-## 📖 Explicación Detallada de Cada Archivo
+## ⚡ Requisitos del Sistema
 
-### 1. Núcleo Backend (`php_backend/`)
-* **`php_backend/config.php`**: Define constantes de entorno (`DB_HOST`, `DB_USER`, `DB_PASS`, `DB_NAME`), secretos para tokens JWT y funciones auxiliares para responder respuestas JSON con cabeceras CORS.
-* **`php_backend/db.php`**: Inicializa la conexión PDO a MySQL, crea automáticamente la base de datos `kurastream` y sus tablas (`shows`, `episodes`, `watch_history`, `favorites`, `staged_imports`) e incluye métodos CRUD seguros.
-* **`php_backend/router.php`**: Punto de entrada del servidor (Front Controller). Sirve archivos estáticos directamente (`index.html`, `app.js`, `style.css`, imágenes de `/library`) y enruta llamadas a `/api/...` hacia su controlador correspondiente.
-
-### 2. Controladores (`php_backend/controllers/`)
-* **`AuthController.php`**: Procesa `/api/login`, realiza el hashing HMAC-SHA256 con sal y emite tokens JWT.
-* **`ShowController.php`**: Procesa `/api/shows`, filtros por estado (En Emisión / Finalizado), ordenamiento por año/rating/título, búsquedas y alternancia de estado de emisión.
-* **`CalendarController.php`**: Procesa `/api/calendar/schedule`. Consulta AniList GraphQL API, almacena en caché la respuesta por 6 horas y cruza los títulos con MySQL para marcar animes en biblioteca.
-* **`PlayerController.php`**: Procesa `/api/episodes/{id}` y `/api/stream`. Implementa streaming de vídeo nativo con soporte `Range: bytes=X-Y` enviando código de estado HTTP `206 Partial Content`.
-* **`HistoryController.php`**: Almacena el progreso de reproducción por usuario/perfil (*Seguir Viendo*) y gestiona *Mi Lista* de favoritos.
-* **`AdminController.php`**: Gestiona la bandeja de preparación de descargas (`/api/admin/staged`), publicación en catálogo, borrado y estadísticas de almacenamiento.
-
-### 3. Servicios (`php_backend/services/`)
-* **`TmdbScraper.php`**: Realiza peticiones cURL a TheMovieDatabase API para descargar sinopsis, rating, reparto y carátulas HD.
-* **`FfmpegScanner.php`**: Ejecuta `ffprobe` en línea de comandos para extraer duración, resolución, códecs, pistas de audio y subtítulos.
-* **`LibraryScanner.php`**: Lee las carpetas físicas en `/library/Anime` y `/library/Movies`, sincronizando la estructura en MySQL.
+* **PHP**: Versión `8.2` o superior (Recomendado `PHP 8.4`) con extensiones `pdo_mysql`, `curl`, `mbstring`.
+* **Base de Datos**: MySQL `8.0+` o MariaDB `10.5+`.
+* **Herramientas Multimedia**: `ffmpeg` y `ffprobe` instalados en el sistema (`sudo apt install ffmpeg` / `pacman -S ffmpeg`).
+* **Descargas (Opcional)**: Binario de `aria2c` (incluido en `bin/aria2c`).
 
 ---
 
-## 🗄️ Base de Datos MySQL (Sin archivos dentro del proyecto)
+## 🚀 Guía de Instalación y Despliegue
 
-La base de datos se aloja en el motor **MySQL / MariaDB** del sistema en `127.0.0.1:3306`.
+### Opción 1: Despliegue Directo (PHP + MySQL)
 
-### Tablas Creadas Automáticamente:
-1. `shows`: Almacena información de series y películas (ID, título, sinopsis, rating, año, estado, carátulas).
-2. `episodes`: Almacena metadata técnica de cada vídeo (ruta en disco, duración, códec, resolución, subtítulos).
-3. `watch_history`: Registra el segundo exacto donde cada perfil pausó la reproducción.
-4. `favorites`: Guarda la lista de animes favoritos por perfil.
-5. `staged_imports`: Bandeja de descargas listas para organizar y publicar en el catálogo.
+1. **Clonar el Repositorio**:
+   ```bash
+   git clone https://github.com/TheCarlosS5/KuraStream.git
+   cd KuraStream
+   ```
+
+2. **Configurar la Base de Datos**:
+   Crea la base de datos en tu servidor MySQL:
+   ```sql
+   CREATE DATABASE kurastream CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE USER 'kurastream'@'localhost' IDENTIFIED BY 'tu_contraseña_segura';
+   GRANT ALL PRIVILEGES ON kurastream.* TO 'kurastream'@'localhost';
+   FLUSH PRIVILEGES;
+   ```
+
+3. **Configurar Variables de Entorno (`.env`)**:
+   Copia el archivo de ejemplo y ajusta tus credenciales:
+   ```bash
+   cp .env.example .env
+   ```
+   Edita `.env` con tus datos de base de datos y clave de TMDB (opcional para metadata):
+   ```env
+   DB_HOST=127.0.0.1
+   DB_PORT=3306
+   DB_NAME=kurastream
+   DB_USER=kurastream
+   DB_PASS=tu_contraseña_segura
+   JWT_SECRET=tu_clave_secreta_jwt_muy_larga
+   TMDB_API_KEY=tu_api_key_de_tmdb
+   ```
+
+4. **Iniciar el Servidor**:
+   ```bash
+   php -d extension=pdo_mysql -S 0.0.0.0:3000 php_backend/router.php
+   ```
+   Accede desde tu navegador en `http://localhost:3000` o la IP de tu servidor.
 
 ---
 
-## 🚀 Cómo Iniciar el Servidor PHP
+### Opción 2: Despliegue Online con Cloudflare Tunnel (Recomendado para Internet)
 
-Para iniciar el servidor backend de KuraStream en el puerto `3000`:
+Para acceder a tu servidor KuraStream de forma segura desde cualquier parte del mundo sin abrir puertos en tu router:
+
+1. Instala `cloudflared` en tu servidor:
+   ```bash
+   curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+   sudo dpkg -i cloudflared.deb
+   ```
+2. Inicia un túnel directo apuntando a KuraStream:
+   ```bash
+   cloudflared tunnel --url http://localhost:3000
+   ```
+3. Cloudflare te proporcionará una URL HTTPS segura (ej. `https://tu-anime.trycloudflare.com`) lista para compartir salas de Watch Party y transmitir a tus dispositivos.
+
+---
+
+### Opción 3: Despliegue con Docker y Docker Compose
 
 ```bash
-php -d extension=pdo_mysql.so -S 0.0.0.0:3000 php_backend/router.php
+docker-compose up -d --build
+```
+El contenedor levantará automáticamente el servidor web PHP 8.4 junto con un contenedor MySQL vinculado en el puerto `3000`.
+
+---
+
+## 🧪 Ejecutar Pruebas Automatizadas
+
+KuraStream cuenta con suites de pruebas unitarias y de integración para validar el funcionamiento del sistema:
+
+```bash
+# Probar base de datos, Watch Party y streaming SSE
+php -d extension=pdo_mysql php_backend/tests/test_party_rooms.php
+
+# Probar descargador de torrents aria2c y filtros en español
+php -d extension=pdo_mysql php_backend/tests/test_torrent_downloader.php
 ```
 
-Luego abre tu navegador en: `http://localhost:3000` o la IP local de tu máquina en la red.
+---
+
+## 📡 Referencia Rápida de la API
+
+| Método | Endpoint | Descripción |
+| :--- | :--- | :--- |
+| `POST` | `/api/login` | Autenticación de usuarios y emisión de tokens JWT |
+| `GET` | `/api/shows` | Catálogo completo de animes y películas con filtros |
+| `GET` | `/api/stream/{episode_id}` | Streaming de video fragmentado con remuxing FFmpeg |
+| `POST` | `/api/party/create` | Crear una nueva sala de Watch Party |
+| `POST` | `/api/party/join` | Unirse a una sala de Watch Party con apodo o usuario |
+| `POST` | `/api/party/sync` | Sincronizar tiempo de video (`play`, `pause`, `seek`) |
+| `POST` | `/api/party/message` | Enviar mensaje de chat o reacción animada |
+| `GET` | `/api/party/stream?room_id={id}` | Canal SSE en tiempo real de eventos de la sala |
+| `GET` | `/api/party/public-rooms` | Listar salas públicas activas en vivo |
+| `GET` | `/api/calendar/schedule` | Calendario simulcast sincronizado con AniList |
+| `GET` | `/api/admin/autodownload/status`| Estado de descargas activas de torrents aria2c |
+
+---
+
+## 🛡️ Seguridad y Privacidad
+
+- **Sin Telemetría Invasiva**: KuraStream es 100% privado y autohospedado; tus datos e historial de visualización permanecen en tu propio servidor.
+- **Protección contra Traversal de Rutas**: Validación estricta en el controlador de streaming para evitar accesos indebidos fuera del directorio de biblioteca.
+- **Aislamiento de Sesiones de Invitados**: Progreso y preferencias de invitados guardados de forma segura en local sin sobreescribir datos de otros perfiles.
+
+---
+
+## 🤝 Licencia y Créditos
+
+Desarrollado con ❤️ para los amantes del anime.  
+KuraStream utiliza tecnologías de código abierto: [SubtitlesOctopus](https://github.com/libass/JavascriptSubtitlesOctopus), [FFmpeg](https://ffmpeg.org/), [Aria2](https://aria2.github.io/), [Lucide Icons](https://lucide.dev/) y [AniList API](https://anilist.gitbook.io/anilist-api/).
