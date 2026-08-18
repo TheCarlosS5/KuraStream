@@ -250,7 +250,7 @@ if ($uri === '/api/admin/autodownload/status' && $method === 'GET') {
 }
 
 if ($uri === '/api/admin/autodownload/toggle' && $method === 'POST') {
-    AdminController::toggleAutoDownload();
+    AdminController::toggleTorrentManager();
 }
 
 if ($uri === '/api/admin/autodownload/scan' && $method === 'POST') {
@@ -261,8 +261,20 @@ if ($uri === '/api/admin/torrents/search' && $method === 'GET') {
     AdminController::searchTorrents();
 }
 
+if (($uri === '/api/admin/torrents/search-episodes' || $uri === '/api/admin/torrents/search-all-episodes') && $method === 'GET') {
+    AdminController::searchAnimeAllEpisodes();
+}
+
 if (($uri === '/api/admin/torrents/add' || $uri === '/api/admin/autodownload/add') && $method === 'POST') {
     AdminController::addTorrent();
+}
+
+if ($uri === '/api/admin/autodownload/queue/pause' && $method === 'POST') {
+    AdminController::pauseTorrentQueueItem();
+}
+
+if ($uri === '/api/admin/autodownload/queue/resume' && $method === 'POST') {
+    AdminController::resumeTorrentQueueItem();
 }
 
 if ($uri === '/api/admin/autodownload/queue/remove' && $method === 'POST') {
@@ -279,6 +291,10 @@ if ($uri === '/api/admin/autodownload/queue/start' && $method === 'POST') {
 
 if ($uri === '/api/admin/autodownload/cancel-active' && $method === 'POST') {
     AdminController::cancelActiveTorrent();
+}
+
+if ($uri === '/api/admin/autodownload/dismiss' && $method === 'POST') {
+    AdminController::dismissTorrent();
 }
 
 if ($uri === '/api/import' && $method === 'POST') {

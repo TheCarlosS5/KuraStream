@@ -41,3 +41,5 @@ app/build/
 *.db-wal
 cache_*.json
 php_backend/cache_*.json
+*.tar.gz
+*.zip

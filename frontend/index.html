@@ -38,7 +38,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=10.16_audio_video_pts_sync_fixed">
+  <link rel="stylesheet" href="style.css?v=10.18_torrent_pause_and_name_fixed">
 </head>
 <body>
 
@@ -815,11 +815,14 @@
                     <small id="tm-active-subtitle" style="color: var(--text-muted); font-size: 0.8rem;">El servidor está a la espera de nuevos capítulos o inicio de escaneo.</small>
                   </div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 12px;">
-                  <button type="button" class="btn btn-secondary" id="btn-cancel-active-download" style="padding: 4px 12px; font-size: 0.78rem; color: #ff5555; background: rgba(255, 85, 85, 0.12); border: 1px solid rgba(255, 85, 85, 0.3); cursor: pointer; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-secondary" id="btn-pause-active-download" style="padding: 5px 12px; font-size: 0.78rem; color: #ffab00; background: rgba(255, 171, 0, 0.12); border: 1px solid rgba(255, 171, 0, 0.3); cursor: pointer; border-radius: 4px; display: none; align-items: center; gap: 6px;">
+                    <i data-lucide="pause" style="width: 14px; height: 14px;"></i> <span>Pausar</span>
+                  </button>
+                  <button type="button" class="btn btn-secondary" id="btn-cancel-active-download" style="padding: 5px 12px; font-size: 0.78rem; color: #ff5555; background: rgba(255, 85, 85, 0.12); border: 1px solid rgba(255, 85, 85, 0.3); cursor: pointer; border-radius: 4px; display: none; align-items: center; gap: 6px;">
                     <i data-lucide="square" style="width: 14px; height: 14px;"></i> Detener Descarga
                   </button>
-                  <span id="tm-active-percent" style="font-size: 1.4rem; font-weight: 900; color: #00e08f;">0%</span>
+                  <span id="tm-active-percent" style="font-size: 1.4rem; font-weight: 900; color: #00e08f; min-width: 50px; text-align: right;">0%</span>
                 </div>
               </div>
 
@@ -1498,7 +1501,7 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="app.js?v=10.16_audio_video_pts_sync_fixed" type="module"></script>
-  <script src="player.js?v=10.16_audio_video_pts_sync_fixed" type="module"></script>
+  <script src="app.js?v=10.18_torrent_pause_and_name_fixed" type="module"></script>
+  <script src="player.js?v=10.18_torrent_pause_and_name_fixed" type="module"></script>
 </body>
 </html>

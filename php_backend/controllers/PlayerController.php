@@ -174,8 +174,17 @@ class PlayerController {
                 }
             }
 
-            // Remux video copy, audio aac with stereo downmix (-ac 2) and aresample for perfect PTS sync
-            $cmd .= '-c:v copy -c:a aac -ac 2 -b:a 192k -af "aresample=async=1" -avoid_negative_ts disabled -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
+            $epData = !empty($episodeId) ? DbHelper::getEpisode($episodeId) : null;
+            $videoCodec = strtolower($epData['video_codec'] ?? '');
+            $forceH264 = isset($_GET['codec']) && strtolower($_GET['codec']) === 'h264';
+            $needTranscodeVideo = $forceH264 || ($videoCodec !== '' && $videoCodec !== 'h264' && $videoCodec !== 'avc1' && $videoCodec !== 'avc');
+
+            $vCodecArg = $needTranscodeVideo
+                ? '-vf "scale=min(iw\\,1280):-2" -c:v libx264 -preset ultrafast -tune fastdecode -crf 25 -pix_fmt yuv420p'
+                : '-c:v copy';
+
+            // Remux video (transcode to H.264 if needed or copy), audio aac with stereo downmix (-ac 2) and aresample for perfect PTS sync
+            $cmd .= $vCodecArg . ' -c:a aac -ac 2 -b:a 192k -af "aresample=async=1" -avoid_negative_ts disabled -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
 
             if (defined('TESTING_MODE')) {
                 throw new ExitException("Stream remux success", 200);
