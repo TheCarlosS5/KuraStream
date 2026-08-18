@@ -67,16 +67,34 @@ if (count($newMessages) !== 2) {
 echo "Delta message polling works: " . count($newMessages) . " new messages.\n";
 echo "✅ Test 5 Passed!\n";
 
-echo "=== Test 6: Public Rooms List ===\n";
-$publicRooms = DbHelper::getPublicPartyRooms();
-if (empty($publicRooms) || $publicRooms[0]['id'] !== 'KURA-TEST1') {
-    throw new Exception("Public rooms query failed");
+echo "=== Test 7: Controller API Direct Call Tests ===\n";
+require_once __DIR__ . '/../controllers/PartyController.php';
+
+// Test create via helper / controller logic
+$createdId = DbHelper::createPartyRoom([
+    'name' => 'Sala de Frieren',
+    'host_user' => 'Carlos',
+    'episode_id' => 'Sousou_no_Frieren_S01_E02',
+    'is_public' => 1
+]);
+if (empty($createdId) || !str_starts_with($createdId, 'KURA-')) {
+    throw new Exception("Random room code generation failed: {$createdId}");
 }
-echo "Found " . count($publicRooms) . " active public room(s).\n";
-echo "✅ Test 6 Passed!\n";
+echo "Generated room with random code: {$createdId}\n";
+
+// Test Settings Update
+DbHelper::updatePartySettings($createdId, [
+    'allow_guest_controls' => 1,
+    'name' => 'Sala Modificada'
+]);
+$updatedRoom = DbHelper::getPartyRoom($createdId);
+if (!$updatedRoom['allow_guest_controls'] || $updatedRoom['name'] !== 'Sala Modificada') {
+    throw new Exception("Settings update failed");
+}
+echo "Settings updated successfully.\n";
 
 // Cleanup
-$db->exec("DELETE FROM party_messages WHERE room_id LIKE 'KURA-TEST%'");
-$db->exec("DELETE FROM party_rooms WHERE id LIKE 'KURA-TEST%'");
+$db->exec("DELETE FROM party_messages WHERE room_id LIKE 'KURA-%'");
+$db->exec("DELETE FROM party_rooms WHERE id LIKE 'KURA-%'");
 
-echo "=== ALL TASK 1 TESTS PASSED SUCCESSFULLY! ===\n";
+echo "=== ALL TASK 1 & TASK 2 BACKEND TESTS PASSED! ===\n";

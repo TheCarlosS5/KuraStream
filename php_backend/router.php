@@ -7,6 +7,7 @@ require_once __DIR__ . '/controllers/PlayerController.php';
 require_once __DIR__ . '/controllers/CalendarController.php';
 require_once __DIR__ . '/controllers/HistoryController.php';
 require_once __DIR__ . '/controllers/AdminController.php';
+require_once __DIR__ . '/controllers/PartyController.php';
 
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'];
@@ -384,6 +385,43 @@ if ($uri === '/api/subtitles' && $method === 'GET') {
 
 if ($uri === '/api/torrents' && $method === 'GET') {
     jsonResponse([]);
+}
+
+// Watch Party Endpoints
+if ($uri === '/api/party/create' && $method === 'POST') {
+    PartyController::createRoom();
+}
+
+if ($uri === '/api/party/join' && $method === 'POST') {
+    PartyController::joinRoom();
+}
+
+if ($uri === '/api/party/leave' && $method === 'POST') {
+    PartyController::leaveRoom();
+}
+
+if ($uri === '/api/party/sync' && $method === 'POST') {
+    PartyController::syncPlayback();
+}
+
+if ($uri === '/api/party/message' && $method === 'POST') {
+    PartyController::sendMessage();
+}
+
+if ($uri === '/api/party/settings' && $method === 'POST') {
+    PartyController::updateSettings();
+}
+
+if ($uri === '/api/party/public-rooms' && $method === 'GET') {
+    PartyController::getPublicRooms();
+}
+
+if ($uri === '/api/party/poll' && $method === 'GET') {
+    PartyController::pollEvents();
+}
+
+if ($uri === '/api/party/stream' && $method === 'GET') {
+    PartyController::streamEvents();
 }
 
 // Rescan / Repair trigger
