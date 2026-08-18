@@ -1,4 +1,5 @@
 // player.js - Custom VLC-style video player logic with SubtitlesOctopus integration
+import { partyManager } from './js/modules/party.js';
 
 function parseJsonArray(val) {
   if (!val) return [];
@@ -422,6 +423,10 @@ function loadVideoStream(startTime = 0) {
   if (selectedSubtitleTrackNum !== -1) {
     initSubtitles(selectedSubtitleTrackNum);
   }
+
+  if (partyManager && partyManager.isInRoom()) {
+    partyManager.sendPlaybackSync(true, startTime, currentEpisodeId, 'seek');
+  }
 }
 
 function saveWatchProgress(force = false) {
@@ -819,6 +824,11 @@ function setupPlayerEventListeners() {
         video.playbackRate = currentSpeed;
       }
     }
+
+    if (partyManager && partyManager.isInRoom()) {
+      const currentPos = currentStreamStartOffset + (video.currentTime || 0);
+      partyManager.sendPlaybackSync(true, currentPos, currentEpisodeId, 'play');
+    }
   };
 
   video.onloadedmetadata = () => {
@@ -845,6 +855,11 @@ function setupPlayerEventListeners() {
     saveWatchProgress();
 
     startSakuraEffect();
+
+    if (partyManager && partyManager.isInRoom()) {
+      const currentPos = currentStreamStartOffset + (video.currentTime || 0);
+      partyManager.sendPlaybackSync(false, currentPos, currentEpisodeId, 'pause');
+    }
   };
 
   playPauseBtn.onclick = togglePlay;
@@ -1352,6 +1367,171 @@ function setupPlayerEventListeners() {
       }
     }
   };
+
+  setupWatchPartyIntegration();
+}
+
+function escapeHtml(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function setupWatchPartyIntegration() {
+  const partyBtn = document.getElementById('player-party-btn');
+  const partySidebar = document.getElementById('player-party-sidebar');
+  const btnCloseSidebar = document.getElementById('party-btn-close-sidebar');
+  const btnCopyCode = document.getElementById('party-btn-copy-code');
+  const btnLeave = document.getElementById('party-btn-leave');
+  const chatInput = document.getElementById('party-chat-input');
+  const chatForm = document.getElementById('party-input-form');
+  const msgContainer = document.getElementById('party-messages-container');
+
+  if (!partyBtn) return;
+
+  // If already in a room when entering player, make sidebar visible
+  if (partyManager.isInRoom() && partySidebar) {
+    partySidebar.style.display = 'flex';
+  }
+
+  partyBtn.onclick = (e) => {
+    e.stopPropagation();
+    if (!partyManager.isInRoom()) {
+      const modal = document.getElementById('modal-watch-party');
+      if (modal) {
+        modal.style.display = 'flex';
+        const createTab = document.getElementById('party-tab-create');
+        if (createTab) createTab.click();
+      }
+    } else if (partySidebar) {
+      const isHidden = partySidebar.style.display === 'none';
+      partySidebar.style.display = isHidden ? 'flex' : 'none';
+    }
+  };
+
+  if (btnCloseSidebar && partySidebar) {
+    btnCloseSidebar.onclick = (e) => {
+      e.stopPropagation();
+      partySidebar.style.display = 'none';
+    };
+  }
+
+  if (btnCopyCode) {
+    btnCopyCode.onclick = (e) => {
+      e.stopPropagation();
+      if (!partyManager.activeRoom) return;
+      const roomId = partyManager.activeRoom.id;
+      const joinUrl = `${window.location.origin}/#/party/${roomId}`;
+      navigator.clipboard.writeText(joinUrl).then(() => {
+        showVideoToast(`Enlace copiado: ${joinUrl}`);
+      }).catch(() => {
+        showVideoToast(`Código de sala: ${roomId}`);
+      });
+    };
+  }
+
+  const roomCodeDisplay = document.getElementById('party-room-code-display');
+  if (roomCodeDisplay) {
+    roomCodeDisplay.onclick = () => {
+      if (!partyManager.activeRoom) return;
+      navigator.clipboard.writeText(partyManager.activeRoom.id).then(() => {
+        showVideoToast(`Código copiado: ${partyManager.activeRoom.id}`);
+      });
+    };
+  }
+
+  if (btnLeave) {
+    btnLeave.onclick = async (e) => {
+      e.stopPropagation();
+      if (confirm('¿Deseas salir del Watch Party?')) {
+        await partyManager.leaveRoom();
+        if (partySidebar) partySidebar.style.display = 'none';
+        showVideoToast('Has salido de la sala');
+      }
+    };
+  }
+
+  // Reaction buttons
+  document.querySelectorAll('.party-reaction-btn').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const emoji = btn.getAttribute('data-emoji');
+      if (emoji) partyManager.sendReaction(emoji);
+    };
+  });
+
+  // Chat send form
+  if (chatForm && chatInput) {
+    chatForm.onsubmit = (e) => {
+      e.preventDefault();
+      const text = chatInput.value.trim();
+      if (text) {
+        partyManager.sendMessage(text);
+        chatInput.value = '';
+      }
+    };
+  }
+
+  // Hook PartyManager events
+  partyManager.on('sync', (room) => {
+    if (!room) return;
+    if (partySidebar) partySidebar.style.display = 'flex';
+
+    const headerTitle = document.getElementById('party-header-title');
+    const codeDisplay = document.getElementById('party-room-code-display');
+    const usersBadge = document.getElementById('party-participants-badge');
+    const hostBadge = document.getElementById('party-host-badge');
+
+    if (headerTitle) headerTitle.textContent = room.name || 'Watch Party';
+    if (codeDisplay) codeDisplay.textContent = room.id;
+    if (usersBadge) usersBadge.innerHTML = `<i data-lucide="user"></i> ${room.participants_count || 1}`;
+    if (hostBadge) {
+      hostBadge.textContent = partyManager.isHost() ? '👑 Anfitrión' : `Host: ${room.host_user}`;
+    }
+
+    if (window.lucide && typeof window.lucide.createIcons === 'function') {
+      window.lucide.createIcons();
+    }
+
+    // Episode synchronization: if host switched episode, follow host!
+    if (room.episode_id && room.episode_id !== currentEpisodeId && !partyManager.isHost()) {
+      showVideoToast(`El anfitrión cambió al episodio`);
+      initPlayer(room.episode_id);
+      return;
+    }
+
+    // Playback drift & state sync
+    if (video) {
+      partyManager.applyRemotePlaybackToVideo(video);
+    }
+  });
+
+  partyManager.on('message', (msg) => {
+    if (!msgContainer || !msg) return;
+    const item = document.createElement('div');
+    item.className = 'party-msg-item';
+
+    if (msg.type === 'system') {
+      item.innerHTML = `<div class="party-msg-system">${escapeHtml(msg.message)}</div>`;
+    } else if (msg.type === 'reaction') {
+      return; // reactions float across video canvas
+    } else {
+      const initial = (msg.username || 'U').charAt(0).toUpperCase();
+      const color = partyManager.getRandomColor(msg.username || 'User');
+      item.innerHTML = `
+        <div class="party-msg-avatar" style="background: ${color}">${initial}</div>
+        <div class="party-msg-content">
+          <span class="party-msg-author">${escapeHtml(msg.username || 'Usuario')}</span>
+          <div class="party-msg-bubble">${escapeHtml(msg.message)}</div>
+        </div>
+      `;
+    }
+
+    msgContainer.appendChild(item);
+    msgContainer.scrollTop = msgContainer.scrollHeight;
+  });
+
+  partyManager.on('closed', () => {
+    if (partySidebar) partySidebar.style.display = 'none';
+  });
 }
 
 let seekDebounceTimer = null;

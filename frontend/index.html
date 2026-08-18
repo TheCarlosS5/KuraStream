@@ -65,6 +65,7 @@
       </div>
       <a href="#/my-list" class="nav-link" id="nav-mylist"><i data-lucide="heart"></i> Mi Lista</a>
       <a href="#/history" class="nav-link" id="nav-history"><i data-lucide="history"></i> Historial</a>
+      <a href="javascript:void(0)" class="nav-link" id="nav-party" style="color: var(--accent-color); font-weight: 700;"><i data-lucide="users"></i> Watch Party</a>
     </nav>
     <div class="header-right" style="display: flex; align-items: center; gap: 15px;">
       <div class="header-search">
@@ -525,11 +526,58 @@
                   </div>
                 </div>
 
+                <!-- Watch Party Toggle -->
+                <button class="player-btn" id="player-party-btn" title="Watch Party (Ver con amigos)" style="color: #00e08f;"><i data-lucide="users"></i></button>
+
                 <!-- Fullscreen Toggle -->
                 <button class="player-btn" id="fullscreen-btn"><i data-lucide="maximize" id="fullscreen-icon"></i></button>
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- Watch Party Floating Live Chat & Sync Sidebar -->
+        <div class="player-party-sidebar" id="player-party-sidebar" style="display: none;">
+          <div class="party-sidebar-header">
+            <div class="party-room-badge">
+              <span class="party-live-dot"></span>
+              <span id="party-header-title">Watch Party</span>
+            </div>
+            <div class="party-header-actions">
+              <button class="party-icon-btn" id="party-btn-copy-code" title="Copiar código y enlace de sala"><i data-lucide="share-2"></i></button>
+              <button class="party-icon-btn" id="party-btn-leave" title="Salir de la sala" style="color: var(--danger-color);"><i data-lucide="log-out"></i></button>
+              <button class="party-icon-btn" id="party-btn-close-sidebar" title="Ocultar chat"><i data-lucide="x"></i></button>
+            </div>
+          </div>
+
+          <div class="party-status-banner" id="party-status-banner">
+            <div class="party-info-row">
+              <span id="party-room-code-display" class="party-code-pill" title="Clic para copiar código">KURA-XXXX</span>
+              <span id="party-participants-badge" class="party-users-pill"><i data-lucide="user"></i> 1</span>
+              <span id="party-host-badge" class="party-host-pill">👑 Anfitrión</span>
+            </div>
+          </div>
+
+          <!-- Messages stream -->
+          <div class="party-messages-container" id="party-messages-container">
+            <!-- Chat messages and system notices injected dynamically -->
+          </div>
+
+          <!-- Floating Flying Reactions Bar -->
+          <div class="party-reactions-bar">
+            <button class="party-reaction-btn" data-emoji="🔥" title="Fuego">🔥</button>
+            <button class="party-reaction-btn" data-emoji="😭" title="Llorar">😭</button>
+            <button class="party-reaction-btn" data-emoji="😱" title="Sorpresa">😱</button>
+            <button class="party-reaction-btn" data-emoji="❤️" title="Amor">❤️</button>
+            <button class="party-reaction-btn" data-emoji="🎉" title="Fiesta">🎉</button>
+            <button class="party-reaction-btn" data-emoji="👏" title="Aplausos">👏</button>
+          </div>
+
+          <!-- Chat input -->
+          <form class="party-input-form" id="party-input-form" onsubmit="return false;">
+            <input type="text" id="party-chat-input" placeholder="Comenta en vivo..." autocomplete="off">
+            <button type="submit" id="party-chat-send-btn" title="Enviar"><i data-lucide="send"></i></button>
+          </form>
         </div>
 
         <!-- File Info Modal Panel -->
@@ -1485,6 +1533,76 @@
     <div style="position: relative; width: 90%; max-width: 800px; aspect-ratio: 16/9; background: #000; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.8);">
       <button id="trailer-close-btn" style="position: absolute; top: 15px; right: 15px; background: rgba(0,0,0,0.6); border: none; color: #fff; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 1.2rem; font-weight: bold; z-index: 10001; transition: var(--transition-fast);">&times;</button>
       <iframe id="trailer-iframe" style="width: 100%; height: 100%; border: none;" src="" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+    </div>
+  </div>
+
+  <!-- WATCH PARTY MODAL (Crear, Unirse, Públicas) -->
+  <div class="pin-modal-overlay" id="modal-watch-party" style="display: none; z-index: 2100;">
+    <div class="pin-modal" style="max-width: 500px; width: 92%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; padding: 0;">
+      <!-- Tabs Header -->
+      <div class="party-modal-tabs" style="display: flex; background: rgba(0,0,0,0.3); border-bottom: 1px solid var(--border-color);">
+        <button class="party-tab-btn active" id="party-tab-join" style="flex: 1; padding: 12px; background: transparent; border: none; border-bottom: 2px solid var(--accent-color); color: var(--text-main); font-weight: 700; font-size: 0.9rem; cursor: pointer; text-align: center;">Unirse a Sala</button>
+        <button class="party-tab-btn" id="party-tab-create" style="flex: 1; padding: 12px; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-weight: 700; font-size: 0.9rem; cursor: pointer; text-align: center;">Crear Sala</button>
+        <button class="party-tab-btn" id="party-tab-public" style="flex: 1; padding: 12px; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-weight: 700; font-size: 0.9rem; cursor: pointer; text-align: center;">Salas en Vivo</button>
+      </div>
+
+      <div class="party-modal-content" style="padding: 20px; overflow-y: auto;">
+        <!-- Tab 1: Unirse -->
+        <div id="party-content-join">
+          <h3 style="margin-bottom: 8px; color: var(--text-main); font-size: 1.15rem; font-family: var(--font-title);">Entrar a un Watch Party</h3>
+          <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Ingresa el código que te compartió tu amigo para ver juntos en sincronía.</p>
+          <div style="margin-bottom: 12px;">
+            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Código de Sala</label>
+            <input type="text" id="party-join-code-input" placeholder="Ej: KURA-9X2F" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); font-weight: 700; font-size: 1rem; text-transform: uppercase;">
+          </div>
+          <div style="margin-bottom: 15px;">
+            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Tu Nombre o Apodo</label>
+            <input type="text" id="party-join-name-input" placeholder="Tu apodo" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main);">
+          </div>
+          <div id="party-join-error" style="color: var(--danger-color); font-size: 0.8rem; margin-bottom: 12px; display: none;"></div>
+          <div style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button class="btn btn-secondary" id="party-join-cancel-btn">Cerrar</button>
+            <button class="btn btn-primary" id="party-join-submit-btn"><i data-lucide="log-in"></i> Unirme a la Sala</button>
+          </div>
+        </div>
+
+        <!-- Tab 2: Crear -->
+        <div id="party-content-create" style="display: none;">
+          <h3 style="margin-bottom: 8px; color: var(--text-main); font-size: 1.15rem; font-family: var(--font-title);">Crear Nueva Sala</h3>
+          <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Genera una sala con enlace único para invitar a tus amigos.</p>
+          <div style="margin-bottom: 12px;">
+            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Nombre de la Sala</label>
+            <input type="text" id="party-create-name-input" placeholder="Ej: Maratón de anime con amigos" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main);">
+          </div>
+          <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">
+            <input type="checkbox" id="party-create-public-check" style="width: 18px; height: 18px; accent-color: var(--accent-color);">
+            <label for="party-create-public-check" style="font-size: 0.85rem; color: var(--text-main); cursor: pointer;">Hacer sala pública (visible en la lista)</label>
+          </div>
+          <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+            <input type="checkbox" id="party-create-controls-check" style="width: 18px; height: 18px; accent-color: var(--accent-color);">
+            <label for="party-create-controls-check" style="font-size: 0.85rem; color: var(--text-main); cursor: pointer;">Permitir que los invitados controlen la reproducción</label>
+          </div>
+          <div id="party-create-error" style="color: var(--danger-color); font-size: 0.8rem; margin-bottom: 12px; display: none;"></div>
+          <div style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button class="btn btn-secondary" id="party-create-cancel-btn">Cerrar</button>
+            <button class="btn btn-primary" id="party-create-submit-btn"><i data-lucide="sparkles"></i> Crear Sala</button>
+          </div>
+        </div>
+
+        <!-- Tab 3: Públicas -->
+        <div id="party-content-public" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3 style="color: var(--text-main); font-size: 1.15rem; margin: 0; font-family: var(--font-title);">Salas Públicas Activas</h3>
+            <button class="btn btn-secondary" id="party-refresh-public-btn" style="padding: 4px 10px; font-size: 0.8rem; display: flex; align-items: center; gap: 4px;"><i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Actualizar</button>
+          </div>
+          <div id="party-public-rooms-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 280px; overflow-y: auto;">
+            <!-- Active public rooms loaded dynamically -->
+          </div>
+          <div style="display: flex; justify-content: flex-end; margin-top: 15px;">
+            <button class="btn btn-secondary" id="party-public-cancel-btn">Cerrar</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

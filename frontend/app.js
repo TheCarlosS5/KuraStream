@@ -1,5 +1,6 @@
 import { initPlayer, destroyPlayer } from './player.js?v=10.16_audio_video_pts_sync_fixed';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
+import { partyManager } from './js/modules/party.js';
 
 if (typeof window !== 'undefined') {
   const originalFetch = window.fetch;
@@ -174,6 +175,7 @@ function initAppMain() {
   safeRun(initCustomCursor, 'initCustomCursor');
   safeRun(setupRandomModalAndNotifications, 'setupRandomModalAndNotifications');
   safeRun(loadNotifications, 'loadNotifications');
+  safeRun(setupWatchPartyModal, 'setupWatchPartyModal');
 
   // Add search, status, sort and genre filter listeners
   const sInput = document.getElementById('search-input');
@@ -359,6 +361,13 @@ function setupRouter() {
       const playView = document.getElementById('player-view');
       if (playView) { playView.classList.add('active'); playView.style.display = 'block'; }
       initPlayer(id);
+    } else if (hash.startsWith('#/party/')) {
+      const roomId = decodeURIComponent(hash.replace(/^#\/party\//, '')).trim();
+      if (roomId) {
+        joinWatchPartyByCode(roomId);
+      } else {
+        openWatchPartyModal();
+      }
     } else if (hash === '#/admin') {
       if (!isAdmin()) {
         window.location.hash = '#/';
@@ -6711,7 +6720,234 @@ function setupRandomModalAndNotifications() {
   }
 }
 
+// ==========================================
+// WATCH PARTY CONTROLS & MODAL LOGIC
+// ==========================================
+
+function openWatchPartyModal() {
+  const modal = document.getElementById('modal-watch-party');
+  if (modal) modal.style.display = 'flex';
+}
+
+async function joinWatchPartyByCode(roomId, nickname = '') {
+  try {
+    showToast(`Conectando a la sala ${roomId}...`);
+    const room = await partyManager.joinRoom(roomId, nickname);
+    if (room && room.episode_id) {
+      window.location.hash = `#/player/${room.episode_id}`;
+    } else {
+      window.location.hash = '#/';
+      alert('La sala no tiene un episodio activo asignado');
+    }
+  } catch (err) {
+    alert('Error al unirse a la sala: ' + (err.message || err));
+    window.location.hash = '#/';
+  }
+}
+
+function setupWatchPartyModal() {
+  const modal = document.getElementById('modal-watch-party');
+  const navPartyBtn = document.getElementById('nav-party');
+  if (!modal) return;
+
+  if (navPartyBtn) {
+    navPartyBtn.onclick = (e) => {
+      e.preventDefault();
+      modal.style.display = 'flex';
+      loadPublicWatchPartyRooms();
+    };
+  }
+
+  // Tabs
+  const tabJoin = document.getElementById('party-tab-join');
+  const tabCreate = document.getElementById('party-tab-create');
+  const tabPublic = document.getElementById('party-tab-public');
+
+  const contentJoin = document.getElementById('party-content-join');
+  const contentCreate = document.getElementById('party-content-create');
+  const contentPublic = document.getElementById('party-content-public');
+
+  const switchTab = (activeTab, activeContent) => {
+    [tabJoin, tabCreate, tabPublic].forEach(t => {
+      if (t) {
+        t.classList.remove('active');
+        t.style.borderBottomColor = 'transparent';
+        t.style.color = 'var(--text-muted)';
+      }
+    });
+    [contentJoin, contentCreate, contentPublic].forEach(c => {
+      if (c) c.style.display = 'none';
+    });
+
+    if (activeTab) {
+      activeTab.classList.add('active');
+      activeTab.style.borderBottomColor = 'var(--accent-color)';
+      activeTab.style.color = 'var(--text-main)';
+    }
+    if (activeContent) activeContent.style.display = 'block';
+  };
+
+  if (tabJoin) tabJoin.onclick = () => switchTab(tabJoin, contentJoin);
+  if (tabCreate) tabCreate.onclick = () => switchTab(tabCreate, contentCreate);
+  if (tabPublic) {
+    tabPublic.onclick = () => {
+      switchTab(tabPublic, contentPublic);
+      loadPublicWatchPartyRooms();
+    };
+  }
+
+  // Cancel / Close buttons
+  ['party-join-cancel-btn', 'party-create-cancel-btn', 'party-public-cancel-btn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.onclick = () => { modal.style.display = 'none'; };
+  });
+
+  modal.onclick = (e) => {
+    if (e.target === modal) modal.style.display = 'none';
+  };
+
+  // Join submit
+  const joinSubmitBtn = document.getElementById('party-join-submit-btn');
+  const joinCodeInput = document.getElementById('party-join-code-input');
+  const joinNameInput = document.getElementById('party-join-name-input');
+  const joinError = document.getElementById('party-join-error');
+
+  if (joinSubmitBtn) {
+    joinSubmitBtn.onclick = async () => {
+      const code = joinCodeInput ? joinCodeInput.value.trim().toUpperCase() : '';
+      const nickname = joinNameInput ? joinNameInput.value.trim() : '';
+
+      if (!code) {
+        if (joinError) {
+          joinError.textContent = 'Por favor ingresa un código de sala';
+          joinError.style.display = 'block';
+        }
+        return;
+      }
+      if (joinError) joinError.style.display = 'none';
+
+      try {
+        joinSubmitBtn.disabled = true;
+        joinSubmitBtn.innerHTML = 'Conectando...';
+        const room = await partyManager.joinRoom(code, nickname);
+        modal.style.display = 'none';
+        if (room && room.episode_id) {
+          window.location.hash = `#/player/${room.episode_id}`;
+        } else {
+          alert('Conectado a la sala ' + room.name);
+        }
+      } catch (err) {
+        if (joinError) {
+          joinError.textContent = err.message || 'No se pudo conectar a la sala';
+          joinError.style.display = 'block';
+        }
+      } finally {
+        joinSubmitBtn.disabled = false;
+        joinSubmitBtn.innerHTML = '<i data-lucide="log-in"></i> Unirme a la Sala';
+        if (window.lucide) window.lucide.createIcons();
+      }
+    };
+  }
+
+  // Create submit
+  const createSubmitBtn = document.getElementById('party-create-submit-btn');
+  const createNameInput = document.getElementById('party-create-name-input');
+  const createPublicCheck = document.getElementById('party-create-public-check');
+  const createControlsCheck = document.getElementById('party-create-controls-check');
+  const createError = document.getElementById('party-create-error');
+
+  if (createSubmitBtn) {
+    createSubmitBtn.onclick = async () => {
+      const name = createNameInput ? createNameInput.value.trim() : '';
+      const isPublic = createPublicCheck ? createPublicCheck.checked : false;
+      const allowControls = createControlsCheck ? createControlsCheck.checked : false;
+
+      // Check current episode if inside player
+      let episodeId = '';
+      if (window.location.hash.startsWith('#/player/')) {
+        episodeId = decodeURIComponent(window.location.hash.replace(/^#\/player\//, ''));
+      }
+
+      try {
+        createSubmitBtn.disabled = true;
+        createSubmitBtn.innerHTML = 'Creando...';
+        const room = await partyManager.createRoom({
+          episodeId,
+          name,
+          isPublic,
+          allowGuestControls: allowControls
+        });
+
+        modal.style.display = 'none';
+        if (episodeId) {
+          showToast(`¡Sala ${room.id} creada! Invita a tus amigos con el código`);
+        } else {
+          showToast(`¡Sala ${room.id} creada! Selecciona un anime para comenzar a ver`);
+        }
+      } catch (err) {
+        if (createError) {
+          createError.textContent = err.message || 'Error al crear la sala';
+          createError.style.display = 'block';
+        }
+      } finally {
+        createSubmitBtn.disabled = false;
+        createSubmitBtn.innerHTML = '<i data-lucide="sparkles"></i> Crear Sala';
+        if (window.lucide) window.lucide.createIcons();
+      }
+    };
+  }
+
+  // Refresh public rooms button
+  const refreshPublicBtn = document.getElementById('party-refresh-public-btn');
+  if (refreshPublicBtn) {
+    refreshPublicBtn.onclick = loadPublicWatchPartyRooms;
+  }
+}
+
+async function loadPublicWatchPartyRooms() {
+  const container = document.getElementById('party-public-rooms-list');
+  if (!container) return;
+
+  container.innerHTML = '<div style="text-align:center; padding: 20px; color: var(--text-muted);">Buscando salas en vivo...</div>';
+  try {
+    const rooms = await partyManager.fetchPublicRooms();
+    if (!rooms || rooms.length === 0) {
+      container.innerHTML = '<div style="text-align:center; padding: 25px; color: var(--text-muted); font-size: 0.85rem;">No hay salas públicas en este momento. ¡Sé el primero en crear una!</div>';
+      return;
+    }
+
+    container.innerHTML = rooms.map(r => `
+      <div class="party-public-room-card">
+        <div class="party-room-meta">
+          <span class="party-room-title">${escapeHtml(r.name || 'Watch Party')}</span>
+          <span class="party-room-details">
+            Host: <strong>${escapeHtml(r.host_user || 'Anfitrión')}</strong> • 
+            ${r.show_title ? `Viendo: <em>${escapeHtml(r.show_title)}</em> • ` : ''}
+            👥 ${r.participants_count || 1} conectados
+          </span>
+        </div>
+        <button class="btn btn-primary btn-sm btn-join-public-room" data-room-id="${r.id}" style="padding: 6px 14px; font-size: 0.8rem; font-weight: 700;">
+          Entrar
+        </button>
+      </div>
+    `).join('');
+
+    container.querySelectorAll('.btn-join-public-room').forEach(btn => {
+      btn.onclick = async () => {
+        const rId = btn.getAttribute('data-room-id');
+        const modal = document.getElementById('modal-watch-party');
+        if (modal) modal.style.display = 'none';
+        joinWatchPartyByCode(rId);
+      };
+    });
+  } catch (e) {
+    container.innerHTML = '<div style="text-align:center; padding: 20px; color: var(--danger-color);">Error al cargar salas públicas</div>';
+  }
+}
+
 if (typeof window !== 'undefined') {
   window.openRandomAnimeModal = openRandomAnimeModal;
   window.loadNotifications = loadNotifications;
+  window.openWatchPartyModal = openWatchPartyModal;
+  window.joinWatchPartyByCode = joinWatchPartyByCode;
 }
