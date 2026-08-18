@@ -144,6 +144,33 @@ class Database {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_comments_show (show_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+            CREATE TABLE IF NOT EXISTS party_rooms (
+                id VARCHAR(32) PRIMARY KEY,
+                name VARCHAR(255) DEFAULT '',
+                host_user VARCHAR(64) NOT NULL,
+                episode_id VARCHAR(255) NOT NULL,
+                is_playing TINYINT(1) DEFAULT 0,
+                `current_time` DOUBLE DEFAULT 0,
+                last_sync_timestamp BIGINT NOT NULL DEFAULT 0,
+                is_public TINYINT(1) DEFAULT 0,
+                allow_guest_controls TINYINT(1) DEFAULT 0,
+                participants_count INT DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_party_rooms_public (is_public),
+                INDEX idx_party_rooms_updated (updated_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+            CREATE TABLE IF NOT EXISTS party_messages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                room_id VARCHAR(32) NOT NULL,
+                username VARCHAR(64) NOT NULL,
+                message TEXT NOT NULL,
+                type VARCHAR(32) DEFAULT 'chat',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_party_messages_room (room_id, id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ");
 
         try {
@@ -755,6 +782,210 @@ class DbHelper {
             'content' => $content,
             'created_at' => date('Y-m-d H:i:s')
         ];
+    }
+
+    // ==========================================
+    // WATCH PARTY HELPERS
+    // ==========================================
+
+    public static function createPartyRoom(array $data): string {
+        $db = Database::getConnection();
+        $id = !empty($data['id']) ? trim($data['id']) : ('KURA-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 6)));
+        $name = $data['name'] ?? 'Watch Party';
+        $host = $data['host_user'] ?? 'Anfitrión';
+        $episodeId = $data['episode_id'] ?? '';
+        $isPublic = !empty($data['is_public']) ? 1 : 0;
+        $allowGuestControls = !empty($data['allow_guest_controls']) ? 1 : 0;
+        $currentTime = (float)($data['current_time'] ?? 0.0);
+        $isPlaying = !empty($data['is_playing']) ? 1 : 0;
+        $nowMs = (int)(microtime(true) * 1000);
+
+        $stmt = $db->prepare("
+            INSERT INTO party_rooms (id, name, host_user, episode_id, is_playing, `current_time`, last_sync_timestamp, is_public, allow_guest_controls, participants_count, created_at, updated_at)
+            VALUES (:id, :name, :host, :ep, :playing, :time, :sync, :pub, :ctrl, 1, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE 
+                name = VALUES(name),
+                host_user = VALUES(host_user),
+                episode_id = VALUES(episode_id),
+                is_playing = VALUES(is_playing),
+                `current_time` = VALUES(`current_time`),
+                last_sync_timestamp = VALUES(last_sync_timestamp),
+                is_public = VALUES(is_public),
+                allow_guest_controls = VALUES(allow_guest_controls),
+                updated_at = NOW()
+        ");
+
+        $stmt->execute([
+            'id' => $id,
+            'name' => $name,
+            'host' => $host,
+            'ep' => $episodeId,
+            'playing' => $isPlaying,
+            'time' => $currentTime,
+            'sync' => $nowMs,
+            'pub' => $isPublic,
+            'ctrl' => $allowGuestControls
+        ]);
+
+        return $id;
+    }
+
+    public static function getPartyRoom(string $roomId): ?array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            SELECT r.*, e.title as episode_title, e.season_number, e.episode_number, e.thumbnail_path,
+                   s.id as show_id, s.title as show_title, s.poster_path, s.backdrop_path
+            FROM party_rooms r
+            LEFT JOIN episodes e ON r.episode_id = e.id
+            LEFT JOIN shows s ON e.show_id = s.id
+            WHERE r.id = :id
+        ");
+        $stmt->execute(['id' => $roomId]);
+        $row = $stmt->fetch();
+        if (!$row) return null;
+
+        $row['is_playing'] = (bool)$row['is_playing'];
+        $row['current_time'] = (float)$row['current_time'];
+        $row['last_sync_timestamp'] = (int)$row['last_sync_timestamp'];
+        $row['is_public'] = (bool)$row['is_public'];
+        $row['allow_guest_controls'] = (bool)$row['allow_guest_controls'];
+        $row['participants_count'] = (int)$row['participants_count'];
+
+        return $row;
+    }
+
+    public static function updatePartyPlayback(string $roomId, bool $isPlaying, float $currentTime, ?string $episodeId = null, ?int $participants = null): bool {
+        $db = Database::getConnection();
+        $nowMs = (int)(microtime(true) * 1000);
+
+        $sql = "UPDATE party_rooms SET is_playing = :playing, `current_time` = :time, last_sync_timestamp = :sync";
+        $params = [
+            'playing' => $isPlaying ? 1 : 0,
+            'time' => $currentTime,
+            'sync' => $nowMs,
+            'id' => $roomId
+        ];
+
+        if (!empty($episodeId)) {
+            $sql .= ", episode_id = :ep";
+            $params['ep'] = $episodeId;
+        }
+
+        if ($participants !== null) {
+            $sql .= ", participants_count = :parts";
+            $params['parts'] = max(1, $participants);
+        }
+
+        $sql .= ", updated_at = NOW() WHERE id = :id";
+
+        $stmt = $db->prepare($sql);
+        return $stmt->execute($params);
+    }
+
+    public static function updatePartySettings(string $roomId, array $settings): bool {
+        $db = Database::getConnection();
+        $fields = [];
+        $params = ['id' => $roomId];
+
+        if (isset($settings['host_user'])) {
+            $fields[] = "host_user = :host";
+            $params['host'] = $settings['host_user'];
+        }
+        if (isset($settings['name'])) {
+            $fields[] = "name = :name";
+            $params['name'] = $settings['name'];
+        }
+        if (isset($settings['is_public'])) {
+            $fields[] = "is_public = :pub";
+            $params['pub'] = !empty($settings['is_public']) ? 1 : 0;
+        }
+        if (isset($settings['allow_guest_controls'])) {
+            $fields[] = "allow_guest_controls = :ctrl";
+            $params['ctrl'] = !empty($settings['allow_guest_controls']) ? 1 : 0;
+        }
+
+        if (empty($fields)) return true;
+
+        $sql = "UPDATE party_rooms SET " . implode(", ", $fields) . ", updated_at = NOW() WHERE id = :id";
+        $stmt = $db->prepare($sql);
+        return $stmt->execute($params);
+    }
+
+    public static function addPartyMessage(string $roomId, string $username, string $message, string $type = 'chat'): int {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            INSERT INTO party_messages (room_id, username, message, type, created_at)
+            VALUES (:room, :user, :msg, :type, NOW())
+        ");
+        $stmt->execute([
+            'room' => $roomId,
+            'user' => $username,
+            'msg' => $message,
+            'type' => $type
+        ]);
+
+        return (int)$db->lastInsertId();
+    }
+
+    public static function getPartyMessages(string $roomId, int $afterId = 0, int $limit = 50): array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            SELECT id, room_id, username, message, type, created_at
+            FROM party_messages
+            WHERE room_id = :room AND id > :after
+            ORDER BY id ASC
+            LIMIT :lim
+        ");
+        $stmt->bindValue(':room', $roomId, PDO::PARAM_STR);
+        $stmt->bindValue(':after', $afterId, PDO::PARAM_INT);
+        $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll();
+    }
+
+    public static function getPublicPartyRooms(int $limit = 20): array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            SELECT r.*, e.title as episode_title, e.season_number, e.episode_number, e.thumbnail_path,
+                   s.id as show_id, s.title as show_title, s.poster_path, s.backdrop_path
+            FROM party_rooms r
+            LEFT JOIN episodes e ON r.episode_id = e.id
+            LEFT JOIN shows s ON e.show_id = s.id
+            WHERE r.is_public = 1 AND r.updated_at >= DATE_SUB(NOW(), INTERVAL 4 HOUR)
+            ORDER BY r.updated_at DESC
+            LIMIT :lim
+        ");
+        $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        $rooms = $stmt->fetchAll();
+
+        return array_map(function($r) {
+            $r['is_playing'] = (bool)$r['is_playing'];
+            $r['current_time'] = (float)$r['current_time'];
+            $r['last_sync_timestamp'] = (int)$r['last_sync_timestamp'];
+            $r['is_public'] = (bool)$r['is_public'];
+            $r['allow_guest_controls'] = (bool)$r['allow_guest_controls'];
+            $r['participants_count'] = (int)$r['participants_count'];
+            return $r;
+        }, $rooms);
+    }
+
+    public static function cleanupExpiredPartyRooms(int $inactiveHours = 24): int {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            DELETE FROM party_rooms
+            WHERE updated_at < DATE_SUB(NOW(), INTERVAL :h HOUR)
+        ");
+        $stmt->bindValue(':h', $inactiveHours, PDO::PARAM_INT);
+        $stmt->execute();
+        $deleted = $stmt->rowCount();
+
+        if ($deleted > 0) {
+            $db->exec("DELETE FROM party_messages WHERE room_id NOT IN (SELECT id FROM party_rooms)");
+        }
+
+        return $deleted;
     }
 }
 
