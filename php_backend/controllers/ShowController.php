@@ -2,6 +2,8 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../services/TmdbScraper.php';
+require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+require_once __DIR__ . '/../middleware/RateLimiter.php';
 
 class ShowController {
     public static function getShows(): void {
@@ -84,7 +86,7 @@ class ShowController {
     }
 
     public static function getComments(): void {
-        $showId = $_GET['show_id'] ?? '';
+        $showId = trim((string)($_GET['show_id'] ?? ($_GET['showId'] ?? '')));
         if (empty($showId)) {
             jsonError('show_id requerido', 400);
         }
@@ -93,20 +95,29 @@ class ShowController {
         jsonResponse(['success' => true, 'comments' => $comments]);
     }
 
-    public static function addComment(): void {
+    public static function addComment(?array $inputData = null): void {
+        RateLimiter::enforce('comment', 5, 60); // Máx 5 comentarios por minuto
         $authUser = AuthMiddleware::requireAuth();
         $username = $authUser['username'];
 
-        $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+        if ($inputData !== null) {
+            $data = $inputData;
+        } else {
+            $raw = file_get_contents('php://input');
+            $data = json_decode($raw, true) ?: [];
+        }
 
-        $showId = $data['show_id'] ?? '';
-        $content = trim($data['content'] ?? '');
-        $profile = $data['profile_name'] ?? 'Principal';
-        $episodeId = $data['episode_id'] ?? '';
+        $showId = trim((string)($data['show_id'] ?? ($data['showId'] ?? '')));
+        $content = trim((string)($data['content'] ?? ($data['comment'] ?? '')));
+        $profile = trim((string)($data['profile_name'] ?? ($authUser['profile_name'] ?? 'Principal')));
+        $episodeId = trim((string)($data['episode_id'] ?? ''));
 
         if (empty($showId) || empty($content)) {
             jsonError('show_id y content requeridos', 400);
+        }
+
+        if (mb_strlen($content) > 1000) {
+            jsonError('El comentario no puede superar 1000 caracteres', 400);
         }
 
         $comment = DbHelper::addComment($showId, $username, $profile, $content, $episodeId);

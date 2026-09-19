@@ -4415,7 +4415,7 @@ async function loadShowComments(showId) {
   const notice = document.getElementById('comment-guest-notice');
   if (notice) {
     if (isLoggedIn) {
-      notice.innerHTML = `Comentando como <strong style="color: var(--accent-color);">${username}</strong>.`;
+      notice.innerHTML = `Comentando como <strong style="color: var(--accent-color);">${escapeHtml(username)}</strong>.`;
     } else {
       notice.innerHTML = `Comentarás como <strong style="color: var(--accent-color);">Invitado</strong>. Inicia sesión para usar tu cuenta.`;
     }
@@ -4423,7 +4423,7 @@ async function loadShowComments(showId) {
 
   // Fetch and display
   try {
-    const res = await fetch(`/api/comments?showId=${encodeURIComponent(showId)}`);
+    const res = await fetch(`/api/comments?show_id=${encodeURIComponent(showId)}`);
     const data = await res.json();
     const comments = Array.isArray(data) ? data : (data.comments || []);
     
@@ -4432,13 +4432,13 @@ async function loadShowComments(showId) {
     } else {
       commentsList.innerHTML = comments.map(c => {
         const isUserAdmin = c.username === 'TheCarlosS5';
-        const initial = (c.username || '?')[0].toUpperCase();
+        const initial = (escapeHtml(c.username) || '?')[0].toUpperCase();
         
         let avatarBg = 'var(--accent-color)';
         if (!isUserAdmin) {
           const colors = ['#3a4b6e', '#2c5d63', '#a370f7', '#f76b8a', '#6aa384', '#d8853b'];
           let sum = 0;
-          for (let i = 0; i < c.username.length; i++) sum += c.username.charCodeAt(i);
+          for (let i = 0; i < (c.username || '').length; i++) sum += c.username.charCodeAt(i);
           avatarBg = colors[sum % colors.length];
         }
         
@@ -4449,11 +4449,11 @@ async function loadShowComments(showId) {
             </div>
             <div class="comment-info" style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1;">
               <div style="display: flex; align-items: center; gap: 8px;">
-                <span class="comment-username" style="font-weight: 600; font-size: 0.88rem; color: ${isUserAdmin ? 'var(--accent-color)' : 'var(--text-main)'};">${c.username}</span>
+                <span class="comment-username" style="font-weight: 600; font-size: 0.88rem; color: ${isUserAdmin ? 'var(--accent-color)' : 'var(--text-main)'};">${escapeHtml(c.username)}</span>
                 ${isUserAdmin ? '<span class="badge" style="background: var(--accent-color); font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: 700;">ADMIN</span>' : ''}
                 <span class="comment-date" style="font-size: 0.75rem; color: var(--text-muted);">${formatTimeDiff(c.created_at)}</span>
               </div>
-              <div class="comment-body" style="font-size: 0.88rem; color: var(--text-muted); line-height: 1.5; margin-top: 4px; white-space: pre-wrap; word-break: break-word;">${escapeHTML(c.comment)}</div>
+              <div class="comment-body" style="font-size: 0.88rem; color: var(--text-muted); line-height: 1.5; margin-top: 4px; white-space: pre-wrap; word-break: break-word;">${escapeHtml(c.content || c.comment || '')}</div>
             </div>
           </div>
         `;
@@ -4477,7 +4477,7 @@ async function loadShowComments(showId) {
       const res = await fetch('/api/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ showId, username, comment })
+        body: JSON.stringify({ show_id: showId, content: comment })
       });
       if (res.ok) {
         commentTextarea.value = '';
@@ -4529,14 +4529,21 @@ function formatTimeDiff(dateStr) {
   }
 }
 
-function escapeHTML(str) {
-  if (!str) return '';
+export function escapeHtml(str) {
+  if (typeof str !== 'string') return '';
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+export const escapeHTML = escapeHtml;
+
+if (typeof window !== 'undefined') {
+  window.escapeHtml = escapeHtml;
+  window.escapeHTML = escapeHtml;
 }
 
 window.setupUserAuth = setupUserAuth;
@@ -4902,7 +4909,7 @@ function renderProfiles(profiles) {
     card.className = 'profile-card' + (isProfileManagementMode ? ' edit-mode' : '');
     
     // Check if it has PIN
-    const hasPin = !!p.pin;
+    const hasPin = !!(p.has_pin || p.pin);
     const lockIconHTML = hasPin ? `<div class="profile-lock-indicator" style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;"><i data-lucide="lock" style="width: 12px; height: 12px; color: #fff;"></i></div>` : '';
 
     const isImg = color.startsWith('/');
