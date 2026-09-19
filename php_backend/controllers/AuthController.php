@@ -175,6 +175,52 @@ class AuthController {
         jsonResponse(['success' => true, 'profile' => $profile]);
     }
 
+    public static function selectProfile(): void {
+        $authUser = AuthMiddleware::requireAuth();
+        $username = $authUser['username'];
+
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+
+        $profileName = trim((string)($data['profile_name'] ?? ''));
+        $pin = trim((string)($data['pin'] ?? ''));
+
+        if (empty($profileName)) {
+            jsonError('profile_name requerido', 400);
+        }
+
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT * FROM user_profiles WHERE username = :u AND name = :p");
+        $stmt->execute(['u' => $username, 'p' => $profileName]);
+        $profile = $stmt->fetch();
+
+        if (!$profile) {
+            jsonError('Perfil no encontrado', 404);
+        }
+
+        if (!empty($profile['pin'])) {
+            if (empty($pin) || !password_verify($pin, $profile['pin'])) {
+                jsonError('PIN incorrecto', 403);
+            }
+        }
+
+        $tokenPayload = [
+            'username' => $username,
+            'profile_name' => $profileName,
+            'is_kids' => (bool)$profile['is_kids'],
+            'role' => $authUser['role'] ?? 'user',
+            'exp' => time() + (30 * 24 * 3600)
+        ];
+        $token = AuthMiddleware::createToken($tokenPayload);
+        self::setSessionCookie($token);
+
+        jsonResponse([
+            'success' => true,
+            'token' => $token,
+            'profile' => DbHelper::sanitizeProfileForClient($profile)
+        ]);
+    }
+
     public static function deleteProfile(string $id): void {
         $authUser = AuthMiddleware::requireAuth();
         $username = $authUser['username'];

@@ -86,6 +86,10 @@ if ($uri === '/api/profiles' && $method === 'POST') {
     AuthController::saveProfile();
 }
 
+if ($uri === '/api/profiles/select' && $method === 'POST') {
+    AuthController::selectProfile();
+}
+
 if (preg_match('#^/api/profiles/([^/]+)$#', $uri, $m) && $method === 'DELETE') {
     AuthController::deleteProfile($m[1]);
 }

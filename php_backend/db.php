@@ -129,7 +129,7 @@ class Database {
                 avatar VARCHAR(500) DEFAULT '',
                 color VARCHAR(50) DEFAULT '#a855f7',
                 is_kids TINYINT(1) DEFAULT 0,
-                pin VARCHAR(10) DEFAULT '',
+                pin VARCHAR(255) DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_user_profiles (username)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -146,7 +146,7 @@ class Database {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
             CREATE TABLE IF NOT EXISTS party_rooms (
-                id VARCHAR(32) PRIMARY KEY,
+                id VARCHAR(64) PRIMARY KEY,
                 name VARCHAR(255) DEFAULT '',
                 host_user VARCHAR(64) NOT NULL,
                 episode_id VARCHAR(255) NOT NULL,
@@ -164,7 +164,7 @@ class Database {
 
             CREATE TABLE IF NOT EXISTS party_messages (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                room_id VARCHAR(32) NOT NULL,
+                room_id VARCHAR(64) NOT NULL,
                 username VARCHAR(64) NOT NULL,
                 message TEXT NOT NULL,
                 type VARCHAR(32) DEFAULT 'chat',
@@ -182,6 +182,10 @@ class Database {
             if ($checkComp && $checkComp->rowCount() === 0) {
                 $db->exec("ALTER TABLE watch_history ADD COLUMN completed TINYINT(1) DEFAULT 0");
             }
+            // Existing installations predate the longer, high-entropy Watch Party IDs.
+            $db->exec("ALTER TABLE party_rooms MODIFY id VARCHAR(64) NOT NULL");
+            $db->exec("ALTER TABLE party_messages MODIFY room_id VARCHAR(64) NOT NULL");
+            $db->exec("ALTER TABLE user_profiles MODIFY pin VARCHAR(255) DEFAULT ''");
         } catch (Throwable $e) {
             // Ignore if check or alter column fails
         }
@@ -685,6 +689,13 @@ class DbHelper {
         return $row ?: null;
     }
 
+    public static function sanitizeProfileForClient(array $profile): array {
+        $hasPin = !empty($profile['pin']);
+        unset($profile['pin']);
+        $profile['has_pin'] = $hasPin;
+        return $profile;
+    }
+
     public static function getUserProfiles(string $username): array {
         $db = Database::getConnection();
         $stmt = $db->prepare("SELECT * FROM user_profiles WHERE username = :u ORDER BY created_at ASC");
@@ -698,7 +709,7 @@ class DbHelper {
             $p['avatar_color'] = $color;
             $p['color'] = $color;
             $p['is_kids'] = (bool)($p['is_kids'] ?? 0);
-            return $p;
+            return self::sanitizeProfileForClient($p);
         }, $rows);
     }
 
@@ -706,10 +717,15 @@ class DbHelper {
         $db = Database::getConnection();
         $id = $data['id'] ?? ('prof_' . uniqid());
         $name = trim($data['profile_name'] ?? $data['name'] ?? 'Perfil');
-        $avatar = $data['avatar'] ?? '';
+        $avatar = $data['avatar'] ?? ($data['avatar_image'] ?? '');
         $color = $data['avatar_color'] ?? $data['color'] ?? '#a855f7';
         $isKids = !empty($data['is_kids']) ? 1 : 0;
-        $pin = $data['pin'] ?? '';
+        $rawPin = trim((string)($data['pin'] ?? ''));
+        $pinHash = '';
+        if (!empty($rawPin)) {
+            // Si ya viene hasheado (comienza con $2y$), mantenerlo; de lo contrario, hashear con bcrypt
+            $pinHash = str_starts_with($rawPin, '$2y$') ? $rawPin : password_hash($rawPin, PASSWORD_BCRYPT);
+        }
 
         $stmt = $db->prepare("
             INSERT INTO user_profiles (id, username, name, avatar, color, is_kids, pin)
@@ -728,10 +744,10 @@ class DbHelper {
             'a' => $avatar,
             'c' => $color,
             'k' => $isKids,
-            'p' => $pin
+            'p' => $pinHash
         ]);
 
-        return [
+        return self::sanitizeProfileForClient([
             'id' => $id,
             'username' => $username,
             'name' => $name,
@@ -740,8 +756,8 @@ class DbHelper {
             'color' => $color,
             'avatar_color' => $color,
             'is_kids' => (bool)$isKids,
-            'pin' => $pin
-        ];
+            'pin' => $pinHash
+        ]);
     }
 
     public static function deleteUserProfile(string $username, string $id): bool {
@@ -790,7 +806,7 @@ class DbHelper {
 
     public static function createPartyRoom(array $data): string {
         $db = Database::getConnection();
-        $id = !empty($data['id']) ? trim($data['id']) : ('KURA-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 6)));
+        $id = !empty($data['id']) ? trim($data['id']) : ('KURA-' . strtoupper(bin2hex(random_bytes(12))));
         $name = $data['name'] ?? 'Watch Party';
         $host = $data['host_user'] ?? 'Anfitrión';
         $episodeId = $data['episode_id'] ?? '';
@@ -988,4 +1004,3 @@ class DbHelper {
         return $deleted;
     }
 }
-
