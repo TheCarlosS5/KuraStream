@@ -629,8 +629,8 @@ async function loadDashboard(mediaType = 'anime') {
       return;
     }
 
-     // Set Hero Carousel (up to 5 newest shows)
-    const carouselContainer = document.getElementById('hero-carousel-container');
+     // Set Hero Billboard / Carousel (up to 5 newest shows)
+    const carouselContainer = document.getElementById('hero-container') || document.getElementById('hero-carousel-container');
     const carouselWrapper = document.getElementById('hero-carousel-wrapper');
     const carouselIndicators = document.getElementById('carousel-indicators');
     
@@ -725,137 +725,71 @@ async function loadDashboard(mediaType = 'anime') {
 
     const carouselShows = sortedNewest.slice(0, 5);
     
-    if (carouselShows.length > 0) {
+    if (carouselShows.length > 0 && carouselContainer) {
       carouselContainer.style.display = 'block';
       
-      // Render slides
-      carouselWrapper.innerHTML = carouselShows.map(show => {
-        const bg = show.backdrop_path || show.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1000&q=80';
-        const safeBg = bg.replace(/'/g, "%27");
-        return `
-          <div class="carousel-slide" style="background-image: linear-gradient(to bottom, rgba(11,12,14,0.2), rgba(11,12,14,0.95)), url('${safeBg}?t=${Date.now()}')">
-            <div class="hero-content">
-              <span class="hero-tag">Nuevo Aporte</span>
-              <h1 class="hero-title">${show.title}</h1>
-              <p class="hero-synopsis">${show.synopsis || 'Sin sinopsis disponible.'}</p>
-              <div class="hero-buttons">
-                <button class="btn btn-primary" onclick="location.hash='#/show/${show.id}'"><i data-lucide="play" style="width:16px;height:16px;margin-right:6px;vertical-align:middle;"></i> Ver Ahora</button>
-                <button class="btn btn-secondary" onclick="location.hash='#/show/${show.id}'"><i data-lucide="info" style="width:16px;height:16px;margin-right:6px;vertical-align:middle;"></i> Más Información</button>
-              </div>
+      let currentBillboardIndex = 0;
+      const updateBillboard = (idx) => {
+        currentBillboardIndex = idx;
+        const show = carouselShows[currentBillboardIndex];
+        carouselContainer.innerHTML = `
+          ${renderBillboardHero(show)}
+          ${carouselShows.length > 1 ? `
+            <button class="carousel-nav-btn prev" id="carousel-prev-btn" aria-label="Anterior"><i data-lucide="chevron-left"></i></button>
+            <button class="carousel-nav-btn next" id="carousel-next-btn" aria-label="Siguiente"><i data-lucide="chevron-right"></i></button>
+            <div class="carousel-indicators">
+              ${carouselShows.map((_, i) => `<div class="carousel-dot ${i === currentBillboardIndex ? 'active' : ''}" data-slide-index="${i}"></div>`).join('')}
             </div>
-          </div>
+          ` : ''}
         `;
-      }).join('');
-      
-      // Render dots
-      carouselIndicators.innerHTML = carouselShows.map((_, idx) => `
-        <div class="carousel-dot ${idx === 0 ? 'active' : ''}" data-slide-index="${idx}"></div>
-      `).join('');
-      
-      // Setup sliding logic
-      let currentSlide = 0;
-      const totalSlides = carouselShows.length;
-      
-      const goToSlide = (idx) => {
-        currentSlide = idx;
-        carouselWrapper.style.transform = `translateX(-${currentSlide * 100}%)`;
-        
-        // Update dots
-        carouselIndicators.querySelectorAll('.carousel-dot').forEach((dot, dIdx) => {
-          if (dIdx === currentSlide) {
-            dot.classList.add('active');
-          } else {
-            dot.classList.remove('active');
-          }
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+
+        const prevBtn = document.getElementById('carousel-prev-btn');
+        const nextBtn = document.getElementById('carousel-next-btn');
+        if (prevBtn) {
+          prevBtn.onclick = (e) => {
+            e.stopPropagation();
+            clearInterval(carouselInterval);
+            updateBillboard((currentBillboardIndex - 1 + carouselShows.length) % carouselShows.length);
+            startAutoPlay();
+          };
+        }
+        if (nextBtn) {
+          nextBtn.onclick = (e) => {
+            e.stopPropagation();
+            clearInterval(carouselInterval);
+            updateBillboard((currentBillboardIndex + 1) % carouselShows.length);
+            startAutoPlay();
+          };
+        }
+        carouselContainer.querySelectorAll('.carousel-dot').forEach(dot => {
+          dot.onclick = (e) => {
+            e.stopPropagation();
+            clearInterval(carouselInterval);
+            updateBillboard(parseInt(dot.dataset.slideIndex, 10));
+            startAutoPlay();
+          };
         });
       };
-      
-      // Clear previous interval if any
-      if (carouselInterval) clearInterval(carouselInterval);
-      
-      // Start auto transition
+
       const startAutoPlay = () => {
+        if (carouselShows.length <= 1) return;
         carouselInterval = setInterval(() => {
-          goToSlide((currentSlide + 1) % totalSlides);
-        }, 5000);
+          updateBillboard((currentBillboardIndex + 1) % carouselShows.length);
+        }, 7000);
       };
-      
+
+      if (carouselInterval) clearInterval(carouselInterval);
+      updateBillboard(0);
       startAutoPlay();
-      
-      // Bind navigation controls
-      const prevBtn = document.getElementById('carousel-prev-btn');
-      const nextBtn = document.getElementById('carousel-next-btn');
-      
-      prevBtn.onclick = (e) => {
-        e.stopPropagation();
-        clearInterval(carouselInterval);
-        goToSlide((currentSlide - 1 + totalSlides) % totalSlides);
-        startAutoPlay();
-      };
-      
-      nextBtn.onclick = (e) => {
-        e.stopPropagation();
-        clearInterval(carouselInterval);
-        goToSlide((currentSlide + 1) % totalSlides);
-        startAutoPlay();
-      };
-      
-      // Bind indicator dots clicks
-      carouselIndicators.querySelectorAll('.carousel-dot').forEach(dot => {
-        dot.onclick = (e) => {
-          e.stopPropagation();
-          clearInterval(carouselInterval);
-          goToSlide(parseInt(dot.dataset.slideIndex, 10));
-          startAutoPlay();
-        };
-      });
-      
-    } else {
+    } else if (carouselContainer) {
       carouselContainer.style.display = 'none';
     }
 
     let html = '';
 
-    // A. Continue Watching Row
-    if (history.length > 0) {
-      const historyCardsHTML = history.map(item => {
-        const dur = (item.duration > 0) ? item.duration : (item.ep_duration || 1);
-        const progressPercent = Math.min(100, Math.max(0, ((item.progress_seconds || 0) / dur) * 100));
-        const img = item.thumbnail_path || item.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
-        const safeImg = img.replace(/'/g, "%27");
-        const label = item.season_number ? `T${item.season_number} • Cap ${item.episode_number}` : 'Película';
-        
-        return `
-          <div class="history-card-horizontal" onclick="location.hash='#/player/${item.episode_id}'" style="flex: 0 0 auto; width: 320px; height: 110px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; display: flex; overflow: hidden; cursor: pointer; transition: transform 0.2s, border-color 0.2s;">
-            <div class="history-card-img-wrapper" style="width: 140px; height: 100%; position: relative; flex-shrink: 0; background: #000;">
-              <img src="${safeImg}" alt="${item.show_title}" style="width: 100%; height: 100%; object-fit: cover;">
-              <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 4px; background: rgba(255,255,255,0.2);">
-                <div style="width: ${progressPercent}%; height: 100%; background: var(--accent-color);"></div>
-              </div>
-            </div>
-            <div class="history-card-info" style="flex-grow: 1; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden;">
-              <div>
-                <h3 style="font-size: 0.85rem; font-weight: 700; color: var(--text-main); margin: 0 0 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.show_title}</h3>
-                <h4 style="font-size: 0.8rem; color: var(--text-muted); margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.episode_title || 'Capítulo ' + item.episode_number}</h4>
-              </div>
-              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem;">
-                <span class="badge" style="background: rgba(229, 9, 20, 0.15); color: var(--accent-color); padding: 2px 6px; border-radius: 4px; font-weight: 700;">${label}</span>
-                <span style="color: var(--text-muted);">${Math.round(progressPercent)}% visto</span>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      html += `
-        <div class="row-container" style="margin-bottom: 30px;">
-          <h2 class="row-title"><i data-lucide="play-circle" style="vertical-align: middle; margin-right: 6px;"></i> Seguir Viendo</h2>
-          <div class="row-cards" style="display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px; padding-top: 5px;">
-            ${historyCardsHTML}
-          </div>
-        </div>
-      `;
-    }
+    // A. "Seguir viendo" (Continue Watching) Row
+    html += renderContinueWatching(history);
 
     // B. Favorites (My List) Row
     const categoryFavorites = favorites.filter(s => s.media_type === mediaType);
@@ -961,8 +895,111 @@ async function loadDashboard(mediaType = 'anime') {
     if (typeof lucide !== 'undefined') lucide.createIcons();
   } catch (err) {
     console.error(err);
-    sectionsContainer.innerHTML = '<p style="color: var(--danger-color); text-align: center;">Error al cargar el catálogo.</p>';
   }
+}
+
+/**
+ * Renders a full-bleed Netflix-tier Billboard Hero banner.
+ * @param {Object} featuredShow
+ * @returns {string} HTML string
+ */
+function renderBillboardHero(featuredShow) {
+  if (!featuredShow) return '';
+  const bg = featuredShow.backdrop_path || featuredShow.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1600&q=80';
+  const safeBg = bg.replace(/'/g, "%27");
+  const rating = featuredShow.rating ? Number(featuredShow.rating).toFixed(1) : '8.5';
+  const year = featuredShow.year || new Date().getFullYear();
+  const genres = featuredShow.genres
+    ? featuredShow.genres.split(',').slice(0, 3).map(g => `<span class="billboard-genre-tag">${g.trim()}</span>`).join('')
+    : '<span class="billboard-genre-tag">Anime</span>';
+  const synopsis = featuredShow.synopsis || 'Sin sinopsis disponible.';
+
+  return `
+    <div class="billboard-hero" id="hero-container" style="background-image: url('${safeBg}');">
+      <div class="billboard-hero-vignette"></div>
+      <div class="billboard-hero-content">
+        <div class="billboard-hero-badges">
+          <span class="badge-hd">HD</span>
+          <span class="badge-rating"><i data-lucide="star" style="width:14px;height:14px;fill:var(--rating-color);stroke:var(--rating-color);display:inline-block;vertical-align:-2px;margin-right:2px;"></i>${rating}</span>
+          <span class="badge-year">${year}</span>
+          <div class="billboard-genres">${genres}</div>
+        </div>
+        <h1 class="billboard-hero-title">${featuredShow.title}</h1>
+        <p class="billboard-hero-synopsis">${synopsis}</p>
+        <div class="billboard-hero-actions">
+          <button class="btn-billboard-play" onclick="location.hash='#/show/${featuredShow.id}'">
+            <i data-lucide="play" style="width:20px;height:20px;fill:currentColor;stroke:currentColor;vertical-align:middle;margin-right:8px;"></i> Reproducir
+          </button>
+          <button class="btn-billboard-info" onclick="location.hash='#/show/${featuredShow.id}'">
+            <i data-lucide="info" style="width:20px;height:20px;vertical-align:middle;margin-right:8px;"></i> Más información
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Renders the "Seguir viendo" (Continue Watching) row with 16:9 thumbnails and progress bars.
+ * @param {Array} historyItems
+ * @returns {string} HTML string
+ */
+function renderContinueWatching(historyItems) {
+  if (!Array.isArray(historyItems) || historyItems.length === 0) return '';
+
+  // Filter active in-progress episodes (where progress > 0 and not completed)
+  const inProgress = historyItems.filter(item => {
+    const isCompleted = item.completed === 1 || item.completed === true || item.completed === '1';
+    const hasProgress = (item.progress_seconds || 0) > 0;
+    const dur = (item.duration > 0) ? item.duration : (item.ep_duration || 0);
+    const notFinished = dur > 0 ? (item.progress_seconds < dur * 0.95) : true;
+    return hasProgress && !isCompleted && notFinished;
+  });
+
+  if (inProgress.length === 0) return '';
+
+  const cardsHTML = inProgress.map(item => {
+    const dur = (item.duration > 0) ? item.duration : (item.ep_duration || 1);
+    const progressPercent = Math.min(100, Math.max(0, ((item.progress_seconds || 0) / dur) * 100));
+    const img = item.thumbnail_path || item.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
+    const safeImg = img.replace(/'/g, "%27");
+    const epLabel = item.season_number ? `T${item.season_number}:E${item.episode_number}` : (item.episode_number ? `E${item.episode_number}` : 'Película');
+    const remainingSec = Math.max(0, dur - (item.progress_seconds || 0));
+    const remainingMin = Math.ceil(remainingSec / 60);
+    const remainingText = remainingMin > 0 ? `${remainingMin} min restantes` : `${Math.round(progressPercent)}% visto`;
+    const subtext = `${epLabel} • ${remainingText}`;
+
+    return `
+      <div class="continue-watching-card" onclick="location.hash='#/player/${item.episode_id}'" title="${item.show_title} - ${item.episode_title || epLabel}">
+        <div class="continue-watching-thumb-wrapper">
+          <img class="continue-watching-thumb" src="${safeImg}" alt="${item.show_title}" loading="lazy">
+          <div class="continue-watching-play-btn" aria-label="Reproducir">
+            <i data-lucide="play" style="width: 20px; height: 20px; fill: #ffffff; stroke: #ffffff;"></i>
+          </div>
+          <div class="continue-watching-progress-bar">
+            <div class="continue-watching-progress-fill" style="width: ${progressPercent}%;"></div>
+          </div>
+        </div>
+        <div class="continue-watching-info">
+          <h4 class="continue-watching-title">${item.show_title}</h4>
+          <span class="continue-watching-subtext">${subtext}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="row-container continue-watching-row continue-watching">
+      <div class="row-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+        <h2 class="row-title" style="margin-bottom: 0;">
+          <i data-lucide="play-circle" style="vertical-align: middle; margin-right: 8px; color: var(--progress-color, #e50914);"></i> Seguir viendo
+        </h2>
+      </div>
+      <div class="row-cards continue-watching-cards">
+        ${cardsHTML}
+      </div>
+    </div>
+  `;
 }
 
 function renderSkeletonLoaders(rowCount = 2) {
@@ -1061,6 +1098,10 @@ async function loadShowDetails(id) {
   detailCast.innerHTML = '';
   seasonTabs.innerHTML = '';
   episodesList.innerHTML = '<div class="spinner"></div>';
+  const oldBadges = document.getElementById('detail-meta-badges');
+  if (oldBadges) oldBadges.remove();
+  const oldActions = document.getElementById('detail-primary-actions');
+  if (oldActions) oldActions.remove();
   
   // Stop background video and YouTube iframe
   if (bgVideo) {
@@ -1361,9 +1402,192 @@ async function loadShowDetails(id) {
       `).join('');
     }
 
+    // Fetch user watch history for smart resume & episode completion
+    let showProgressMap = {};
+    if (isGuest) {
+      try {
+        const guestProg = JSON.parse(localStorage.getItem('kura_guest_progress') || '{}');
+        (episodes || []).forEach(ep => {
+          if (guestProg[ep.id]) {
+            showProgressMap[ep.id] = {
+              progress_seconds: guestProg[ep.id].progress || 0,
+              duration: guestProg[ep.id].duration || ep.duration || 0,
+              completed: Boolean(guestProg[ep.id].completed)
+            };
+          }
+        });
+      } catch (e) {}
+    } else {
+      try {
+        const headers = { 'Authorization': `Bearer ${token}` };
+        const histRes = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(activeProfile)}`, { headers });
+        if (histRes.ok) {
+          const historyList = await histRes.json();
+          if (Array.isArray(historyList)) {
+            historyList.forEach(item => {
+              if (String(item.show_id) === String(show.id)) {
+                showProgressMap[item.episode_id] = {
+                  progress_seconds: item.progress_seconds || item.progress || 0,
+                  duration: item.duration || item.ep_duration || 0,
+                  completed: Boolean(item.completed)
+                };
+              }
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("Could not fetch watch history for show details:", e);
+      }
+    }
+
+    // Compute smart resume target
+    const sortedEpisodes = (episodes || []).slice().sort((a, b) => {
+      const sa = parseInt(a.season_number || 1, 10);
+      const sb = parseInt(b.season_number || 1, 10);
+      if (sa !== sb) return sa - sb;
+      const ea = parseInt(a.episode_number || 1, 10);
+      const eb = parseInt(b.episode_number || 1, 10);
+      return ea - eb;
+    });
+
+    let targetEpisode = null;
+    let resumeTimestamp = 0;
+    let isResume = false;
+    let remainingMinutes = 0;
+
+    // 1. Look for episode currently in progress (> 10s and < 85%)
+    for (const ep of sortedEpisodes) {
+      const prog = showProgressMap[ep.id];
+      if (prog) {
+        const dur = prog.duration || ep.duration || 0;
+        const pos = prog.progress_seconds || 0;
+        const pct = dur > 0 ? (pos / dur) * 100 : 0;
+        if (!prog.completed && pct < 85 && pos > 10) {
+          targetEpisode = ep;
+          resumeTimestamp = pos;
+          isResume = true;
+          if (dur > pos) {
+            remainingMinutes = Math.max(1, Math.ceil((dur - pos) / 60));
+          }
+          break;
+        }
+      }
+    }
+
+    // 2. If no episode in-progress, find first uncompleted episode if user has watched at least one
+    if (!targetEpisode) {
+      let hasAnyCompleted = false;
+      for (const ep of sortedEpisodes) {
+        const prog = showProgressMap[ep.id];
+        if (prog) {
+          const dur = prog.duration || ep.duration || 0;
+          const pos = prog.progress_seconds || 0;
+          const pct = dur > 0 ? (pos / dur) * 100 : 0;
+          if (prog.completed || pct >= 85) {
+            hasAnyCompleted = true;
+            break;
+          }
+        }
+      }
+
+      if (hasAnyCompleted) {
+        for (const ep of sortedEpisodes) {
+          const prog = showProgressMap[ep.id];
+          const dur = prog ? (prog.duration || ep.duration || 0) : (ep.duration || 0);
+          const pos = prog ? (prog.progress_seconds || 0) : 0;
+          const pct = dur > 0 ? (pos / dur) * 100 : 0;
+          const isDone = prog && (prog.completed || pct >= 85);
+          if (!isDone) {
+            targetEpisode = ep;
+            resumeTimestamp = 0;
+            isResume = true;
+            break;
+          }
+        }
+      }
+    }
+
+    // 3. Fallback: pick first episode if not started
+    if (!targetEpisode && sortedEpisodes.length > 0) {
+      targetEpisode = sortedEpisodes[0];
+      resumeTimestamp = 0;
+      isResume = false;
+    }
+
+    // Smart button text formatting
+    let resumeBtnText = '▶ Ver Episodio 1';
+    if (targetEpisode) {
+      const epNum = targetEpisode.episode_number || 1;
+      if (isResume) {
+        if (remainingMinutes > 0) {
+          resumeBtnText = `▶ Continuar Ep. ${epNum} (${remainingMinutes}m restante)`;
+        } else {
+          resumeBtnText = `▶ Continuar Ep. ${epNum}`;
+        }
+      } else {
+        resumeBtnText = show.media_type === 'movie' ? '▶ Ver Película' : '▶ Ver Episodio 1';
+      }
+    }
+
+    // Parse genres
+    let genresList = [];
+    if (Array.isArray(show.genres)) {
+      genresList = show.genres;
+    } else if (typeof show.genres === 'string') {
+      try {
+        genresList = JSON.parse(show.genres);
+      } catch (e) {
+        genresList = show.genres.split(',').map(g => g.trim()).filter(Boolean);
+      }
+    }
+    if (!Array.isArray(genresList)) genresList = [];
+
+    const seasonsCount = new Set((episodes || []).map(e => e.season_number || 1)).size;
+    const seasonText = show.media_type === 'movie' ? 'Película' : (seasonsCount <= 1 ? '1 Temporada' : `${seasonsCount} Temporadas`);
+
+    // Create or inject metadata badges and actions row below title
+    let metaBadgesEl = document.getElementById('detail-meta-badges');
+    if (!metaBadgesEl) {
+      metaBadgesEl = document.createElement('div');
+      metaBadgesEl.id = 'detail-meta-badges';
+      metaBadgesEl.className = 'detail-meta-row';
+      detailTitle.insertAdjacentElement('afterend', metaBadgesEl);
+    }
+    metaBadgesEl.innerHTML = `
+      <span class="detail-badge-pill detail-badge-rating"><i data-lucide="star" style="width:13px;height:13px;fill:currentColor;"></i> ${show.rating ? show.rating.toFixed(1) : 'N/A'}</span>
+      <span class="detail-badge-pill">${show.year || 'N/A'}</span>
+      <span class="detail-badge-pill">${seasonText}</span>
+      <span class="badge" style="background: rgba(255,255,255,0.08); border-radius: var(--radius-xs);">${show.status === 'airing' ? 'En Emisión' : (show.status === 'upcoming' ? 'Próximamente' : 'Finalizado')}</span>
+      ${genresList.slice(0, 4).map(g => `<span class="detail-badge-genre">${g}</span>`).join('')}
+    `;
+
+    let actionsRowEl = document.getElementById('detail-primary-actions');
+    if (!actionsRowEl) {
+      actionsRowEl = document.createElement('div');
+      actionsRowEl.id = 'detail-primary-actions';
+      actionsRowEl.className = 'detail-actions-row';
+      metaBadgesEl.insertAdjacentElement('afterend', actionsRowEl);
+    }
+    actionsRowEl.innerHTML = `
+      <button id="detail-smart-resume-btn" class="btn-smart-resume detail-smart-resume-btn">
+        <i data-lucide="play" style="width:18px;height:18px;fill:currentColor;"></i>
+        <span>${resumeBtnText}</span>
+      </button>
+    `;
+
+    const smartResumeBtn = document.getElementById('detail-smart-resume-btn');
+    if (smartResumeBtn && targetEpisode) {
+      smartResumeBtn.onclick = () => {
+        const targetUrl = resumeTimestamp > 0 
+          ? `#/player/${targetEpisode.id}?t=${Math.floor(resumeTimestamp)}` 
+          : `#/player/${targetEpisode.id}`;
+        window.location.hash = targetUrl;
+      };
+    }
+
     if (show.media_type === 'movie') {
       seasonTabs.style.display = 'none';
-      renderEpisodeList(episodes, episodesList);
+      renderEpisodeList(episodes, episodesList, show.poster_path, showProgressMap);
     } else {
       seasonTabs.style.display = 'flex';
       // Group episodes by season
@@ -1377,23 +1601,23 @@ async function loadShowDetails(id) {
       const seasonNums = Object.keys(seasons).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
       
       seasonTabs.innerHTML = seasonNums.map((num, idx) => `
-        <button class="season-tab ${idx === 0 ? 'active' : ''}" data-season="${num}">T${num}</button>
+        <button class="season-tab ${idx === 0 ? 'active' : ''}" data-season="${num}">Temporada ${num}</button>
       `).join('');
 
       // Render first season by default
       if (seasonNums.length > 0) {
-        renderEpisodeList(seasons[seasonNums[0]], episodesList, show.poster_path);
+        renderEpisodeList(seasons[seasonNums[0]], episodesList, show.poster_path, showProgressMap);
       } else {
-        renderEpisodeList([], episodesList, show.poster_path);
+        renderEpisodeList([], episodesList, show.poster_path, showProgressMap);
       }
 
       // Bind season tab clicks
-      document.querySelectorAll('.season-tab').forEach(tab => {
+      seasonTabs.querySelectorAll('.season-tab').forEach(tab => {
         tab.addEventListener('click', (e) => {
-          document.querySelectorAll('.season-tab').forEach(t => t.classList.remove('active'));
-          e.target.classList.add('active');
-          const sNum = e.target.getAttribute('data-season');
-          renderEpisodeList(seasons[sNum] || [], episodesList, show.poster_path);
+          seasonTabs.querySelectorAll('.season-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          const sNum = tab.getAttribute('data-season');
+          renderEpisodeList(seasons[sNum] || [], episodesList, show.poster_path, showProgressMap);
         });
       });
     }
@@ -1413,7 +1637,7 @@ async function loadShowDetails(id) {
   }
 }
 
-function renderEpisodeList(epList, targetContainer, fallbackPoster = '') {
+function renderEpisodeList(epList, targetContainer, fallbackPoster = '', showProgressMap = {}) {
   if (!epList || epList.length === 0) {
     targetContainer.innerHTML = '<div class="empty-state">No hay capítulos importados en esta temporada.</div>';
     return;
@@ -1423,18 +1647,40 @@ function renderEpisodeList(epList, targetContainer, fallbackPoster = '') {
     const durationMin = Math.round((ep.duration || 0) / 60);
     const thumb = ep.thumbnail_path || fallbackPoster || `/api/placeholder-poster?title=${encodeURIComponent(ep.title || 'KuraStream')}`;
     
+    // User progress calculation
+    const prog = (showProgressMap && showProgressMap[ep.id]) || {};
+    const watchedSec = prog.progress_seconds ?? prog.progress ?? 0;
+    const durSec = prog.duration || ep.duration || 0;
+    const progressPercent = durSec > 0 ? Math.min(100, Math.max(0, (watchedSec / durSec) * 100)) : 0;
+    const isCompleted = Boolean(prog.completed) || progressPercent >= 85;
+    const isInProgress = !isCompleted && progressPercent >= 3;
+
+    const completedBadgeHTML = isCompleted ? `
+      <div class="badge-visto">
+        <i data-lucide="check" style="width: 12px; height: 12px; stroke-width: 3;"></i> VISTO
+      </div>
+    ` : '';
+
+    const progressBarHTML = isInProgress ? `
+      <div class="episode-progress-bar">
+        <div class="episode-progress-fill" style="width: ${Math.round(progressPercent)}%;"></div>
+      </div>
+    ` : '';
+
     return `
       <div class="episode-item" onclick="window.showEpisodeDetails('${ep.id}')">
         <div class="episode-thumb-wrapper">
-          <img class="episode-thumb" src="${thumb}" alt="${ep.title}">
+          <img class="episode-thumb" src="${thumb}" alt="${ep.title || 'Episodio'}" loading="lazy">
+          ${completedBadgeHTML}
+          ${progressBarHTML}
           <div class="episode-play-overlay">
-            <span class="play-icon-small"><i data-lucide="play" style="width:28px;height:28px;fill:currentColor;"></i></span>
+            <span class="play-icon-small"><i data-lucide="play" style="width:20px;height:20px;fill:currentColor;"></i></span>
           </div>
         </div>
         <div class="episode-item-info">
           <div class="episode-item-top">
             <h3 class="episode-item-title">${ep.episode_number ? `${ep.episode_number}. ` : ''}${ep.title || 'Capítulo'}</h3>
-            <span class="episode-item-duration">${durationMin} min</span>
+            <span class="episode-item-duration">${durationMin > 0 ? `${durationMin} min` : ''}</span>
           </div>
           <p class="episode-item-synopsis">${ep.synopsis || 'Sin descripción disponible para este capítulo.'}</p>
         </div>
@@ -3733,16 +3979,13 @@ async function renderGenresView(activeGenre = '') {
 }
 
 function formatTotalTime(seconds) {
-  if (!seconds || seconds <= 0) return '0m';
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
+  if (!seconds || seconds <= 0) return '0h 0m';
+  const hours = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
-
-  const parts = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (mins > 0 || parts.length === 0) parts.push(`${mins}m`);
-  return parts.join(' ');
+  if (hours > 0 && mins === 0) {
+    return `${hours} horas`;
+  }
+  return `${hours}h ${mins}m`;
 }
 
 async function renderStatsView() {
@@ -3791,37 +4034,37 @@ async function renderStatsView() {
       </div>
       <div>
         <div class="stat-card-val">${timeFormatted}</div>
-        <div class="stat-card-lbl">Tiempo de Reproducción</div>
+        <div class="stat-card-lbl">Horas vistas</div>
       </div>
     </div>
     
     <div class="stat-card">
       <div class="stat-card-icon" style="background: rgba(0, 224, 143, 0.15); color: #00e08f;">
-        <i data-lucide="check-circle"></i>
+        <i data-lucide="trophy"></i>
       </div>
       <div>
         <div class="stat-card-val">${stats.completed_shows || 0}</div>
-        <div class="stat-card-lbl">Animes Completados</div>
+        <div class="stat-card-lbl">Series completadas</div>
       </div>
     </div>
 
     <div class="stat-card">
       <div class="stat-card-icon" style="background: rgba(0, 198, 255, 0.15); color: #00c6ff;">
-        <i data-lucide="play-circle"></i>
+        <i data-lucide="tv"></i>
       </div>
       <div>
         <div class="stat-card-val">${stats.watched_episodes || 0}</div>
-        <div class="stat-card-lbl">Episodios Vistos</div>
+        <div class="stat-card-lbl">Capítulos vistos</div>
       </div>
     </div>
 
     <div class="stat-card">
       <div class="stat-card-icon" style="background: rgba(255, 126, 179, 0.15); color: #ff7eb3;">
-        <i data-lucide="flame"></i>
+        <i data-lucide="film"></i>
       </div>
       <div>
         <div class="stat-card-val">${stats.top_genre || 'Ninguno'}</div>
-        <div class="stat-card-lbl">Género Favorito</div>
+        <div class="stat-card-lbl">Género favorito</div>
       </div>
     </div>
   `;
@@ -5082,6 +5325,7 @@ function openProfileEditModal(profile) {
           customAvatarBase64 = canvas.toDataURL('image/jpeg', 0.8);
           selectedPresetPath = null;
           document.querySelectorAll('.preset-avatar-option').forEach(opt => {
+            opt.classList.remove('selected', 'active');
             opt.style.borderColor = 'transparent';
           });
           avatarPreview.style.background = `url('${customAvatarBase64}')`;
@@ -5102,6 +5346,7 @@ function openProfileEditModal(profile) {
   errEl.style.display = 'none';
   
   document.querySelectorAll('.preset-avatar-option').forEach(opt => {
+    opt.classList.remove('selected', 'active');
     opt.style.borderColor = 'transparent';
   });
 
@@ -5126,6 +5371,7 @@ function openProfileEditModal(profile) {
 
     document.querySelectorAll('.preset-avatar-option').forEach(opt => {
       if (opt.dataset.preset === color) {
+        opt.classList.add('selected', 'active');
         opt.style.borderColor = 'var(--accent-color)';
         selectedPresetPath = color;
       }
@@ -5222,6 +5468,7 @@ function initProfilesUI() {
       customAvatarBase64 = null;
       selectedPresetPath = null;
       document.querySelectorAll('.preset-avatar-option').forEach(opt => {
+        opt.classList.remove('selected', 'active');
         opt.style.borderColor = 'transparent';
       });
       document.querySelectorAll('.color-swatch').forEach(el => {
@@ -5243,8 +5490,10 @@ function initProfilesUI() {
         el.style.borderColor = 'transparent';
       });
       document.querySelectorAll('.preset-avatar-option').forEach(el => {
+        el.classList.remove('selected', 'active');
         el.style.borderColor = 'transparent';
       });
+      opt.classList.add('selected', 'active');
       opt.style.borderColor = 'var(--accent-color)';
       updateAvatarPreview();
     });
