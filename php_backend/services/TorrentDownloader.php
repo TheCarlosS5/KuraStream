@@ -17,29 +17,67 @@ class TorrentDownloader {
             return self::$aria2Path;
         }
 
+        $isWin = PHP_OS_FAMILY === 'Windows';
+        $exeSuffix = $isWin ? '.exe' : '';
+
         $candidates = [
+            ROOT_DIR . '/bin/aria2c' . $exeSuffix,
             ROOT_DIR . '/bin/aria2c',
-            dirname(ROOT_DIR) . '/bin/aria2c',
+            dirname(ROOT_DIR) . '/bin/aria2c' . $exeSuffix,
             '/usr/bin/aria2c',
-            '/usr/local/bin/aria2c',
+            '/usr/local/bin/aria2c'
         ];
 
         foreach ($candidates as $cand) {
-            if (file_exists($cand) && is_executable($cand)) {
+            if (file_exists($cand)) {
                 self::$aria2Path = $cand;
                 return self::$aria2Path;
             }
         }
 
-        // Try 'which aria2c'
-        $which = trim(@shell_exec('which aria2c 2>/dev/null') ?: '');
-        if (!empty($which) && file_exists($which) && is_executable($which)) {
-            self::$aria2Path = $which;
-            return self::$aria2Path;
+        $lookupCmd = $isWin ? 'where aria2c.exe 2>NUL' : 'which aria2c 2>/dev/null';
+        $which = trim(@shell_exec($lookupCmd) ?: '');
+        if (!empty($which)) {
+            $lines = explode("\n", str_replace("\r", "", $which));
+            $first = trim($lines[0]);
+            if (file_exists($first)) {
+                self::$aria2Path = $first;
+                return self::$aria2Path;
+            }
         }
 
-        self::$aria2Path = ROOT_DIR . '/bin/aria2c';
+        self::$aria2Path = ROOT_DIR . '/bin/aria2c' . $exeSuffix;
         return self::$aria2Path;
+    }
+
+    public static function isProcessAlive(int $pid): bool {
+        if ($pid <= 0) return false;
+        if (PHP_OS_FAMILY === 'Windows') {
+            $out = @shell_exec("tasklist /FI \"PID eq {$pid}\" /NH 2>NUL");
+            if (empty($out) || stripos($out, 'INFO') !== false) {
+                return false;
+            }
+            return stripos($out, (string)$pid) !== false;
+        }
+        $out = trim(@shell_exec("ps -p {$pid} -o pid= 2>/dev/null") ?: '');
+        return !empty($out);
+    }
+
+    public static function pauseActiveProcess(int $pid): void {
+        if ($pid <= 0) return;
+        if (PHP_OS_FAMILY === 'Windows') {
+            // En Windows se utiliza suspensión vía PowerShell o control de cola
+            @shell_exec("powershell -NoProfile -Command \"\$p = Get-Process -Id {$pid} -ErrorAction SilentlyContinue; if (\$p) { [Diagnostics.Process]::EnterDebugMode(); }\"");
+        } else {
+            @shell_exec("kill -STOP {$pid} 2>/dev/null");
+        }
+    }
+
+    public static function resumeActiveProcess(int $pid): void {
+        if ($pid <= 0) return;
+        if (PHP_OS_FAMILY !== 'Windows') {
+            @shell_exec("kill -CONT {$pid} 2>/dev/null");
+        }
     }
 
     /**
@@ -627,11 +665,7 @@ class TorrentDownloader {
         $pid = (int)($cur['pid'] ?? 0);
 
         // Check if process is still alive
-        $isAlive = false;
-        if ($pid > 0) {
-            $check = trim(@shell_exec("ps -p {$pid} -o pid= 2>/dev/null") ?: '');
-            $isAlive = !empty($check);
-        }
+        $isAlive = self::isProcessAlive($pid);
 
         // If paused by user, keep paused state without failing
         if ($cur['status'] === 'paused') {
@@ -803,9 +837,7 @@ class TorrentDownloader {
         // If it's the active download or id is empty
         if (!empty($state['currentDownload']) && (empty($id) || $state['currentDownload']['id'] === $id)) {
             $pid = (int)($state['currentDownload']['pid'] ?? 0);
-            if ($pid > 0) {
-                @shell_exec("kill -STOP {$pid} 2>/dev/null");
-            }
+            self::pauseActiveProcess($pid);
             $state['currentDownload']['status'] = 'paused';
             self::saveState($state);
             return ['success' => true, 'status' => self::getState()];
@@ -833,9 +865,7 @@ class TorrentDownloader {
 
         if (!empty($state['currentDownload']) && (empty($id) || $state['currentDownload']['id'] === $id)) {
             $pid = (int)($state['currentDownload']['pid'] ?? 0);
-            if ($pid > 0) {
-                @shell_exec("kill -CONT {$pid} 2>/dev/null");
-            }
+            self::resumeActiveProcess($pid);
             $state['currentDownload']['status'] = 'downloading';
             self::saveState($state);
             return ['success' => true, 'status' => self::getState()];
@@ -912,7 +942,11 @@ class TorrentDownloader {
         if (!empty($state['currentDownload'])) {
             $pid = (int)($state['currentDownload']['pid'] ?? 0);
             if ($pid > 0) {
-                @shell_exec("kill -9 {$pid} 2>/dev/null");
+                if (PHP_OS_FAMILY === 'Windows') {
+                    @shell_exec("taskkill /F /PID {$pid} 2>NUL");
+                } else {
+                    @shell_exec("kill -9 {$pid} 2>/dev/null");
+                }
             }
             if (!empty($state['currentDownload']['logFile'])) {
                 @unlink($state['currentDownload']['logFile']);
