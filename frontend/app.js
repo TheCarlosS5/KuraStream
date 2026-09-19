@@ -1071,7 +1071,7 @@ function createShowCardHTML(show, historyMap = new Map()) {
 }
 
 
-// SHOW DETAIL VIEW
+// SHOW DETAIL VIEW (Panoramic Header, Smart Resume & 16:9 Episode Cards)
 async function loadShowDetails(id) {
   const detailTitle = document.getElementById('detail-title');
   const detailSynopsis = document.getElementById('detail-synopsis');

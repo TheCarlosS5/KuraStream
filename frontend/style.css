@@ -1321,6 +1321,7 @@ button, input, select {
   font-weight: 700;
 }
 
+/* Show Details Panoramic Header, 4px Season Tabs & 16:9 Episode Cards (Task 3) */
 .season-tabs {
   display: flex;
   gap: 8px;
@@ -3728,10 +3729,14 @@ input:checked + .slider:before {
   gap: 8px;
 }
 
+#profile-edit-avatar {
+  border-radius: var(--radius-sm) !important;
+}
+
 .preset-avatar-option {
   width: 44px;
   height: 44px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-sm) !important;
   background-size: cover;
   background-position: center;
   border: 2px solid transparent;

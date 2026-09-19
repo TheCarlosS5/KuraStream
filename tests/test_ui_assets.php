@@ -121,10 +121,98 @@ if (!file_exists($jsPath)) {
     }
 }
 
+// 8. Task 5: Profile Statistics Dashboard & Avatar Picker Tests
+// In app.js:
+if (!preg_match('/Horas vistas/i', $js)) {
+    $errors[] = "Missing 'Horas vistas' metric card label in app.js";
+}
+
+if (!preg_match('/Series completadas/i', $js)) {
+    $errors[] = "Missing 'Series completadas' metric card label in app.js";
+}
+
+if (!preg_match('/Cap.*tulos vistos/iu', $js)) {
+    $errors[] = "Missing 'Capítulos vistos' metric card label in app.js";
+}
+
+if (!preg_match('/G.*nero favorito/iu', $js)) {
+    $errors[] = "Missing 'Género favorito' metric card label in app.js";
+}
+
+if (!preg_match('/\/api\/user\/stats/', $js)) {
+    $errors[] = "Missing fetch to '/api/user/stats' in app.js";
+}
+
+// In style.css:
+if (preg_match('/\.stat-card\s*\{[^}]*border-radius:\s*16px;/s', $css)) {
+    $errors[] = ".stat-card must not use 'border-radius: 16px;'";
+}
+
+if (!preg_match('/\.stat-card\s*\{[^}]*border-radius:\s*(?:var\(--radius-sm\)|4px);/s', $css)) {
+    $errors[] = ".stat-card must use 'var(--radius-sm)' or '4px' border-radius in style.css";
+}
+
+if (!preg_match('/\.preset-avatar-option\s*\{[^}]*border-radius:\s*(?:var\(--radius-sm\)|4px)/s', $css)) {
+    $errors[] = ".preset-avatar-option must use 'var(--radius-sm)' or '4px' border-radius in style.css";
+}
+
+if (!preg_match('/\.preset-avatar-option\.(?:selected|active)::after\s*\{[^}]*content:\s*[\'"][^;]*✓/su', $css) &&
+    !preg_match('/\.preset-avatar-option\.(?:selected|active)::after\s*\{[^}]*content:\s*[\'"]\\\\271[34]/s', $css)) {
+    $errors[] = "Missing checkmark styling on selected avatar option (.preset-avatar-option.selected::after or .active::after) in style.css";
+}
+
+if (preg_match('/\.profile-avatar\s*\{[^}]*border-radius:\s*20px;/s', $css)) {
+    $errors[] = ".profile-avatar must not use bubbly 'border-radius: 20px;'";
+}
+
+if (!preg_match('/\.profile-avatar\s*\{[^}]*border-radius:\s*(?:var\(--radius-sm\)|4px);/s', $css)) {
+    $errors[] = ".profile-avatar must use 'var(--radius-sm)' or '4px' border-radius in style.css";
+}
+
+// 9. Task 3: Show Details Smart Resume & 16:9 Episode Cards
+// In app.js:
+if (!preg_match('/Continuar Ep\./', $js) || !preg_match('/Ver Episodio 1/', $js)) {
+    $errors[] = "Missing smart resume button text ('Continuar Ep.' and 'Ver Episodio 1') in app.js";
+}
+
+if (!preg_match('/VISTO/', $js)) {
+    $errors[] = "Missing 'VISTO' badge logic in app.js";
+}
+
+if (!preg_match('/episode-progress-bar|episode-progress-fill/', $js)) {
+    $errors[] = "Missing episode progress bar markup in app.js";
+}
+
+// In style.css:
+if (!preg_match('/\.episode-thumb-wrapper\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*9/s', $css)) {
+    $errors[] = "Missing 'aspect-ratio: 16 / 9;' for .episode-thumb-wrapper in style.css";
+}
+
+if (!preg_match('/\.episode-item:hover\s+\.episode-thumb\s*\{[^}]*transform:\s*scale\(/s', $css)) {
+    $errors[] = "Missing hover zoom 'transform: scale(...)' on .episode-item:hover .episode-thumb in style.css";
+}
+
+if (preg_match('/\.season-tab\s*\{[^}]*border-radius:\s*20px;/s', $css)) {
+    $errors[] = ".season-tab must not use pill 'border-radius: 20px;'";
+}
+
+if (!preg_match('/\.season-tab\s*\{[^}]*border-radius:\s*(?:var\(--radius-sm\)|4px);/s', $css)) {
+    $errors[] = ".season-tab must use 'var(--radius-sm)' or '4px' border-radius in style.css";
+}
+
+if (!preg_match('/\.badge-visto\b/', $css)) {
+    $errors[] = "Missing .badge-visto class in style.css";
+}
+
+if (!preg_match('/\.episode-progress-bar\s*\{[^}]*background/s', $css) || !preg_match('/\.episode-progress-fill\s*\{[^}]*background:\s*(?:var\(--progress-color[^)]*\)|#e50914)/s', $css)) {
+    $errors[] = "Missing episode progress bar / fill styling with --progress-color in style.css";
+}
+
 if (!empty($errors)) {
     echo "FAIL:\n - " . implode("\n - ", $errors) . "\n";
     exit(1);
 }
 
-echo "✓ UI Assets CSS Scale, Billboard Hero & Continue Watching Tests Passed\n";
+echo "✓ UI Assets CSS Scale, Billboard Hero, Continue Watching, Profile Stats & Show Details Tests Passed\n";
 exit(0);
+
