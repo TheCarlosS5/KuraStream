@@ -615,8 +615,8 @@ button, input, select {
   overflow: hidden;
   display: flex;
   align-items: center;
-  margin-bottom: 28px;
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.75);
+  margin-bottom: 0;
+  box-sizing: border-box;
 }
 
 .billboard-hero-vignette {
@@ -632,11 +632,13 @@ button, input, select {
 .billboard-hero-content {
   position: relative;
   z-index: 5;
-  max-width: 680px;
-  padding: 0 40px;
+  width: 100%;
+  max-width: 760px;
+  padding: 40px clamp(36px, 7vw, 90px);
   display: flex;
   flex-direction: column;
   gap: 16px;
+  box-sizing: border-box;
 }
 
 .billboard-hero-badges {
@@ -677,6 +679,7 @@ button, input, select {
   display: inline-flex;
   gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .billboard-genre-tag {
@@ -690,18 +693,20 @@ button, input, select {
 
 .billboard-hero-title {
   font-family: var(--font-title);
-  font-size: 3rem;
+  font-size: clamp(2rem, 3.8vw + 0.5rem, 3.4rem);
   font-weight: 900;
   letter-spacing: -0.5px;
-  line-height: 1.1;
+  line-height: 1.15;
   color: #ffffff;
   text-shadow: 0 3px 12px rgba(0, 0, 0, 0.8);
   margin: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .billboard-hero-synopsis {
   color: #d1d5db;
-  font-size: 1rem;
+  font-size: clamp(0.92rem, 1.1vw, 1.05rem);
   line-height: 1.55;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -709,11 +714,15 @@ button, input, select {
   overflow: hidden;
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
   margin: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .billboard-hero-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
   margin-top: 8px;
 }
@@ -3270,11 +3279,13 @@ input:checked + .slider:before {
 .hero-carousel-container {
   position: relative;
   width: 100%;
-  height: 480px;
-  border-radius: 12px;
+  min-height: 70vh;
+  height: 70vh;
+  max-height: 800px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   margin-bottom: 30px;
-  box-shadow: var(--shadow-main);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.75);
 }
 
 .hero-carousel-wrapper {
@@ -3299,9 +3310,9 @@ input:checked + .slider:before {
   transform: translateY(-50%);
   width: 44px;
   height: 44px;
-  border-radius: 50%;
-  background: rgba(11, 12, 14, 0.6);
-  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: rgba(8, 9, 11, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: var(--text-main);
   display: flex;
   align-items: center;
@@ -3309,14 +3320,16 @@ input:checked + .slider:before {
   cursor: pointer;
   z-index: 10;
   transition: all 0.2s ease;
-  backdrop-filter: blur(5px);
+  backdrop-filter: blur(8px);
+  opacity: 0.85;
 }
 
 .carousel-nav-btn:hover {
-  background: var(--accent-color);
-  border-color: var(--accent-color);
-  color: var(--text-inverse);
-  box-shadow: 0 0 10px var(--accent-glow);
+  opacity: 1;
+  background: rgba(20, 24, 34, 0.95);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+  transform: translateY(-50%) scale(1.08);
 }
 
 .carousel-nav-btn.prev { left: 20px; }
@@ -3324,7 +3337,7 @@ input:checked + .slider:before {
 
 .carousel-indicators {
   position: absolute;
-  bottom: 20px;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -3487,6 +3500,27 @@ input:checked + .slider:before {
 }
 
 @media (max-width: 768px) {
+  .hero-carousel-container,
+  .billboard-hero {
+    min-height: 55vh;
+    height: auto;
+    max-height: none;
+  }
+  .billboard-hero-content {
+    padding: 30px 20px;
+    max-width: 100%;
+    gap: 12px;
+  }
+  .billboard-hero-title {
+    font-size: clamp(1.6rem, 5vw, 2.2rem);
+  }
+  .billboard-hero-synopsis {
+    font-size: 0.9rem;
+    -webkit-line-clamp: 2;
+  }
+  .carousel-nav-btn {
+    display: none;
+  }
   .detail-main-layout {
     grid-template-columns: 1fr;
   }

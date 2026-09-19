@@ -630,7 +630,7 @@ async function loadDashboard(mediaType = 'anime') {
     }
 
      // Set Hero Billboard / Carousel (up to 5 newest shows)
-    const carouselContainer = document.getElementById('hero-container') || document.getElementById('hero-carousel-container');
+    const carouselContainer = document.getElementById('hero-carousel-container');
     const carouselWrapper = document.getElementById('hero-carousel-wrapper');
     const carouselIndicators = document.getElementById('carousel-indicators');
     
@@ -915,7 +915,7 @@ function renderBillboardHero(featuredShow) {
   const synopsis = featuredShow.synopsis || 'Sin sinopsis disponible.';
 
   return `
-    <div class="billboard-hero" id="hero-container" style="background-image: url('${safeBg}');">
+    <div class="billboard-hero" style="background-image: url('${safeBg}');">
       <div class="billboard-hero-vignette"></div>
       <div class="billboard-hero-content">
         <div class="billboard-hero-badges">
