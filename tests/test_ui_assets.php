@@ -208,6 +208,75 @@ if (!preg_match('/\.episode-progress-bar\s*\{[^}]*background/s', $css) || !preg_
     $errors[] = "Missing episode progress bar / fill styling with --progress-color in style.css";
 }
 
+// 10. Task 4: Cinematic Video Player Pro Tests (Ambient Glow, Media Session & Next Episode Card)
+$playerJsPath = __DIR__ . '/../frontend/player.js';
+if (!file_exists($playerJsPath)) {
+    $errors[] = "frontend/player.js does not exist";
+} else {
+    $playerJs = file_get_contents($playerJsPath);
+
+    // 1. Ambient Glow Engine
+    if (!str_contains($playerJs, 'ambient-canvas') && !str_contains($playerJs, 'player-ambilight-canvas')) {
+        $errors[] = "player.js must reference ambient glow canvas ('ambient-canvas' or 'player-ambilight-canvas')";
+    }
+    if (!preg_match('/width\s*=\s*64/i', $playerJs) || !preg_match('/height\s*=\s*36/i', $playerJs)) {
+        $errors[] = "player.js ambient glow canvas must use 64x36 dimensions";
+    }
+    if (!preg_match('/250/', $playerJs)) {
+        $errors[] = "player.js ambient glow must sample at 4 FPS (250ms interval)";
+    }
+    if (!preg_match('/Luz ambiental/i', $playerJs)) {
+        $errors[] = "Player controls must have 'Luz ambiental' toggle button";
+    }
+
+    // 2. Media Session API
+    if (!str_contains($playerJs, 'mediaSession')) {
+        $errors[] = "player.js must integrate navigator.mediaSession";
+    }
+    if (!str_contains($playerJs, 'MediaMetadata')) {
+        $errors[] = "player.js must create MediaMetadata with title, artist, artwork";
+    }
+    if (!str_contains($playerJs, "'seekbackward'") || !str_contains($playerJs, "'seekforward'")) {
+        $errors[] = "player.js must register seekbackward and seekforward handlers in mediaSession";
+    }
+    if (!str_contains($playerJs, "'nexttrack'")) {
+        $errors[] = "player.js must register nexttrack handler in mediaSession";
+    }
+
+    // 3. Countdown Next Episode Card
+    if (!str_contains($playerJs, 'next-episode-card') && !str_contains($playerJs, 'nextEpCard')) {
+        $errors[] = "player.js must implement 'next-episode-card' overlay card";
+    }
+    if (!preg_match('/(?:duration\s*-\s*[^<]*currentTime|remainingTime)\s*<=\s*25/i', $playerJs)) {
+        $errors[] = "player.js must trigger next episode countdown when remaining time <= 25 seconds";
+    }
+    if (!str_contains($playerJs, 'Próximo episodio en') && !str_contains($playerJs, 'Pr\u00f3ximo episodio en')) {
+        $errors[] = "player.js countdown card must display 'Próximo episodio en {seconds}s...'";
+    }
+    if (!str_contains($playerJs, 'Ver ahora')) {
+        $errors[] = "player.js countdown card must include 'Ver ahora' button";
+    }
+
+    // 4. Keyboard Hotkeys & Mobile Touch Gestures
+    if (!str_contains($playerJs, 'KeyN') && !str_contains($playerJs, "'KeyN'")) {
+        $errors[] = "player.js must support hotkey 'n' (KeyN) for next episode";
+    }
+    if (!str_contains($playerJs, 'touchstart') && !str_contains($playerJs, 'touchend')) {
+        $errors[] = "player.js must support mobile double-tap touch gestures";
+    }
+    if (!str_contains($playerJs, '0.35') && !str_contains($playerJs, '35')) {
+        $errors[] = "player.js double-tap must check 35% left / right boundaries";
+    }
+}
+
+// Ambient Glow & Next Episode Card in style.css
+if (!preg_match('/filter:[^;]*blur\(60px\)/', $css) || !preg_match('/saturate\(140%\)/', $css)) {
+    $errors[] = "style.css must style ambient glow with 'filter: blur(60px) brightness(0.85) saturate(140%)'";
+}
+if (!preg_match('/\.next-episode-card\b/', $css)) {
+    $errors[] = "style.css must style .next-episode-card in bottom-right corner";
+}
+
 if (!empty($errors)) {
     echo "FAIL:\n - " . implode("\n - ", $errors) . "\n";
     exit(1);

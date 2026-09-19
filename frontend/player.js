@@ -96,6 +96,15 @@ let outroDismissed = false;
 let hasSkippedIntroForCurrentEpisode = false;
 let hasSkippedOutroForCurrentEpisode = false;
 
+let nextEpisodeData = null;
+let nextEpisodeDismissed = false;
+let nextEpisodeNavigated = false;
+let handleTouchStart = null;
+let lastTapTime = 0;
+let lastTapX = 0;
+let lastTapY = 0;
+let handleVisibilityChange = null;
+
 let ambilightCanvas = null;
 let ambilightCtx = null;
 let ambilightInterval = null;
@@ -164,7 +173,10 @@ export async function initPlayer(rawEpisodeId) {
   outroOverlayContainer = document.getElementById('outro-overlay-container');
   countdownOverlay = document.getElementById('autoplay-countdown-overlay');
   ambilightToggleBtn = document.getElementById('ambilight-toggle-btn');
-  ambilightCanvas = document.getElementById('player-ambilight-canvas');
+  ambilightCanvas = document.getElementById('ambient-canvas') || document.getElementById('player-ambilight-canvas');
+  if (ambilightCanvas) {
+    ambilightCanvas.id = 'ambient-canvas';
+  }
 
   // Immediately bind back button so user can always navigate back
   const backBtn = document.getElementById('player-back-btn');
@@ -240,11 +252,18 @@ export async function initPlayer(rawEpisodeId) {
     });
 
     const currentIdx = sortedEpisodes.findIndex(e => e.id === episodeId || decodeURIComponent(e.id) === episodeId);
-    nextEpisodeId = (currentIdx !== -1 && currentIdx + 1 < sortedEpisodes.length) 
-      ? sortedEpisodes[currentIdx + 1].id 
-      : null;
+    if (currentIdx !== -1 && currentIdx + 1 < sortedEpisodes.length) {
+      nextEpisodeData = sortedEpisodes[currentIdx + 1];
+      nextEpisodeId = nextEpisodeData.id;
+    } else {
+      nextEpisodeData = null;
+      nextEpisodeId = null;
+    }
 
     outroDismissed = false;
+    nextEpisodeDismissed = false;
+    nextEpisodeNavigated = false;
+    hideNextEpisodeCard();
     hasSkippedIntroForCurrentEpisode = false;
     hasSkippedOutroForCurrentEpisode = false;
 
@@ -253,6 +272,7 @@ export async function initPlayer(rawEpisodeId) {
     if (showTitleEl) showTitleEl.textContent = currentShowData.title || '';
     if (epTitleEl) epTitleEl.textContent = `${currentEpisodeData.season_number ? `Temporada ${currentEpisodeData.season_number} • ` : ''}Capítulo ${currentEpisodeData.episode_number}: ${currentEpisodeData.title || ''}`;
     
+    updateMediaSession();
     renderChapterTicks(currentEpisodeData);
     renderChaptersDropdown(currentEpisodeData);
   } catch (e) {
@@ -649,6 +669,29 @@ export function destroyPlayer() {
   }
   pendingSeekTarget = null;
 
+  // Clean up next episode card and touch listeners
+  hideNextEpisodeCard();
+  nextEpisodeDismissed = false;
+  nextEpisodeNavigated = false;
+  if (handleVisibilityChange) {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    handleVisibilityChange = null;
+  }
+  if (container && handleTouchStart) {
+    container.removeEventListener('touchstart', handleTouchStart);
+    handleTouchStart = null;
+  }
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.setActionHandler('play', null);
+      navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.setActionHandler('seekbackward', null);
+      navigator.mediaSession.setActionHandler('seekforward', null);
+      navigator.mediaSession.setActionHandler('nexttrack', null);
+      navigator.mediaSession.metadata = null;
+    } catch (e) {}
+  }
+
   // Hide overlays
   if (countdownOverlay) countdownOverlay.style.display = 'none';
   if (outroOverlayContainer) outroOverlayContainer.style.display = 'none';
@@ -828,6 +871,10 @@ function setupPlayerEventListeners() {
     setLucideIcon('center-play-icon', 'pause');
     if (centerPlayBtn) centerPlayBtn.style.display = 'none';
     stopSakuraEffect();
+    if (ambilightActive) {
+      startAmbilightLoop();
+    }
+    updateMediaSession();
     if (speedBtn) {
       const currentSpeed = parseFloat(speedBtn.textContent) || 1.0;
       if (video && video.playbackRate !== currentSpeed) {
@@ -856,6 +903,7 @@ function setupPlayerEventListeners() {
   video.onpause = () => {
     setLucideIcon('play-icon', 'play');
     setLucideIcon('center-play-icon', 'play');
+    stopAmbilightLoop();
     
     const loader = document.getElementById('player-loader');
     const isBuffering = loader && loader.style.display !== 'none';
@@ -941,6 +989,14 @@ function setupPlayerEventListeners() {
         showVideoToast('Silenciado');
       }
       triggerControlsActivity();
+    } else if (e.code === 'KeyN') {
+      e.preventDefault();
+      if (nextEpisodeId) {
+        showVideoToast('Siguiente episodio');
+        location.hash = `#/player/${nextEpisodeId}`;
+      } else {
+        showVideoToast('No hay más episodios');
+      }
     } else if (e.code === 'Escape') {
       if (document.fullscreenElement) {
         document.exitFullscreen();
@@ -1052,6 +1108,19 @@ function setupPlayerEventListeners() {
       }
     } else {
       if (outroOverlayContainer) outroOverlayContainer.style.display = 'none';
+    }
+
+    // Next Episode Countdown Overlay Card (when duration - totalCurrentTime <= 25 and next episode exists)
+    const remainingTime = duration - totalCurrentTime;
+    if (nextEpisodeId && !nextEpisodeDismissed && !nextEpisodeNavigated && remainingTime <= 25 && remainingTime > 0) {
+      showNextEpisodeCard(Math.max(1, Math.ceil(remainingTime)));
+      if (remainingTime <= 0.8 && !nextEpisodeNavigated) {
+        nextEpisodeNavigated = true;
+        hideNextEpisodeCard();
+        location.hash = `#/player/${nextEpisodeId}`;
+      }
+    } else if (remainingTime > 25 && !nextEpisodeDismissed) {
+      hideNextEpisodeCard();
     }
   };
 
@@ -1379,10 +1448,22 @@ function setupPlayerEventListeners() {
   };
 
   setupWatchPartyIntegration();
-}
 
-function escapeHtml(str) {
-  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // Visibility change listener for ambient glow power saving
+  if (handleVisibilityChange) {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }
+  handleVisibilityChange = () => {
+    if (document.hidden) {
+      stopAmbilightLoop();
+    } else if (ambilightActive && video && !video.paused) {
+      startAmbilightLoop();
+    }
+  };
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  // Mobile double-tap seek touch gestures
+  setupTouchGestures();
 }
 
 function setupWatchPartyIntegration() {
@@ -1731,19 +1812,33 @@ function formatTime(seconds) {
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
 
-// Ambilight Logic
+// Ambilight / Ambient Glow Logic (Luz ambiental reactiva)
 function setupAmbilight() {
+  if (!ambilightCanvas && container) {
+    ambilightCanvas = document.getElementById('ambient-canvas') || document.getElementById('player-ambilight-canvas');
+    if (ambilightCanvas) {
+      ambilightCanvas.id = 'ambient-canvas';
+    }
+  }
+
   if (ambilightCanvas) {
-    ambilightCanvas.width = 32;
-    ambilightCanvas.height = 18;
+    ambilightCanvas.width = 64;
+    ambilightCanvas.height = 36;
     ambilightCtx = ambilightCanvas.getContext('2d', { willReadFrequently: true, alpha: false });
   }
 
+  // Toggle button in player controls: "Luz ambiental" (on/off, on by default)
+  const savedAmbient = localStorage.getItem('kura_ambilight');
+  ambilightActive = savedAmbient !== null ? savedAmbient === 'true' : true;
+
   if (ambilightToggleBtn) {
-    ambilightActive = localStorage.getItem('kura_ambilight') === 'true';
+    ambilightToggleBtn.title = 'Luz ambiental';
     if (ambilightActive) {
       ambilightToggleBtn.classList.add('active');
       if (ambilightCanvas) ambilightCanvas.classList.add('active');
+    } else {
+      ambilightToggleBtn.classList.remove('active');
+      if (ambilightCanvas) ambilightCanvas.classList.remove('active');
     }
     
     ambilightToggleBtn.onclick = (e) => {
@@ -1752,6 +1847,7 @@ function setupAmbilight() {
       localStorage.setItem('kura_ambilight', ambilightActive);
       ambilightToggleBtn.classList.toggle('active', ambilightActive);
       if (ambilightCanvas) ambilightCanvas.classList.toggle('active', ambilightActive);
+      showVideoToast(ambilightActive ? 'Luz ambiental: Activada' : 'Luz ambiental: Desactivada');
       
       if (ambilightActive) {
         startAmbilightLoop();
@@ -1759,28 +1855,29 @@ function setupAmbilight() {
         stopAmbilightLoop();
         if (ambilightCtx) {
           ambilightCtx.fillStyle = 'black';
-          ambilightCtx.fillRect(0, 0, 32, 18);
+          ambilightCtx.fillRect(0, 0, 64, 36);
         }
       }
     };
   }
 
-  if (ambilightActive) {
+  if (ambilightActive && video && !video.paused) {
     startAmbilightLoop();
   }
 }
 
 function startAmbilightLoop() {
   stopAmbilightLoop();
+  if (!ambilightActive) return;
   ambilightInterval = setInterval(() => {
     if (!ambilightActive || !video || video.paused || video.ended || document.hidden) return;
     
     if (ambilightCtx && video.readyState >= 2) {
       try {
-        ambilightCtx.drawImage(video, 0, 0, 32, 18);
+        ambilightCtx.drawImage(video, 0, 0, 64, 36);
       } catch (e) { }
     }
-  }, 100);
+  }, 250); // 4 FPS (every 250ms)
 }
 
 function stopAmbilightLoop() {
@@ -1788,6 +1885,200 @@ function stopAmbilightLoop() {
     clearInterval(ambilightInterval);
     ambilightInterval = null;
   }
+}
+
+// Media Session API Integration
+function updateMediaSession() {
+  if (!('mediaSession' in navigator) || !currentEpisodeData) return;
+
+  const showTitle = currentShowData ? (currentShowData.title || 'KuraStream') : 'KuraStream';
+  const epNum = currentEpisodeData.episode_number ? `Episodio ${currentEpisodeData.episode_number}` : '';
+  const epTitle = currentEpisodeData.title 
+    ? `${epNum ? epNum + ': ' : ''}${currentEpisodeData.title}` 
+    : (epNum || 'Episodio');
+
+  const artworkList = [];
+  const rawThumb = currentEpisodeData.thumbnail_path || currentEpisodeData.thumbnail || (currentShowData && (currentShowData.poster_path || currentShowData.backdrop_path));
+  if (rawThumb) {
+    const fullThumb = (rawThumb.startsWith('http') || rawThumb.startsWith('/')) ? rawThumb : `/${rawThumb}`;
+    artworkList.push(
+      { src: fullThumb, sizes: '96x96', type: 'image/jpeg' },
+      { src: fullThumb, sizes: '128x128', type: 'image/jpeg' },
+      { src: fullThumb, sizes: '256x256', type: 'image/jpeg' },
+      { src: fullThumb, sizes: '512x512', type: 'image/jpeg' }
+    );
+  }
+
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: epTitle,
+      artist: `KuraStream • ${showTitle}`,
+      album: showTitle,
+      artwork: artworkList
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (video) video.play().catch(() => {});
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      if (video) video.pause();
+    });
+    navigator.mediaSession.setActionHandler('seekbackward', () => {
+      seekRelative(-10);
+      showSeekIndicator('left');
+      showVideoToast('-10s');
+    });
+    navigator.mediaSession.setActionHandler('seekforward', () => {
+      seekRelative(10);
+      showSeekIndicator('right');
+      showVideoToast('+10s');
+    });
+    if (nextEpisodeId) {
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        location.hash = `#/player/${nextEpisodeId}`;
+      });
+    } else {
+      try {
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+      } catch (e) {}
+    }
+  } catch (err) {
+    console.warn('MediaSession initialization error:', err);
+  }
+}
+
+// Next Episode Countdown Overlay Card
+function renderNextEpisodeCard() {
+  if (!container) return null;
+  let card = document.getElementById('next-episode-card');
+  if (!card) {
+    card = document.createElement('div');
+    card.id = 'next-episode-card';
+    card.className = 'next-episode-card';
+    card.style.display = 'none';
+    container.appendChild(card);
+  }
+  return card;
+}
+
+function showNextEpisodeCard(secondsLeft) {
+  if (nextEpisodeDismissed || nextEpisodeNavigated || !nextEpisodeId) return;
+  const card = renderNextEpisodeCard();
+  if (!card) return;
+
+  const nextTitle = nextEpisodeData 
+    ? (nextEpisodeData.title ? `Capítulo ${nextEpisodeData.episode_number}: ${nextEpisodeData.title}` : `Capítulo ${nextEpisodeData.episode_number}`) 
+    : 'Siguiente episodio';
+  const rawThumb = nextEpisodeData ? (nextEpisodeData.thumbnail_path || nextEpisodeData.thumbnail || '') : '';
+  const nextThumb = rawThumb ? ((rawThumb.startsWith('http') || rawThumb.startsWith('/')) ? rawThumb : `/${rawThumb}`) : '';
+
+  card.innerHTML = `
+    <div class="next-ep-card-header">
+      <span class="next-ep-countdown-label">Próximo episodio en <span class="next-ep-sec">${secondsLeft}</span>s...</span>
+    </div>
+    <div class="next-ep-card-content">
+      ${nextThumb ? `<img src="${escapeHtml(nextThumb)}" class="next-ep-thumb" alt="Miniatura">` : ''}
+      <div class="next-ep-info">
+        <div class="next-ep-show">${escapeHtml(currentShowData?.title || 'KuraStream')}</div>
+        <div class="next-ep-title">${escapeHtml(nextTitle)}</div>
+      </div>
+    </div>
+    <div class="next-ep-card-actions">
+      <button class="btn btn-primary btn-next-now" id="next-ep-card-play"><i data-lucide="play"></i> Ver ahora</button>
+      <button class="btn btn-secondary btn-next-cancel" id="next-ep-card-cancel">Cancelar</button>
+    </div>
+  `;
+  card.style.display = 'flex';
+
+  const playBtn = card.querySelector('#next-ep-card-play');
+  const cancelBtn = card.querySelector('#next-ep-card-cancel');
+
+  if (playBtn) {
+    playBtn.onclick = (e) => {
+      e.stopPropagation();
+      nextEpisodeNavigated = true;
+      hideNextEpisodeCard();
+      location.hash = `#/player/${nextEpisodeId}`;
+    };
+  }
+
+  if (cancelBtn) {
+    cancelBtn.onclick = (e) => {
+      e.stopPropagation();
+      nextEpisodeDismissed = true;
+      hideNextEpisodeCard();
+    };
+  }
+
+  if (typeof lucide !== 'undefined' && lucide.createIcons) {
+    lucide.createIcons();
+  }
+}
+
+function hideNextEpisodeCard() {
+  const card = document.getElementById('next-episode-card');
+  if (card) {
+    card.style.display = 'none';
+  }
+}
+
+// Mobile Touch Gestures (Double-tap seek)
+function setupTouchGestures() {
+  if (!container) return;
+  if (handleTouchStart) {
+    container.removeEventListener('touchstart', handleTouchStart);
+  }
+
+  handleTouchStart = (e) => {
+    if (!isPlayerActive || e.touches.length > 1) return;
+    const touch = e.touches[0];
+    const now = Date.now();
+    const timeDiff = now - lastTapTime;
+    const rect = container.getBoundingClientRect();
+    const touchX = touch.clientX - rect.left;
+    const percentX = touchX / rect.width;
+
+    if (timeDiff < 300 && timeDiff > 40) {
+      const dist = Math.hypot(touch.clientX - lastTapX, touch.clientY - lastTapY);
+      if (dist < 80) {
+        if (percentX <= 0.35) {
+          e.preventDefault();
+          seekRelative(-10);
+          showSeekIndicator('left');
+          showTouchRipple(touchX, touch.clientY - rect.top, 'left');
+          showVideoToast('-10s');
+          lastTapTime = 0;
+          return;
+        } else if (percentX >= 0.65) {
+          e.preventDefault();
+          seekRelative(10);
+          showSeekIndicator('right');
+          showTouchRipple(touchX, touch.clientY - rect.top, 'right');
+          showVideoToast('+10s');
+          lastTapTime = 0;
+          return;
+        }
+      }
+    }
+
+    lastTapTime = now;
+    lastTapX = touch.clientX;
+    lastTapY = touch.clientY;
+  };
+
+  container.addEventListener('touchstart', handleTouchStart, { passive: false });
+}
+
+function showTouchRipple(x, y, side) {
+  if (!container) return;
+  const ripple = document.createElement('div');
+  ripple.className = `seek-ripple ${side}`;
+  ripple.style.left = `${x}px`;
+  ripple.style.top = `${y}px`;
+  container.appendChild(ripple);
+  setTimeout(() => {
+    ripple.remove();
+  }, 600);
 }
 
 // Sakura Rain Pause Effect Logic
