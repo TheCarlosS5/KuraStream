@@ -143,10 +143,62 @@ if (!file_exists($indexPath)) {
     }
 }
 
+// 5. Task 3: Show Details Smart Resume & 16:9 Episode Cards
+$appJsPath = __DIR__ . '/../frontend/app.js';
+if (!file_exists($appJsPath)) {
+    $errors[] = "frontend/app.js does not exist";
+} else {
+    $js = file_get_contents($appJsPath);
+
+    // Assert Smart Resume Button logic exists in app.js
+    if (!preg_match('/Continuar Ep\./', $js) || !preg_match('/Ver Episodio 1/', $js)) {
+        $errors[] = "Missing smart resume button text ('Continuar Ep.' and 'Ver Episodio 1') in app.js";
+    }
+
+    // Assert 'VISTO' badge logic exists for completed or >= 85% episodes
+    if (!preg_match('/VISTO/', $js)) {
+        $errors[] = "Missing 'VISTO' badge logic in app.js";
+    }
+
+    // Assert episode progress bar in app.js
+    if (!preg_match('/episode-progress-bar|episode-progress-fill/', $js)) {
+        $errors[] = "Missing episode progress bar markup in app.js";
+    }
+}
+
+// Assert 16:9 thumbnail aspect ratio in style.css
+if (!preg_match('/\.episode-thumb-wrapper\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*9/s', $css)) {
+    $errors[] = "Missing 'aspect-ratio: 16 / 9;' for .episode-thumb-wrapper in style.css";
+}
+
+// Assert hover zoom on episode thumbnail
+if (!preg_match('/\.episode-item:hover\s+\.episode-thumb\s*\{[^}]*transform:\s*scale\(/s', $css)) {
+    $errors[] = "Missing hover zoom 'transform: scale(...)' on .episode-item:hover .episode-thumb in style.css";
+}
+
+// Assert clean 4px season-tab radii in style.css
+if (preg_match('/\.season-tab\s*\{[^}]*border-radius:\s*20px;/s', $css)) {
+    $errors[] = ".season-tab must not use pill 'border-radius: 20px;'";
+}
+
+if (!preg_match('/\.season-tab\s*\{[^}]*border-radius:\s*(?:var\(--radius-sm\)|4px);/s', $css)) {
+    $errors[] = ".season-tab must use 'var(--radius-sm)' or '4px' border-radius in style.css";
+}
+
+// Assert .badge-visto class exists
+if (!preg_match('/\.badge-visto\b/', $css)) {
+    $errors[] = "Missing .badge-visto class in style.css";
+}
+
+// Assert episode progress bar with --progress-color
+if (!preg_match('/\.episode-progress-bar\s*\{[^}]*background/s', $css) || !preg_match('/\.episode-progress-fill\s*\{[^}]*background:\s*(?:var\(--progress-color\)|#e50914)/s', $css)) {
+    $errors[] = "Missing episode progress bar / fill styling with --progress-color in style.css";
+}
+
 if (!empty($errors)) {
     echo "FAIL:\n - " . implode("\n - ", $errors) . "\n";
     exit(1);
 }
 
-echo "✓ UI Assets CSS Scale, Radii & PWA Tests Passed\n";
+echo "✓ UI Assets CSS Scale, Radii & Show Details Tests Passed\n";
 exit(0);

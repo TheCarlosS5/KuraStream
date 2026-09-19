@@ -1,0 +1,31 @@
+{
+  "name": "KuraStream - Cloud Anime Streaming",
+  "short_name": "KuraStream",
+  "description": "Plataforma moderna de streaming de anime y medios en la nube",
+  "start_url": "/#/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#08090b",
+  "theme_color": "#08090b",
+  "icons": [
+    {
+      "src": "/assets/branding/KuraStreamLogoBlack.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/branding/KuraStreamLogoBlack.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/branding/KuraStreamBannerBlack.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
