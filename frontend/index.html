@@ -40,7 +40,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=10.18_torrent_pause_and_name_fixed">
+  <link rel="stylesheet" href="style.css?v=10.22_static_background_centered_nav">
 </head>
 <body>
 
@@ -48,6 +48,7 @@
   <header class="app-header">
     <a href="#/" class="header-logo" id="header-logo" style="text-decoration: none;">
       <img id="custom-logo" src="/library/logo.png" alt="KuraStream Logo" onerror="this.style.display='none'; document.getElementById('fallback-logo').style.display='flex';" style="height: 40px; width: auto; object-fit: contain;">
+      <span class="header-brand-label">Kura<span class="accent-text">Stream</span></span>
       <div id="fallback-logo" style="display: none; align-items: center; gap: 8px;">
         <span class="logo-icon">蔵</span>
         <span class="logo-text">Kura<span class="accent-text">Stream</span></span>
@@ -111,7 +112,6 @@
 
   <!-- Views Container -->
   <main class="views-container">
-    <div class="dashboard-mosaic-bg" id="dashboard-mosaic-bg"></div>
     <div class="dashboard-gradient-overlay"></div>
 
     <!-- PROFILE SWITCHER VIEW ("¿Quién está viendo?") -->
@@ -275,12 +275,8 @@
 
     <!-- SHOW DETAIL VIEW -->
     <section id="detail-view" class="app-view">
-      <!-- Background Ambient Intro Loop Video -->
+      <!-- Static backdrop: the show image is applied by app.js. -->
       <div class="detail-ambient-bg">
-        <video id="detail-bg-video" loop muted playsinline></video>
-        <div id="detail-bg-youtube-container" class="detail-bg-youtube-container" style="display: none;">
-          <iframe id="detail-bg-youtube-iframe" src="" allow="autoplay; encrypted-media" title="YouTube Background Video"></iframe>
-        </div>
         <div class="ambient-overlay"></div>
       </div>
 
@@ -1621,7 +1617,7 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="app.js?v=10.18_torrent_pause_and_name_fixed" type="module"></script>
+  <script src="app.js?v=10.19_static_background_centered_nav" type="module"></script>
   <script src="player.js?v=10.18_torrent_pause_and_name_fixed" type="module"></script>
   <!-- Service Worker Registration for PWA -->
   <script>

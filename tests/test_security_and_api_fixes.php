@@ -103,6 +103,10 @@ DbHelper::saveEpisode([
     'title' => 'Stream Ep 1',
     'filepath' => $testVideoPath
 ]);
+register_shutdown_function(function () use ($testVideoPath) {
+    DbHelper::deleteShow('test-stream-show');
+    if (file_exists($testVideoPath)) @unlink($testVideoPath);
+});
 
 unset($_SERVER['HTTP_RANGE']);
 $streamSuccess = false;
@@ -142,6 +146,7 @@ assert($invalidRangeCaught, "Out of bounds range must return 416 Requested Range
 if (file_exists($testVideoPath)) {
     @unlink($testVideoPath);
 }
+DbHelper::deleteShow('test-stream-show');
 echo "✓ Path & Prefix Traversal Prevention and Range Streaming OK\n";
 
 // 7. Test HistoryController Require Authentication

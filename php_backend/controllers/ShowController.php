@@ -157,10 +157,9 @@ class ShowController {
         $mediaType = $show['media_type'] ?? 'anime';
         $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
 
-        // 1. Delete DB records
-        DbHelper::deleteShow($realId);
-
-        // 2. Safely delete physical directory
+        // Delete the source directory before its database record.  The library
+        // scanner imports every folder containing video files, so leaving an
+        // unmatched directory would make a deleted show appear again later.
         $possiblePaths = [
             LIBRARY_DIR . '/' . $catFolder . '/' . $realId,
             LIBRARY_DIR . '/' . $catFolder . '/' . $id,
@@ -170,15 +169,35 @@ class ShowController {
             LIBRARY_DIR . '/Anime/' . str_replace('_', ' ', $id)
         ];
 
-        $realLibPath = realpath(LIBRARY_DIR);
-        foreach ($possiblePaths as $folderPath) {
-            if (is_dir($folderPath)) {
-                $realFolderPath = realpath($folderPath);
-                if ($realFolderPath && $realLibPath && str_starts_with($realFolderPath, $realLibPath . DIRECTORY_SEPARATOR)) {
-                    self::deleteDirectoryRecursive($realFolderPath);
+        // A source folder often uses the human title while the database uses a
+        // slug. Resolve that real folder while the show record still exists.
+        foreach (['Anime', 'Movies'] as $folderName) {
+            $categoryPath = LIBRARY_DIR . '/' . $folderName;
+            if (!is_dir($categoryPath)) continue;
+            foreach (array_diff(scandir($categoryPath), ['.', '..']) as $folder) {
+                $candidatePath = $categoryPath . '/' . $folder;
+                if (!is_dir($candidatePath)) continue;
+                $candidateShow = DbHelper::findShowByFolderOrTitle($folder, $folder);
+                if ($candidateShow && (string)$candidateShow['id'] === (string)$realId) {
+                    $possiblePaths[] = $candidatePath;
                 }
             }
         }
+
+        $realLibPath = realpath(LIBRARY_DIR);
+        foreach (array_unique($possiblePaths) as $folderPath) {
+            if (is_dir($folderPath)) {
+                $realFolderPath = realpath($folderPath);
+                if ($realFolderPath && $realLibPath && str_starts_with($realFolderPath, $realLibPath . DIRECTORY_SEPARATOR)) {
+                    if (!self::deleteDirectoryRecursive($realFolderPath)) {
+                        jsonError('No se pudo eliminar la carpeta de medios. Revisa los permisos e inténtalo de nuevo.', 500);
+                    }
+                }
+            }
+        }
+
+        // Only remove the catalog entry after the media source is gone.
+        DbHelper::deleteShow($realId);
 
         jsonResponse(['success' => true]);
     }

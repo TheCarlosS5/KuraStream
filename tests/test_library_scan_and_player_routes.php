@@ -153,6 +153,9 @@ DbHelper::saveEpisode([
     'title' => 'Episode 1',
     'filepath' => 'dummy.mp4'
 ]);
+register_shutdown_function(function () {
+    DbHelper::deleteShow('akashic-records');
+});
 $caughtShowDetails = false;
 ob_start();
 try {
@@ -166,6 +169,7 @@ try {
 ob_get_clean();
 assert($caughtShowDetails, "ShowController::getShowDetails should return dual-compatible payload");
 echo "✓ Show Details Dual Object Compatibility OK\n";
+DbHelper::deleteShow('akashic-records');
 
 // 11. Test Staged Imports Key Compatibility
 $caughtStaged = false;

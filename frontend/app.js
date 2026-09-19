@@ -214,13 +214,13 @@ function setupRouter() {
     // Default main header visibility for logged-in users
     const mainHeader = document.querySelector('.app-header');
     if (mainHeader && !hash.startsWith('#/player/')) {
-      mainHeader.style.display = 'flex';
+      mainHeader.style.removeProperty('display');
     }
     
     // Stop player when leaving player view
     if (currentView === 'player') {
       destroyPlayer();
-      if (mainHeader) mainHeader.style.display = 'flex';
+      if (mainHeader) mainHeader.style.removeProperty('display');
     }
 
     // Stop intervals when leaving admin view
@@ -233,25 +233,9 @@ function setupRouter() {
       resetChameleonTheme();
     }
 
-    // Stop background trailers, modals and local loop videos when leaving show details view
+    // Close the user-opened trailer modal when leaving show details.
     if (!hash.startsWith('#/show/')) {
-      // 1. YouTube background trailer
-      const bgYoutubeIframe = document.getElementById('detail-bg-youtube-iframe');
-      const bgYoutubeContainer = document.getElementById('detail-bg-youtube-container');
-      if (bgYoutubeIframe) bgYoutubeIframe.src = '';
-      if (bgYoutubeContainer) bgYoutubeContainer.style.display = 'none';
-
-      // 2. Local background video loop
-      const bgVideo = document.getElementById('detail-bg-video');
-      if (bgVideo) {
-        bgVideo.pause();
-        bgVideo.removeAttribute('src');
-        bgVideo.load();
-        bgVideo.onplaying = null;
-        bgVideo.onended = null;
-      }
-
-      // 3. YouTube trailer modal
+      // YouTube trailer modal
       const trailerModal = document.getElementById('trailer-modal');
       const trailerIframe = document.getElementById('trailer-iframe');
       if (trailerModal) trailerModal.style.display = 'none';
@@ -287,7 +271,6 @@ function setupRouter() {
       const dashView = document.getElementById('dashboard-view');
       if (dashView) { dashView.classList.add('active'); dashView.style.display = 'block'; }
       loadDashboard('anime');
-      initDashboardMosaic();
     } else if (hash === '#/airing') {
       currentView = 'dashboard';
       currentShowsPage = 1;
@@ -299,7 +282,6 @@ function setupRouter() {
       const dashView = document.getElementById('dashboard-view');
       if (dashView) { dashView.classList.add('active'); dashView.style.display = 'block'; }
       loadDashboard('anime');
-      initDashboardMosaic();
     } else if (hash === '#/calendar') {
       currentView = 'calendar';
       document.getElementById('nav-calendar')?.classList.add('active');
@@ -316,7 +298,6 @@ function setupRouter() {
       const dashView = document.getElementById('dashboard-view');
       if (dashView) { dashView.classList.add('active'); dashView.style.display = 'block'; }
       loadDashboard('movie');
-      initDashboardMosaic();
     } else if (hash === '#/my-list') {
       currentView = 'mylist';
       document.getElementById('nav-mylist')?.classList.add('active');
@@ -1084,8 +1065,6 @@ async function loadShowDetails(id) {
   const detailCast = document.getElementById('detail-cast');
   const seasonTabs = document.getElementById('season-tabs');
   const episodesList = document.getElementById('episodes-list');
-  const bgVideo = document.getElementById('detail-bg-video');
-
   // Clear previous details
   detailTitle.textContent = 'Cargando...';
   detailSynopsis.textContent = '';
@@ -1103,19 +1082,6 @@ async function loadShowDetails(id) {
   const oldActions = document.getElementById('detail-primary-actions');
   if (oldActions) oldActions.remove();
   
-  // Stop background video and YouTube iframe
-  if (bgVideo) {
-    bgVideo.pause();
-    bgVideo.removeAttribute('src');
-    bgVideo.load();
-    bgVideo.onplaying = null;
-    bgVideo.onended = null;
-  }
-  const prevBgYoutubeIframe = document.getElementById('detail-bg-youtube-iframe');
-  const prevBgYoutubeContainer = document.getElementById('detail-bg-youtube-container');
-  if (prevBgYoutubeIframe) prevBgYoutubeIframe.src = '';
-  if (prevBgYoutubeContainer) prevBgYoutubeContainer.style.display = 'none';
-
   try {
     const res = await fetch(`/api/shows/${id}`);
     const data = await res.json();
@@ -1231,10 +1197,6 @@ async function loadShowDetails(id) {
       if (show.trailer_key) {
         trailerBtn.style.display = 'flex';
         trailerBtn.onclick = () => {
-          // Pause detail ambient video loop to avoid double audio
-          const bgVideo = document.getElementById('detail-bg-video');
-          if (bgVideo) bgVideo.pause();
-          
           trailerIframe.src = `https://www.youtube.com/embed/${show.trailer_key}?autoplay=1`;
           trailerModal.style.display = 'flex';
         };
@@ -1243,11 +1205,6 @@ async function loadShowDetails(id) {
           trailerModal.style.display = 'none';
           trailerIframe.src = '';
           
-          // Resume background loop if applicable
-          const bgVideo = document.getElementById('detail-bg-video');
-          if (bgVideo && bgVideo.src) {
-            bgVideo.play().catch(e => {});
-          }
         };
 
         trailerModal.onclick = (e) => {
@@ -1281,102 +1238,21 @@ async function loadShowDetails(id) {
       }
     }
 
-    // Renders dynamic backdrop loop video(s)
-    const showTypeDir = show.media_type === 'movie' ? 'Movies' : 'Anime';
-    const sanitizedTitle = show.title.replace(/[\\/:*?"<>|]/g, '_');
-    
-    let loops = [];
-    if (show.backdrop_loops) {
-      try {
-        loops = typeof show.backdrop_loops === 'string' ? JSON.parse(show.backdrop_loops) : show.backdrop_loops;
-        if (typeof loops === 'string') {
-          loops = JSON.parse(loops);
-        }
-      } catch (e) {
-        loops = [];
-      }
-    }
-    if (!Array.isArray(loops)) loops = [];
-
-    const hasLocalLoops = loops.length > 0;
-
-    // Set backdrop image immediately as a fallback
+    // Use one static backdrop image. Detail pages must not start an ambient
+    // video or an embedded trailer in the background.
+    const ambientBg = document.querySelector('.detail-ambient-bg');
     if (show.backdrop_path) {
       let hdBackdrop = show.backdrop_path.replace('/w500/', '/original/').replace('/w1280/', '/original/');
       const safeBackdrop = hdBackdrop.replace(/'/g, "%27");
-      const ambientBg = document.querySelector('.detail-ambient-bg');
       if (ambientBg) {
         ambientBg.style.backgroundImage = `url('${safeBackdrop}')`;
         ambientBg.style.backgroundSize = 'cover';
         ambientBg.style.backgroundPosition = 'center top';
         ambientBg.style.filter = 'brightness(0.55) saturate(120%)';
       }
-    }
-
-    const bgYoutubeContainer = document.getElementById('detail-bg-youtube-container');
-    const bgYoutubeIframe = document.getElementById('detail-bg-youtube-iframe');
-
-    if (!hasLocalLoops && show.trailer_key) {
-      // Show YouTube container and hide/pause local video
-      if (bgYoutubeContainer) {
-        bgYoutubeContainer.style.display = 'block';
-        bgYoutubeContainer.style.pointerEvents = 'none';
-      }
-      if (bgVideo) {
-        bgVideo.style.display = 'none';
-        bgVideo.pause();
-        bgVideo.removeAttribute('src');
-        bgVideo.load();
-        bgVideo.onplaying = null;
-        bgVideo.onended = null;
-      }
-
-      if (bgYoutubeIframe) {
-        bgYoutubeIframe.style.pointerEvents = 'none';
-        bgYoutubeIframe.src = `https://www.youtube-nocookie.com/embed/${show.trailer_key}?autoplay=1&mute=1&controls=0&loop=1&playlist=${show.trailer_key}&playsinline=1&showinfo=0&rel=0&iv_load_policy=3&enablejsapi=1&disablekb=1&modestbranding=1&fs=0&autohide=1`;
-      }
     } else {
-      // Hide YouTube container, clear iframe src, and run local loop playback logic
-      if (bgYoutubeContainer) bgYoutubeContainer.style.display = 'none';
-      if (bgYoutubeIframe) bgYoutubeIframe.src = '';
-
-      if (loops.length === 0) {
-        // Fallback legacy intro loop filename
-        loops.push(`/library/${showTypeDir}/${sanitizedTitle}/intro_loop.mp4`);
-      }
-
-      let currentLoopIndex = 0;
-      if (bgVideo) {
-        bgVideo.style.display = 'none'; // Hide initially
-
-        bgVideo.onplaying = () => {
-          bgVideo.style.display = 'block'; // Show only when video is playing
-        };
-
-        const playLoop = (index) => {
-          if (loops.length === 0) return;
-          if (index >= loops.length) index = 0;
-          currentLoopIndex = index;
-
-          const videoUrl = loops[index];
-          bgVideo.src = videoUrl;
-          bgVideo.load();
-          bgVideo.loop = loops.length === 1; // Native loop if only 1 video
-
-          bgVideo.play().catch(e => {
-            console.log("Auto-play background video failed or blocked.", e);
-            bgVideo.style.display = 'none';
-          });
-        };
-
-        bgVideo.onended = () => {
-          if (loops.length > 1) {
-            playLoop(currentLoopIndex + 1);
-          }
-        };
-
-        playLoop(0);
-      }
+      ambientBg?.style.removeProperty('background-image');
+      ambientBg?.style.removeProperty('filter');
     }
 
     // Populate Cast safely
@@ -5036,18 +4912,8 @@ function getDecodedToken(token) {
 }
 
 function updateMosaicBgVisibility() {
-  const sessionStr = localStorage.getItem('kura_user_session');
-  const mosaicBg = document.getElementById('dashboard-mosaic-bg');
   const gradientOverlay = document.querySelector('.dashboard-gradient-overlay');
-  
-  if (!sessionStr) {
-    if (mosaicBg) mosaicBg.style.display = 'flex';
-    if (gradientOverlay) gradientOverlay.style.display = 'block';
-    initDashboardMosaic();
-  } else {
-    if (mosaicBg) mosaicBg.style.display = 'none';
-    if (gradientOverlay) gradientOverlay.style.display = 'none';
-  }
+  if (gradientOverlay) gradientOverlay.style.display = 'block';
 }
 
 function checkAndShowProfileSwitcher() {
@@ -5609,40 +5475,6 @@ function initProfilesUI() {
   // Call the check on initial load after a short delay to let views initialize
   setTimeout(checkAndShowProfileSwitcher, 100);
   window.addEventListener('hashchange', checkAndShowProfileSwitcher);
-}
-
-// Dynamic mosaic background rendering
-async function initDashboardMosaic() {
-  const mosaicBg = document.getElementById('dashboard-mosaic-bg');
-  if (!mosaicBg) return;
-  if (mosaicBg.children.length > 0) return;
-  
-  let shows = [];
-  try {
-    const res = await fetch('/api/shows');
-    if (res.ok) shows = await res.json();
-  } catch (err) {}
-  
-  const defaultPosters = [
-    'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80',
-    'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=500&q=80',
-    'https://images.unsplash.com/photo-1580477667995-2b94f01c9516?w=500&q=80',
-    'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=500&q=80'
-  ];
-  
-  let posterUrls = shows.map(s => s.poster_path).filter(Boolean);
-  if (posterUrls.length < 8) posterUrls = [...posterUrls, ...defaultPosters];
-  
-  const colsData = [[], [], [], []];
-  for (let i = 0; i < 24; i++) {
-    colsData[i % 4].push(posterUrls[i % posterUrls.length]);
-  }
-  
-  mosaicBg.innerHTML = colsData.map((col, idx) => {
-    const colClass = idx % 2 === 0 ? 'col-up' : 'col-down';
-    const imgs = [...col, ...col].map(url => `<img src="${url}" alt="Anime Poster">`).join('');
-    return `<div class="landing-mosaic-column ${colClass}">${imgs}</div>`;
-  }).join('');
 }
 
 // Scrape cover button globally
