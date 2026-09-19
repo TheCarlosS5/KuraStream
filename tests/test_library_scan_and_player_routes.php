@@ -134,8 +134,30 @@ try {
     assert(is_dir($siblingShowDir), "Deleting naruto must not delete sibling naruto-shippuden directory");
     assert(file_exists($siblingMarker), "Deleting naruto must preserve sibling media files");
     echo "✓ Delete Show only removes the selected canonical media directory\n";
+
+    DbHelper::saveShow([
+        'id' => 'naruto-shippuden',
+        'title' => 'Naruto Shippuden',
+        'media_type' => 'anime'
+    ]);
+
+    $caughtAbsentDelete = false;
+    ob_start();
+    try {
+        ShowController::deleteShow($canonicalShowId);
+    } catch (ExitException $e) {
+        $caughtAbsentDelete = ($e->statusCode === 200);
+    }
+    ob_get_clean();
+
+    assert($caughtAbsentDelete, "Deleting an absent show should preserve the existing success response");
+    assert(DbHelper::getShow('naruto-shippuden') !== null, "Deleting absent naruto must not delete naruto-shippuden from the catalog");
+    assert(is_dir($siblingShowDir), "Deleting absent naruto must not delete sibling naruto-shippuden directory");
+    assert(file_exists($siblingMarker), "Deleting absent naruto must preserve sibling media files");
+    echo "✓ Delete Show does not fuzzy-resolve an absent show ID\n";
 } finally {
     DbHelper::deleteShow($canonicalShowId);
+    DbHelper::deleteShow('naruto-shippuden');
     @unlink($siblingMarker);
     @rmdir($siblingShowDir);
 }

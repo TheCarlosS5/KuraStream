@@ -149,9 +149,6 @@ class ShowController {
     public static function deleteShow(string $id): void {
         AuthMiddleware::requireAdmin();
         $show = DbHelper::getShow($id);
-        if (!$show) {
-            $show = DbHelper::findShowByFolderOrTitle($id, $id);
-        }
 
         $realId = $show ? $show['id'] : $id;
         $mediaType = $show['media_type'] ?? 'anime';
