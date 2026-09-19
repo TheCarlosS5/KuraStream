@@ -52,6 +52,9 @@ class TorrentDownloader {
 
     public static function isProcessAlive(int $pid): bool {
         if ($pid <= 0) return false;
+        // The current process is necessarily alive. This also avoids an external
+        // process-list lookup in restricted Windows environments.
+        if ($pid === getmypid()) return true;
         if (PHP_OS_FAMILY === 'Windows') {
             $out = @shell_exec("tasklist /FI \"PID eq {$pid}\" /NH 2>NUL");
             if (empty($out) || stripos($out, 'INFO') !== false) {

@@ -14,13 +14,18 @@ $passed = 0;
 $failed = 0;
 $total = count($testFiles);
 $phpBin = PHP_BINARY ?: 'php';
+$phpExtDir = dirname($phpBin) . DIRECTORY_SEPARATOR . 'ext';
+$phpExtensionArgs = is_dir($phpExtDir)
+    ? ' -d ' . escapeshellarg("extension_dir={$phpExtDir}")
+        . ' -d extension=pdo_mysql -d extension=curl -d extension=mbstring -d extension=fileinfo'
+    : '';
 
 foreach ($testFiles as $idx => $file) {
     $name = basename($file);
     $num = $idx + 1;
     echo "[$num/$total] Running $name... ";
 
-    $cmd = escapeshellarg($phpBin) . ' ' . escapeshellarg($file);
+    $cmd = escapeshellarg($phpBin) . $phpExtensionArgs . ' ' . escapeshellarg($file);
     $output = [];
     $returnCode = 0;
     exec($cmd . ' 2>&1', $output, $returnCode);
