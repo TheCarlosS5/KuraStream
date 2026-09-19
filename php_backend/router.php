@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/middleware/AuthMiddleware.php';
+require_once __DIR__ . '/middleware/RateLimiter.php';
 require_once __DIR__ . '/controllers/AuthController.php';
 require_once __DIR__ . '/controllers/ShowController.php';
 require_once __DIR__ . '/controllers/PlayerController.php';
@@ -59,10 +61,12 @@ if (str_starts_with($decodedUri, '/library/')) {
 setCorsHeaders();
 
 if ($uri === '/api/login' && $method === 'POST') {
+    RateLimiter::enforce('auth', 10, 300);
     AuthController::login();
 }
 
 if ($uri === '/api/register' && $method === 'POST') {
+    RateLimiter::enforce('auth', 10, 300);
     AuthController::register();
 }
 
@@ -71,11 +75,17 @@ if ($uri === '/api/logout' && $method === 'POST') {
 }
 
 if ($uri === '/api/debug-log' && $method === 'POST') {
+    $env = getenv('APP_ENV') ?: 'production';
+    if ($env !== 'development') {
+        // En producción solo se permite a administradores con rate limit
+        AuthMiddleware::requireAdmin();
+    }
+    RateLimiter::enforce('debug_log', 30, 60);
+
     $input = file_get_contents('php://input');
-    file_put_contents(ROOT_DIR . '/browser_debug.log', "[" . date('Y-m-d H:i:s') . "] " . $input . "\n", FILE_APPEND);
-    header('Content-Type: application/json');
-    echo json_encode(['ok' => true]);
-    exit();
+    $safeLog = mb_substr($input, 0, 2048); // Limitar a 2KB por log
+    file_put_contents(ROOT_DIR . '/browser_debug.log', "[" . date('Y-m-d H:i:s') . "] " . $safeLog . "\n", FILE_APPEND);
+    jsonResponse(['ok' => true]);
 }
 
 if ($uri === '/api/profiles' && $method === 'GET') {
@@ -356,6 +366,7 @@ if ($uri === '/api/comments' && $method === 'GET') {
 }
 
 if ($uri === '/api/comments' && $method === 'POST') {
+    RateLimiter::enforce('comment', 5, 60);
     ShowController::addComment();
 }
 
