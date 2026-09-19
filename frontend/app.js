@@ -4025,7 +4025,8 @@ async function renderStatsView() {
     console.error("Error fetching stats:", err);
   }
 
-  const timeFormatted = formatTotalTime(stats.total_time_seconds || 0);
+  const totalSeconds = stats.total_time_seconds ?? stats.total_time ?? 0;
+  const timeFormatted = formatTotalTime(totalSeconds);
 
   cardsGrid.innerHTML = `
     <div class="stat-card">
