@@ -8,6 +8,36 @@ require_once __DIR__ . '/../services/TmdbScraper.php';
 require_once __DIR__ . '/../services/TorrentDownloader.php';
 
 class AdminController {
+    public static function validateUpload(array $file, array $allowedExts, array $allowedMimes, int $maxBytes): void {
+        if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
+            jsonError('Error en la transferencia del archivo subido', 400);
+        }
+
+        if ($file['size'] > $maxBytes) {
+            $maxMb = round($maxBytes / (1024 * 1024));
+            jsonError("El archivo excede el tamaño máximo permitido de {$maxMb}MB", 400);
+        }
+
+        $origName = $file['name'] ?? '';
+        $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+        if (!in_array($ext, $allowedExts, true)) {
+            jsonError("Extensión de archivo no permitida (.{$ext})", 400);
+        }
+
+        $tmpPath = $file['tmp_name'] ?? '';
+        if (!file_exists($tmpPath) || !is_readable($tmpPath)) {
+            jsonError('Archivo temporal no disponible para inspección', 400);
+        }
+
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $realMime = finfo_file($finfo, $tmpPath);
+        finfo_close($finfo);
+
+        if (!in_array($realMime, $allowedMimes, true)) {
+            jsonError("Tipo de contenido real inválido: {$realMime}", 400);
+        }
+    }
+
     public static function getStaged(): void {
         AuthMiddleware::requireAdmin();
         $db = Database::getConnection();
@@ -501,9 +531,10 @@ class AdminController {
         }
 
         // Check if file was uploaded
-        if (isset($_FILES['videoFile']) && $_FILES['videoFile']['error'] === UPLOAD_ERR_OK) {
+        if (isset($_FILES['videoFile']) && (!empty($_FILES['videoFile']['name']) || $_FILES['videoFile']['error'] !== UPLOAD_ERR_NO_FILE)) {
+            self::validateUpload($_FILES['videoFile'], ['mp4', 'mkv', 'webm'], ['video/mp4', 'video/x-matroska', 'video/webm', 'application/octet-stream'], 4294967296);
             $origName = $_FILES['videoFile']['name'];
-            $ext = pathinfo($origName, PATHINFO_EXTENSION);
+            $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
             $filename = ($mediaType === 'movie') 
                 ? "{$sanitizedDir}.{$ext}" 
                 : "{$sanitizedDir} - S" . sprintf("%02d", $season) . "E" . sprintf("%02d", $episode) . ".{$ext}";
@@ -571,9 +602,10 @@ class AdminController {
 
     public static function uploadLogo(): void {
         AuthMiddleware::requireAdmin();
-        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+        if (!isset($_FILES['file'])) {
             jsonError('Archivo de imagen requerido', 400);
         }
+        self::validateUpload($_FILES['file'], ['jpg', 'jpeg', 'png', 'webp'], ['image/jpeg', 'image/png', 'image/webp'], 15 * 1024 * 1024);
 
         $dest = LIBRARY_DIR . '/logo.png';
         move_uploaded_file($_FILES['file']['tmp_name'], $dest);
@@ -587,6 +619,27 @@ class AdminController {
             @unlink($logoFile);
         }
         jsonResponse(['success' => true]);
+    }
+
+    public static function uploadAvatar(): void {
+        AuthMiddleware::requireAdmin();
+        if (!isset($_FILES['avatar']) && !isset($_FILES['file'])) {
+            jsonError('Archivo de avatar requerido', 400);
+        }
+        $file = $_FILES['avatar'] ?? $_FILES['file'];
+        self::validateUpload($file, ['jpg', 'jpeg', 'png', 'webp'], ['image/jpeg', 'image/png', 'image/webp'], 15 * 1024 * 1024);
+
+        $avatarsDir = LIBRARY_DIR . '/avatars';
+        if (!is_dir($avatarsDir)) {
+            @mkdir($avatarsDir, 0755, true);
+        }
+
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $filename = 'avatar_' . uniqid() . '.' . $ext;
+        $destPath = $avatarsDir . '/' . $filename;
+        move_uploaded_file($file['tmp_name'], $destPath);
+
+        jsonResponse(['success' => true, 'url' => "/library/avatars/{$filename}"]);
     }
 
     public static function uploadShowMedia(): void {
@@ -603,14 +656,24 @@ class AdminController {
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realId;
         if (!is_dir($showDir)) @mkdir($showDir, 0755, true);
 
-        if (isset($_FILES['poster']) && $_FILES['poster']['error'] === UPLOAD_ERR_OK) {
+        if (isset($_FILES['poster'])) {
+            self::validateUpload($_FILES['poster'], ['jpg', 'jpeg', 'png', 'webp'], ['image/jpeg', 'image/png', 'image/webp'], 15 * 1024 * 1024);
             move_uploaded_file($_FILES['poster']['tmp_name'], $showDir . '/poster.jpg');
             $show['poster_path'] = "/library/{$catFolder}/{$realId}/poster.jpg";
             DbHelper::saveShow($show);
-        } else if (isset($_FILES['backdrop']) && $_FILES['backdrop']['error'] === UPLOAD_ERR_OK) {
+        } else if (isset($_FILES['backdrop'])) {
+            self::validateUpload($_FILES['backdrop'], ['jpg', 'jpeg', 'png', 'webp'], ['image/jpeg', 'image/png', 'image/webp'], 15 * 1024 * 1024);
             move_uploaded_file($_FILES['backdrop']['tmp_name'], $showDir . '/backdrop.jpg');
             $show['backdrop_path'] = "/library/{$catFolder}/{$realId}/backdrop.jpg";
             DbHelper::saveShow($show);
+        } else if (isset($_FILES['avatar'])) {
+            self::validateUpload($_FILES['avatar'], ['jpg', 'jpeg', 'png', 'webp'], ['image/jpeg', 'image/png', 'image/webp'], 15 * 1024 * 1024);
+            $avatarsDir = LIBRARY_DIR . '/avatars';
+            if (!is_dir($avatarsDir)) @mkdir($avatarsDir, 0755, true);
+            $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+            $filename = 'avatar_' . uniqid() . '.' . $ext;
+            move_uploaded_file($_FILES['avatar']['tmp_name'], $avatarsDir . '/' . $filename);
+            jsonResponse(['success' => true, 'url' => "/library/avatars/{$filename}"]);
         }
 
         jsonResponse(['success' => true]);
@@ -619,9 +682,11 @@ class AdminController {
     public static function uploadShowLoop(): void {
         AuthMiddleware::requireAdmin();
         $showId = $_POST['showId'] ?? ($_POST['show_id'] ?? '');
-        if (empty($showId) || !isset($_FILES['video']) || $_FILES['video']['error'] !== UPLOAD_ERR_OK) {
+        if (empty($showId) || !isset($_FILES['video'])) {
             jsonError('showId y video requerido', 400);
         }
+
+        self::validateUpload($_FILES['video'], ['mp4', 'mkv', 'webm'], ['video/mp4', 'video/x-matroska', 'video/webm', 'application/octet-stream'], 4294967296);
 
         $show = DbHelper::getShow($showId) ?: DbHelper::findShowByFolderOrTitle($showId, $showId);
         $realId = $show ? $show['id'] : $showId;
@@ -629,7 +694,8 @@ class AdminController {
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realId;
         if (!is_dir($showDir)) @mkdir($showDir, 0755, true);
 
-        $loopFilename = 'loop_' . uniqid() . '.mp4';
+        $ext = strtolower(pathinfo($_FILES['video']['name'], PATHINFO_EXTENSION)) ?: 'mp4';
+        $loopFilename = 'loop_' . uniqid() . '.' . $ext;
         $destPath = $showDir . '/' . $loopFilename;
         move_uploaded_file($_FILES['video']['tmp_name'], $destPath);
 
@@ -669,9 +735,11 @@ class AdminController {
     public static function uploadEpisodeThumb(): void {
         AuthMiddleware::requireAdmin();
         $episodeId = $_POST['episodeId'] ?? ($_POST['episode_id'] ?? '');
-        if (empty($episodeId) || !isset($_FILES['image']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+        if (empty($episodeId) || !isset($_FILES['image'])) {
             jsonError('episodeId e image requeridos', 400);
         }
+
+        self::validateUpload($_FILES['image'], ['jpg', 'jpeg', 'png', 'webp'], ['image/jpeg', 'image/png', 'image/webp'], 15 * 1024 * 1024);
 
         $ep = DbHelper::getEpisode($episodeId);
         if (!$ep) jsonError('Episodio no encontrado', 404);
