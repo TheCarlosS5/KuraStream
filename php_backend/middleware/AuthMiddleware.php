@@ -49,9 +49,13 @@ class AuthMiddleware {
     }
 
     /**
-     * Extract token from HTTP Authorization header
+     * Extract token from cookie or HTTP Authorization header
      */
     public static function getBearerToken(): ?string {
+        if (!empty($_COOKIE['kurastream_token'])) {
+            return trim($_COOKIE['kurastream_token']);
+        }
+
         $headers = null;
         if (isset($_SERVER['Authorization'])) {
             $headers = trim($_SERVER['Authorization']);

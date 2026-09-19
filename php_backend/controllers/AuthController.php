@@ -19,44 +19,6 @@ class AuthController {
             jsonError('Usuario y contraseña requeridos', 400);
         }
 
-        // Built-in Admin fallback check for TheCarlosS5 / admin
-        $isHardcodedAdmin = (
-            (strcasecmp($username, 'TheCarlosS5') === 0 || strcasecmp($username, 'admin') === 0) &&
-            ($password === 'Carlos2009' || $password === '0101' || $password === 'admin')
-        );
-
-        if ($isHardcodedAdmin) {
-            $db = Database::getConnection();
-            $stmt = $db->prepare("SELECT * FROM users WHERE LOWER(username) = LOWER(:u)");
-            $stmt->execute(['u' => $username]);
-            $existing = $stmt->fetch();
-            if (!$existing) {
-                $hash = password_hash($password, PASSWORD_BCRYPT);
-                $ins = $db->prepare("INSERT INTO users (username, password_hash, role) VALUES (:u, :p, 'admin')");
-                $ins->execute(['u' => $username, 'p' => $hash]);
-                DbHelper::saveUserProfile($username, [
-                    'id' => 'profile_' . uniqid(),
-                    'name' => 'Principal',
-                    'avatar' => '',
-                    'color' => '#a855f7'
-                ]);
-            }
-
-            $tokenPayload = [
-                'username' => $username,
-                'role' => 'admin',
-                'exp' => time() + (30 * 24 * 3600)
-            ];
-            $token = AuthMiddleware::createToken($tokenPayload);
-
-            jsonResponse([
-                'success' => true,
-                'token' => $token,
-                'role' => 'admin',
-                'username' => $username
-            ]);
-        }
-
         // Optional Environment admin credentials check
         $adminUser = getenv('ADMIN_USER');
         $adminPass = getenv('ADMIN_PASS');
@@ -77,6 +39,7 @@ class AuthController {
                     'exp' => time() + (30 * 24 * 3600)
                 ];
                 $token = AuthMiddleware::createToken($tokenPayload);
+                self::setSessionCookie($token);
 
                 jsonResponse([
                     'success' => true,
@@ -112,6 +75,7 @@ class AuthController {
                     'exp' => time() + (30 * 24 * 3600)
                 ];
                 $token = AuthMiddleware::createToken($tokenPayload);
+                self::setSessionCookie($token);
 
                 jsonResponse([
                     'success' => true,
@@ -151,6 +115,7 @@ class AuthController {
             'exp' => time() + (30 * 24 * 3600)
         ];
         $token = AuthMiddleware::createToken($tokenPayload);
+        self::setSessionCookie($token);
 
         jsonResponse([
             'success' => true,
@@ -158,6 +123,38 @@ class AuthController {
             'role' => 'user',
             'username' => $username
         ]);
+    }
+
+    public static function logout(): void {
+        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
+            || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443);
+
+        @setcookie('kurastream_token', '', [
+            'expires' => time() - 3600,
+            'path' => '/',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => $isSecure
+        ]);
+        unset($_COOKIE['kurastream_token']);
+
+        jsonResponse(['success' => true, 'message' => 'Sesión cerrada']);
+    }
+
+    private static function setSessionCookie(string $token): void {
+        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
+            || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443);
+
+        @setcookie('kurastream_token', $token, [
+            'expires' => time() + (30 * 24 * 3600),
+            'path' => '/',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => $isSecure
+        ]);
+        $_COOKIE['kurastream_token'] = $token;
     }
 
     public static function getProfiles(): void {

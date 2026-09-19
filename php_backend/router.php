@@ -14,7 +14,29 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 // Serve static frontend files and library media directly
 $frontendDir = ROOT_DIR . '/frontend';
-$libraryDir = ROOT_DIR . '/library';
+$libraryDir = LIBRARY_DIR;
+
+/** Serve a request-relative file only when its canonical path stays below $root. */
+function serveStaticFile(string $root, string $relativePath, ?string $cacheControl = null): bool {
+    $realRoot = realpath($root);
+    if ($realRoot === false) {
+        return false;
+    }
+
+    $candidate = realpath($realRoot . DIRECTORY_SEPARATOR . ltrim($relativePath, '/\\'));
+    $rootPrefix = rtrim($realRoot, '/\\') . DIRECTORY_SEPARATOR;
+    if ($candidate === false || !is_file($candidate) || !str_starts_with($candidate, $rootPrefix)) {
+        return false;
+    }
+
+    $mime = mime_content_type($candidate) ?: 'application/octet-stream';
+    if (str_ends_with($candidate, '.css')) $mime = 'text/css';
+    if (str_ends_with($candidate, '.js')) $mime = 'application/javascript';
+    header("Content-Type: {$mime}");
+    if ($cacheControl !== null) header("Cache-Control: {$cacheControl}");
+    readfile($candidate);
+    exit();
+}
 
 if ($uri === '/' || $uri === '/index.html') {
     header('Content-Type: text/html; charset=utf-8');
@@ -24,39 +46,13 @@ if ($uri === '/' || $uri === '/index.html') {
 
 $decodedUri = urldecode($uri);
 
-$staticFileFrontend = $frontendDir . $decodedUri;
-if (file_exists($staticFileFrontend) && is_file($staticFileFrontend)) {
-    $mime = mime_content_type($staticFileFrontend);
-    if (str_ends_with($decodedUri, '.css')) $mime = 'text/css';
-    if (str_ends_with($decodedUri, '.js')) $mime = 'application/javascript';
-    header("Content-Type: {$mime}");
-    readfile($staticFileFrontend);
-    exit();
-}
+serveStaticFile($frontendDir, $decodedUri);
 
 if (str_starts_with($decodedUri, '/library/')) {
-    $rel = str_replace('/library', '', $decodedUri);
-    $candidate = $libraryDir . $rel;
-    
-    if (!file_exists($candidate) || !is_file($candidate)) {
-        $candidateSpaces = $libraryDir . str_replace('_', ' ', $rel);
-        if (file_exists($candidateSpaces) && is_file($candidateSpaces)) {
-            $candidate = $candidateSpaces;
-        } else {
-            $candidateUnderscores = $libraryDir . str_replace(' ', '_', $rel);
-            if (file_exists($candidateUnderscores) && is_file($candidateUnderscores)) {
-                $candidate = $candidateUnderscores;
-            }
-        }
-    }
-
-    if (file_exists($candidate) && is_file($candidate)) {
-        $mime = mime_content_type($candidate);
-        header("Content-Type: {$mime}");
-        header("Cache-Control: public, max-age=3600");
-        readfile($candidate);
-        exit();
-    }
+    $rel = substr($decodedUri, strlen('/library/'));
+    serveStaticFile($libraryDir, $rel, 'public, max-age=3600');
+    serveStaticFile($libraryDir, str_replace('_', ' ', $rel), 'public, max-age=3600');
+    serveStaticFile($libraryDir, str_replace(' ', '_', $rel), 'public, max-age=3600');
 }
 
 // API Routes
@@ -68,6 +64,10 @@ if ($uri === '/api/login' && $method === 'POST') {
 
 if ($uri === '/api/register' && $method === 'POST') {
     AuthController::register();
+}
+
+if ($uri === '/api/logout' && $method === 'POST') {
+    AuthController::logout();
 }
 
 if ($uri === '/api/debug-log' && $method === 'POST') {
@@ -115,6 +115,7 @@ if ($uri === '/api/calendar/schedule' && $method === 'GET') {
 }
 
 if (preg_match('#^/api/episodes/([^/]+)/timestamps$#', $uri, $m) && $method === 'POST') {
+    AuthMiddleware::requireAdmin();
     PlayerController::saveTimestamps(urldecode($m[1]));
 }
 
