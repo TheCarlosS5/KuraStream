@@ -1,6 +1,16 @@
 // player.js - Custom VLC-style video player logic with SubtitlesOctopus integration
 import { partyManager } from './js/modules/party.js';
 
+function escapeHtml(str) {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function parseJsonArray(val) {
   if (!val) return [];
   if (Array.isArray(val)) return val;

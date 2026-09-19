@@ -6,10 +6,36 @@ services:
       - "3000:3000"
     environment:
       - PORT=3000
-      - JWT_SECRET=super_kura_secret_key_123!
+      - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET in .env before starting Docker}
       - TMDB_API_KEY=
       - MEDIA_LIBRARY_PATH=/app/library
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=kurastream
+      - DB_USER=kurastream
+      - DB_PASS=${DB_PASS:?Set DB_PASS in .env before starting Docker}
     volumes:
       - ./library:/app/library
-      - ./backend/kurastream.db:/app/backend/kurastream.db
     restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: kurastream
+      MYSQL_USER: kurastream
+      MYSQL_PASSWORD: ${DB_PASS:?Set DB_PASS in .env before starting Docker}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env before starting Docker}
+    volumes:
+      - kurastream_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  kurastream_mysql:

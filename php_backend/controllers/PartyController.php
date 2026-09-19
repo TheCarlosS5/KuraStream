@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+require_once __DIR__ . '/../middleware/RateLimiter.php';
 
 class PartyController {
 
@@ -11,20 +12,29 @@ class PartyController {
         if ($payload && !empty($payload['username'])) {
             return $payload['username'];
         }
-        return !empty($body['username']) ? trim($body['username']) : (!empty($_GET['username']) ? trim($_GET['username']) : 'Invitado_' . substr(uniqid(), -4));
+        $guestName = !empty($body['username']) ? trim((string)$body['username']) : (!empty($_GET['username']) ? trim((string)$_GET['username']) : 'Invitado_' . substr(uniqid(), -4));
+        $guestName = strip_tags($guestName);
+        return mb_substr($guestName, 0, 64);
+    }
+
+    private static function requireAuthenticatedUser(): string {
+        $payload = AuthMiddleware::requireAuth();
+        return $payload['username'];
     }
 
     public static function createRoom(): void {
+        RateLimiter::enforce('party_create', 10, 60);
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        $user = self::resolveUser($data);
+        $user = self::requireAuthenticatedUser();
         $name = !empty($data['name']) ? trim($data['name']) : ("Sala de " . $user);
         $episodeId = $data['episode_id'] ?? '';
         $isPublic = !empty($data['is_public']) ? 1 : 0;
         $allowGuestControls = !empty($data['allow_guest_controls']) ? 1 : 0;
 
-        $roomId = 'KURA-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 6));
+        // 96 bits of randomness makes private room links unguessable in practice.
+        $roomId = 'KURA-' . strtoupper(bin2hex(random_bytes(12)));
 
         DbHelper::createPartyRoom([
             'id' => $roomId,
@@ -50,6 +60,7 @@ class PartyController {
     }
 
     public static function joinRoom(): void {
+        RateLimiter::enforce('party_join', 30, 60);
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
@@ -79,7 +90,8 @@ class PartyController {
             'room' => $room,
             'messages' => $recentMessages,
             'user' => $user,
-            'is_host' => ($room['host_user'] === $user)
+            // An unauthenticated visitor may choose any display name, but never gains host rights.
+            'is_host' => (AuthMiddleware::verifyToken(AuthMiddleware::getBearerToken()) !== null && $room['host_user'] === $user)
         ]);
     }
 
@@ -103,11 +115,12 @@ class PartyController {
     }
 
     public static function syncPlayback(): void {
+        RateLimiter::enforce('party_sync', 120, 60);
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
         $roomId = strtoupper(trim($data['room_id'] ?? ''));
-        $user = self::resolveUser($data);
+        $user = self::requireAuthenticatedUser();
 
         if (empty($roomId)) {
             jsonError('room_id requerido', 400);
@@ -150,16 +163,24 @@ class PartyController {
     }
 
     public static function sendMessage(): void {
+        RateLimiter::enforce('party_msg', 20, 60);
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
         $roomId = strtoupper(trim($data['room_id'] ?? ''));
         $user = self::resolveUser($data);
         $message = trim($data['message'] ?? '');
-        $type = in_array($data['type'] ?? '', ['chat', 'reaction', 'system']) ? $data['type'] : 'chat';
+        $message = strip_tags($message);
+        $type = in_array($data['type'] ?? '', ['chat', 'reaction']) ? $data['type'] : 'chat';
 
         if (empty($roomId) || empty($message)) {
             jsonError('room_id y message requeridos', 400);
+        }
+        if (mb_strlen($message) > 500) {
+            jsonError('El mensaje no puede superar 500 caracteres', 400);
+        }
+        if (!DbHelper::getPartyRoom($roomId)) {
+            jsonError('Sala no encontrada', 404);
         }
 
         $msgId = DbHelper::addPartyMessage($roomId, $user, $message, $type);
@@ -183,7 +204,7 @@ class PartyController {
         $data = json_decode($raw, true) ?: [];
 
         $roomId = strtoupper(trim($data['room_id'] ?? ''));
-        $user = self::resolveUser($data);
+        $user = self::requireAuthenticatedUser();
 
         $room = DbHelper::getPartyRoom($roomId);
         if (!$room) {

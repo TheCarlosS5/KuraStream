@@ -63,41 +63,52 @@ assert(!$hasMaliciousCors, "Untrusted malicious origin MUST NOT be reflected by 
 echo "✓ CORS Safe Default Filtering OK\n";
 
 // 5. Test Stream Path Traversal & Prefix Traversal Prevention
-$_GET['filepath'] = '/etc/passwd';
 $traversalCaught = false;
 ob_start();
 try {
-    PlayerController::streamVideo();
+    PlayerController::streamVideo('/etc/passwd');
 } catch (ExitException $e) {
-    $traversalCaught = ($e->statusCode === 403 || $e->statusCode === 404);
+    $traversalCaught = ($e->statusCode === 400 || $e->statusCode === 403 || $e->statusCode === 404);
 }
 ob_get_clean();
-assert($traversalCaught, "Arbitrary system path traversal (/etc/passwd) must return 403/404");
+assert($traversalCaught, "Arbitrary system path traversal (/etc/passwd) must return 400/403/404");
 
-$_GET['filepath'] = rtrim(LIBRARY_DIR, '/\\') . '-private/secret.mp4';
 $prefixTraversalCaught = false;
 ob_start();
 try {
-    PlayerController::streamVideo();
+    PlayerController::streamVideo(rtrim(LIBRARY_DIR, '/\\') . '-private/secret.mp4');
 } catch (ExitException $e) {
-    $prefixTraversalCaught = ($e->statusCode === 403 || $e->statusCode === 404);
+    $prefixTraversalCaught = ($e->statusCode === 400 || $e->statusCode === 403 || $e->statusCode === 404);
 }
 ob_get_clean();
-assert($prefixTraversalCaught, "Prefix directory traversal (e.g. library-private) MUST return 403/404");
+assert($prefixTraversalCaught, "Prefix directory traversal must return 400/403/404");
 
-// 6. Test Valid Streaming within Library directory
+// 6. Test Valid Streaming within Library directory via Database-verified episode ID
 $testVideoPath = LIBRARY_DIR . '/test_valid_video.mp4';
 if (!is_dir(LIBRARY_DIR)) {
     @mkdir(LIBRARY_DIR, 0777, true);
 }
 file_put_contents($testVideoPath, "MOCK_VIDEO_BINARY_DATA_TEST_12345");
 
-$_GET['filepath'] = $testVideoPath;
+DbHelper::saveShow([
+    'id' => 'test-stream-show',
+    'title' => 'Test Stream Show',
+    'media_type' => 'anime'
+]);
+DbHelper::saveEpisode([
+    'id' => 'test-ep-streaming',
+    'show_id' => 'test-stream-show',
+    'season_number' => 1,
+    'episode_number' => 1,
+    'title' => 'Stream Ep 1',
+    'filepath' => $testVideoPath
+]);
+
 unset($_SERVER['HTTP_RANGE']);
 $streamSuccess = false;
 ob_start();
 try {
-    PlayerController::streamVideo();
+    PlayerController::streamVideo('test-ep-streaming');
 } catch (ExitException $e) {
     $streamSuccess = ($e->statusCode === 200);
 }
@@ -109,7 +120,7 @@ $_SERVER['HTTP_RANGE'] = 'bytes=0-10';
 $rangeSuccess = false;
 ob_start();
 try {
-    PlayerController::streamVideo();
+    PlayerController::streamVideo('test-ep-streaming');
 } catch (ExitException $e) {
     $rangeSuccess = ($e->statusCode === 206);
 }
@@ -121,7 +132,7 @@ $_SERVER['HTTP_RANGE'] = 'bytes=99999-999999';
 $invalidRangeCaught = false;
 ob_start();
 try {
-    PlayerController::streamVideo();
+    PlayerController::streamVideo('test-ep-streaming');
 } catch (ExitException $e) {
     $invalidRangeCaught = ($e->statusCode === 416);
 }

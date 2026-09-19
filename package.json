@@ -4,10 +4,11 @@
   "description": "Plataforma moderna de streaming de anime y medios en la nube (PHP 8.4 + MySQL).",
   "type": "module",
   "scripts": {
-    "start": "php -d extension=pdo_mysql -S 0.0.0.0:3000 php_backend/router.php",
-    "dev": "php -d extension=pdo_mysql -S 0.0.0.0:3000 php_backend/router.php",
-    "test": "node --test tests/**/*.test.js",
-    "test:php": "php -d extension=pdo_mysql tests/test_security_and_api_fixes.php"
+    "start": "php -S 0.0.0.0:3000 php_backend/router.php",
+    "dev": "php -S 0.0.0.0:3000 php_backend/router.php",
+    "test": "php tests/run_all_tests.php",
+    "test:php": "php tests/run_all_tests.php",
+    "test:legacy": "node --test legacy_backend/tests/**/*.test.js"
   },
   "devDependencies": {
     "eslint": "^9.0.0",

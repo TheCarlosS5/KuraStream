@@ -41,5 +41,9 @@ app/build/
 *.db-wal
 cache_*.json
 php_backend/cache_*.json
+php_backend/torrent_state.json
+diff.patch
+.tools/
 *.tar.gz
 *.zip
+

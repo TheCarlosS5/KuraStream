@@ -140,6 +140,19 @@ assert($caughtTorrent, "AdminController::getTorrentStatus should return 200 OK")
 echo "✓ Torrent / Autodownload Status Endpoint OK\n";
 
 // 10. Test Show Details Dual Object Compatibility
+DbHelper::saveShow([
+    'id' => 'akashic-records',
+    'title' => 'Akashic Records',
+    'media_type' => 'anime'
+]);
+DbHelper::saveEpisode([
+    'id' => 'ep-akashic-1',
+    'show_id' => 'akashic-records',
+    'season_number' => 1,
+    'episode_number' => 1,
+    'title' => 'Episode 1',
+    'filepath' => 'dummy.mp4'
+]);
 $caughtShowDetails = false;
 ob_start();
 try {
