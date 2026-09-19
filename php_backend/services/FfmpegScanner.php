@@ -2,6 +2,25 @@
 require_once __DIR__ . '/../config.php';
 
 class FfmpegScanner {
+    public static function parseFrameRate(string $value): float {
+        $value = trim($value);
+        if ($value === '') return 24.0;
+
+        if (!preg_match('/^([+]?(?:\d+(?:\.\d*)?|\.\d+))(?:\/([+]?(?:\d+(?:\.\d*)?|\.\d+)))?$/', $value, $matches)) {
+            return 24.0;
+        }
+
+        $numerator = (float)$matches[1];
+        $denominator = isset($matches[2]) ? (float)$matches[2] : 1.0;
+        if ($numerator <= 0 || $denominator <= 0) return 24.0;
+
+        $fps = $numerator / $denominator;
+        if (!is_finite($fps) || $fps <= 0) return 24.0;
+
+        $fps = round($fps, 3);
+        return $fps > 0 ? $fps : 24.0;
+    }
+
     public static function probeVideo(string $filepath): array {
         $cmd = sprintf(
             'ffprobe -v quiet -print_format json -show_format -show_streams %s',
@@ -36,15 +55,7 @@ class FfmpegScanner {
         $resolution = "{$height}p";
         $videoCodec = $videoStream['codec_name'] ?? 'h264';
         
-        $fps = 24.0;
-        if (!empty($videoStream['r_frame_rate'])) {
-            $parts = explode('/', $videoStream['r_frame_rate']);
-            if (count($parts) === 2 && (float)$parts[1] > 0) {
-                $fps = round((float)$parts[0] / (float)$parts[1], 3);
-            } else {
-                $fps = (float)$videoStream['r_frame_rate'] ?: 24.0;
-            }
-        }
+        $fps = self::parseFrameRate((string)($videoStream['r_frame_rate'] ?? ''));
         
         $audioTracks = [];
         $subtitleTracks = [];
@@ -80,7 +91,7 @@ class FfmpegScanner {
             'duration' => $duration,
             'resolution' => $resolution,
             'video_codec' => $videoCodec,
-            'fps' => 24.0,
+            'fps' => $fps,
             'audio_tracks' => $audioTracks,
             'subtitle_tracks' => $subtitleTracks
         ];

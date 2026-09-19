@@ -98,7 +98,49 @@ assert($caughtDelete, "ShowController::deleteShow should return 200 OK");
 assert(DbHelper::getShow($dummyShowId) === null, "Dummy show should be deleted from DB");
 echo "✓ Delete Show Endpoint (Admin Restricted) OK\n";
 
-// 7. Test Admin Stats & Disk Info (both camelCase and snake_case)
+// 7. Test Delete Show Uses Only the Selected Show's Canonical Directory
+$canonicalShowId = 'naruto';
+$siblingShowDir = LIBRARY_DIR . '/Anime/naruto-shippuden';
+$canonicalShowDir = LIBRARY_DIR . '/Anime/' . $canonicalShowId;
+$canonicalMarker = $canonicalShowDir . '/delete-me.txt';
+$siblingMarker = $siblingShowDir . '/keep-me.txt';
+
+assert(!file_exists($canonicalShowDir), 'Test requires an unused canonical naruto directory');
+assert(!file_exists($siblingShowDir), 'Test requires an unused sibling naruto-shippuden directory');
+
+@mkdir($canonicalShowDir, 0777, true);
+@mkdir($siblingShowDir, 0777, true);
+file_put_contents($canonicalMarker, 'delete');
+file_put_contents($siblingMarker, 'keep');
+DbHelper::saveShow([
+    'id' => $canonicalShowId,
+    // The old directory scan matches this title to the sibling folder.
+    'title' => 'Naruto Shippuden',
+    'media_type' => 'anime'
+]);
+
+try {
+    $caughtCanonicalDelete = false;
+    ob_start();
+    try {
+        ShowController::deleteShow($canonicalShowId);
+    } catch (ExitException $e) {
+        $caughtCanonicalDelete = ($e->statusCode === 200);
+    }
+    ob_get_clean();
+
+    assert($caughtCanonicalDelete, "ShowController::deleteShow should return 200 OK for the canonical show");
+    assert(!is_dir($canonicalShowDir), "Selected show's canonical media directory should be deleted");
+    assert(is_dir($siblingShowDir), "Deleting naruto must not delete sibling naruto-shippuden directory");
+    assert(file_exists($siblingMarker), "Deleting naruto must preserve sibling media files");
+    echo "✓ Delete Show only removes the selected canonical media directory\n";
+} finally {
+    DbHelper::deleteShow($canonicalShowId);
+    @unlink($siblingMarker);
+    @rmdir($siblingShowDir);
+}
+
+// 8. Test Admin Stats & Disk Info (both camelCase and snake_case)
 $caughtStats = false;
 ob_start();
 try {
