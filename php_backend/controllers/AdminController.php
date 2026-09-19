@@ -156,6 +156,23 @@ class AdminController {
         ];
     }
 
+    public static function validateStagedEpisode(string $filePath): array {
+        if (!file_exists($filePath) || !is_readable($filePath)) {
+            jsonError("El archivo de vídeo no existe o no es legible en el disco: {$filePath}", 422);
+        }
+
+        $size = @filesize($filePath);
+        if ($size === false || $size < 1024 * 1024) { // Menor a 1MB
+            jsonError("El archivo de vídeo es demasiado pequeño ({$size} bytes) y parece estar incompleto o dañado.", 422);
+        }
+
+        return ['size' => $size, 'valid' => true];
+    }
+
+    public static function publishStagedImport(?string $id = null): void {
+        self::publishStaged($id);
+    }
+
     public static function publishStaged(?string $id = null): void {
         AuthMiddleware::requireAdmin();
         $raw = file_get_contents('php://input');
@@ -186,6 +203,8 @@ class AdminController {
         if (!$item) {
             jsonError('Item staged no encontrado', 404);
         }
+
+        self::validateStagedEpisode($item['filepath']);
 
         $catName = ($mediaType === 'movie') ? 'Movies' : 'Anime';
         $sanitizedTitle = str_replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], '_', $cleanTitle);

@@ -18,26 +18,35 @@ $method = $_SERVER['REQUEST_METHOD'];
 $frontendDir = ROOT_DIR . '/frontend';
 $libraryDir = LIBRARY_DIR;
 
-/** Serve a request-relative file only when its canonical path stays below $root. */
-function serveStaticFile(string $root, string $relativePath, ?string $cacheControl = null): bool {
-    $realRoot = realpath($root);
-    if ($realRoot === false) {
-        return false;
-    }
+if (!function_exists('serveStaticFile')) {
+    /** Serve a request-relative file only when its canonical path stays below $root. */
+    function serveStaticFile(string $root, string $relativePath, ?string $cacheControl = null): bool {
+        $realRoot = realpath($root);
+        if ($realRoot === false) {
+            return false;
+        }
 
-    $candidate = realpath($realRoot . DIRECTORY_SEPARATOR . ltrim($relativePath, '/\\'));
-    $rootPrefix = rtrim($realRoot, '/\\') . DIRECTORY_SEPARATOR;
-    if ($candidate === false || !is_file($candidate) || !str_starts_with($candidate, $rootPrefix)) {
-        return false;
-    }
+        $candidate = realpath($realRoot . DIRECTORY_SEPARATOR . ltrim($relativePath, '/\\'));
+        $rootPrefix = rtrim($realRoot, '/\\') . DIRECTORY_SEPARATOR;
+        if ($candidate === false || !is_file($candidate) || !str_starts_with($candidate, $rootPrefix)) {
+            return false;
+        }
 
-    $mime = mime_content_type($candidate) ?: 'application/octet-stream';
-    if (str_ends_with($candidate, '.css')) $mime = 'text/css';
-    if (str_ends_with($candidate, '.js')) $mime = 'application/javascript';
-    header("Content-Type: {$mime}");
-    if ($cacheControl !== null) header("Cache-Control: {$cacheControl}");
-    readfile($candidate);
-    exit();
+        // Direct raw video files must NOT be served via serveStaticFile under library
+        $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
+        $videoExts = ['mkv', 'mp4', 'webm', 'ts', 'avi', 'mov', 'm4v'];
+        if (in_array($ext, $videoExts, true)) {
+            return false;
+        }
+
+        $mime = mime_content_type($candidate) ?: 'application/octet-stream';
+        if (str_ends_with($candidate, '.css')) $mime = 'text/css';
+        if (str_ends_with($candidate, '.js')) $mime = 'application/javascript';
+        header("Content-Type: {$mime}");
+        if ($cacheControl !== null) header("Cache-Control: {$cacheControl}");
+        readfile($candidate);
+        exit();
+    }
 }
 
 if ($uri === '/' || $uri === '/index.html') {
@@ -52,6 +61,11 @@ serveStaticFile($frontendDir, $decodedUri);
 
 if (str_starts_with($decodedUri, '/library/')) {
     $rel = substr($decodedUri, strlen('/library/'));
+    $ext = strtolower(pathinfo(parse_url($rel, PHP_URL_PATH) ?: $rel, PATHINFO_EXTENSION));
+    $videoExts = ['mkv', 'mp4', 'webm', 'ts', 'avi', 'mov', 'm4v'];
+    if (in_array($ext, $videoExts, true)) {
+        jsonError('Direct video download forbidden. Use /api/stream/{id}', 403);
+    }
     serveStaticFile($libraryDir, $rel, 'public, max-age=3600');
     serveStaticFile($libraryDir, str_replace('_', ' ', $rel), 'public, max-age=3600');
     serveStaticFile($libraryDir, str_replace(' ', '_', $rel), 'public, max-age=3600');

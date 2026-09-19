@@ -8,7 +8,7 @@ class PlayerController {
         if (!$ep) {
             jsonError('Episodio no encontrado', 404);
         }
-        $ep['stream_url'] = "/api/stream?filepath=" . urlencode($ep['filepath']);
+        $ep['stream_url'] = "/api/stream/" . urlencode($ep['id']);
         jsonResponse($ep);
     }
 
@@ -87,25 +87,21 @@ class PlayerController {
     }
 
     public static function streamVideo(?string $episodeId = null): void {
-        $filepath = $_GET['filepath'] ?? '';
-
-        // If episode ID is provided (e.g. GET /api/stream/{episodeId}), fetch filepath from DB
-        if (!empty($episodeId) && empty($filepath)) {
-            $ep = DbHelper::getEpisode($episodeId);
-            if ($ep && !empty($ep['filepath'])) {
-                $filepath = $ep['filepath'];
-            }
+        $episodeId = $episodeId ?: ($_GET['id'] ?? ($_GET['episode_id'] ?? ''));
+        if (empty($episodeId) || str_contains($episodeId, '/') || str_contains($episodeId, '\\')) {
+            jsonError('Identificador de episodio inválido', 400);
         }
 
-        if (empty($filepath)) {
-            @http_response_code(404);
-            echo "Video file not specified or episode not found";
-            if (defined('TESTING_MODE')) throw new ExitException("Video file not specified", 404);
-            exit();
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT * FROM episodes WHERE id = :id");
+        $stmt->execute(['id' => $episodeId]);
+        $ep = $stmt->fetch();
+
+        if (!$ep) {
+            jsonError('Episodio no encontrado en el catálogo', 404);
         }
 
-        // Security check: validate file path traversal strictly against LIBRARY_DIR
-        $realPath = realpath($filepath);
+        $realPath = realpath($ep['filepath'] ?? '');
         $realLibrary = realpath(LIBRARY_DIR);
 
         if (!$realPath || !file_exists($realPath) || !is_file($realPath)) {
@@ -147,7 +143,7 @@ class PlayerController {
             // Map selected audio track or default to first audio stream
             $mappedAudio = false;
             if ($audioTrack >= 0 && !empty($episodeId)) {
-                $epData = DbHelper::getEpisode($episodeId);
+                $epData = $ep;
                 $tracks = !empty($epData['audio_tracks']) ? (is_array($epData['audio_tracks']) ? $epData['audio_tracks'] : json_decode($epData['audio_tracks'], true)) : [];
                 if (is_array($tracks) && count($tracks) > 0) {
                     // Match by stream index first
@@ -174,7 +170,7 @@ class PlayerController {
                 }
             }
 
-            $epData = !empty($episodeId) ? DbHelper::getEpisode($episodeId) : null;
+            $epData = $ep;
             $videoCodec = strtolower($epData['video_codec'] ?? '');
             $forceH264 = isset($_GET['codec']) && strtolower($_GET['codec']) === 'h264';
             $needTranscodeVideo = $forceH264 || ($videoCodec !== '' && $videoCodec !== 'h264' && $videoCodec !== 'avc1' && $videoCodec !== 'avc');
