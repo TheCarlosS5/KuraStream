@@ -2,9 +2,13 @@ import { initPlayer, destroyPlayer } from './player.js?v=10.16_audio_video_pts_s
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 import { partyManager } from './js/modules/party.js';
 import { initCardPopovers } from './js/modules/card_popover_preview.js';
+import { initHeroAmbientGlow } from './js/modules/hero_ambient_glow.js';
+import { initEpisodeTracker } from './js/modules/catalog_episode_tracker.js';
 
 if (typeof window !== 'undefined') {
   window.initCardPopovers = initCardPopovers;
+  window.initHeroAmbientGlow = initHeroAmbientGlow;
+  window.initEpisodeTracker = initEpisodeTracker;
   const originalFetch = window.fetch;
   window.fetch = function(input, options = {}) {
     let url = input;
@@ -161,6 +165,8 @@ function initAppMain() {
   safeRun(setupRouter, 'setupRouter');
   safeRun(setupCatalogueActions, 'setupCatalogueActions');
   safeRun(initCardPopovers, 'initCardPopovers');
+  safeRun(initHeroAmbientGlow, 'initHeroAmbientGlow');
+  safeRun(initEpisodeTracker, 'initEpisodeTracker');
   safeRun(initAdminSidebar, 'initAdminSidebar');
   safeRun(setupEasterEgg, 'setupEasterEgg');
   safeRun(setupForms, 'setupForms');

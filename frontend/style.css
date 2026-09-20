@@ -6036,6 +6036,201 @@ input:checked + .slider:before {
   overflow: hidden;
 }
 
+/* ==========================================================================
+   ULTRA-CINEMATIC PRO MODULES STYLES
+   ========================================================================== */
+
+/* 1. HUD OSD Feedback Pill */
+.player-hud-pill {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.92);
+  z-index: 150;
+  pointer-events: none;
+  background: rgba(11, 15, 20, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-main, #F4F8F9);
+  font-size: 1.1rem;
+  font-weight: 700;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
+  opacity: 0;
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.player-hud-pill.is-active,
+.player-hud-pill.is-visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* 2. Interactive Hotkey Cheat Sheet Modal */
+.shortcuts-modal-container {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.shortcuts-modal-container.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.shortcuts-modal-dialog {
+  background: var(--surface-color, #131A1C);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  width: 90%;
+  max-width: 620px;
+  padding: 24px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.95);
+  color: var(--text-main, #F4F8F9);
+}
+
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.shortcut-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+}
+
+.shortcut-key {
+  display: inline-block;
+  padding: 2px 7px;
+  font-family: monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: var(--accent-color, #F97316);
+}
+
+/* 3. Smart Skip Intro Pill */
+.smart-skip-intro-pill {
+  position: absolute;
+  bottom: 80px;
+  right: 28px;
+  z-index: 110;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(19, 26, 28, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  padding: 10px 18px;
+  color: var(--text-main, #F4F8F9);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+  transition: background 0.15s, transform 0.15s;
+}
+
+.smart-skip-intro-pill:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+/* 4. Auto-Next Transition Card */
+.smart-next-ep-card {
+  position: absolute;
+  bottom: 80px;
+  right: 28px;
+  z-index: 115;
+  width: 320px;
+  background: rgba(19, 26, 28, 0.96);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  padding: 16px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.9);
+  color: var(--text-main, #F4F8F9);
+}
+
+.smart-next-thumb {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.smart-next-countdown-bar {
+  width: 100%;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 8px 0 12px 0;
+}
+
+.smart-next-countdown-fill {
+  height: 100%;
+  background: var(--accent-color, #F97316);
+  transition: width 1s linear;
+}
+
+/* 5. Season & Episode Batch Watch Tracker */
+.season-progress-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.season-progress-bar-track {
+  flex: 1;
+  min-width: 180px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.season-progress-bar-fill {
+  height: 100%;
+  background: var(--success-color, #2DD4BF);
+  transition: width 0.3s ease;
+}
+
+.season-batch-actions {
+  display: flex;
+  gap: 8px;
+}
+
 
 
 

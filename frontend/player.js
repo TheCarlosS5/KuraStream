@@ -2,6 +2,9 @@
 import { partyManager } from './js/modules/party.js';
 import { initScrubPreview } from './js/modules/player_scrub_preview.js';
 import { openTracksModal } from './js/modules/player_tracks_modal.js';
+import { initAudioEnhancer } from './js/modules/player_audio_enhancer.js';
+import { initShortcutsHud } from './js/modules/player_shortcuts_hud.js';
+import { initSmartSkip } from './js/modules/player_smart_skip.js';
 
 function escapeHtml(str) {
   if (typeof str !== 'string') return '';
@@ -58,6 +61,9 @@ let watchCreditsBtn = null;
 let outroOverlayContainer = null;
 let countdownOverlay = null;
 let scrubPreviewInstance = null;
+let audioEnhancerInstance = null;
+let shortcutsHudInstance = null;
+let smartSkipInstance = null;
 
 function setLucideIcon(elementId, iconName) {
   const el = document.getElementById(elementId);
@@ -103,6 +109,20 @@ let outroDismissed = false;
       scrubPreviewInstance.destroy();
     }
     scrubPreviewInstance = initScrubPreview(progressBar, video);
+  }
+
+  // Initialize Ultra-Cinematic Pro Modules
+  if (video) {
+    if (audioEnhancerInstance) audioEnhancerInstance.destroy();
+    audioEnhancerInstance = initAudioEnhancer(video);
+
+    if (shortcutsHudInstance) shortcutsHudInstance.destroy();
+    shortcutsHudInstance = initShortcutsHud(video, container, {
+      audioEnhancer: audioEnhancerInstance
+    });
+
+    if (smartSkipInstance) smartSkipInstance.destroy();
+    smartSkipInstance = initSmartSkip(video, container);
   }
 let hasSkippedIntroForCurrentEpisode = false;
 let hasSkippedOutroForCurrentEpisode = false;
@@ -436,6 +456,18 @@ export async function initPlayer(rawEpisodeId) {
 function loadVideoStream(startTime = 0) {
   currentStreamStartOffset = startTime;
   destroySubtitles();
+  if (audioEnhancerInstance) {
+    audioEnhancerInstance.destroy();
+    audioEnhancerInstance = null;
+  }
+  if (shortcutsHudInstance) {
+    shortcutsHudInstance.destroy();
+    shortcutsHudInstance = null;
+  }
+  if (smartSkipInstance) {
+    smartSkipInstance.destroy();
+    smartSkipInstance = null;
+  }
   
   // Show glowing buffer loader on stream start
   const loader = document.getElementById('player-loader');
