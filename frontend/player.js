@@ -1,5 +1,7 @@
 // player.js - Custom VLC-style video player logic with SubtitlesOctopus integration
 import { partyManager } from './js/modules/party.js';
+import { initScrubPreview } from './js/modules/player_scrub_preview.js';
+import { openTracksModal } from './js/modules/player_tracks_modal.js';
 
 function escapeHtml(str) {
   if (typeof str !== 'string') return '';
@@ -55,6 +57,7 @@ let skipOutroBtn = null;
 let watchCreditsBtn = null;
 let outroOverlayContainer = null;
 let countdownOverlay = null;
+let scrubPreviewInstance = null;
 
 function setLucideIcon(elementId, iconName) {
   const el = document.getElementById(elementId);
@@ -93,6 +96,14 @@ let selectedAudioTrackNum = 0;
 let selectedSubtitleTrackNum = -1; // -1 = Off
 let currentStreamStartOffset = 0;
 let outroDismissed = false;
+
+  // Initialize Timeline Seek Scrub Preview
+  if (progressBar && video) {
+    if (scrubPreviewInstance) {
+      scrubPreviewInstance.destroy();
+    }
+    scrubPreviewInstance = initScrubPreview(progressBar, video);
+  }
 let hasSkippedIntroForCurrentEpisode = false;
 let hasSkippedOutroForCurrentEpisode = false;
 
@@ -159,14 +170,14 @@ export async function initPlayer(rawEpisodeId) {
   timeDuration = document.getElementById('player-time-duration');
   muteBtn = document.getElementById('mute-btn');
   volumeSlider = document.getElementById('volume-slider');
-  speedBtn = document.getElementById('speed-btn');
+  speedBtn = document.getElementById('player-speed-btn') || document.getElementById('speed-btn');
   nextEpBtn = document.getElementById('next-ep-btn');
   fileInfoBtn = document.getElementById('file-info-btn');
   fileInfoModal = document.getElementById('file-info-modal');
   fileInfoBody = document.getElementById('file-info-body');
   fileInfoClose = document.getElementById('file-info-close');
   fullscreenBtn = document.getElementById('fullscreen-btn');
-  pipBtn = document.getElementById('pip-btn');
+  pipBtn = document.getElementById('player-pip-btn') || document.getElementById('pip-btn');
   skipIntroBtn = document.getElementById('skipIntroBtn') || document.getElementById('skip-intro-btn');
   skipOutroBtn = document.getElementById('skip-outro-btn');
   watchCreditsBtn = document.getElementById('watch-credits-btn');
@@ -438,6 +449,9 @@ function loadVideoStream(startTime = 0) {
   
   video.src = streamUrl;
   video.load();
+  if (scrubPreviewInstance && typeof scrubPreviewInstance.updateSource === 'function') {
+    scrubPreviewInstance.updateSource(streamUrl);
+  }
   
   // Set playback speed state
   const currentSpeed = speedBtn ? (parseFloat(speedBtn.textContent) || 1.0) : 1.0;
@@ -729,6 +743,46 @@ export function destroyPlayer() {
 }
 
 function setupTracksMenu() {
+  const playerTracksBtn = document.getElementById('player-tracks-btn');
+  if (playerTracksBtn) {
+    playerTracksBtn.onclick = () => {
+      const audioTracks = parseJsonArray(currentEpisodeData.audio_tracks);
+      const subTracks = parseJsonArray(currentEpisodeData.subtitle_tracks);
+      openTracksModal({
+        audioTracks,
+        subtitleTracks: subTracks,
+        currentAudioIndex: selectedAudioTrackNum,
+        currentSubtitleIndex: selectedSubtitleTrackNum,
+        onSelectAudio: (trackNum) => {
+          selectedAudioTrackNum = trackNum;
+          const targetObj = audioTracks.find(t => ((t.track_number !== undefined ? t.track_number : t.index) === selectedAudioTrackNum));
+          if (targetObj && targetObj.language) {
+            localStorage.setItem('kura_pref_audio_lang', targetObj.language.toLowerCase());
+          }
+          const currentStreamSrc = video.src;
+          let startOffset = 0;
+          try {
+            const parsedUrl = new URL(currentStreamSrc, window.location.origin);
+            startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
+          } catch(e) {}
+          const currentPos = startOffset + (video.currentTime || 0);
+          loadVideoStream(currentPos);
+        },
+        onSelectSubtitle: (trackNum) => {
+          selectedSubtitleTrackNum = trackNum;
+          if (selectedSubtitleTrackNum === -1) {
+            localStorage.setItem('kura_pref_sub_lang', 'off');
+          } else {
+            const targetSub = subTracks.find(t => ((t.track_number !== undefined ? t.track_number : t.index) === selectedSubtitleTrackNum));
+            if (targetSub && targetSub.language) {
+              localStorage.setItem('kura_pref_sub_lang', targetSub.language.toLowerCase());
+            }
+          }
+          initSubtitles(selectedSubtitleTrackNum);
+        }
+      });
+    };
+  }
   const audioMenu = document.getElementById('audio-menu-list');
   const subMenu = document.getElementById('subtitle-menu-list');
   

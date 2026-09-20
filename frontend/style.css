@@ -77,7 +77,7 @@ html {
   width: 20px;
   height: 20px;
   stroke: currentColor;
-  stroke-width: 2px;
+  stroke-width: 1.75px;
   stroke-linecap: round;
   stroke-linejoin: round;
   fill: none;
@@ -5664,6 +5664,376 @@ input:checked + .slider:before {
   .app-view.full-screen-view {
     margin-top: -120px;
   }
+}
+
+/* ==========================================================================
+   CINEMATIC PACK & PRO PLAYER STYLES (4px Radii, Jet-Black Surface)
+   ========================================================================== */
+
+/* 1. Timeline Seek Scrub Preview Tooltip */
+.scrub-preview-tooltip {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 0;
+  z-index: 120;
+  pointer-events: none;
+  background: var(--surface-color, #131A1C);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 4px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  transform: translateY(4px);
+}
+
+.scrub-preview-tooltip.is-active,
+.scrub-preview-tooltip.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.scrub-preview-canvas {
+  width: 160px;
+  height: 90px;
+  border-radius: 2px;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+
+.scrub-preview-time {
+  margin-top: 4px;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-main, #F4F8F9);
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 2. Netflix-Style 2-Column Audio & Subtitles Modal */
+.tracks-modal-container {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.tracks-modal-container.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tracks-modal-dialog {
+  background: var(--surface-color, #131A1C);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  width: 92%;
+  max-width: 580px;
+  padding: 24px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.9);
+  color: var(--text-main, #F4F8F9);
+  position: relative;
+  transform: translateY(10px) scale(0.98);
+  transition: transform 0.2s ease;
+}
+
+.tracks-modal-container.is-open .tracks-modal-dialog {
+  transform: translateY(0) scale(1);
+}
+
+.tracks-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tracks-modal-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-main, #F4F8F9);
+}
+
+.tracks-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #93A4A7);
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.tracks-modal-close:hover {
+  color: var(--text-main, #F4F8F9);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tracks-modal-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.tracks-modal-col h4 {
+  margin: 0 0 12px 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-muted, #93A4A7);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.tracks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.track-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-size: 0.88rem;
+  color: var(--text-muted, #93A4A7);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.track-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-main, #F4F8F9);
+}
+
+.track-item.is-active {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--accent-color, #F97316);
+  font-weight: 700;
+}
+
+.track-check {
+  font-weight: 800;
+  margin-left: 8px;
+  color: var(--accent-color, #F97316);
+  display: none;
+}
+
+.track-item.is-active .track-check {
+  display: inline-block;
+}
+
+/* 3. Picture-in-Picture & Speed Quick Pill */
+#player-pip-btn, .player-pip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-main, #F4F8F9);
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+#player-pip-btn:hover, .player-pip-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+#player-pip-btn.is-active, .player-pip-btn.is-active {
+  color: var(--accent-color, #F97316);
+}
+
+#player-speed-btn, .player-speed-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-main, #F4F8F9);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+#player-speed-btn:hover, .player-speed-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* 4. Netflix Expandable Card Hover Popover */
+.popover-card-preview {
+  position: absolute;
+  z-index: 8888;
+  width: 330px;
+  background: var(--surface-color, #131A1C);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.9);
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.96);
+  transform-origin: center center;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.popover-card-preview.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.popover-preview-banner-wrapper {
+  position: relative;
+  width: 100%;
+  height: 185px;
+  overflow: hidden;
+  background: #000;
+}
+
+.popover-preview-banner {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.popover-preview-banner-gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, var(--surface-color, #131A1C) 0%, transparent 65%);
+}
+
+.popover-preview-body {
+  padding: 14px 16px 16px 16px;
+}
+
+.popover-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.popover-btn-play {
+  background: var(--accent-color, #F97316);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 7px 16px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.popover-btn-play:hover {
+  background: var(--accent-hover, #FB923C);
+}
+
+.popover-btn-list,
+.popover-btn-info {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main, #F4F8F9);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.popover-btn-list:hover,
+.popover-btn-info:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.popover-preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted, #93A4A7);
+}
+
+.popover-badge-rating {
+  color: var(--rating-color, #FBBF24);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.popover-badge-year,
+.popover-badge-episodes {
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+
+.popover-preview-genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.popover-preview-genres .genre-pill {
+  font-size: 0.7rem;
+  color: var(--text-muted, #93A4A7);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.popover-preview-synopsis {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-muted, #93A4A7);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 
