@@ -72,7 +72,7 @@ export async function previewTMDBMetadata() {
             <img src="${d.poster_path || '/api/placeholder-poster'}" style="width: 90px; height: 130px; object-fit: cover; border-radius: 6px;" onerror="this.src='/api/placeholder-poster'">
             <div>
               <h4 style="margin: 0 0 6px 0; color: var(--text-main); font-size: 1.05rem;">${d.title} (${d.year || 'N/A'})</h4>
-              <span class="badge" style="background: rgba(168,85,247,0.15); color: #c084fc; font-size: 0.75rem;">TMDB ID: ${d.id}</span>
+              <span class="badge" style="background: rgba(249, 115, 22, 0.15); color: #FB923C; font-size: 0.75rem;">TMDB ID: ${d.id}</span>
               <p style="font-size: 0.82rem; color: var(--text-muted); margin: 8px 0; max-height: 80px; overflow-y: auto;">${d.synopsis || 'Sin descripción disponible.'}</p>
             </div>
           </div>

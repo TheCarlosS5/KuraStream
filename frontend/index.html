@@ -94,7 +94,7 @@
             <span id="user-profile-name">Usuario</span>
             <i data-lucide="chevron-down" style="width: 14px; height: 14px; color: var(--text-muted);"></i>
           </button>
-          <div class="user-dropdown-card" id="user-dropdown-card" style="display: none; position: absolute; top: 44px; right: 0; background: var(--bg-card, #1c2230); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 99; min-width: 220px; padding: 12px 0; backdrop-filter: blur(10px);">
+          <div class="user-dropdown-card" id="user-dropdown-card" style="display: none; position: absolute; top: 44px; right: 0; background: var(--bg-card, #1c2230); border: 1px solid var(--border-color); border-radius: 4px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 99; min-width: 220px; padding: 12px 0; backdrop-filter: blur(10px);">
             <div id="dropdown-profiles-list" style="padding: 0 8px 8px 8px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--border-color); margin-bottom: 8px;">
               <!-- Dynamic list of other profiles -->
             </div>
@@ -133,24 +133,24 @@
     <section id="dashboard-view" class="app-view active">
 
       <!-- Catalog Control & Filter Toolbar -->
-      <div class="catalog-toolbar" style="display: flex; align-items: center; justify-content: space-between; gap: 15px; margin: 15px 0 25px 0; flex-wrap: wrap; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px 20px; backdrop-filter: blur(10px);">
+      <div class="catalog-toolbar" style="display: flex; align-items: center; justify-content: space-between; gap: 15px; margin: 15px 0 25px 0; flex-wrap: wrap; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 12px 20px; backdrop-filter: blur(10px);">
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; width: 100%;">
           <span style="font-family: var(--font-title); font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">
             <i data-lucide="sliders-horizontal" style="width:16px;height:16px;color:var(--accent-color);"></i> Filtrar:
           </span>
-          <select id="status-filter" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 20px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px; transition: border-color 0.2s;">
+          <select id="status-filter" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 4px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px; transition: border-color 0.2s;">
             <option value="all" style="background: var(--bg-card); color: var(--text-main);">Estado: Todos</option>
             <option value="airing" style="background: var(--bg-card); color: #00e08f; font-weight: 600;">● En Emisión</option>
             <option value="finished" style="background: var(--bg-card); color: var(--text-muted);">Finalizados</option>
           </select>
-          <select id="sort-filter" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 20px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px; transition: border-color 0.2s;">
+          <select id="sort-filter" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 4px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px; transition: border-color 0.2s;">
             <option value="default" style="background: var(--bg-card); color: var(--text-main);">Ordenar: Por defecto</option>
             <option value="year_desc" style="background: var(--bg-card); color: var(--text-main);">Año (Más recientes)</option>
             <option value="year_asc" style="background: var(--bg-card); color: var(--text-main);">Año (Más antiguos)</option>
             <option value="rating_desc" style="background: var(--bg-card); color: var(--text-main);">★ Mejor valorados</option>
             <option value="title_asc" style="background: var(--bg-card); color: var(--text-main);">Nombre (A - Z)</option>
           </select>
-          <select id="genre-filter" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 20px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px; transition: border-color 0.2s;">
+          <select id="genre-filter" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 4px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px; transition: border-color 0.2s;">
             <option value="all" style="background: var(--bg-card); color: var(--text-main);">Todos los géneros</option>
           </select>
         </div>
@@ -176,7 +176,7 @@
 
     <!-- CALENDAR VIEW (Simulcast Schedule) -->
     <section id="calendar-view" class="app-view" style="padding: 20px 0;">
-      <div class="calendar-header-banner" style="margin-bottom: 25px; background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.15), rgba(0, 224, 143, 0.15)); border: 1px solid var(--border-color); border-radius: 16px; padding: 25px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
+      <div class="calendar-header-banner" style="margin-bottom: 25px; background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.15), rgba(0, 224, 143, 0.15)); border: 1px solid var(--border-color); border-radius: 4px; padding: 25px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
         <div>
           <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
             <i data-lucide="calendar" style="color: var(--accent-color);"></i> Calendario de Estrenos
@@ -207,7 +207,7 @@
 
     <!-- MY LIST VIEW -->
     <section id="mylist-view" class="view-section app-view" style="display: none;">
-      <div class="view-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 16px; padding: 25px; backdrop-filter: blur(10px);">
+      <div class="view-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 25px; backdrop-filter: blur(10px);">
         <div>
           <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
             <span>💖 Mi Lista</span>
@@ -216,7 +216,7 @@
         </div>
         <div style="display: flex; align-items: center; gap: 10px;">
           <label for="mylist-sort" style="color: var(--text-muted); font-size: 0.85rem; font-weight: 600;">Ordenar por:</label>
-          <select id="mylist-sort" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 20px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px;">
+          <select id="mylist-sort" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 4px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px;">
             <option value="recent">Recientes</option>
             <option value="title_asc">Título A-Z</option>
             <option value="rating_desc">Rating</option>
@@ -229,7 +229,7 @@
 
     <!-- HISTORY VIEW -->
     <section id="history-view" class="view-section app-view" style="display: none;">
-      <div class="view-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 16px; padding: 25px; backdrop-filter: blur(10px);">
+      <div class="view-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 25px; backdrop-filter: blur(10px);">
         <div>
           <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
             <span>📜 Historial de Reproducción</span>
@@ -245,7 +245,7 @@
 
     <!-- GENRES VIEW -->
     <section id="genres-view" class="view-section app-view" style="display: none;">
-      <div class="view-header" style="margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 16px; padding: 25px; backdrop-filter: blur(10px);">
+      <div class="view-header" style="margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 25px; backdrop-filter: blur(10px);">
         <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
           <span>🎭 Explorar por Géneros</span>
         </h1>
@@ -260,14 +260,14 @@
 
     <!-- STATS VIEW -->
     <section id="stats-view" class="view-section app-view" style="display: none;">
-      <div class="view-header" style="margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 16px; padding: 25px; backdrop-filter: blur(10px);">
+      <div class="view-header" style="margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 25px; backdrop-filter: blur(10px);">
         <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
           <span>📊 Mis Estadísticas</span>
         </h1>
         <p style="color: var(--text-muted); font-size: 0.95rem;">Resumen de tu actividad y hábitos de reproducción.</p>
       </div>
       <div id="stats-cards-grid" class="stats-grid-container"></div>
-      <div class="stats-chart-card" style="margin-top: 30px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 16px; padding: 25px; backdrop-filter: blur(10px);">
+      <div class="stats-chart-card" style="margin-top: 30px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 25px; backdrop-filter: blur(10px);">
         <h3 style="font-family: var(--font-title); font-size: 1.25rem; margin-bottom: 20px; color: var(--text-main);">Desglose por Géneros</h3>
         <div id="stats-genre-chart" class="genre-chart-container"></div>
       </div>
@@ -339,7 +339,7 @@
             <div class="comment-input-box" style="display: flex; gap: 15px; margin-bottom: 25px; align-items: flex-start;">
               <div class="user-avatar-initial" id="comment-user-avatar" style="width: 40px; height: 40px; border-radius: 50%; background: var(--accent-color); color: var(--text-inverse); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; flex-shrink: 0; box-shadow: 0 0 10px var(--accent-glow);">?</div>
               <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 10px;">
-                <textarea id="comment-textarea" placeholder="Escribe un comentario público..." style="width: 100%; min-height: 80px; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.9rem; resize: vertical; outline: none; transition: border-color 0.2s;"></textarea>
+                <textarea id="comment-textarea" placeholder="Escribe un comentario público..." style="width: 100%; min-height: 80px; padding: 12px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-main); font-size: 0.9rem; resize: vertical; outline: none; transition: border-color 0.2s;"></textarea>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                   <span id="comment-guest-notice" style="font-size: 0.75rem; color: var(--text-muted);">Comentarás como <strong id="comment-author-name" style="color: var(--accent-color);">Invitado</strong>. Inicia sesión para usar tu cuenta.</span>
                   <button class="btn btn-primary" id="btn-submit-comment" style="padding: 8px 20px; font-size: 0.85rem; font-weight: 600;">Comentar</button>
@@ -361,7 +361,7 @@
             </div>
 
             <!-- Studio, Director, Writer Row -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 16px; border-radius: 8px; margin-bottom: 30px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 16px; border-radius: 4px; margin-bottom: 30px;">
               <div class="sidebar-info-block" style="margin: 0;">
                 <h3 style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; letter-spacing: 0.5px;">Estudio</h3>
                 <p id="detail-studio" style="font-size: 0.95rem; font-weight: 600; color: var(--text-main); margin: 0;">--</p>
@@ -603,7 +603,7 @@
           </div>
           <div class="modal-body" style="text-align: center; color: var(--text-muted); font-size: 0.85rem; line-height: 1.4;">
             <p style="margin-bottom: 12px;">Escanea este código QR con tu celular o tablet para continuar la reproducción en este segundo:</p>
-            <div style="background: white; padding: 12px; border-radius: 8px; display: inline-block; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+            <div style="background: white; padding: 12px; border-radius: 4px; display: inline-block; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
               <img id="qr-image" style="width: 180px; height: 180px; display: block;" src="" alt="Código QR de Compartido">
             </div>
             <div id="qr-url-text" style="word-break: break-all; font-family: monospace; font-size: 0.72rem; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; color: var(--accent-color); margin-top: 6px;">
@@ -666,7 +666,7 @@
             <button class="admin-nav-item" data-target="admin-sub-staging" onclick="switchAdminSubView('admin-sub-staging')">
               <i data-lucide="inbox"></i>
               <span>Por Organizar</span>
-              <span id="staging-counter-badge" class="badge" style="margin-left: auto; background: var(--accent-color); color: #fff; font-size: 0.72rem; padding: 2px 7px; border-radius: 10px; display: none;">0</span>
+              <span id="staging-counter-badge" class="badge" style="margin-left: auto; background: var(--accent-color); color: #fff; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: none;">0</span>
             </button>
             <button class="admin-nav-item" data-target="admin-sub-console" onclick="switchAdminSubView('admin-sub-console')">
               <i data-lucide="terminal"></i>
@@ -740,19 +740,19 @@
               </div>
               
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; font-size: 0.9rem;">
-                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
                   <div style="color: var(--text-muted); font-size: 0.75rem;">Capacidad de Biblioteca</div>
                   <div id="stat-library-folder-size" style="font-weight: 700; font-size: 1.1rem; color: var(--accent-color); margin-top: 4px;">--</div>
                 </div>
-                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
                   <div style="color: var(--text-muted); font-size: 0.75rem;">Espacio Usado en Disco</div>
                   <div id="stat-disk-used" style="font-weight: 700; font-size: 1.1rem; color: var(--text-main); margin-top: 4px;">--</div>
                 </div>
-                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
                   <div style="color: var(--text-muted); font-size: 0.75rem;">Espacio Libre Disponible</div>
                   <div id="stat-disk-free" style="font-weight: 700; font-size: 1.1rem; color: #00e08f; margin-top: 4px;">--</div>
                 </div>
-                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
                   <div style="color: var(--text-muted); font-size: 0.75rem;">Capacidad Total Disco</div>
                   <div id="stat-disk-total" style="font-weight: 700; font-size: 1.1rem; color: var(--text-main); margin-top: 4px;">--</div>
                 </div>
@@ -972,7 +972,7 @@
               </div>
 
               <!-- Live Download Progress Monitor -->
-              <div id="autodownload-active-container" style="display: none; margin-bottom: 15px; padding: 12px; background: rgba(0,224,143,0.05); border: 1px solid rgba(0,224,143,0.2); border-radius: 8px;">
+              <div id="autodownload-active-container" style="display: none; margin-bottom: 15px; padding: 12px; background: rgba(0,224,143,0.05); border: 1px solid rgba(0,224,143,0.2); border-radius: 4px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                   <span id="autodownload-current-title" style="font-weight: 700; font-size: 0.88rem; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
                     <i data-lucide="download-cloud" style="width: 16px; height: 16px; color: #00e08f;"></i> Descargando capítulo...
@@ -1007,8 +1007,8 @@
               <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Escribe el título de cualquier Anime o Película para buscar coincidencias oficiales en TMDB, descargar portadas en HD y crear la serie en 1 clic.</p>
               
               <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
-                <input type="text" id="tmdb-wizard-input" placeholder="Ej: Solo Leveling, Demon Slayer, Jujutsu Kaisen..." style="flex-grow: 1; padding: 10px 14px; font-size: 0.95rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-main);">
-                <select id="tmdb-wizard-type" style="padding: 0 14px; height: 44px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-main); font-size: 0.9rem;">
+                <input type="text" id="tmdb-wizard-input" placeholder="Ej: Solo Leveling, Demon Slayer, Jujutsu Kaisen..." style="flex-grow: 1; padding: 10px 14px; font-size: 0.95rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-main);">
+                <select id="tmdb-wizard-type" style="padding: 0 14px; height: 44px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-main); font-size: 0.9rem;">
                   <option value="anime">Anime / Serie</option>
                   <option value="movie">Película</option>
                 </select>
@@ -1045,7 +1045,7 @@
                     <small class="form-tip">Puedes seleccionar 1 o varios capítulos de una temporada a la vez, o indicar su ruta local en el servidor.</small>
                     
                     <!-- Bulk Upload Files Preview -->
-                    <div id="bulk-files-container" style="display: none; margin-top: 10px; padding: 12px; background: rgba(255,255,255,0.03); border: 1px dashed var(--border-color); border-radius: 8px;">
+                    <div id="bulk-files-container" style="display: none; margin-top: 10px; padding: 12px; background: rgba(255,255,255,0.03); border: 1px dashed var(--border-color); border-radius: 4px;">
                       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                         <span style="font-weight: 600; font-size: 0.85rem; color: var(--accent-color); display: flex; align-items: center; gap: 6px;">
                           <i data-lucide="layers" style="width: 14px; height: 14px;"></i> Carga Masiva por Temporada
@@ -1117,7 +1117,7 @@
                   <button type="submit" class="btn btn-primary btn-block" id="import-submit-btn" style="margin-top: 15px;"><i data-lucide="download"></i> Importar y Organizar</button>
                 </form>
 
-                <div id="import-status" class="import-status" style="display: none; margin-top: 15px; flex-direction: column; gap: 10px; padding: 15px; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 8px;">
+                <div id="import-status" class="import-status" style="display: none; margin-top: 15px; flex-direction: column; gap: 10px; padding: 15px; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 4px;">
                   <div style="display: flex; align-items: center; justify-content: space-between;">
                     <div style="display: flex; align-items: center; gap: 10px;">
                       <div class="status-spinner spinner" style="width: 20px; height: 20px;"></div>
@@ -1140,12 +1140,12 @@
               <!-- Right: TMDB Live Preview -->
               <div class="admin-card" id="tmdb-preview-card" style="display: flex; flex-direction: column;">
                 <h3 style="font-family: var(--font-title); font-size: 1.2rem; margin-bottom: 15px;">Previsualización de Metadatos (TMDB)</h3>
-                <div class="tmdb-preview-placeholder" id="tmdb-preview-placeholder" style="display: flex; flex-grow: 1; flex-direction: column; align-items: center; justify-content: center; border: 2px dashed var(--border-color); border-radius: 8px; padding: 30px;">
+                <div class="tmdb-preview-placeholder" id="tmdb-preview-placeholder" style="display: flex; flex-grow: 1; flex-direction: column; align-items: center; justify-content: center; border: 2px dashed var(--border-color); border-radius: 4px; padding: 30px;">
                   <i data-lucide="film" style="width: 48px; height: 48px; stroke: var(--text-muted); margin-bottom: 12px;"></i>
                   <p style="color: var(--text-muted); text-align: center; font-size: 0.85rem; line-height: 1.4;">Escribe el título de tu serie y haz clic en la lupa para previsualizar los metadatos oficiales en tiempo real.</p>
                 </div>
                 <div class="tmdb-preview-content" id="tmdb-preview-content" style="display: none; flex-direction: column; gap: 15px;">
-                  <div class="preview-backdrop-wrapper" style="position: relative; width: 100%; height: 160px; border-radius: 8px; overflow: hidden; background: rgba(0,0,0,0.5);">
+                  <div class="preview-backdrop-wrapper" style="position: relative; width: 100%; height: 160px; border-radius: 4px; overflow: hidden; background: rgba(0,0,0,0.5);">
                     <img id="preview-backdrop" src="" alt="Backdrop" style="width: 100%; height: 100%; object-fit: cover;">
                     <div class="preview-backdrop-overlay" style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(18,22,32,1) 0%, rgba(18,22,32,0.4) 100%);"></div>
                   </div>
@@ -1185,7 +1185,7 @@
           <!-- SUB-VIEW: CONSOLE -->
           <div id="admin-sub-console" class="admin-sub-view">
             <h2 class="admin-sub-title">Consola y Eventos del Servidor</h2>
-            <div class="admin-card console-container-card" style="display: flex; flex-direction: column; padding: 0 !important; overflow: hidden; background: #000; border: 1px solid var(--border-color); border-radius: 8px;">
+            <div class="admin-card console-container-card" style="display: flex; flex-direction: column; padding: 0 !important; overflow: hidden; background: #000; border: 1px solid var(--border-color); border-radius: 4px;">
               <div class="console-header" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #111; border-bottom: 1px solid rgba(255,255,255,0.05);">
                 <div class="console-dots" style="display: flex; gap: 6px;">
                   <span class="dot red" style="width: 10px; height: 10px; border-radius: 50%; background: #ff5f56; display: inline-block;"></span>
@@ -1276,7 +1276,7 @@
       <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Cambia el nombre oficial del anime, sus portadas, administra fondos dinámicos y edita miniaturas de capítulos.</p>
       
       <!-- Edit Anime Title & Status Section -->
-      <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 14px; border-radius: 8px; margin-bottom: 20px; text-align: left;">
+      <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 14px; border-radius: 4px; margin-bottom: 20px; text-align: left;">
         <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 10px;">
           <div>
             <label style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; display: block; color: var(--text-main);">Nombre del Anime / Serie:</label>
@@ -1406,7 +1406,7 @@
       
       <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 20px;">
         <div style="display: flex; flex-direction: column; gap: 8px;">
-          <div id="profile-edit-avatar" style="width: 80px; height: 80px; border-radius: 12px; background: var(--accent-color); display: flex; align-items: center; justify-content: center; font-size: 2rem; font-family: var(--font-title); font-weight: 700; color: #fff;">?</div>
+          <div id="profile-edit-avatar" style="width: 80px; height: 80px; border-radius: 4px; background: var(--accent-color); display: flex; align-items: center; justify-content: center; font-size: 2rem; font-family: var(--font-title); font-weight: 700; color: #fff;">?</div>
           <button type="button" class="btn btn-secondary" id="btn-upload-avatar" style="font-size: 0.8rem; padding: 6px 12px; margin-top: 8px;">Cargar imagen</button>
           <input type="file" id="profile-avatar-file-input" accept="image/*" style="display: none;">
           
@@ -1461,10 +1461,10 @@
       <p id="pin-entry-profile-name" style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;"></p>
       
       <div style="display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;">
-        <input type="password" id="pin-digit-1" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
-        <input type="password" id="pin-digit-2" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
-        <input type="password" id="pin-digit-3" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
-        <input type="password" id="pin-digit-4" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
+        <input type="password" id="pin-digit-1" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
+        <input type="password" id="pin-digit-2" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
+        <input type="password" id="pin-digit-3" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
+        <input type="password" id="pin-digit-4" class="pin-digit-input" maxlength="1" style="width: 40px; height: 50px; text-align: center; font-size: 1.5rem; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); outline: none;">
       </div>
       
       <div id="pin-entry-error" style="color: var(--danger-color); font-size: 0.8rem; margin-bottom: 15px; display: none;">PIN incorrecto</div>
@@ -1510,7 +1510,7 @@
     </button>
 
     <!-- Expanded Chat Card -->
-    <div class="chat-window-card" id="chat-window-card" style="display: none; position: absolute; bottom: 70px; right: 0; width: 320px; height: 450px; background: rgba(28, 34, 48, 0.95); border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 99; flex-direction: column; overflow: hidden; backdrop-filter: blur(15px);">
+    <div class="chat-window-card" id="chat-window-card" style="display: none; position: absolute; bottom: 70px; right: 0; width: 320px; height: 450px; background: rgba(28, 34, 48, 0.95); border: 1px solid var(--border-color); border-radius: 4px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 99; flex-direction: column; overflow: hidden; backdrop-filter: blur(15px);">
       <div class="chat-header" style="padding: 12px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
         <div style="display: flex; align-items: center; gap: 8px;">
           <i data-lucide="messages-square" style="color: var(--accent-color); width: 18px; height: 18px;"></i>
@@ -1534,7 +1534,7 @@
 
   <!-- Trailer Modal (Body level to prevent positioning relative to transformed parents) -->
   <div id="trailer-modal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); z-index: 10000; align-items: center; justify-content: center; backdrop-filter: blur(8px);">
-    <div style="position: relative; width: 90%; max-width: 800px; aspect-ratio: 16/9; background: #000; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.8);">
+    <div style="position: relative; width: 90%; max-width: 800px; aspect-ratio: 16/9; background: #000; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.8);">
       <button id="trailer-close-btn" style="position: absolute; top: 15px; right: 15px; background: rgba(0,0,0,0.6); border: none; color: #fff; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 1.2rem; font-weight: bold; z-index: 10001; transition: var(--transition-fast);">&times;</button>
       <iframe id="trailer-iframe" style="width: 100%; height: 100%; border: none;" src="" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
     </div>
@@ -1557,11 +1557,11 @@
           <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Ingresa el código que te compartió tu amigo para ver juntos en sincronía.</p>
           <div style="margin-bottom: 12px;">
             <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Código de Sala</label>
-            <input type="text" id="party-join-code-input" placeholder="Ej: KURA-9X2F" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); font-weight: 700; font-size: 1rem; text-transform: uppercase;">
+            <input type="text" id="party-join-code-input" placeholder="Ej: KURA-9X2F" style="width: 100%; padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); font-weight: 700; font-size: 1rem; text-transform: uppercase;">
           </div>
           <div style="margin-bottom: 15px;">
             <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Tu Nombre o Apodo</label>
-            <input type="text" id="party-join-name-input" placeholder="Tu apodo" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main);">
+            <input type="text" id="party-join-name-input" placeholder="Tu apodo" style="width: 100%; padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main);">
           </div>
           <div id="party-join-error" style="color: var(--danger-color); font-size: 0.8rem; margin-bottom: 12px; display: none;"></div>
           <div style="display: flex; justify-content: flex-end; gap: 10px;">
@@ -1576,7 +1576,7 @@
           <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Genera una sala con enlace único para invitar a tus amigos.</p>
           <div style="margin-bottom: 12px;">
             <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Nombre de la Sala</label>
-            <input type="text" id="party-create-name-input" placeholder="Ej: Maratón de anime con amigos" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main);">
+            <input type="text" id="party-create-name-input" placeholder="Ej: Maratón de anime con amigos" style="width: 100%; padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main);">
           </div>
           <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">
             <input type="checkbox" id="party-create-public-check" style="width: 18px; height: 18px; accent-color: var(--accent-color);">

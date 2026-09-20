@@ -84,7 +84,7 @@ export async function fetchDisplayStatus() {
     if (badge) {
       badge.textContent = isOff ? 'APAGADA (MODO ANTI-CALENTAMIENTO)' : 'ENCENDIDA';
       badge.style.background = isOff ? 'rgba(168, 85, 247, 0.2)' : 'rgba(0, 224, 143, 0.2)';
-      badge.style.color = isOff ? '#c084fc' : '#00e08f';
+      badge.style.color = isOff ? '#FB923C' : '#00e08f';
     }
     if (btnOff) btnOff.disabled = isOff;
     if (btnOn) btnOn.disabled = !isOff;

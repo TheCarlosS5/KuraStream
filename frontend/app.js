@@ -990,7 +990,7 @@ function renderSkeletonLoaders(rowCount = 2) {
       <div class="skeleton-title" style="width: 150px; height: 24px; background: var(--surface-muted); border-radius: 4px; margin-bottom: 20px; animation: skeleton-pulse 1.5s infinite;"></div>
       <div class="row-cards" style="display: flex; gap: 20px; overflow: hidden;">
         ${Array(6).fill().map(() => `
-          <div class="skeleton-card" style="width: 180px; height: 320px; background: var(--surface-color); border-radius: 12px; overflow: hidden; border: 1px solid var(--border-color); flex-shrink: 0; display: flex; flex-direction: column;">
+          <div class="skeleton-card" style="width: 180px; height: 320px; background: var(--surface-color); border-radius: 4px; overflow: hidden; border: 1px solid var(--border-color); flex-shrink: 0; display: flex; flex-direction: column;">
             <div class="skeleton-img" style="height: 220px; background: var(--surface-muted); animation: skeleton-pulse 1.5s infinite;"></div>
             <div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">
               <div class="skeleton-text" style="height: 14px; background: var(--surface-muted); border-radius: 3px; width: 80%; animation: skeleton-pulse 1.5s infinite;"></div>
@@ -2130,7 +2130,7 @@ function setupForms() {
         tmdbWizardResults.innerHTML = data.results.map(item => {
           const posterUrl = item.poster_path ? (item.poster_path.startsWith('/') ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : item.poster_path) : 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
           return `
-            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s;">
+            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s;">
               <div style="height: 220px; background: url('${posterUrl}') center/cover no-repeat; position: relative;">
                 <span class="badge" style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); font-size: 0.75rem;">${item.year || ''}</span>
               </div>
@@ -2533,7 +2533,7 @@ async function loadAdminLibraryList() {
       }
 
       return `
-        <div class="admin-show-item" id="admin-show-card-${safeId}" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; gap: 10px;">
+        <div class="admin-show-item" id="admin-show-card-${safeId}" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; margin-bottom: 8px; flex-wrap: wrap; gap: 10px;">
           <div class="admin-show-info" style="display: flex; align-items: center; gap: 12px; max-width: 55%;">
             <img class="admin-show-poster" id="admin-poster-${safeId}" src="${poster}" alt="${safeTitle}" style="width: 44px; height: 60px; object-fit: cover; border-radius: 4px; background: #000; transition: transform 0.2s;" onerror="this.src='/api/placeholder-poster'">
             <div style="overflow: hidden;">
@@ -2789,7 +2789,7 @@ window.openMediaEditor = async (showId) => {
         const epsHtml = eps.map(ep => {
           const thumbImg = ep.thumbnail_path || (show ? show.poster_path : null) || 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=150&q=80';
           return `
-            <div style="display: flex; gap: 12px; align-items: flex-start; padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+            <div style="display: flex; gap: 12px; align-items: flex-start; padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; margin-bottom: 8px; flex-wrap: wrap;">
               <img src="${thumbImg}" alt="Episodio ${ep.episode_number}" style="width: 60px; height: 90px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color); flex-shrink: 0;">
               <div style="flex: 1; min-width: 220px;">
                 <div style="margin-bottom: 8px;">
@@ -3496,7 +3496,7 @@ async function renderMyListView() {
 
   if (!Array.isArray(favorites) || favorites.length === 0) {
     container.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 16px;">
+      <div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 4px;">
         <i data-lucide="heart" style="width: 48px; height: 48px; stroke: var(--text-muted); margin-bottom: 16px;"></i>
         <h3 style="font-family: var(--font-title); font-size: 1.2rem; color: var(--text-main); margin-bottom: 8px;">Tu lista está vacía</h3>
         <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">No has agregado ningún anime o película a tu lista de favoritos aún.</p>
@@ -3644,7 +3644,7 @@ async function renderHistoryView() {
 
   if (!Array.isArray(history) || history.length === 0) {
     container.innerHTML = `
-      <div style="text-align: center; padding: 60px 20px; background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 16px;">
+      <div style="text-align: center; padding: 60px 20px; background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 4px;">
         <i data-lucide="history" style="width: 48px; height: 48px; stroke: var(--text-muted); margin-bottom: 16px;"></i>
         <h3 style="font-family: var(--font-title); font-size: 1.2rem; color: var(--text-main); margin-bottom: 8px;">No hay historial registrado</h3>
         <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">Los episodios que reproduzcas se mostrarán aquí con tu avance guardado.</p>
@@ -4470,7 +4470,7 @@ function setupCommunityChat() {
 
         const isUserAdmin = msg.username === 'TheCarlosS5';
         html += `
-          <div class="chat-message-bubble ${isUserAdmin ? 'admin' : ''}" style="margin-bottom: 6px; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); font-size: 0.82rem; line-height: 1.4; color: var(--text-main); max-width: 90%; align-self: flex-start;">
+          <div class="chat-message-bubble ${isUserAdmin ? 'admin' : ''}" style="margin-bottom: 6px; padding: 8px 12px; border-radius: 4px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); font-size: 0.82rem; line-height: 1.4; color: var(--text-main); max-width: 90%; align-self: flex-start;">
             <div class="chat-message-meta" style="display: flex; justify-content: space-between; gap: 10px; margin-bottom: 4px; font-size: 0.72rem; font-weight: 700;">
               <span style="color: ${isUserAdmin ? 'var(--accent-color)' : 'var(--text-muted)'};">${msg.username}</span>
               <span style="font-weight: 400; color: var(--text-muted);">${formatTimeStr(msg.created_at)}</span>
@@ -4564,7 +4564,7 @@ async function loadShowComments(showId) {
         }
         
         return `
-          <div class="comment-item" style="display: flex; gap: 15px; padding: 15px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px;">
+          <div class="comment-item" style="display: flex; gap: 15px; padding: 15px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 4px;">
             <div class="comment-avatar" style="width: 36px; height: 36px; border-radius: 50%; background: ${avatarBg}; color: var(--text-main); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.95rem; flex-shrink: 0; ${isUserAdmin ? 'box-shadow: 0 0 10px var(--accent-glow); border: 1px solid var(--accent-color);' : ''}">
               ${initial}
             </div>
@@ -4793,7 +4793,7 @@ async function loadPopularSidebar(currentShowId) {
 
     const popularShowsHTML = popularShows.map(s => {
       return `
-        <div class="popular-sidebar-item" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(s.id))}" style="display: flex; gap: 12px; cursor: pointer; padding: 8px; border-radius: 8px; transition: background 0.2s; align-items: center;">
+        <div class="popular-sidebar-item" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(s.id))}" style="display: flex; gap: 12px; cursor: pointer; padding: 8px; border-radius: 4px; transition: background 0.2s; align-items: center;">
           <img src="${escapeHtmlAttribute(catalogueImageUrl(s.poster_path))}" alt="${escapeHtmlAttribute(s.title)}" style="width: 50px; height: 75px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color); flex-shrink: 0;">
           <div style="flex-grow: 1; overflow: hidden;">
             <h4 style="font-size: 0.82rem; font-weight: 600; color: var(--text-main); margin: 0 0 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtmlAttribute(s.title)}">${escapeHtml(s.title)}</h4>
@@ -4978,7 +4978,7 @@ function checkAndShowProfileSwitcher() {
 function applyProfileUI(decoded) {
   const userAvatarInitial = document.getElementById('user-avatar-initial');
   if (userAvatarInitial && decoded.profile_name) {
-    const color = decoded.profile_color || '#a855f7';
+    const color = decoded.profile_color || '#F97316';
     const isImg = color.startsWith('/');
     if (isImg) {
       userAvatarInitial.textContent = '';
@@ -5047,7 +5047,7 @@ function renderProfiles(profiles) {
   grid.innerHTML = '';
   
   profiles.forEach(p => {
-    const color = p.avatar_color || '#a855f7';
+    const color = p.avatar_color || '#F97316';
     const name = p.profile_name || 'Principal';
     const card = document.createElement('div');
     card.className = 'profile-card' + (isProfileManagementMode ? ' edit-mode' : '');
@@ -5260,7 +5260,7 @@ function openProfileEditModal(profile) {
     pinInput.value = profile.pin || '';
     delBtn.style.display = 'block';
     
-    const color = profile.avatar_color || '#a855f7';
+    const color = profile.avatar_color || '#F97316';
     document.querySelectorAll('.color-swatch').forEach(s => {
       s.classList.remove('active');
       s.style.borderColor = 'transparent';
@@ -5799,7 +5799,7 @@ function setupAutoDownloaderControls() {
           const isPaused = item.status === 'paused';
           const epLabel = item.isBatch ? 'Batch / Temp. Completa' : `Temp. ${item.season || 1} · Cap. ${item.episode || '?'}`;
           return `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; gap: 10px; flex-wrap: wrap;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; gap: 10px; flex-wrap: wrap;">
               <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; flex: 1; min-width: 240px;">
                 <span class="badge" style="background: rgba(var(--accent-rgb),0.15); color: var(--accent-color); font-weight: 800;">#${idx + 1}</span>
                 <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
@@ -6004,7 +6004,7 @@ function setupAutoDownloaderControls() {
           torrentSearchResultsList.innerHTML = `<p style="color: var(--text-muted); font-size: 0.85rem; padding: 15px 0;">No se encontraron torrents en Nyaa con los términos indicados.</p>`;
         } else {
           torrentSearchResultsList.innerHTML = results.map((item) => `
-            <div style="display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; margin-bottom: 6px;">
+            <div style="display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; margin-bottom: 6px;">
               <div style="font-size: 0.92rem; font-weight: 700; color: var(--text-main); line-height: 1.35; word-break: break-word;">${item.title}</div>
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 10px;">
                 <div style="display: flex; gap: 12px; font-size: 0.8rem; color: var(--text-muted); align-items: center; flex-wrap: wrap;">
@@ -6337,7 +6337,7 @@ async function loadStagedImports() {
     }
 
     container.innerHTML = items.map(item => `
-      <div class="admin-card" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 16px; border-radius: 8px;">
+      <div class="admin-card" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 16px; border-radius: 4px;">
         <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; flex-wrap: wrap;">
           <div style="flex: 1; min-width: 280px;">
             <span class="badge" style="background: rgba(var(--accent-rgb),0.15); color: var(--accent-hover); font-size: 0.75rem; margin-bottom: 6px; display: inline-block;">${item.source_info || 'Descarga Torrents'}</span>
@@ -6522,7 +6522,7 @@ function renderCalendarDay(dayName) {
       ${showsList.map(item => {
         const cover = item.cover_image || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
         const inLibBadge = item.in_library ? `
-          <div style="position: absolute; top: 10px; right: 10px; background: rgba(0, 224, 143, 0.95); color: #000; font-family: var(--font-title); font-size: 0.7rem; font-weight: 800; padding: 4px 10px; border-radius: 20px; box-shadow: 0 0 10px rgba(0,224,143,0.5); z-index: 3;">
+          <div style="position: absolute; top: 10px; right: 10px; background: rgba(0, 224, 143, 0.95); color: #000; font-family: var(--font-title); font-size: 0.7rem; font-weight: 800; padding: 4px 10px; border-radius: 4px; box-shadow: 0 0 10px rgba(0,224,143,0.5); z-index: 3;">
             ✓ EN TU BIBLIOTECA
           </div>
         ` : '';
@@ -6536,7 +6536,7 @@ function renderCalendarDay(dayName) {
         const timeString = new Date(item.airing_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
         return `
-          <div class="calendar-card" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s, border-color 0.2s;">
+          <div class="calendar-card" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s, border-color 0.2s;">
             <div style="height: 180px; position: relative; overflow: hidden; background: #000;">
               <img src="${escapeHtmlAttribute(catalogueImageUrl(cover))}" alt="${escapeHtmlAttribute(item.title)}" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.85;">
               <div style="position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.8); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px 8px; font-size: 0.75rem; font-weight: 700; color: var(--accent-color);">

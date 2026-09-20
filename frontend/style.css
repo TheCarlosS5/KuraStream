@@ -274,7 +274,7 @@ button, input, select {
   background: linear-gradient(135deg, var(--accent-color) 0%, #ff8c00 100%);
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -537,7 +537,7 @@ button, input, select {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 4px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 15px rgba(var(--accent-rgb), 0.1);
   z-index: 100;
   overflow: hidden;
@@ -602,7 +602,7 @@ button, input, select {
 .header-search input {
   width: 100%;
   padding: 8px 16px 8px 36px;
-  border-radius: 20px;
+  border-radius: 4px;
   background-color: var(--surface-muted);
   border: 1px solid var(--border-color);
   color: var(--text-main);
@@ -1252,7 +1252,7 @@ button, input, select {
   background: var(--surface-glass);
   backdrop-filter: blur(10px);
   padding: 12px;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid var(--border-color);
 }
 
@@ -1272,7 +1272,7 @@ button, input, select {
   background: var(--surface-glass);
   backdrop-filter: blur(10px);
   padding: 14px;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid var(--border-color);
 }
 
@@ -1334,7 +1334,7 @@ button, input, select {
   max-height: 220px;
   overflow-y: auto;
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 4px;
   padding: 16px;
   background: rgba(255, 255, 255, 0.02);
   backdrop-filter: blur(8px);
@@ -1346,7 +1346,7 @@ button, input, select {
   gap: 6px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 7px 12px;
   font-size: 0.86rem;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -2207,7 +2207,7 @@ button, input, select {
   background: rgba(11, 12, 14, 0.95);
   backdrop-filter: blur(15px);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 8px;
   display: none;
   flex-direction: column;
@@ -2253,7 +2253,7 @@ button, input, select {
   align-items: center;
   gap: 12px;
   padding: 10px 14px !important;
-  border-radius: 8px !important;
+  border-radius: 4px;
   color: var(--text-main) !important;
   font-size: 0.88rem !important;
   font-weight: 500;
@@ -2444,7 +2444,7 @@ button, input, select {
 .countdown-card {
   background: var(--surface-color);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 4px;
   padding: 30px;
   text-align: center;
   max-width: 320px;
@@ -2606,7 +2606,7 @@ button, input, select {
   align-items: center;
   justify-content: space-between;
   padding: 10px;
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--surface-muted);
   border: 1px solid var(--border-color);
 }
@@ -2913,7 +2913,7 @@ button, input, select {
   font-size: 0.7rem;
   font-weight: 800;
   padding: 3px 8px;
-  border-radius: 20px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -2956,7 +2956,7 @@ button, input, select {
   font-size: 0.8rem;
   font-weight: 700;
   font-family: var(--font-title);
-  border-radius: 20px;
+  border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid transparent;
@@ -3187,7 +3187,7 @@ button, input, select {
 .settings-card {
   background: var(--surface-glass);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 4px;
   padding: 25px;
   box-shadow: var(--shadow-main);
 }
@@ -3209,7 +3209,7 @@ button, input, select {
 .settings-select {
   background: var(--surface-color);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 10px 14px;
   color: var(--text-main);
   font-size: 0.9rem;
@@ -3234,7 +3234,7 @@ button, input, select {
   background: rgba(74, 246, 38, 0.1);
   border: 1px solid rgba(74, 246, 38, 0.3);
   color: #4af626;
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 12px 16px;
   font-size: 0.85rem;
   display: flex;
@@ -3436,7 +3436,7 @@ input:checked + .slider:before {
 
 .chat-message-bubble {
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: 4px;
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.05);
   font-size: 0.82rem;
@@ -3467,7 +3467,7 @@ input:checked + .slider:before {
   padding: 15px;
   background: rgba(255,255,255,0.02);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 4px;
   animation: fadeIn 0.4s ease;
 }
 
@@ -3532,7 +3532,7 @@ input:checked + .slider:before {
 .detail-popular-sidebar {
   background: var(--surface-glass);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 4px;
   padding: 16px;
   max-height: 85vh;
   overflow-y: auto;
@@ -3605,7 +3605,7 @@ input:checked + .slider:before {
   background: rgba(25, 29, 41, 0.9);
   border: 1px solid var(--border-color);
   padding: 30px 40px;
-  border-radius: 16px;
+  border-radius: 4px;
   max-width: 400px;
   box-shadow: 0 15px 45px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(10px);
@@ -3962,7 +3962,7 @@ input:checked + .slider:before {
   background: rgba(18, 22, 32, 0.4);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
+  border-radius: 4px;
   padding: 30px;
   transition: all 0.3s ease;
   text-align: left;
@@ -3979,7 +3979,7 @@ input:checked + .slider:before {
   height: 50px;
   background: rgba(var(--accent-rgb), 0.1);
   color: var(--accent-color);
-  border-radius: 12px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4024,7 +4024,7 @@ input:checked + .slider:before {
 .faq-item {
   background: rgba(18, 22, 32, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
+  border-radius: 4px;
   overflow: hidden;
   text-align: left;
   transition: all 0.3s ease;
@@ -4115,7 +4115,7 @@ input:checked + .slider:before {
   padding: 8px 18px;
   font-size: 0.88rem;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   white-space: normal;
@@ -4186,7 +4186,7 @@ input:checked + .slider:before {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-color);
-  border-radius: 14px;
+  border-radius: 4px;
   padding: 16px;
   display: flex;
   gap: 18px;
@@ -4207,7 +4207,7 @@ input:checked + .slider:before {
   width: 130px;
   height: 80px;
   flex-shrink: 0;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.4);
 }
@@ -4316,7 +4316,7 @@ input:checked + .slider:before {
   min-height: 130px;
   height: auto;
   padding: 12px 8px;
-  border-radius: 16px;
+  border-radius: 4px;
   overflow: hidden;
   cursor: pointer;
   border: 1px solid var(--border-color);
@@ -4391,7 +4391,7 @@ input:checked + .slider:before {
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   line-height: 1.2;
 }
@@ -4530,7 +4530,7 @@ input:checked + .slider:before {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  border-radius: 12px;
+  border-radius: 4px;
 }
 
 .random-card-inner {
@@ -4550,7 +4550,7 @@ input:checked + .slider:before {
 .random-poster-wrapper {
   width: 160px;
   flex-shrink: 0;
-  border-radius: 12px;
+  border-radius: 4px;
   overflow: hidden;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   border: 1px solid var(--border-color);
@@ -4578,7 +4578,7 @@ input:checked + .slider:before {
   color: var(--accent-color);
   border: 1px solid rgba(229, 9, 20, 0.3);
   padding: 4px 10px;
-  border-radius: 20px;
+  border-radius: 4px;
   font-size: 0.75rem;
   font-weight: 700;
   width: fit-content;
@@ -4655,7 +4655,7 @@ input:checked + .slider:before {
   position: relative;
   width: 170px;
   height: 240px;
-  border-radius: 14px;
+  border-radius: 4px;
   overflow: hidden;
   box-shadow: 0 0 25px rgba(var(--accent-rgb), 0.4), 0 10px 30px rgba(0, 0, 0, 0.6);
   border: 2px solid var(--accent-color);
@@ -4691,7 +4691,7 @@ input:checked + .slider:before {
   color: #fff;
   border: 1px solid var(--accent-color);
   padding: 4px 10px;
-  border-radius: 20px;
+  border-radius: 4px;
   font-size: 0.75rem;
   font-weight: 700;
   animation: pulse 1s infinite alternate;
@@ -4816,7 +4816,7 @@ input:checked + .slider:before {
   max-width: calc(100vw - 30px);
   background: rgba(14, 18, 28, 0.88);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
+  border-radius: 4px;
   box-shadow: 0 12px 35px rgba(0, 0, 0, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -4920,7 +4920,7 @@ input:checked + .slider:before {
   color: var(--success-color);
   border: 1px solid rgba(var(--success-rgb), 0.3);
   padding: 2px 8px;
-  border-radius: 12px;
+  border-radius: 4px;
   cursor: pointer;
   letter-spacing: 0.5px;
   transition: transform 0.15s;
@@ -4935,7 +4935,7 @@ input:checked + .slider:before {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-muted);
   padding: 2px 8px;
-  border-radius: 12px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -4952,7 +4952,7 @@ input:checked + .slider:before {
   color: #f59e0b;
   border: 1px solid rgba(245, 158, 11, 0.3);
   padding: 2px 6px;
-  border-radius: 10px;
+  border-radius: 4px;
   font-weight: 700;
 }
 
@@ -5009,7 +5009,7 @@ input:checked + .slider:before {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-main);
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: 4px;
   font-size: 0.85rem;
   line-height: 1.35;
   word-break: break-word;
@@ -5061,7 +5061,7 @@ input:checked + .slider:before {
   flex: 1;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 7px 12px;
   color: var(--text-main);
   font-size: 0.85rem;
@@ -5079,7 +5079,7 @@ input:checked + .slider:before {
   background: var(--success-color);
   color: #0a0e17;
   border: none;
-  border-radius: 8px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5123,7 +5123,7 @@ input:checked + .slider:before {
   justify-content: space-between;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
+  border-radius: 4px;
   padding: 10px 14px;
   transition: all 0.2s;
 }
@@ -6235,3 +6235,92 @@ input:checked + .slider:before {
 
 
 
+
+/* ==========================================================================
+   TASTE SKILL: TACTILE PHYSICS, TABULAR NUMERALS & CINEMATIC BENTO
+   ========================================================================== */
+
+/* 1. Universal Tactile Active Push State */
+:where(
+  .btn,
+  .show-card,
+  .continue-watching-card,
+  .episode-item,
+  .player-btn,
+  .nav-link,
+  .dropdown-trigger,
+  .smart-skip-intro-pill,
+  .popover-btn-play,
+  .popover-btn-list,
+  .popover-btn-info
+):active {
+  transform: scale(0.98) !important;
+  transition: transform 0.08s ease !important;
+}
+
+/* 2. Strict Tabular Numerals for Dynamic Counters & Badges */
+.badge,
+.badge-hd,
+.badge-rating,
+.badge-year,
+.card-continue-watching-indicator,
+.time-current,
+.time-duration,
+.player-time,
+.scrub-preview-time,
+.stat-card-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 3. Rich Editorial Typography & Line Clamping */
+.continue-watching-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal !important;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.continue-watching-subtext {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal !important;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* 4. Cinematic Asymmetric Bento Layout for Simulcast Grid */
+#calendar-grid-content {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+@media (min-width: 1024px) {
+  #calendar-grid-content {
+    grid-template-columns: repeat(4, 1fr) !important;
+  }
+
+  #calendar-grid-content .calendar-card:first-child {
+    grid-column: span 2;
+    grid-row: span 2;
+  }
+
+  #calendar-grid-content .calendar-card:first-child > div:first-child {
+    height: 280px !important;
+  }
+
+  #calendar-grid-content .calendar-card:first-child h3 {
+    font-size: 1.25rem !important;
+  }
+}
+
+/* 5. Clear Accessible Focus-Visible Outlines */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent-color) !important;
+  outline-offset: 2px !important;
+}
