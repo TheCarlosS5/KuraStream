@@ -310,6 +310,12 @@ exec('node ' . escapeshellarg(__DIR__ . '/ui_catalogue_rendering.mjs') . ' 2>&1'
 if ($renderStatus !== 0) {
     $errors[] = "Catalogue rendering regression: " . implode("\n", $renderOutput);
 }
+$reviewOutput = [];
+$reviewStatus = 0;
+exec('node --test ' . escapeshellarg(__DIR__ . '/ui_review_regressions.mjs') . ' 2>&1', $reviewOutput, $reviewStatus);
+if ($reviewStatus !== 0) {
+    $errors[] = "Catalogue review regression: " . implode("\n", $reviewOutput);
+}
 
 if (!empty($errors)) {
     echo "FAIL:\n - " . implode("\n - ", $errors) . "\n";

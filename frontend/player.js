@@ -78,8 +78,7 @@ function setLucideIcon(elementId, iconName) {
 // Helper to extract show ID safely without breaking on movies or shows with _S in name
 export function getShowIdFromEpisodeId(epId) {
   if (!epId) return '';
-  const decoded = decodeURIComponent(epId);
-  return decoded.replace(/_movie$/i, '').replace(/_S\d+_E\d+$/i, '');
+  return String(epId).replace(/_movie$/i, '').replace(/_S\d+_E\d+$/i, '');
 }
 
 // QR Share elements
@@ -165,10 +164,8 @@ let lastSavedTime = 0;
 let isPlayerActive = false;
 
 export async function initPlayer(rawEpisodeId) {
-  let episodeId = decodeURIComponent(rawEpisodeId || '');
-  if (episodeId && episodeId.includes('?')) {
-    episodeId = episodeId.split('?')[0];
-  }
+  // Router and party callers supply decoded IDs, not a hash or query string.
+  const episodeId = String(rawEpisodeId || '');
   currentEpisodeId = episodeId;
   selectedAudioTrackNum = 0;
   selectedSubtitleTrackNum = -1;
@@ -1079,7 +1076,7 @@ function setupPlayerEventListeners() {
       e.preventDefault();
       if (nextEpisodeId) {
         showVideoToast('Siguiente episodio');
-        location.hash = `#/player/${nextEpisodeId}`;
+        location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
       } else {
         showVideoToast('No hay más episodios');
       }
@@ -1087,7 +1084,7 @@ function setupPlayerEventListeners() {
       if (document.fullscreenElement) {
         document.exitFullscreen();
       } else {
-        location.hash = `#/show/${getShowIdFromEpisodeId(currentEpisodeId)}`;
+        location.hash = `#/show/${encodeURIComponent(getShowIdFromEpisodeId(currentEpisodeId))}`;
       }
     }
   };
@@ -1203,7 +1200,7 @@ function setupPlayerEventListeners() {
       if (remainingTime <= 0.8 && !nextEpisodeNavigated) {
         nextEpisodeNavigated = true;
         hideNextEpisodeCard();
-        location.hash = `#/player/${nextEpisodeId}`;
+        location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
       }
     } else if (remainingTime > 25 && !nextEpisodeDismissed) {
       hideNextEpisodeCard();
@@ -1250,7 +1247,7 @@ function setupPlayerEventListeners() {
     if (nextEpisodeId) {
       triggerCountdownAutoplay();
     } else {
-      location.hash = `#/show/${getShowIdFromEpisodeId(currentEpisodeId)}`;
+      location.hash = `#/show/${encodeURIComponent(getShowIdFromEpisodeId(currentEpisodeId))}`;
     }
   };
 
@@ -1378,7 +1375,7 @@ function setupPlayerEventListeners() {
   if (nextEpisodeId) {
     nextEpBtn.style.display = 'flex';
     nextEpBtn.onclick = () => {
-      location.hash = `#/player/${nextEpisodeId}`;
+      location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
     };
   } else {
     nextEpBtn.style.display = 'none';
@@ -1476,7 +1473,7 @@ function setupPlayerEventListeners() {
   skipOutroBtn.onclick = () => {
     outroOverlayContainer.style.display = 'none';
     if (nextEpisodeId) {
-      location.hash = `#/player/${nextEpisodeId}`;
+      location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
     }
   };
 
@@ -1510,7 +1507,7 @@ function setupPlayerEventListeners() {
 
   // Exit button
   document.getElementById('player-back-btn').onclick = () => {
-    location.hash = `#/show/${getShowIdFromEpisodeId(currentEpisodeId)}`;
+    location.hash = `#/show/${encodeURIComponent(getShowIdFromEpisodeId(currentEpisodeId))}`;
   };
 
   // Mouse activity tracker for controls fading
@@ -1862,7 +1859,7 @@ function triggerCountdownAutoplay() {
       }
       countdownOverlay.style.display = 'none';
       if (isPlayerActive && nextEpisodeId) {
-        location.hash = `#/player/${nextEpisodeId}`;
+        location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
       }
     }
   }, 1000);
@@ -1873,7 +1870,7 @@ function triggerCountdownAutoplay() {
       countdownAutoplayInterval = null;
     }
     countdownOverlay.style.display = 'none';
-    location.hash = `#/player/${nextEpisodeId}`;
+    location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
   };
 
   cancelBtn.onclick = () => {
@@ -2021,7 +2018,7 @@ function updateMediaSession() {
     });
     if (nextEpisodeId) {
       navigator.mediaSession.setActionHandler('nexttrack', () => {
-        location.hash = `#/player/${nextEpisodeId}`;
+        location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
       });
     } else {
       try {
@@ -2084,7 +2081,7 @@ function showNextEpisodeCard(secondsLeft) {
       e.stopPropagation();
       nextEpisodeNavigated = true;
       hideNextEpisodeCard();
-      location.hash = `#/player/${nextEpisodeId}`;
+      location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
     };
   }
 
@@ -2305,7 +2302,7 @@ function showQRModal() {
   const startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
   const currentTime = Math.floor(startOffset + video.currentTime);
   
-  const shareUrl = `${window.location.origin}/#/player/${currentEpisodeId}?t=${currentTime}`;
+  const shareUrl = `${window.location.origin}/#/player/${encodeURIComponent(currentEpisodeId)}?t=${currentTime}`;
   
   if (qrUrlText) qrUrlText.textContent = shareUrl;
   

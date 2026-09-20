@@ -1,4 +1,4 @@
-import { initPlayer, destroyPlayer } from './player.js?v=10.16_audio_video_pts_sync_fixed';
+import { initPlayer, destroyPlayer } from './player.js?v=2026.09.20-catalogue-hardening';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 import { partyManager } from './js/modules/party.js';
 import { initCardPopovers } from './js/modules/card_popover_preview.js';
@@ -333,13 +333,13 @@ function setupRouter() {
       renderStatsView();
     } else if (hash.startsWith('#/show/')) {
       currentView = 'detail';
-      const id = decodeURIComponent(hash.replace(/^#\/show\//, ''));
+      const id = decodeURIComponent(hash.replace(/^#\/show\//, '').split('?')[0]);
       const detView = document.getElementById('detail-view');
       if (detView) { detView.classList.add('active'); detView.style.display = 'block'; }
       loadShowDetails(id);
     } else if (hash.startsWith('#/player/')) {
       currentView = 'player';
-      const id = decodeURIComponent(hash.replace(/^#\/player\//, ''));
+      const id = decodeURIComponent(hash.replace(/^#\/player\//, '').split('?')[0]);
       document.querySelector('.app-header').style.display = 'none';
       const playView = document.getElementById('player-view');
       if (playView) { playView.classList.add('active'); playView.style.display = 'block'; }
@@ -1025,7 +1025,7 @@ function createShowCardHTML(show, historyMap = new Map()) {
   const isAiring = show.status === 'airing';
   const airingBadgeHTML = isAiring ? `
     <div class="badge-airing-neon">
-      <span class="airing-pulse-dot" style="width:6px;height:6px;background:#00e08f;border-radius:50%;display:inline-block;animation:pulseGlow 1.8s infinite;"></span> EMISIÓN
+      <span class="airing-pulse-dot" style="width:6px;height:6px;background:var(--success-color);border-radius:50%;display:inline-block;animation:pulseGlow 1.8s infinite;"></span> EMISIÓN
     </div>
   ` : '';
 
@@ -1084,7 +1084,7 @@ async function loadShowDetails(id) {
   if (oldActions) oldActions.remove();
   
   try {
-    const res = await fetch(`/api/shows/${id}`);
+    const res = await fetch(`/api/shows/${encodeURIComponent(id)}`);
     const data = await res.json();
     const show = data.show || data;
     const episodes = data.episodes || show.episodes || [];
@@ -3917,7 +3917,7 @@ async function renderStatsView() {
     </div>
     
     <div class="stat-card">
-      <div class="stat-card-icon" style="background: rgba(0, 224, 143, 0.15); color: #00e08f;">
+      <div class="stat-card-icon" style="background: rgba(var(--success-rgb), 0.15); color: var(--success-color);">
         <i data-lucide="trophy"></i>
       </div>
       <div>
@@ -3968,7 +3968,7 @@ async function renderStatsView() {
             <span style="color: var(--text-muted); font-weight: 500;">${count} ${count === 1 ? 'título' : 'títulos'} (${percentage}%)</span>
           </div>
           <div class="genre-chart-track" style="height: 12px; background: rgba(255, 255, 255, 0.06); border-radius: 6px; overflow: hidden;">
-            <div class="genre-chart-bar" style="width: ${percentage}%; height: 100%; background: linear-gradient(90deg, var(--accent-color) 0%, #00e08f 100%); border-radius: 6px; transition: width 0.6s ease;"></div>
+            <div class="genre-chart-bar" style="width: ${percentage}%; height: 100%; background: linear-gradient(90deg, var(--accent-color) 0%, var(--success-color) 100%); border-radius: 6px; transition: width 0.6s ease;"></div>
           </div>
         </div>
       `;
@@ -6522,7 +6522,7 @@ function renderCalendarDay(dayName) {
       ${showsList.map(item => {
         const cover = item.cover_image || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
         const inLibBadge = item.in_library ? `
-          <div style="position: absolute; top: 10px; right: 10px; background: rgba(0, 224, 143, 0.95); color: #000; font-family: var(--font-title); font-size: 0.7rem; font-weight: 800; padding: 4px 10px; border-radius: 4px; box-shadow: 0 0 10px rgba(0,224,143,0.5); z-index: 3;">
+          <div style="position: absolute; top: 10px; right: 10px; background: rgba(var(--success-rgb), 0.95); color: #000; font-family: var(--font-title); font-size: 0.7rem; font-weight: 800; padding: 4px 10px; border-radius: 4px; box-shadow: 0 0 10px rgba(var(--success-rgb),0.5); z-index: 3;">
             ✓ EN TU BIBLIOTECA
           </div>
         ` : '';
@@ -6767,15 +6767,15 @@ async function loadNotifications() {
         const seasonNum = item.season_number || item.season || '';
         const title = item.show_title || item.title || 'Nuevo episodio';
         const poster = item.poster_path || `/api/placeholder-poster?title=${encodeURIComponent(title)}`;
-        const targetHash = item.episode_id ? `#/player/${item.episode_id}` : `#/show/${item.show_id}`;
+        const targetHash = item.episode_id ? `#/player/${encodeURIComponent(item.episode_id)}` : `#/show/${encodeURIComponent(item.show_id)}`;
 
         return `
-          <a href="${targetHash}" class="notification-item" data-show-id="${item.show_id || ''}" data-episode-id="${item.episode_id || ''}">
-            <img src="${poster}" alt="${title}" class="notification-poster" onerror="this.src='/api/placeholder-poster?title=Show';">
+          <a href="${escapeHtmlAttribute(targetHash)}" class="notification-item" data-show-id="${escapeHtmlAttribute(item.show_id || '')}" data-episode-id="${escapeHtmlAttribute(item.episode_id || '')}">
+            <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(title)}" class="notification-poster" onerror="this.onerror=null;this.src='/api/placeholder-poster?title=Show';">
             <div class="notification-info">
-              <span class="notification-title">${title}</span>
-              <span class="notification-ep">Episodio ${epNum} ${seasonNum ? `(Temporada ${seasonNum})` : ''}</span>
-              <span class="notification-time">${item.message || 'Nuevo lanzamiento disponible'}</span>
+              <span class="notification-title">${escapeHtml(title)}</span>
+              <span class="notification-ep">Episodio ${escapeHtml(epNum)} ${escapeHtml(seasonNum ? `(Temporada ${seasonNum})` : '')}</span>
+              <span class="notification-time">${escapeHtml(item.message || 'Nuevo lanzamiento disponible')}</span>
             </div>
           </a>
         `;

@@ -1,0 +1,106 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import test from 'node:test';
+
+const app = fs.readFileSync(new URL('../frontend/app.js', import.meta.url), 'utf8');
+const player = fs.readFileSync(new URL('../frontend/player.js', import.meta.url), 'utf8');
+const html = fs.readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
+const css = fs.readFileSync(new URL('../frontend/style.css', import.meta.url), 'utf8');
+const sw = fs.readFileSync(new URL('../frontend/sw.js', import.meta.url), 'utf8');
+function evaluate(source, name, context) {
+  const fn = source.match(new RegExp(`(?:export )?(?:async )?function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, 'm'));
+  assert.ok(fn, `Missing ${name}`);
+  vm.runInContext(fn[0].replace(/^export /, ''), context);
+}
+
+test('notification metadata stays in text and quoted attributes, with encoded routes', async () => {
+  const attack = `<img src=x onerror=alert(1)>"'&`;
+  const ids = `show?part/one"'`;
+  const list = { innerHTML: '', querySelectorAll: () => [] };
+  const context = vm.createContext({ URL, console, document: { getElementById: key => key === 'notifications-list' ? list : null }, getUserAndProfile: () => ({ activeUser: 'user', profileName: 'profile' }), fetch: async () => ({ ok: true, json: async () => [{ show_id: ids, episode_id: ids, show_title: attack, episode_number: attack, season_number: attack, message: attack, poster_path: 'javascript:alert(1)' }, { show_id: ids, title: attack, poster_path: attack }] }) });
+  for (const name of ['escapeHtml', 'escapeHtmlAttribute', 'catalogueImageUrl', 'loadNotifications']) evaluate(app, name, context);
+  await context.loadNotifications();
+  assert.ok(!list.innerHTML.includes('<img src=x'), 'No injected elements');
+  assert.ok(!list.innerHTML.includes('javascript:'), 'No executable poster URL');
+  assert.ok(list.innerHTML.includes('&lt;img src=x onerror=alert(1)&gt;&quot;&#039;&amp;'));
+  assert.ok(list.innerHTML.includes('href="#/player/show%3Fpart%2Fone%22&#039;"'));
+  assert.ok(list.innerHTML.includes('href="#/show/show%3Fpart%2Fone%22&#039;"'));
+  assert.ok(list.innerHTML.includes('data-show-id="show?part/one&quot;&#039;"'));
+});
+
+test('router decodes IDs only after separating the actual query string', () => {
+  for (const kind of ['show', 'player']) {
+    let received;
+    const context = vm.createContext({ console, window: { location: { hash: `#/${kind}/Show%3Fpart%2Fone_S1_E1?t=42` }, addEventListener() {} }, document: { querySelector: () => ({ style: { removeProperty() {} } }), querySelectorAll: () => [], getElementById: () => null }, updateMosaicBgVisibility() {}, updateActiveNavHighlight() {}, resetChameleonTheme() {}, currentView: '', loadShowDetails: id => { received = id; }, initPlayer: id => { received = id; } });
+    evaluate(app, 'setupRouter', context);
+    context.setupRouter();
+    assert.equal(received, 'Show?part/one_S1_E1');
+  }
+});
+
+test('decoded IDs retain question marks and slashes through API URL construction', async () => {
+  let requested;
+  const stop = new Error('Stop after first API request');
+  const context = vm.createContext({ console: { error() {} }, progressSaveInterval: null, document: { getElementById: () => null }, fetch: async url => { requested = url; throw stop; } });
+  evaluate(player, 'getShowIdFromEpisodeId', context);
+  evaluate(player, 'initPlayer', context);
+  await context.initPlayer('Show?part/one_S1_E1').catch(() => {});
+  assert.equal(context.currentEpisodeId, 'Show?part/one_S1_E1');
+  assert.equal(requested, '/api/shows/Show%3Fpart%2Fone');
+  assert.equal(context.getShowIdFromEpisodeId('Show%2Ftitle_S1_E1'), 'Show%2Ftitle', 'Literal percent escapes in IDs are not decoded twice');
+  // Detail loading needs only the initial DOM reset before its first API request.
+  const node = { textContent: '', innerHTML: '', children: [], remove() {} };
+  context.document.getElementById = () => node;
+  evaluate(app, 'loadShowDetails', context);
+  await context.loadShowDetails('Show?part/one').catch(() => {});
+  assert.equal(requested, '/api/shows/Show%3Fpart%2Fone');
+});
+
+test('player continuation, back and share links encode IDs before appending queries', () => {
+  assert.ok(!/#\/(?:player|show)\/\$\{(?:nextEpisodeId|currentEpisodeId|getShowIdFromEpisodeId\(currentEpisodeId\))\}/.test(player));
+});
+
+test('new service worker installs exact versioned shell assets and retires old cache', async () => {
+  const handlers = {};
+  const installed = [];
+  const cacheModes = [];
+  const removed = [];
+  let cacheName;
+  const context = vm.createContext({ URL, Request, console, self: { location: { origin: 'https://kura.test' }, addEventListener: (type, handler) => { handlers[type] = handler; }, skipWaiting() {}, clients: { claim() {} } }, caches: { open: async name => { cacheName = name; return { addAll: async assets => { cacheModes.push(...assets.map(asset => asset.cache)); installed.push(...assets.map(asset => typeof asset === 'string' ? asset : new URL(asset.url).pathname + new URL(asset.url).search)); } }; }, keys: async () => ['kurastream-v2.0', cacheName], delete: async name => { removed.push(name); } } });
+  vm.runInContext(sw, context);
+  let done;
+  handlers.install({ waitUntil: promise => { done = promise; } });
+  await done;
+  assert.notEqual(cacheName, 'kurastream-v2.0', 'Existing installations must get a fresh cache');
+  assert.ok(cacheModes.every(mode => mode === 'reload'), 'Install must not copy stale HTTP-cached HTML or modules into the new cache');
+  for (const match of html.matchAll(/(?:src|href)="((?:app\.js|player\.js|style\.css)\?[^" ]+)"/g)) assert.ok(installed.includes('/' + match[1]), `Precache ${match[1]}`);
+  const playerImport = app.match(/from '\.\/(player\.js[^']+)'/)[1];
+  assert.ok(html.includes(`src="${playerImport}"`), 'App and HTML must load the same player version');
+  const visited = new Set();
+  const checkModule = path => {
+    if (visited.has(path)) return;
+    visited.add(path);
+    assert.ok(installed.includes(path), `Offline module dependency missing: ${path}`);
+    const source = fs.readFileSync(new URL('../frontend' + path.split('?')[0], import.meta.url), 'utf8');
+    for (const match of source.matchAll(/^import .*?from ['"]([^'"]+)['"]/gm)) {
+      if (!match[1].startsWith('.')) continue;
+      const dependency = new URL(match[1], 'https://kura.test' + path);
+      checkModule(dependency.pathname + dependency.search);
+    }
+  };
+  checkModule('/app.js?v=2026.09.20-catalogue-hardening');
+  handlers.activate({ waitUntil: promise => { done = promise; } });
+  await done;
+  assert.deepEqual(removed, ['kurastream-v2.0']);
+});
+
+test('active catalogue/calendar positive states use jade tokens', () => {
+  for (const name of ['createShowCardHTML', 'renderCalendarDay', 'renderStatsView']) {
+    const body = app.match(new RegExp(`(?:async )?function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, 'm'))[0];
+    assert.ok(!/#00e08f|rgba\(0,\s*224,\s*143/i.test(body), `${name} uses legacy green`);
+  }
+  const calendarBanner = html.match(/<div class="calendar-header-banner"[^>]+>/)[0];
+  assert.ok(!/#00e08f|rgba\(0,\s*224,\s*143/i.test(calendarBanner));
+  assert.ok(/--success-color:\s*#2DD4BF/i.test(css));
+});

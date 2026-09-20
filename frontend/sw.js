@@ -1,10 +1,31 @@
-const CACHE_NAME = 'kurastream-v2.0';
+const CACHE_NAME = 'kurastream-2026.09.20-catalogue-hardening';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
   '/player.js',
+  '/style.css?v=2026.09.20-catalogue-hardening',
+  '/app.js?v=2026.09.20-catalogue-hardening',
+  '/player.js?v=2026.09.20-catalogue-hardening',
+  '/js/modules/navigation.js',
+  '/js/modules/party.js',
+  '/js/modules/auth.js',
+  '/js/modules/admin_status.js',
+  '/js/modules/admin_staging.js',
+  '/js/modules/admin_library.js',
+  '/js/modules/admin_torrents.js',
+  '/js/modules/admin_import.js',
+  '/js/modules/admin_console.js',
+  '/js/modules/catalog.js',
+  '/js/modules/card_popover_preview.js',
+  '/js/modules/hero_ambient_glow.js',
+  '/js/modules/catalog_episode_tracker.js',
+  '/js/modules/player_scrub_preview.js',
+  '/js/modules/player_tracks_modal.js',
+  '/js/modules/player_audio_enhancer.js',
+  '/js/modules/player_shortcuts_hud.js',
+  '/js/modules/player_smart_skip.js',
   '/vendor/lucide/lucide.min.js',
   '/manifest.json'
 ];
@@ -12,7 +33,8 @@ const SHELL_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(SHELL_ASSETS).catch((err) => {
+      const requests = SHELL_ASSETS.map(asset => new Request(new URL(asset, self.location.origin), { cache: 'reload' }));
+      return cache.addAll(requests).catch((err) => {
         console.warn('[SW] Pre-caching shell assets non-fatal error:', err);
       });
     }).then(() => self.skipWaiting())
