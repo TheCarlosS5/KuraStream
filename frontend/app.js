@@ -6857,7 +6857,7 @@ async function joinWatchPartyByCode(roomId, nickname = '') {
     showToast(`Conectando a la sala ${roomId}...`);
     const room = await partyManager.joinRoom(roomId, nickname);
     if (room && room.episode_id) {
-      window.location.hash = `#/player/${room.episode_id}`;
+      window.location.hash = `#/player/${encodeURIComponent(room.episode_id)}`;
     } else {
       window.location.hash = '#/';
       alert('La sala no tiene un episodio activo asignado');
@@ -6955,7 +6955,7 @@ function setupWatchPartyModal() {
         const room = await partyManager.joinRoom(code, nickname);
         modal.style.display = 'none';
         if (room && room.episode_id) {
-          window.location.hash = `#/player/${room.episode_id}`;
+          window.location.hash = `#/player/${encodeURIComponent(room.episode_id)}`;
         } else {
           alert('Conectado a la sala ' + room.name);
         }

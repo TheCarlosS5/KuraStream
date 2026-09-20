@@ -39,6 +39,44 @@ test('router decodes IDs only after separating the actual query string', () => {
   }
 });
 
+for (const entry of ['code', 'modal']) {
+  test(`watch-party ${entry} join preserves question marks, slashes and percent signs through the router`, async () => {
+    for (const [episodeId, expectedHash] of [
+      ['Show?part/100%_S1_E1', '#/player/Show%3Fpart%2F100%25_S1_E1'],
+      ['literal%2Fname_S1_E1', '#/player/literal%252Fname_S1_E1']
+    ]) {
+      let received;
+      const nodes = {
+        'modal-watch-party': { style: {} },
+        'party-join-submit-btn': {},
+        'party-join-code-input': { value: 'ROOM' },
+        'party-join-name-input': { value: 'Viewer' }
+      };
+      const context = vm.createContext({
+        console,
+        window: { location: { hash: '' }, addEventListener() {} },
+        document: { getElementById: key => nodes[key] || null },
+        partyManager: { joinRoom: async () => ({ episode_id: episodeId }) },
+        showToast() {},
+        alert: message => { throw new Error(message); },
+        updateMosaicBgVisibility() {}, updateActiveNavHighlight() {}, resetChameleonTheme() {},
+        currentView: '', initPlayer: id => { received = id; }
+      });
+      for (const name of ['joinWatchPartyByCode', 'setupWatchPartyModal', 'setupRouter']) evaluate(app, name, context);
+      if (entry === 'code') {
+        await context.joinWatchPartyByCode('ROOM', 'Viewer');
+      } else {
+        context.setupWatchPartyModal();
+        await nodes['party-join-submit-btn'].onclick();
+      }
+      assert.equal(context.window.location.hash, expectedHash);
+      context.document = { getElementById: () => null, querySelector: () => ({ style: { removeProperty() {} } }), querySelectorAll: () => [] };
+      context.setupRouter();
+      assert.equal(received, episodeId, 'Player receives the original API episode ID');
+    }
+  });
+}
+
 test('decoded IDs retain question marks and slashes through API URL construction', async () => {
   let requested;
   const stop = new Error('Stop after first API request');
