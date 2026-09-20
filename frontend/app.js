@@ -1,8 +1,10 @@
 import { initPlayer, destroyPlayer } from './player.js?v=10.16_audio_video_pts_sync_fixed';
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 import { partyManager } from './js/modules/party.js';
+import { initCardPopovers } from './js/modules/card_popover_preview.js';
 
 if (typeof window !== 'undefined') {
+  window.initCardPopovers = initCardPopovers;
   const originalFetch = window.fetch;
   window.fetch = function(input, options = {}) {
     let url = input;
@@ -158,6 +160,7 @@ function initAppMain() {
   safeRun(initHeaderDropdowns, 'initHeaderDropdowns');
   safeRun(setupRouter, 'setupRouter');
   safeRun(setupCatalogueActions, 'setupCatalogueActions');
+  safeRun(initCardPopovers, 'initCardPopovers');
   safeRun(initAdminSidebar, 'initAdminSidebar');
   safeRun(setupEasterEgg, 'setupEasterEgg');
   safeRun(setupForms, 'setupForms');
