@@ -3,7 +3,36 @@
  * Unified Test Runner for KuraStream PHP/MySQL Backend
  */
 
-$testFiles = glob(__DIR__ . '/test_*.php');
+// Registered test suites list
+$tests = [
+    'test_aria2_platform.php',
+    'test_auto_skip_db.php',
+    'test_cinematic_pack.php',
+    'test_comments_api.php',
+    'test_cookie_auth.php',
+    'test_episode_integrity_and_streaming.php',
+    'test_ffmpeg_scanner.php',
+    'test_history_isolation.php',
+    'test_legacy_isolation.php',
+    'test_library_scan_and_player_routes.php',
+    'test_new_features_db.php',
+    'test_party_security.php',
+    'test_profile_pin_security.php',
+    'test_rate_limiter.php',
+    'test_security_and_api_fixes.php',
+    'test_ui_assets.php',
+    'test_upload_validation.php',
+];
+
+$testFiles = !empty($tests)
+    ? array_map(fn($f) => __DIR__ . '/' . $f, $tests)
+    : glob(__DIR__ . '/test_*.php');
+// Include any additional discovered test_*.php files
+foreach (glob(__DIR__ . '/test_*.php') as $found) {
+    if (!in_array($found, $testFiles, true)) {
+        $testFiles[] = $found;
+    }
+}
 sort($testFiles);
 
 echo "=====================================================\n";
