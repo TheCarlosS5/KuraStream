@@ -87,18 +87,12 @@ function applyChameleonTheme(imgElement) {
       b = Math.floor(b / count);
     } else {
       // Fallback if image is entirely greyscale
-      r = data[0] || 168; g = data[1] || 85; b = data[2] || 247;
+      r = data[0] || 249; g = data[1] || 115; b = data[2] || 22;
     }
     
     const root = document.documentElement.style;
-    const accentColor = `rgb(${r}, ${g}, ${b})`;
-    // slightly lighter for hover
-    const accentHover = `rgb(${Math.min(255, r + 40)}, ${Math.min(255, g + 40)}, ${Math.min(255, b + 40)})`;
-    const accentGlow = `rgba(${r}, ${g}, ${b}, 0.5)`;
-    
-    root.setProperty('--accent-color', accentColor);
-    root.setProperty('--accent-hover', accentHover);
-    root.setProperty('--accent-glow', accentGlow);
+    // Artwork may tint the poster glow, but action colors stay semantic.
+    root.setProperty('--artwork-glow', `rgba(${r}, ${g}, ${b}, 0.5)`);
   } catch (e) {
     // Tainted canvas or security error when loading cross-origin images without CORS headers
     console.debug("Chameleon extraction skipped (cross-origin or tainted canvas):", e.message || e);
@@ -107,9 +101,7 @@ function applyChameleonTheme(imgElement) {
 
 function resetChameleonTheme() {
   const root = document.documentElement.style;
-  root.removeProperty('--accent-color');
-  root.removeProperty('--accent-hover');
-  root.removeProperty('--accent-glow');
+  root.removeProperty('--artwork-glow');
 }
 
 // Time formatting helpers
@@ -165,6 +157,7 @@ function initAppMain() {
 
   safeRun(initHeaderDropdowns, 'initHeaderDropdowns');
   safeRun(setupRouter, 'setupRouter');
+  safeRun(setupCatalogueActions, 'setupCatalogueActions');
   safeRun(initAdminSidebar, 'initAdminSidebar');
   safeRun(setupEasterEgg, 'setupEasterEgg');
   safeRun(setupForms, 'setupForms');
@@ -887,31 +880,31 @@ async function loadDashboard(mediaType = 'anime') {
 function renderBillboardHero(featuredShow) {
   if (!featuredShow) return '';
   const bg = featuredShow.backdrop_path || featuredShow.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1600&q=80';
-  const safeBg = bg.replace(/'/g, "%27");
   const rating = featuredShow.rating ? Number(featuredShow.rating).toFixed(1) : '8.5';
   const year = featuredShow.year || new Date().getFullYear();
   const genres = featuredShow.genres
-    ? featuredShow.genres.split(',').slice(0, 3).map(g => `<span class="billboard-genre-tag">${g.trim()}</span>`).join('')
+    ? String(featuredShow.genres).split(',').slice(0, 3).map(g => `<span class="billboard-genre-tag">${escapeHtml(g.trim())}</span>`).join('')
     : '<span class="billboard-genre-tag">Anime</span>';
   const synopsis = featuredShow.synopsis || 'Sin sinopsis disponible.';
 
   return `
-    <div class="billboard-hero" style="background-image: url('${safeBg}');">
+    <div class="billboard-hero">
+      <img class="billboard-hero-background" src="${escapeHtmlAttribute(catalogueImageUrl(bg))}" alt="">
       <div class="billboard-hero-vignette"></div>
       <div class="billboard-hero-content">
         <div class="billboard-hero-badges">
           <span class="badge-hd">HD</span>
           <span class="badge-rating"><i data-lucide="star" style="width:14px;height:14px;fill:var(--rating-color);stroke:var(--rating-color);display:inline-block;vertical-align:-2px;margin-right:2px;"></i>${rating}</span>
-          <span class="badge-year">${year}</span>
+          <span class="badge-year">${escapeHtml(year)}</span>
           <div class="billboard-genres">${genres}</div>
         </div>
-        <h1 class="billboard-hero-title">${featuredShow.title}</h1>
-        <p class="billboard-hero-synopsis">${synopsis}</p>
+        <h1 class="billboard-hero-title">${escapeHtml(featuredShow.title)}</h1>
+        <p class="billboard-hero-synopsis">${escapeHtml(synopsis)}</p>
         <div class="billboard-hero-actions">
-          <button class="btn-billboard-play" onclick="location.hash='#/show/${featuredShow.id}'">
+          <button class="btn-billboard-play" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(featuredShow.id))}">
             <i data-lucide="play" style="width:20px;height:20px;fill:currentColor;stroke:currentColor;vertical-align:middle;margin-right:8px;"></i> Reproducir
           </button>
-          <button class="btn-billboard-info" onclick="location.hash='#/show/${featuredShow.id}'">
+          <button class="btn-billboard-info" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(featuredShow.id))}">
             <i data-lucide="info" style="width:20px;height:20px;vertical-align:middle;margin-right:8px;"></i> Más información
           </button>
         </div>
@@ -943,7 +936,6 @@ function renderContinueWatching(historyItems) {
     const dur = (item.duration > 0) ? item.duration : (item.ep_duration || 1);
     const progressPercent = Math.min(100, Math.max(0, ((item.progress_seconds || 0) / dur) * 100));
     const img = item.thumbnail_path || item.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
-    const safeImg = img.replace(/'/g, "%27");
     const epLabel = item.season_number ? `T${item.season_number}:E${item.episode_number}` : (item.episode_number ? `E${item.episode_number}` : 'Película');
     const remainingSec = Math.max(0, dur - (item.progress_seconds || 0));
     const remainingMin = Math.ceil(remainingSec / 60);
@@ -951,9 +943,9 @@ function renderContinueWatching(historyItems) {
     const subtext = `${epLabel} • ${remainingText}`;
 
     return `
-      <div class="continue-watching-card" onclick="location.hash='#/player/${item.episode_id}'" title="${item.show_title} - ${item.episode_title || epLabel}">
+      <div class="continue-watching-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" title="${escapeHtmlAttribute(`${item.show_title} - ${item.episode_title || epLabel}`)}">
         <div class="continue-watching-thumb-wrapper">
-          <img class="continue-watching-thumb" src="${safeImg}" alt="${item.show_title}" loading="lazy">
+          <img class="continue-watching-thumb" src="${escapeHtmlAttribute(catalogueImageUrl(img))}" alt="${escapeHtmlAttribute(item.show_title)}" loading="lazy">
           <div class="continue-watching-play-btn" aria-label="Reproducir">
             <i data-lucide="play" style="width: 20px; height: 20px; fill: #ffffff; stroke: #ffffff;"></i>
           </div>
@@ -962,8 +954,8 @@ function renderContinueWatching(historyItems) {
           </div>
         </div>
         <div class="continue-watching-info">
-          <h4 class="continue-watching-title">${item.show_title}</h4>
-          <span class="continue-watching-subtext">${subtext}</span>
+          <h4 class="continue-watching-title">${escapeHtml(item.show_title)}</h4>
+          <span class="continue-watching-subtext">${escapeHtml(subtext)}</span>
         </div>
       </div>
     `;
@@ -973,7 +965,7 @@ function renderContinueWatching(historyItems) {
     <div class="row-container continue-watching-row continue-watching">
       <div class="row-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
         <h2 class="row-title" style="margin-bottom: 0;">
-          <i data-lucide="play-circle" style="vertical-align: middle; margin-right: 8px; color: var(--progress-color, #e50914);"></i> Seguir viendo
+          <i data-lucide="play-circle" style="vertical-align: middle; margin-right: 8px; color: var(--progress-color);"></i> Seguir viendo
         </h2>
       </div>
       <div class="row-cards continue-watching-cards">
@@ -1004,7 +996,7 @@ function renderSkeletonLoaders(rowCount = 2) {
 
 function createShowCardHTML(show, historyMap = new Map()) {
   const poster = show.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
-  const rating = show.rating ? show.rating.toFixed(1) : 'N/A';
+  const rating = show.rating ? Number(show.rating).toFixed(1) : 'N/A';
   
   const historyItem = historyMap && historyMap.get ? historyMap.get(String(show.id)) : null;
   let progressHTML = '';
@@ -1014,7 +1006,7 @@ function createShowCardHTML(show, historyMap = new Map()) {
       <div class="card-progress-bar-container" style="position: absolute; bottom: 0; left: 0; right: 0; height: 5px; background: rgba(255,255,255,0.2); z-index: 2;">
         <div class="card-progress-bar" style="width: ${progressPercent}%; height: 100%; background: var(--accent-color);"></div>
       </div>
-      <div class="card-continue-watching-indicator" style="position: absolute; top: 10px; left: 10px; background: rgba(168, 85, 247, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; padding: 2px 6px; font-size: 0.65rem; font-family: var(--font-title); font-weight: 700; color: white; display: flex; align-items: center; gap: 3px; z-index: 2; box-shadow: 0 2px 8px rgba(0,0,0,0.5);">
+      <div class="card-continue-watching-indicator" style="position: absolute; top: 10px; left: 10px; background: rgba(var(--accent-rgb), 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; padding: 2px 6px; font-size: 0.65rem; font-family: var(--font-title); font-weight: 700; color: white; display: flex; align-items: center; gap: 3px; z-index: 2; box-shadow: 0 2px 8px rgba(0,0,0,0.5);">
         <i data-lucide="play" style="width: 8px; height: 8px; fill: white; stroke: white;"></i>
         ${Math.round(progressPercent)}% visto
       </div>
@@ -1029,9 +1021,9 @@ function createShowCardHTML(show, historyMap = new Map()) {
   ` : '';
 
   return `
-    <div class="show-card" onclick="location.hash='#/show/${show.id}'" style="flex: 0 0 auto; width: 180px; height: 320px;">
+    <div class="show-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" style="flex: 0 0 auto; width: 180px; height: 320px;">
       <div class="card-img-wrapper" style="height: 220px; position: relative;">
-        <img src="${poster}" alt="${show.title}" loading="lazy">
+        <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy">
         <div class="card-rating-badge">
           <i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);margin-right:2px;display:inline-block;vertical-align:middle;"></i> 
           ${rating}
@@ -1040,11 +1032,11 @@ function createShowCardHTML(show, historyMap = new Map()) {
         ${progressHTML}
       </div>
       <div class="card-info">
-        <h3 class="card-title" style="font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${show.title}</h3>
+        <h3 class="card-title" style="font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${escapeHtml(show.title)}</h3>
         <div class="card-meta" style="font-size: 0.75rem;">
           <span>${show.media_type === 'movie' ? 'Película' : 'Anime'}</span>
           <span>•</span>
-          <span>${show.year || 'N/A'}</span>
+          <span>${escapeHtml(show.year || 'N/A')}</span>
         </div>
       </div>
     </div>
@@ -1185,7 +1177,7 @@ async function loadShowDetails(id) {
     
     detailPoster.crossOrigin = "anonymous";
     detailPoster.onload = () => applyChameleonTheme(detailPoster);
-    detailPoster.src = show.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80';
+    detailPoster.src = catalogueImageUrl(show.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80');
     
     // Wire Trailer button and modal
     const trailerBtn = document.getElementById('detail-trailer-btn');
@@ -1272,8 +1264,8 @@ async function loadShowDetails(id) {
     } else {
       detailCast.innerHTML = cast.map(c => `
         <div class="cast-chip">
-          <span class="cast-character">${c.character || 'Personaje'}</span>
-          <span class="cast-actor">(${c.name || 'Actor'})</span>
+          <span class="cast-character">${escapeHtml(c.character || 'Personaje')}</span>
+          <span class="cast-actor">(${escapeHtml(c.name || 'Actor')})</span>
         </div>
       `).join('');
     }
@@ -1431,10 +1423,10 @@ async function loadShowDetails(id) {
     }
     metaBadgesEl.innerHTML = `
       <span class="detail-badge-pill detail-badge-rating"><i data-lucide="star" style="width:13px;height:13px;fill:currentColor;"></i> ${show.rating ? show.rating.toFixed(1) : 'N/A'}</span>
-      <span class="detail-badge-pill">${show.year || 'N/A'}</span>
+      <span class="detail-badge-pill">${escapeHtml(show.year || 'N/A')}</span>
       <span class="detail-badge-pill">${seasonText}</span>
       <span class="badge" style="background: rgba(255,255,255,0.08); border-radius: var(--radius-xs);">${show.status === 'airing' ? 'En Emisión' : (show.status === 'upcoming' ? 'Próximamente' : 'Finalizado')}</span>
-      ${genresList.slice(0, 4).map(g => `<span class="detail-badge-genre">${g}</span>`).join('')}
+      ${genresList.slice(0, 4).map(g => `<span class="detail-badge-genre">${escapeHtml(g)}</span>`).join('')}
     `;
 
     let actionsRowEl = document.getElementById('detail-primary-actions');
@@ -1447,7 +1439,7 @@ async function loadShowDetails(id) {
     actionsRowEl.innerHTML = `
       <button id="detail-smart-resume-btn" class="btn-smart-resume detail-smart-resume-btn">
         <i data-lucide="play" style="width:18px;height:18px;fill:currentColor;"></i>
-        <span>${resumeBtnText}</span>
+        <span>${escapeHtml(resumeBtnText)}</span>
       </button>
     `;
 
@@ -1455,8 +1447,8 @@ async function loadShowDetails(id) {
     if (smartResumeBtn && targetEpisode) {
       smartResumeBtn.onclick = () => {
         const targetUrl = resumeTimestamp > 0 
-          ? `#/player/${targetEpisode.id}?t=${Math.floor(resumeTimestamp)}` 
-          : `#/player/${targetEpisode.id}`;
+          ? `#/player/${encodeURIComponent(targetEpisode.id)}?t=${Math.floor(resumeTimestamp)}` 
+          : `#/player/${encodeURIComponent(targetEpisode.id)}`;
         window.location.hash = targetUrl;
       };
     }
@@ -1477,7 +1469,7 @@ async function loadShowDetails(id) {
       const seasonNums = Object.keys(seasons).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
       
       seasonTabs.innerHTML = seasonNums.map((num, idx) => `
-        <button class="season-tab ${idx === 0 ? 'active' : ''}" data-season="${num}">Temporada ${num}</button>
+        <button class="season-tab ${idx === 0 ? 'active' : ''}" data-season="${escapeHtmlAttribute(num)}">Temporada ${escapeHtml(num)}</button>
       `).join('');
 
       // Render first season by default
@@ -1544,9 +1536,9 @@ function renderEpisodeList(epList, targetContainer, fallbackPoster = '', showPro
     ` : '';
 
     return `
-      <div class="episode-item" onclick="window.showEpisodeDetails('${ep.id}')">
+      <div class="episode-item" role="button" tabindex="0" data-episode-id="${escapeHtmlAttribute(ep.id)}">
         <div class="episode-thumb-wrapper">
-          <img class="episode-thumb" src="${thumb}" alt="${ep.title || 'Episodio'}" loading="lazy">
+          <img class="episode-thumb" src="${escapeHtmlAttribute(catalogueImageUrl(thumb))}" alt="${escapeHtmlAttribute(ep.title || 'Episodio')}" loading="lazy">
           ${completedBadgeHTML}
           ${progressBarHTML}
           <div class="episode-play-overlay">
@@ -1555,10 +1547,10 @@ function renderEpisodeList(epList, targetContainer, fallbackPoster = '', showPro
         </div>
         <div class="episode-item-info">
           <div class="episode-item-top">
-            <h3 class="episode-item-title">${ep.episode_number ? `${ep.episode_number}. ` : ''}${ep.title || 'Capítulo'}</h3>
+            <h3 class="episode-item-title">${escapeHtml(ep.episode_number ? `${ep.episode_number}. ` : '')}${escapeHtml(ep.title || 'Capítulo')}</h3>
             <span class="episode-item-duration">${durationMin > 0 ? `${durationMin} min` : ''}</span>
           </div>
-          <p class="episode-item-synopsis">${ep.synopsis || 'Sin descripción disponible para este capítulo.'}</p>
+          <p class="episode-item-synopsis">${escapeHtml(ep.synopsis || 'Sin descripción disponible para este capítulo.')}</p>
         </div>
       </div>
     `;
@@ -2233,7 +2225,7 @@ function setupForms() {
     if (!displayBadge) return;
     if (status === 'off') {
       displayBadge.textContent = 'Apagada (Modo Anti-Calentamiento)';
-      displayBadge.style.background = '#a855f7';
+      displayBadge.style.background = 'var(--accent-color)';
       displayBadge.style.color = '#fff';
     } else {
       displayBadge.textContent = 'Encendida';
@@ -2542,7 +2534,7 @@ async function loadAdminLibraryList() {
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
             <button type="button" class="btn-status-toggle ${stClass}" data-id="${safeId}" data-status="${st}" title="Clic para alternar: En Emisión ➔ En Espera ➔ Finalizado">${stLabel}</button>
-            <button type="button" class="btn btn-secondary btn-scrape-cover" id="btn-scrape-${safeId}" data-id="${safeId}" data-title="${safeTitle}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(168, 85, 247, 0.2); border-color: #a855f7; display: inline-flex; align-items: center; cursor: pointer;"><i data-lucide="search" style="width:14px;height:14px;margin-right:4px;"></i> Carátula HD</button>
+            <button type="button" class="btn btn-secondary btn-scrape-cover" id="btn-scrape-${safeId}" data-id="${safeId}" data-title="${safeTitle}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(var(--accent-rgb), 0.2); border-color: var(--accent-color); display: inline-flex; align-items: center; cursor: pointer;"><i data-lucide="search" style="width:14px;height:14px;margin-right:4px;"></i> Carátula HD</button>
             <button type="button" class="btn btn-secondary btn-edit-show" data-id="${safeId}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px;"><i data-lucide="edit" style="width:14px;height:14px;margin-right:4px;"></i> Editar</button>
             ${show.media_type === 'anime' ? `<button type="button" class="btn btn-secondary btn-said-scan" data-id="${safeId}" style="padding: 4px 10px; font-size: 0.8rem; height: 32px; background: rgba(39, 201, 63, 0.2); border-color: #27c93f;"><i data-lucide="scan" style="width:14px;height:14px;margin-right:4px;"></i> Detectar Intros</button>` : ''}
             <button type="button" class="btn-danger-small btn-delete-show" data-id="${safeId}" data-title="${safeTitle}">Eliminar</button>
@@ -3039,7 +3031,7 @@ window.openMediaEditor = async (showId) => {
           alert('Error de conexión al sincronizar episodios con TMDB.');
         } finally {
           syncEpisodesBtn.disabled = false;
-          syncEpisodesBtn.innerHTML = `<i data-lucide="sparkles" style="width:13px;height:13px;margin-right:5px;color:#c084fc;"></i> Auto-Detectar Nombres (TMDB)`;
+          syncEpisodesBtn.innerHTML = `<i data-lucide="sparkles" style="width:13px;height:13px;margin-right:5px;color:var(--accent-hover);"></i> Auto-Detectar Nombres (TMDB)`;
           if (typeof lucide !== 'undefined') lucide.createIcons();
         }
       };
@@ -3262,7 +3254,7 @@ function showEpisodeDetails(episodeId) {
       audioEl.innerHTML = audioTracks.map(t => {
         const title = t.title || `Pista ${t.track_number}`;
         const lang = t.language ? t.language.toUpperCase() : 'UND';
-        return `<li>${title} [${lang}]</li>`;
+        return `<li>${escapeHtml(title)} [${escapeHtml(lang)}]</li>`;
       }).join('');
     }
   }
@@ -3284,7 +3276,7 @@ function showEpisodeDetails(episodeId) {
       subsEl.innerHTML = subtitleTracks.map(t => {
         const title = t.title || `Pista ${t.track_number}`;
         const lang = t.language ? t.language.toUpperCase() : 'UND';
-        return `<li>${title} [${lang}]</li>`;
+        return `<li>${escapeHtml(title)} [${escapeHtml(lang)}]</li>`;
       }).join('');
     }
   }
@@ -3293,7 +3285,7 @@ function showEpisodeDetails(episodeId) {
   if (playBtn) {
     playBtn.onclick = () => {
       if (modal) modal.style.display = 'none';
-      location.hash = `#/player/${ep.id}`;
+      location.hash = `#/player/${encodeURIComponent(ep.id)}`;
     };
   }
 
@@ -3532,9 +3524,9 @@ async function renderMyListView() {
     const mediaTypeLabel = show.media_type === 'movie' ? 'PELÍCULA' : 'ANIME';
 
     return `
-      <div class="show-card mylist-card" data-show-id="${show.id}" onclick="location.hash='#/show/${show.id}'" style="position: relative;">
+      <div class="show-card mylist-card" data-show-id="${escapeHtmlAttribute(show.id)}" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" style="position: relative;">
         <div class="card-img-wrapper" style="height: 220px; position: relative;">
-          <img src="${poster}" alt="${show.title}" loading="lazy">
+          <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy">
           <div class="card-rating-badge">
             <i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);margin-right:2px;display:inline-block;vertical-align:middle;"></i> 
             ${rating}
@@ -3542,16 +3534,16 @@ async function renderMyListView() {
           <div class="badge" style="position: absolute; top: 10px; left: 10px; background: rgba(18, 22, 32, 0.85); color: var(--accent-color); font-weight: 700; font-size: 0.65rem; border: 1px solid var(--border-color); backdrop-filter: blur(4px);">
             ${mediaTypeLabel}
           </div>
-          <button class="btn-remove-favorite" data-show-id="${show.id}" title="Quitar de mi lista" style="position: absolute; bottom: 10px; right: 10px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255, 51, 75, 0.85); border: none; color: white; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.2s, background 0.2s; z-index: 5;">
+          <button class="btn-remove-favorite" data-show-id="${escapeHtmlAttribute(show.id)}" title="Quitar de mi lista" style="position: absolute; bottom: 10px; right: 10px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255, 51, 75, 0.85); border: none; color: white; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.2s, background 0.2s; z-index: 5;">
             <i data-lucide="heart-off" style="width: 16px; height: 16px;"></i>
           </button>
         </div>
         <div class="card-info">
-          <h3 class="card-title" style="font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${show.title}</h3>
+          <h3 class="card-title" style="font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${escapeHtml(show.title)}</h3>
           <div class="card-meta" style="font-size: 0.75rem;">
             <span>${show.media_type === 'movie' ? 'Película' : 'Anime'}</span>
             <span>•</span>
-            <span>${show.year || 'N/A'}</span>
+            <span>${escapeHtml(show.year || 'N/A')}</span>
           </div>
         </div>
       </div>
@@ -3677,20 +3669,20 @@ async function renderHistoryView() {
     }
 
     return `
-      <div class="history-card" data-episode-id="${item.episode_id}">
+      <div class="history-card" data-episode-id="${escapeHtmlAttribute(item.episode_id)}">
         <div class="history-card-poster">
-          <img src="${poster}" alt="${showTitle}" loading="lazy">
-          <button class="history-play-overlay-btn" onclick="location.hash='#/player/${item.episode_id}'" title="Reproducir">
+          <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(showTitle)}" loading="lazy">
+          <button class="history-play-overlay-btn" data-catalogue-route="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" title="Reproducir">
             <i data-lucide="play" style="width: 20px; height: 20px; fill: white; stroke: white;"></i>
           </button>
         </div>
         <div class="history-card-info">
           <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
             <div>
-              <span class="history-show-name">${showTitle}</span>
-              <h4 class="history-ep-title">${seasonEpStr ? seasonEpStr + ' - ' : ''}${epTitle}</h4>
+              <span class="history-show-name">${escapeHtml(showTitle)}</span>
+              <h4 class="history-ep-title">${escapeHtml(seasonEpStr ? seasonEpStr + ' - ' : '')}${escapeHtml(epTitle)}</h4>
             </div>
-            <button class="btn-delete-history-item" data-episode-id="${item.episode_id}" title="Eliminar de historial">
+            <button class="btn-delete-history-item" data-episode-id="${escapeHtmlAttribute(item.episode_id)}" title="Eliminar de historial">
               <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i>
             </button>
           </div>
@@ -3706,7 +3698,7 @@ async function renderHistoryView() {
           </div>
 
           <div style="margin-top: 10px;">
-            <a href="#/player/${item.episode_id}" class="btn btn-secondary" style="padding: 6px 14px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 6px;">
+            <a href="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" class="btn btn-secondary" style="padding: 6px 14px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 6px;">
               <i data-lucide="play" style="width: 14px; height: 14px;"></i> Continuar viendo
             </a>
           </div>
@@ -3906,7 +3898,7 @@ async function renderStatsView() {
 
   cardsGrid.innerHTML = `
     <div class="stat-card">
-      <div class="stat-card-icon" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;">
+      <div class="stat-card-icon" style="background: rgba(var(--accent-rgb), 0.15); color: var(--accent-color);">
         <i data-lucide="clock"></i>
       </div>
       <div>
@@ -4650,13 +4642,47 @@ function formatTimeDiff(dateStr) {
 }
 
 export function escapeHtml(str) {
-  if (typeof str !== 'string') return '';
-  return str
+  return String(str ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+// Attribute values are always quoted; never use this helper for JavaScript or CSS.
+function escapeHtmlAttribute(value) {
+  return escapeHtml(value);
+}
+
+function catalogueImageUrl(value) {
+  const url = String(value ?? '').trim();
+  if (!url) return '';
+  try {
+    const parsed = new URL(url, 'https://kurastream.invalid/');
+    return ['http:', 'https:'].includes(parsed.protocol) ? url : '';
+  } catch {
+    return '';
+  }
+}
+
+function setupCatalogueActions() {
+  const activate = target => {
+    const card = target.closest('[data-catalogue-route], .episode-item[data-episode-id]');
+    if (!card) return;
+    if (card.dataset.catalogueRoute !== undefined) {
+      window.location.hash = card.dataset.catalogueRoute;
+    } else {
+      window.showEpisodeDetails(card.dataset.episodeId);
+    }
+  };
+  document.addEventListener('click', event => activate(event.target));
+  document.addEventListener('keydown', event => {
+    if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[role="link"][data-catalogue-route], [role="button"][data-episode-id]')) {
+      event.preventDefault();
+      activate(event.target);
+    }
+  });
 }
 
 export const escapeHTML = escapeHtml;
@@ -4757,18 +4783,17 @@ async function loadPopularSidebar(currentShowId) {
     popularSidebar.style.display = 'flex';
 
     const popularShowsHTML = popularShows.map(s => {
-      const safePoster = (s.poster_path || '').replace(/'/g, "%27");
       return `
-        <div class="popular-sidebar-item" onclick="location.hash='#/show/${s.id}'" style="display: flex; gap: 12px; cursor: pointer; padding: 8px; border-radius: 8px; transition: background 0.2s; align-items: center;">
-          <img src="${safePoster}" alt="${s.title}" style="width: 50px; height: 75px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color); flex-shrink: 0;">
+        <div class="popular-sidebar-item" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(s.id))}" style="display: flex; gap: 12px; cursor: pointer; padding: 8px; border-radius: 8px; transition: background 0.2s; align-items: center;">
+          <img src="${escapeHtmlAttribute(catalogueImageUrl(s.poster_path))}" alt="${escapeHtmlAttribute(s.title)}" style="width: 50px; height: 75px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color); flex-shrink: 0;">
           <div style="flex-grow: 1; overflow: hidden;">
-            <h4 style="font-size: 0.82rem; font-weight: 600; color: var(--text-main); margin: 0 0 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s.title}">${s.title}</h4>
+            <h4 style="font-size: 0.82rem; font-weight: 600; color: var(--text-main); margin: 0 0 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtmlAttribute(s.title)}">${escapeHtml(s.title)}</h4>
             <div style="display: flex; align-items: center; gap: 8px; font-size: 0.72rem; color: var(--text-muted);">
-              <span>${s.year || '--'}</span>
+              <span>${escapeHtml(s.year || '--')}</span>
               <span>•</span>
               <span style="display: flex; align-items: center; gap: 2px; color: var(--rating-color); font-weight: 700;">
                 <i data-lucide="star" style="width: 12px; height: 12px; fill: currentColor; stroke: none;"></i>
-                ${s.rating ? s.rating.toFixed(1) : '--'}
+                ${s.rating ? Number(s.rating).toFixed(1) : '--'}
               </span>
             </div>
           </div>
@@ -5767,7 +5792,7 @@ function setupAutoDownloaderControls() {
           return `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; gap: 10px; flex-wrap: wrap;">
               <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; flex: 1; min-width: 240px;">
-                <span class="badge" style="background: rgba(168,85,247,0.15); color: var(--accent-color); font-weight: 800;">#${idx + 1}</span>
+                <span class="badge" style="background: rgba(var(--accent-rgb),0.15); color: var(--accent-color); font-weight: 800;">#${idx + 1}</span>
                 <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   <strong style="color: var(--text-main); font-size: 0.88rem;">${item.cleanTitle || item.title}</strong>
                   <span style="color: var(--text-muted); font-size: 0.78rem;"> (${epLabel})</span>
@@ -6306,7 +6331,7 @@ async function loadStagedImports() {
       <div class="admin-card" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 16px; border-radius: 8px;">
         <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; flex-wrap: wrap;">
           <div style="flex: 1; min-width: 280px;">
-            <span class="badge" style="background: rgba(168,85,247,0.15); color: #c084fc; font-size: 0.75rem; margin-bottom: 6px; display: inline-block;">${item.source_info || 'Descarga Torrents'}</span>
+            <span class="badge" style="background: rgba(var(--accent-rgb),0.15); color: var(--accent-hover); font-size: 0.75rem; margin-bottom: 6px; display: inline-block;">${item.source_info || 'Descarga Torrents'}</span>
             <h4 style="margin: 4px 0 8px 0; font-size: 1rem; color: var(--text-main); word-break: break-all;">${escapeHTML(item.original_filename || item.raw_title || 'Elemento')}</h4>
             <small style="color: var(--text-muted); font-size: 0.78rem; display: block;">Ruta física: ${escapeHTML(item.filepath || item.file_path || '')}</small>
             
@@ -6494,7 +6519,7 @@ function renderCalendarDay(dayName) {
         ` : '';
 
         const libAction = item.in_library ? `
-          <button class="btn btn-sm btn-primary" style="width: 100%; margin-top: 10px; font-size: 0.8rem;" onclick="location.hash='#/show/${item.library_show_id}'">
+          <button class="btn btn-sm btn-primary" style="width: 100%; margin-top: 10px; font-size: 0.8rem;" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(item.library_show_id))}">
             <i data-lucide="play" style="width:12px;height:12px;margin-right:4px;"></i> Ver en KuraStream
           </button>
         ` : '';
@@ -6504,17 +6529,17 @@ function renderCalendarDay(dayName) {
         return `
           <div class="calendar-card" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s, border-color 0.2s;">
             <div style="height: 180px; position: relative; overflow: hidden; background: #000;">
-              <img src="${cover}" alt="${item.title}" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.85;">
+              <img src="${escapeHtmlAttribute(catalogueImageUrl(cover))}" alt="${escapeHtmlAttribute(item.title)}" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.85;">
               <div style="position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.8); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px 8px; font-size: 0.75rem; font-weight: 700; color: var(--accent-color);">
-                Episodio ${item.episode} • ${timeString}
+                Episodio ${escapeHtml(item.episode)} • ${timeString}
               </div>
               ${inLibBadge}
             </div>
             <div style="padding: 15px; display: flex; flex-direction: column; flex-grow: 1; justify-content: space-between;">
               <div>
-                <h3 style="font-family: var(--font-title); font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; line-clamp: 2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${item.title}</h3>
-                <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px;">${item.studio || 'Estudio N/A'}</p>
-                <div style="font-size: 0.75rem; color: var(--text-muted); line-clamp: 1; overflow: hidden;">${item.genres}</div>
+                <h3 style="font-family: var(--font-title); font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; line-clamp: 2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${escapeHtml(item.title)}</h3>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px;">${escapeHtml(item.studio || 'Estudio N/A')}</p>
+                <div style="font-size: 0.75rem; color: var(--text-muted); line-clamp: 1; overflow: hidden;">${escapeHtml(item.genres)}</div>
               </div>
               ${libAction}
             </div>
@@ -6607,7 +6632,7 @@ async function openRandomAnimeModal() {
         shuffleCounter++;
         if (posterPool.length > 0 && shuffleImg) {
           const nextPoster = posterPool[shuffleCounter % posterPool.length];
-          shuffleImg.src = nextPoster;
+          shuffleImg.src = catalogueImageUrl(nextPoster);
           shuffleImg.classList.add('poster-swap');
           setTimeout(() => shuffleImg.classList.remove('poster-swap'), 45);
         }
@@ -6644,22 +6669,22 @@ async function openRandomAnimeModal() {
     cardBody.innerHTML = `
       <div class="random-card-inner random-card-revealed">
         <div class="random-poster-wrapper">
-          <img src="${posterSrc}" alt="${show.title || 'Anime'}" class="random-poster-img">
+          <img src="${escapeHtmlAttribute(catalogueImageUrl(posterSrc))}" alt="${escapeHtmlAttribute(show.title || 'Anime')}" class="random-poster-img">
         </div>
         <div class="random-info-wrapper">
           <div class="random-badge">🎲 ¡Encontrado para ti!</div>
-          <h2 class="random-title">${show.title || 'Anime Aleatorio'}</h2>
+          <h2 class="random-title">${escapeHtml(show.title || 'Anime Aleatorio')}</h2>
           <div class="random-meta">
-            ${show.rating ? `<span class="rating"><i data-lucide="star"></i> ${show.rating}</span>` : ''}
-            ${show.year ? `<span class="year">${show.year}</span>` : ''}
+            ${show.rating ? `<span class="rating"><i data-lucide="star"></i> ${escapeHtml(show.rating)}</span>` : ''}
+            ${show.year ? `<span class="year">${escapeHtml(show.year)}</span>` : ''}
             ${show.status ? `<span class="status">${show.status === 'airing' ? 'En Emisión' : 'Finalizado'}</span>` : ''}
           </div>
           <div class="random-genres">
-            ${genresList.map(g => `<span class="genre-tag">${g}</span>`).join('')}
+            ${genresList.map(g => `<span class="genre-tag">${escapeHtml(g)}</span>`).join('')}
           </div>
-          <p class="random-synopsis">${show.synopsis || show.description || 'Sin descripción disponible para esta serie.'}</p>
+          <p class="random-synopsis">${escapeHtml(show.synopsis || show.description || 'Sin descripción disponible para esta serie.')}</p>
           <div class="random-actions">
-            <a href="#/show/${show.id}" class="btn btn-primary" id="btn-random-watch"><i data-lucide="play"></i> Ver Ahora</a>
+            <a href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" class="btn btn-primary" id="btn-random-watch"><i data-lucide="play"></i> Ver Ahora</a>
             <button class="btn btn-secondary" id="btn-random-again"><i data-lucide="sparkles"></i> Girar de nuevo</button>
           </div>
         </div>

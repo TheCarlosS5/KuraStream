@@ -36,12 +36,28 @@ if (!preg_match('/--content-max-width:\s*1600px;/', $css)) {
     $errors[] = "Missing '--content-max-width: 1600px;' in style.css";
 }
 
-if (!preg_match('/--progress-color:\s*#e50914;/', $css)) {
-    $errors[] = "Missing '--progress-color: #e50914;' in style.css";
+if (!preg_match('/--progress-color:\s*var\(--accent-color\);/', $css)) {
+    $errors[] = "Progress must use the copper primary action token";
 }
 
-if (!preg_match('/--bg-color:\s*#08090b;/', $css)) {
-    $errors[] = "Missing '--bg-color: #08090b;' in style.css";
+foreach (['bg-color' => '#090D0E', 'surface-color' => '#131A1C', 'accent-color' => '#F97316', 'accent-hover' => '#FB923C', 'success-color' => '#2DD4BF', 'rating-color' => '#FBBF24', 'text-main' => '#F4F8F9', 'text-muted' => '#93A4A7', 'danger-color' => '#FB7185'] as $token => $value) {
+    if (!preg_match('/--' . $token . ':\s*' . $value . ';/i', $css)) {
+        $errors[] = "Missing semantic token --$token: $value";
+    }
+}
+if (preg_match('/#(?:a855f7|c084fc|9333ea)|rgba?\(168,\s*85,\s*247/i', $css)) {
+    $errors[] = 'Active CSS must not retain the purple brand palette';
+}
+foreach (['btn-billboard-play', 'btn-smart-resume', 'detail-smart-resume-btn'] as $action) {
+    preg_match_all('/\.' . $action . '\s*\{[^}]*background:([^;]+);/s', $css, $actions);
+    foreach ($actions[1] as $background) {
+        if (!str_starts_with(trim($background), 'var(--accent-color)')) {
+            $errors[] = "$action must use the primary action token";
+        }
+    }
+}
+if (preg_match('/\.badge-visto\s*\{[^}]*background:\s*rgba\(0,\s*210,\s*106/s', $css)) {
+    $errors[] = 'Completed badges must use the jade success token';
 }
 
 // 2. .show-card border-radius (Task 1)
@@ -81,8 +97,8 @@ if (!preg_match('/\.billboard-hero\s*\{[^}]*min-height:\s*(?:6[0-9]vh|7[0-9]vh)/
     $errors[] = ".billboard-hero must have cinematic height (min-height or height: 60-75vh)";
 }
 
-if (!preg_match('/rgba\(8,\s*9,\s*11,\s*0\.95\)/', $css) && !preg_match('/linear-gradient\([^)]*#08090b/', $css)) {
-    $errors[] = "Missing dual vignette gradient masking with #08090b / rgba(8,9,11,...) in style.css";
+if (!preg_match('/rgba\(9,\s*13,\s*14,\s*0\.95\)/', $css)) {
+    $errors[] = 'Billboard vignette must match the dark background token';
 }
 
 // 6. Continue Watching in style.css (Task 2)
@@ -275,6 +291,24 @@ if (!preg_match('/filter:[^;]*blur\(60px\)/', $css) || !preg_match('/saturate\(1
 }
 if (!preg_match('/\.next-episode-card\b/', $css)) {
     $errors[] = "style.css must style .next-episode-card in bottom-right corner";
+}
+
+// Each renderer must use both context-specific escaping helpers.
+foreach (['renderBillboardHero', 'renderContinueWatching', 'createShowCardHTML', 'renderEpisodeList'] as $renderer) {
+    preg_match('/function ' . $renderer . '\([^\n]*\{(.*?)^\}/ms', $js, $match);
+    $body = $match[1] ?? '';
+    if (!str_contains($body, 'escapeHtml(') || !str_contains($body, 'escapeHtmlAttribute(')) {
+        $errors[] = "$renderer must escape text and attributes";
+    }
+    if (str_contains($body, 'onclick=')) {
+        $errors[] = "$renderer must not interpolate inline click handlers";
+    }
+}
+$renderOutput = [];
+$renderStatus = 0;
+exec('node ' . escapeshellarg(__DIR__ . '/ui_catalogue_rendering.mjs') . ' 2>&1', $renderOutput, $renderStatus);
+if ($renderStatus !== 0) {
+    $errors[] = "Catalogue rendering regression: " . implode("\n", $renderOutput);
 }
 
 if (!empty($errors)) {
