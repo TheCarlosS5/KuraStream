@@ -5,7 +5,6 @@
 
 // Registered test suites list
 $tests = [
-    'test_aria2_platform.php',
     'test_auto_skip_db.php',
     'test_cinematic_pack.php',
     'test_comments_api.php',
@@ -13,6 +12,8 @@ $tests = [
     'test_episode_integrity_and_streaming.php',
     'test_ffmpeg_scanner.php',
     'test_health_endpoint.php',
+    'test_no_torrent_artifacts.php',
+    'test_secret_scanning.php',
     'test_history_isolation.php',
     'test_legacy_isolation.php',
     'test_library_scan_and_player_routes.php',

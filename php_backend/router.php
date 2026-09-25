@@ -318,58 +318,6 @@ if (($uri === '/api/admin/scrape-show-cover' || $uri === '/api/admin/scrape-cove
     AdminController::scrapeShowCover();
 }
 
-if ($uri === '/api/admin/autodownload/status' && $method === 'GET') {
-    AdminController::getTorrentStatus();
-}
-
-if ($uri === '/api/admin/autodownload/toggle' && $method === 'POST') {
-    AdminController::toggleTorrentManager();
-}
-
-if ($uri === '/api/admin/autodownload/scan' && $method === 'POST') {
-    AdminController::scanAutoDownloadNow();
-}
-
-if ($uri === '/api/admin/torrents/search' && $method === 'GET') {
-    AdminController::searchTorrents();
-}
-
-if (($uri === '/api/admin/torrents/search-episodes' || $uri === '/api/admin/torrents/search-all-episodes') && $method === 'GET') {
-    AdminController::searchAnimeAllEpisodes();
-}
-
-if (($uri === '/api/admin/torrents/add' || $uri === '/api/admin/autodownload/add') && $method === 'POST') {
-    AdminController::addTorrent();
-}
-
-if ($uri === '/api/admin/autodownload/queue/pause' && $method === 'POST') {
-    AdminController::pauseTorrentQueueItem();
-}
-
-if ($uri === '/api/admin/autodownload/queue/resume' && $method === 'POST') {
-    AdminController::resumeTorrentQueueItem();
-}
-
-if ($uri === '/api/admin/autodownload/queue/remove' && $method === 'POST') {
-    AdminController::removeTorrentFromQueue();
-}
-
-if ($uri === '/api/admin/autodownload/queue/clear' && $method === 'POST') {
-    AdminController::clearTorrentQueue();
-}
-
-if ($uri === '/api/admin/autodownload/queue/start' && $method === 'POST') {
-    AdminController::startTorrentQueue();
-}
-
-if ($uri === '/api/admin/autodownload/cancel-active' && $method === 'POST') {
-    AdminController::cancelActiveTorrent();
-}
-
-if ($uri === '/api/admin/autodownload/dismiss' && $method === 'POST') {
-    AdminController::dismissTorrent();
-}
-
 if ($uri === '/api/import' && $method === 'POST') {
     AdminController::handleImportUpload();
 }
@@ -456,9 +404,6 @@ if ($uri === '/api/subtitles' && $method === 'GET') {
     jsonResponse([]);
 }
 
-if ($uri === '/api/torrents' && $method === 'GET') {
-    jsonResponse([]);
-}
 
 // Watch Party Endpoints
 if ($uri === '/api/party/create' && $method === 'POST') {

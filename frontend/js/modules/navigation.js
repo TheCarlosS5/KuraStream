@@ -6,7 +6,6 @@
 import { startAdminStatsPolling, stopAdminStatsPolling, toggleLaptopDisplayPower } from './admin_status.js';
 import { loadStagedImports } from './admin_staging.js';
 import { loadAdminPanel, updateShowTitle, scrapeShowCover } from './admin_library.js';
-import { startTorrentStatusPolling, stopTorrentStatusPolling, executeTorrentSearch, startTorrentQueue, clearTorrentQueue, cancelActiveDownload } from './admin_torrents.js';
 import { initImportForm } from './admin_import.js';
 import { startAdminLogsPolling, stopAdminLogsPolling, clearConsoleLogs } from './admin_console.js';
 import { loadShowsCatalog, loadShowDetail } from './catalog.js';
@@ -182,7 +181,6 @@ function handleRoute() {
   // Stop background polling routines when leaving admin
   if (!hash.startsWith('#/admin')) {
     stopAdminStatsPolling();
-    stopTorrentStatusPolling();
     stopAdminLogsPolling();
   }
 
@@ -241,26 +239,6 @@ function setupAdminActionButtons() {
   const btnOff = document.getElementById('btn-display-off');
   const btnOn = document.getElementById('btn-display-on');
   if (btnOff) btnOff.onclick = () => toggleLaptopDisplayPower('off');
-  if (btnOn) btnOn.onclick = () => toggleLaptopDisplayPower('on');
-
-  // Torrent Manager Actions
-  const btnSearchTorrents = document.getElementById('btn-search-torrents');
-  const torrentSearchInput = document.getElementById('torrent-search-input');
-  if (btnSearchTorrents) btnSearchTorrents.onclick = executeTorrentSearch;
-  if (torrentSearchInput) {
-    torrentSearchInput.onkeydown = (e) => {
-      if (e.key === 'Enter') executeTorrentSearch();
-    };
-  }
-
-  const btnStartQueue = document.getElementById('btn-start-download-queue');
-  const btnClearQueue = document.getElementById('btn-clear-download-queue');
-  const btnCancelActive = document.getElementById('btn-cancel-active-download');
-
-  if (btnStartQueue) btnStartQueue.onclick = startTorrentQueue;
-  if (btnClearQueue) btnClearQueue.onclick = clearTorrentQueue;
-  if (btnCancelActive) btnCancelActive.onclick = cancelActiveDownload;
-
   // Staging Refresh Button
   const btnRefreshStaging = document.getElementById('btn-refresh-staging');
   if (btnRefreshStaging) btnRefreshStaging.onclick = loadStagedImports;

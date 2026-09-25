@@ -5,7 +5,6 @@ require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../services/LibraryScanner.php';
 require_once __DIR__ . '/../services/FfmpegScanner.php';
 require_once __DIR__ . '/../services/TmdbScraper.php';
-require_once __DIR__ . '/../services/TorrentDownloader.php';
 
 class AdminController {
     public static function validateUpload(array $file, array $allowedExts, array $allowedMimes, int $maxBytes): void {
@@ -1055,114 +1054,5 @@ class AdminController {
             'updated' => $updatedCount,
             'total' => count($episodes),
             'tmdb_title' => $tmdbResults[0]['title'] ?? $show['title']
-        ]);
-    }
-
-    // --- TORRENTS & AUTO-DOWNLOADER ENDPOINTS ---
-
-    public static function getTorrentStatus(): void {
-        AuthMiddleware::requireAdmin();
-        TorrentDownloader::checkActiveDownload();
-        $state = TorrentDownloader::getState();
-        jsonResponse($state);
-    }
-
-    public static function toggleTorrentManager(): void {
-        AuthMiddleware::requireAdmin();
-        $state = TorrentDownloader::getState();
-        $state['isEnabled'] = !($state['isEnabled'] ?? true);
-        TorrentDownloader::saveState($state);
-        jsonResponse(['success' => true, 'isEnabled' => $state['isEnabled'], 'status' => $state]);
-    }
-
-    public static function scanAutoDownloadNow(): void {
-        AuthMiddleware::requireAdmin();
-        $res = TorrentDownloader::runAutoScan();
-        jsonResponse(['success' => true, 'status' => $res['state'] ?? TorrentDownloader::getState(), 'enqueued' => $res['enqueuedCount'] ?? 0]);
-    }
-
-    public static function searchTorrents(): void {
-        AuthMiddleware::requireAdmin();
-        $q = $_GET['q'] ?? '';
-        $filterSpanish = isset($_GET['filterSpanish']) && ($_GET['filterSpanish'] === '1' || $_GET['filterSpanish'] === 'true');
-        $results = TorrentDownloader::searchNyaa($q, $filterSpanish);
-        jsonResponse(['success' => true, 'results' => $results]);
-    }
-
-    public static function searchAnimeAllEpisodes(): void {
-        AuthMiddleware::requireAdmin();
-        $title = $_GET['title'] ?? ($_GET['q'] ?? '');
-        $results = TorrentDownloader::searchAllAnimeEpisodes($title);
-        jsonResponse(['success' => true, 'episodes' => $results]);
-    }
-
-    public static function addTorrent(): void {
-        AuthMiddleware::requireAdmin();
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $url = $body['torrentUrl'] ?? ($body['url'] ?? ($body['link'] ?? ''));
-        $title = $body['title'] ?? '';
-        $guid = $body['guid'] ?? '';
-        $size = $body['size'] ?? 'N/A';
-        $seeders = (int)($body['seeders'] ?? 0);
-
-        if (empty($url) && empty($title)) {
-            jsonError('URL o título de torrent requerido', 400);
-        }
-
-        $res = TorrentDownloader::addToQueue($url, $title, $guid, $size, $seeders, true);
-        jsonResponse($res);
-    }
-
-    public static function pauseTorrentQueueItem(): void {
-        AuthMiddleware::requireAdmin();
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $id = $body['id'] ?? '';
-        $res = TorrentDownloader::pauseDownload($id);
-        jsonResponse($res);
-    }
-
-    public static function resumeTorrentQueueItem(): void {
-        AuthMiddleware::requireAdmin();
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $id = $body['id'] ?? '';
-        $res = TorrentDownloader::resumeDownload($id);
-        jsonResponse($res);
-    }
-
-    public static function removeTorrentFromQueue(): void {
-        AuthMiddleware::requireAdmin();
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $idOrIndex = $body['id'] ?? ($body['index'] ?? '');
-        $res = TorrentDownloader::removeFromQueue(strval($idOrIndex));
-        jsonResponse($res);
-    }
-
-    public static function clearTorrentQueue(): void {
-        AuthMiddleware::requireAdmin();
-        $res = TorrentDownloader::clearQueue();
-        jsonResponse($res);
-    }
-
-    public static function startTorrentQueue(): void {
-        AuthMiddleware::requireAdmin();
-        TorrentDownloader::processQueue();
-        jsonResponse(['success' => true, 'message' => 'Cola de descargas iniciada', 'status' => TorrentDownloader::getState()]);
-    }
-
-    public static function cancelActiveTorrent(): void {
-        AuthMiddleware::requireAdmin();
-        $res = TorrentDownloader::cancelActiveDownload();
-        jsonResponse($res);
-    }
-
-    public static function dismissTorrent(): void {
-        AuthMiddleware::requireAdmin();
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $guidOrTitle = $body['guid'] ?? ($body['title'] ?? '');
-        if (empty($guidOrTitle)) {
-            jsonError('GUID o título requerido', 400);
-        }
-        $res = TorrentDownloader::dismissTorrent($guidOrTitle);
-        jsonResponse($res);
     }
 }
