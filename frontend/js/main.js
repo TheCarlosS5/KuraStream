@@ -1,122 +1,107 @@
 /**
- * KuraStream - Main Entry Point (ES Module)
- * Initializes router, authentication, catalog, and binds all functions to window for inline HTML onclick handlers.
+ * KuraStream v2.0 - Canonical Application Entry Point
+ * Orchestrates modular architecture, client routing, catalog rendering, and player lifecycle.
  */
 
-import { getAuthToken, getAuthHeaders, openAdminLoginModal, closeAdminLoginModal, loginAdmin } from './modules/auth.js';
-import { initRouter, initAdminSidebar, updateActiveNavHighlight, initHeaderDropdowns } from './modules/navigation.js';
-import { loadShowsCatalog, loadShowDetail } from './modules/catalog.js';
-import { startAdminStatsPolling, stopAdminStatsPolling, fetchAdminStats, fetchDisplayStatus, toggleLaptopDisplayPower } from './modules/admin_status.js';
-import { loadStagedImports, publishStagedItem, deleteStagedItem } from './modules/admin_staging.js';
-import { loadAdminPanel, openMediaEditor, updateShowTitle, scrapeShowCover, deleteShow } from './modules/admin_library.js';
-import { startTorrentStatusPolling, stopTorrentStatusPolling, fetchTorrentStatus, executeTorrentSearch, startTorrentQueue, clearTorrentQueue, cancelActiveDownload } from './modules/admin_torrents.js';
-import { initImportForm, executeFolderScan, previewTMDBMetadata, submitShowImport } from './modules/admin_import.js';
-import { startAdminLogsPolling, stopAdminLogsPolling, fetchServerLogs, clearConsoleLogs } from './modules/admin_console.js';
+import { appRouter } from './core/router.js';
+import { AuthManager } from './core/auth.js';
+import { appState } from './core/state.js';
+import { renderIcons, showToast } from './core/ui.js';
+import {
+  renderBillboardHero,
+  renderContinueWatching,
+  createShowCardHTML,
+  loadCatalogData,
+  attachCatalogEventListeners
+} from './features/catalog/catalog.js';
+import { loadAndRenderShowDetail } from './features/show-detail/detail.js';
+import { loadWatchHistory } from './features/history/history.js';
+import { fetchSystemHealth, triggerLibraryScan } from './features/admin/admin.js';
+import { initCardPopovers } from './modules/card_popover_preview.js';
 
-// Bind all module functions to window object for inline HTML onclick compatibility
+// Expose minimal global bridge for legacy inline templates
 if (typeof window !== 'undefined') {
-  window.getAuthToken = getAuthToken;
-  window.getAuthHeaders = getAuthHeaders;
-  window.openAdminLoginModal = openAdminLoginModal;
-  window.closeAdminLoginModal = closeAdminLoginModal;
-  window.loginAdmin = loginAdmin;
-
-  window.initRouter = initRouter;
-  window.initAdminSidebar = initAdminSidebar;
-  window.updateActiveNavHighlight = updateActiveNavHighlight;
-  window.initHeaderDropdowns = initHeaderDropdowns;
-
-  window.loadShowsCatalog = loadShowsCatalog;
-  window.loadShowDetail = loadShowDetail;
-
-  window.startAdminStatsPolling = startAdminStatsPolling;
-  window.stopAdminStatsPolling = stopAdminStatsPolling;
-  window.fetchAdminStats = fetchAdminStats;
-  window.fetchDisplayStatus = fetchDisplayStatus;
-  window.toggleLaptopDisplayPower = toggleLaptopDisplayPower;
-
-  window.loadStagedImports = loadStagedImports;
-  window.publishStagedItem = publishStagedItem;
-  window.deleteStagedItem = deleteStagedItem;
-
-  window.loadAdminPanel = loadAdminPanel;
-  window.openMediaEditor = openMediaEditor;
-  window.updateShowTitle = updateShowTitle;
-  window.scrapeShowCover = scrapeShowCover;
-  window.deleteShow = deleteShow;
-
-  window.startTorrentStatusPolling = startTorrentStatusPolling;
-  window.stopTorrentStatusPolling = stopTorrentStatusPolling;
-  window.fetchTorrentStatus = fetchTorrentStatus;
-  window.executeTorrentSearch = executeTorrentSearch;
-  window.startTorrentQueue = startTorrentQueue;
-  window.clearTorrentQueue = clearTorrentQueue;
-  window.cancelActiveDownload = cancelActiveDownload;
-
-  window.initImportForm = initImportForm;
-  window.executeFolderScan = executeFolderScan;
-  window.previewTMDBMetadata = previewTMDBMetadata;
-  window.submitShowImport = submitShowImport;
-
-  window.startAdminLogsPolling = startAdminLogsPolling;
-  window.stopAdminLogsPolling = stopAdminLogsPolling;
-  window.fetchServerLogs = fetchServerLogs;
-  window.clearConsoleLogs = clearConsoleLogs;
+  window.KuraStream = {
+    auth: AuthManager,
+    state: appState,
+    router: appRouter,
+    showToast,
+    triggerLibraryScan
+  };
 }
 
-if (typeof document !== 'undefined') {
-  document.addEventListener('DOMContentLoaded', () => {
-    console.log('[KuraStream] Initializing Modular Frontend System...');
+async function initCatalogView() {
+  const catalogView = document.getElementById('view-catalog') || document.getElementById('catalog-container');
+  const heroContainer = document.getElementById('hero-banner') || document.getElementById('hero-container');
+  const continueContainer = document.getElementById('continue-watching-section');
+  const showsGrid = document.getElementById('shows-grid') || document.getElementById('catalog-grid');
 
-    // Initialize Router
-    initRouter();
+  const { shows, continueWatching } = await loadCatalogData();
 
-    // Admin Login Form Handler
-    const adminLoginForm = document.getElementById('admin-login-form');
-    const btnCloseModal = document.getElementById('btn-close-admin-login-modal');
+  if (heroContainer && shows.length > 0) {
+    const featured = shows.find(s => s.is_featured) || shows[0];
+    heroContainer.innerHTML = renderBillboardHero(featured);
+  }
 
-    if (btnCloseModal) {
-      btnCloseModal.addEventListener('click', closeAdminLoginModal);
+  if (continueContainer) {
+    continueContainer.innerHTML = renderContinueWatching(continueWatching);
+  }
+
+  if (showsGrid) {
+    showsGrid.innerHTML = shows.map(s => createShowCardHTML(s)).join('');
+  }
+
+  if (catalogView) {
+    attachCatalogEventListeners(catalogView);
+  }
+
+  renderIcons();
+  try { initCardPopovers(); } catch {}
+}
+
+// Router configuration
+appRouter
+  .on('/', async () => {
+    hideAllViews();
+    const catalogView = document.getElementById('view-catalog');
+    if (catalogView) catalogView.style.display = 'block';
+    await initCatalogView();
+  })
+  .on('/show/:id', async ({ params }) => {
+    hideAllViews();
+    const detailView = document.getElementById('view-show-detail');
+    if (detailView) {
+      detailView.style.display = 'block';
+      await loadAndRenderShowDetail(params.id, detailView);
     }
-
-    if (adminLoginForm) {
-      adminLoginForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const usernameInput = document.getElementById('admin-login-username');
-        const passwordInput = document.getElementById('admin-login-password');
-        const errorMsg = document.getElementById('admin-login-error');
-
-        const username = usernameInput ? usernameInput.value.trim() : 'TheCarlosS5';
-        const password = passwordInput ? passwordInput.value : '';
-
-        if (!password) {
-          if (errorMsg) {
-            errorMsg.style.display = 'block';
-            errorMsg.textContent = 'Por favor, ingresa la contraseña.';
-          }
-          return;
-        }
-
-        const result = await loginAdmin(username, password);
-        if (result.success) {
-          if (errorMsg) errorMsg.style.display = 'none';
-          location.hash = '#/admin';
-          initRouter();
-        } else {
-          if (errorMsg) {
-            errorMsg.style.display = 'block';
-            errorMsg.textContent = result.error;
-          }
-        }
-      });
+  })
+  .on('/history', async () => {
+    hideAllViews();
+    const historyView = document.getElementById('history-view');
+    if (historyView) {
+      historyView.style.display = 'block';
+      const historyList = document.getElementById('history-list');
+      if (historyList) await loadWatchHistory(historyList);
     }
-
-    // Admin Panel Link Button
-    const btnAdminLink = document.getElementById('btn-admin-panel-link');
-    if (btnAdminLink) {
-      btnAdminLink.addEventListener('click', () => {
-        location.hash = '#/admin';
-      });
+  })
+  .on('/admin', async () => {
+    hideAllViews();
+    const adminView = document.getElementById('view-admin');
+    if (adminView) {
+      adminView.style.display = 'flex';
+      const health = await fetchSystemHealth();
+      console.log('[Admin] System Health:', health);
     }
   });
+
+function hideAllViews() {
+  const views = document.querySelectorAll('.app-view, .view-section');
+  views.forEach(v => { v.style.display = 'none'; });
 }
+
+// Bootstrap on DOM ready
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('[KuraStream] v2.0 Platform initialized successfully.');
+  appRouter.start();
+  renderIcons();
+});
