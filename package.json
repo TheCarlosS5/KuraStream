@@ -8,7 +8,6 @@
     "dev": "php -S 0.0.0.0:3000 php_backend/router.php",
     "test": "node scripts/run-php.mjs tests/run_all_tests.php",
     "test:php": "node scripts/run-php.mjs tests/run_all_tests.php",
-    "test:legacy": "node --test legacy_backend/tests/**/*.test.js",
     "lint": "eslint ."
   },
   "devDependencies": {
