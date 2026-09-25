@@ -716,15 +716,35 @@ class DbHelper {
 
     public static function saveUserProfile(string $username, array $data): array {
         $db = Database::getConnection();
-        $id = $data['id'] ?? ('prof_' . uniqid());
+        $id = !empty($data['id']) ? trim((string)$data['id']) : null;
+        $existing = null;
+
+        if ($id) {
+            $checkStmt = $db->prepare("SELECT * FROM user_profiles WHERE id = :id");
+            $checkStmt->execute(['id' => $id]);
+            $existing = $checkStmt->fetch();
+            if ($existing) {
+                if ($existing['username'] !== $username) {
+                    jsonError('Acceso denegado: El perfil no pertenece a este usuario', 403);
+                }
+                if (!empty($existing['pin'])) {
+                    $currentPin = trim((string)($data['current_pin'] ?? ''));
+                    if (empty($currentPin) || !password_verify($currentPin, $existing['pin'])) {
+                        jsonError('PIN actual requerido o incorrecto para modificar este perfil', 403);
+                    }
+                }
+            }
+        } else {
+            $id = 'prof_' . uniqid();
+        }
+
         $name = trim($data['profile_name'] ?? $data['name'] ?? 'Perfil');
         $avatar = $data['avatar'] ?? ($data['avatar_image'] ?? '');
         $color = $data['avatar_color'] ?? $data['color'] ?? '#a855f7';
         $isKids = !empty($data['is_kids']) ? 1 : 0;
         $rawPin = trim((string)($data['pin'] ?? ''));
-        $pinHash = '';
-        if (!empty($rawPin)) {
-            // Si ya viene hasheado (comienza con $2y$), mantenerlo; de lo contrario, hashear con bcrypt
+        $pinHash = $existing ? ($existing['pin'] ?? '') : '';
+        if ($rawPin !== '') {
             $pinHash = str_starts_with($rawPin, '$2y$') ? $rawPin : password_hash($rawPin, PASSWORD_BCRYPT);
         }
 
@@ -763,6 +783,20 @@ class DbHelper {
 
     public static function deleteUserProfile(string $username, string $id): bool {
         $db = Database::getConnection();
+        $checkStmt = $db->prepare("SELECT * FROM user_profiles WHERE id = :id");
+        $checkStmt->execute(['id' => $id]);
+        $existing = $checkStmt->fetch();
+
+        if (!$existing) {
+            jsonError('Perfil no encontrado', 404);
+        }
+        if ($existing['username'] !== $username) {
+            jsonError('Acceso denegado: No tienes permisos para eliminar este perfil', 403);
+        }
+        if (($existing['name'] ?? '') === 'Principal') {
+            jsonError('No se puede eliminar el perfil principal', 400);
+        }
+
         $stmt = $db->prepare("DELETE FROM user_profiles WHERE username = :u AND id = :id");
         return $stmt->execute(['u' => $username, 'id' => $id]);
     }

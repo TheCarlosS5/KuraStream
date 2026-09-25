@@ -6,12 +6,43 @@ require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../middleware/RateLimiter.php';
 
 class ShowController {
+    public static function isKidsProfileActive(): bool {
+        $token = AuthMiddleware::getBearerToken();
+        $payload = AuthMiddleware::verifyToken($token);
+        if ($payload && !empty($payload['is_kids'])) {
+            return true;
+        }
+        if (isset($_SERVER['HTTP_X_KIDS_MODE']) && $_SERVER['HTTP_X_KIDS_MODE'] === '1') {
+            return true;
+        }
+        return false;
+    }
+
+    public static function isAdultOrMaturityRestricted(array $show): bool {
+        if (!empty($show['is_adult'])) {
+            return true;
+        }
+        $rating = strtoupper(trim((string)($show['rating_mpaa'] ?? ($show['age_rating'] ?? ''))));
+        if (in_array($rating, ['R', 'TV-MA', '18+', 'NC-17', 'RX', 'R18'])) {
+            return true;
+        }
+        $genres = strtolower(is_array($show['genres'] ?? null) ? implode(' ', $show['genres']) : (string)($show['genres'] ?? ''));
+        if (str_contains($genres, 'ecchi') || str_contains($genres, 'hentai') || str_contains($genres, 'erotica')) {
+            return true;
+        }
+        return false;
+    }
+
     public static function getShows(): void {
         $type = $_GET['type'] ?? 'all';
         $statusParam = $_GET['status'] ?? 'all';
         $sortParam = $_GET['sort'] ?? 'default';
 
         $shows = DbHelper::getShows($type);
+
+        if (self::isKidsProfileActive()) {
+            $shows = array_values(array_filter($shows, fn($s) => !self::isAdultOrMaturityRestricted($s)));
+        }
 
         if ($statusParam !== 'all') {
             $shows = array_values(array_filter($shows, fn($s) => ($s['status'] ?? 'finished') === $statusParam));
@@ -50,6 +81,10 @@ class ShowController {
             }
             if (!$show) {
                 jsonError('Show no encontrado', 404);
+            }
+
+            if (self::isKidsProfileActive() && self::isAdultOrMaturityRestricted($show)) {
+                jsonError('Contenido restringido por el perfil infantil activo', 403);
             }
 
             $episodes = DbHelper::getEpisodesForShow($show['id']);

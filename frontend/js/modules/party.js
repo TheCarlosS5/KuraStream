@@ -28,6 +28,7 @@ class PartyManager {
     };
     this.audioContext = null;
     this.soundsMuted = localStorage.getItem('party_sounds_muted') === 'true';
+    this.userBaseRate = 1.0;
   }
 
   initAudioContext() {
@@ -438,6 +439,7 @@ class PartyManager {
     this.isApplyingRemoteSync = true;
 
     const syncPill = document.getElementById('party-sync-pill');
+    const baseRate = this.userBaseRate || 1.0;
     // Smooth drift correction algorithm
     if (timeDiff > 2.0) {
       // Major jump / seek by host
@@ -450,9 +452,9 @@ class PartyManager {
       }
       // Settle drift gently without audio glitch
       if (video.currentTime < targetTime) {
-        video.playbackRate = 1.06;
+        video.playbackRate = Math.min(4.0, Number((baseRate * 1.06).toFixed(3)));
       } else {
-        video.playbackRate = 0.94;
+        video.playbackRate = Math.max(0.25, Number((baseRate * 0.94).toFixed(3)));
       }
     } else {
       if (syncPill) {
@@ -460,7 +462,7 @@ class PartyManager {
         syncPill.style.color = 'var(--success-color)';
         syncPill.style.borderColor = 'var(--success-color)';
       }
-      video.playbackRate = 1.0;
+      video.playbackRate = baseRate;
     }
 
     if (shouldPlay && video.paused) {
