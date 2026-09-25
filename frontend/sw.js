@@ -14,7 +14,7 @@ const SHELL_ASSETS = [
   '/js/modules/admin_status.js',
   '/js/modules/admin_staging.js',
   '/js/modules/admin_library.js',
-  '/js/modules/admin_torrents.js',
+  '/js/features/player/qr_generator.js',
   '/js/modules/admin_import.js',
   '/js/modules/admin_console.js',
   '/js/modules/catalog.js',

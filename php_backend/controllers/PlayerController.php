@@ -2,6 +2,70 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 
+class TranscodeLimiter {
+    public static int $maxWorkers = 3;
+    private static array $activeLocks = [];
+
+    public static function acquireSlot(int $timeoutSeconds = 2): bool {
+        $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
+        if (!is_dir($slotDir)) {
+            @mkdir($slotDir, 0777, true);
+        }
+
+        $start = time();
+        do {
+            for ($i = 0; $i < self::$maxWorkers; $i++) {
+                if (isset(self::$activeLocks[$i])) {
+                    continue; // Already holding this slot in this process
+                }
+                $file = $slotDir . DIRECTORY_SEPARATOR . "worker_{$i}.lock";
+                $fp = @fopen($file, 'c+');
+                if ($fp && flock($fp, LOCK_EX | LOCK_NB)) {
+                    self::$activeLocks[$i] = $fp;
+                    return true;
+                }
+                if ($fp) {
+                    fclose($fp);
+                }
+            }
+            if ($timeoutSeconds > 0) {
+                usleep(50000); // 50ms
+            }
+        } while (time() - $start < $timeoutSeconds);
+
+        return false;
+    }
+
+    public static function releaseSlot(): void {
+        if (!empty(self::$activeLocks)) {
+            $keys = array_keys(self::$activeLocks);
+            $lastIndex = end($keys);
+            $fp = self::$activeLocks[$lastIndex];
+            @flock($fp, LOCK_UN);
+            @fclose($fp);
+            unset(self::$activeLocks[$lastIndex]);
+        }
+    }
+
+    public static function resetAllSlots(): void {
+        foreach (self::$activeLocks as $fp) {
+            @flock($fp, LOCK_UN);
+            @fclose($fp);
+        }
+        self::$activeLocks = [];
+
+        $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
+        if (is_dir($slotDir)) {
+            $files = glob($slotDir . DIRECTORY_SEPARATOR . 'worker_*.lock');
+            if (is_array($files)) {
+                foreach ($files as $f) {
+                    @unlink($f);
+                }
+            }
+        }
+    }
+}
+
 class PlayerController {
     public static function getEpisodeDetails(string $id): void {
         $ep = DbHelper::getEpisode($id);
@@ -125,13 +189,30 @@ class PlayerController {
         $start = isset($_GET['start']) ? (float)$_GET['start'] : 0.0;
         $audioTrack = isset($_GET['audio']) ? (int)$_GET['audio'] : -1;
 
+        $isHead = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'HEAD';
+
         // If file is MKV (not supported natively by HTML5 video tag) or seek/audio track specified:
         if ($isMkv || $start > 0 || $audioTrack !== -1) {
             @header('Content-Type: video/mp4');
-            @header('Accept-Ranges: none');
+            @header('Accept-Ranges: bytes');
             @header('Connection: keep-alive');
             @header('Access-Control-Allow-Origin: *');
             @header('X-Content-Type-Options: nosniff');
+
+            if ($isHead) {
+                if (defined('TESTING_MODE')) throw new ExitException("Stream remux HEAD success", 200);
+                exit();
+            }
+
+            // Concurrency guard for FFmpeg transcode workers
+            if (!TranscodeLimiter::acquireSlot(2)) {
+                @http_response_code(503);
+                @header('Retry-After: 5');
+                echo "Servidor de transcodificación ocupado, por favor intenta en unos instantes.";
+                if (defined('TESTING_MODE')) throw new ExitException("Transcode limiter busy", 503);
+                exit();
+            }
+            register_shutdown_function([TranscodeLimiter::class, 'releaseSlot']);
 
             $cmd = 'ffmpeg -v error ';
             if ($start > 0) {
@@ -202,6 +283,7 @@ class PlayerController {
                 }
                 pclose($fp);
             }
+            TranscodeLimiter::releaseSlot();
             exit();
         }
 
@@ -210,24 +292,40 @@ class PlayerController {
         $length = $fileSize;
         $isPartial = false;
 
-        if (isset($_SERVER['HTTP_RANGE']) && preg_match('/bytes=(\d+)-(\d+)?/', $_SERVER['HTTP_RANGE'], $matches)) {
-            $startRange = intval($matches[1]);
-            $endRange = isset($matches[2]) && !empty($matches[2]) ? intval($matches[2]) : ($fileSize - 1);
+        if (isset($_SERVER['HTTP_RANGE']) && preg_match('/bytes=(\d*)-(\d*)/', $_SERVER['HTTP_RANGE'], $matches)) {
+            $rawStart = $matches[1];
+            $rawEnd = $matches[2];
 
-            if ($startRange <= $endRange && $startRange < $fileSize) {
-                $offset = $startRange;
-                $end = min($endRange, $fileSize - 1);
-                $length = $end - $offset + 1;
-                $isPartial = true;
+            if ($rawStart === '' && $rawEnd !== '') {
+                // Suffix range: bytes=-500 (last 500 bytes)
+                $suffixLen = intval($rawEnd);
+                if ($suffixLen > 0) {
+                    $offset = max(0, $fileSize - $suffixLen);
+                    $length = $fileSize - $offset;
+                    $end = $fileSize - 1;
+                    $isPartial = true;
+                    @header('HTTP/1.1 206 Partial Content');
+                    @header("Content-Range: bytes {$offset}-{$end}/{$fileSize}");
+                }
+            } elseif ($rawStart !== '') {
+                $startRange = intval($rawStart);
+                $endRange = ($rawEnd !== '') ? intval($rawEnd) : ($fileSize - 1);
 
-                @header('HTTP/1.1 206 Partial Content');
-                @header("Content-Range: bytes {$offset}-{$end}/{$fileSize}");
-            } else {
-                @http_response_code(416);
-                @header('HTTP/1.1 416 Requested Range Not Satisfiable');
-                @header("Content-Range: bytes */{$fileSize}");
-                if (defined('TESTING_MODE')) throw new ExitException("416 Range Not Satisfiable", 416);
-                exit();
+                if ($startRange <= $endRange && $startRange < $fileSize) {
+                    $offset = $startRange;
+                    $end = min($endRange, $fileSize - 1);
+                    $length = $end - $offset + 1;
+                    $isPartial = true;
+
+                    @header('HTTP/1.1 206 Partial Content');
+                    @header("Content-Range: bytes {$offset}-{$end}/{$fileSize}");
+                } else {
+                    @http_response_code(416);
+                    @header('HTTP/1.1 416 Requested Range Not Satisfiable');
+                    @header("Content-Range: bytes */{$fileSize}");
+                    if (defined('TESTING_MODE')) throw new ExitException("416 Range Not Satisfiable", 416);
+                    exit();
+                }
             }
         } else {
             @header('HTTP/1.1 200 OK');
@@ -246,6 +344,11 @@ class PlayerController {
         @header("Content-Type: {$mime}");
         @header('Accept-Ranges: bytes');
         @header("Content-Length: {$length}");
+
+        if ($isHead) {
+            if (defined('TESTING_MODE')) throw new ExitException("Stream HEAD success", $isPartial ? 206 : 200);
+            exit();
+        }
 
         if (defined('TESTING_MODE')) {
             throw new ExitException("Stream success", $isPartial ? 206 : 200);

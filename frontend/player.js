@@ -5,6 +5,7 @@ import { openTracksModal } from './js/modules/player_tracks_modal.js';
 import { initAudioEnhancer } from './js/modules/player_audio_enhancer.js';
 import { initShortcutsHud } from './js/modules/player_shortcuts_hud.js';
 import { initSmartSkip } from './js/modules/player_smart_skip.js';
+import { renderQRCodeToElement } from './js/features/player/qr_generator.js';
 
 function escapeHtml(str) {
   if (typeof str !== 'string') return '';
@@ -2388,7 +2389,7 @@ function showQRModal() {
   if (qrUrlText) qrUrlText.textContent = shareUrl;
   
   if (qrImage) {
-    qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(shareUrl)}`;
+    renderQRCodeToElement(qrImage, shareUrl, 180);
   }
   
   if (qrShareModal) qrShareModal.style.display = 'block';
