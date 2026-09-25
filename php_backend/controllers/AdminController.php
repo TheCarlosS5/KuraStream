@@ -7,6 +7,29 @@ require_once __DIR__ . '/../services/FfmpegScanner.php';
 require_once __DIR__ . '/../services/TmdbScraper.php';
 
 class AdminController {
+    public static function isPathWithinAllowedRoots(string $path, array $allowedRoots = []): bool {
+        $real = realpath($path);
+        if (!$real) return false;
+
+        if (empty($allowedRoots)) {
+            $allowedRoots = array_filter([
+                defined('LIBRARY_DIR') ? realpath(LIBRARY_DIR) : null,
+                defined('ROOT_DIR') ? realpath(ROOT_DIR . '/downloads') : null,
+                defined('ROOT_DIR') ? realpath(ROOT_DIR . '/staging') : null,
+                realpath(sys_get_temp_dir())
+            ]);
+        }
+
+        foreach ($allowedRoots as $root) {
+            if (!$root) continue;
+            $rootPrefix = rtrim($root, '/\\') . DIRECTORY_SEPARATOR;
+            if ($real === $root || str_starts_with($real, $rootPrefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static function validateUpload(array $file, array $allowedExts, array $allowedMimes, int $maxBytes): void {
         if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
             jsonError('Error en la transferencia del archivo subido', 400);
@@ -235,6 +258,9 @@ class AdminController {
         $targetPath = $targetDir . '/' . $targetFilename;
 
         if (file_exists($item['filepath'])) {
+            if (!self::isPathWithinAllowedRoots($item['filepath'])) {
+                jsonError('Ruta de archivo staged no permitida', 403);
+            }
             if (!@rename($item['filepath'], $targetPath)) {
                 @copy($item['filepath'], $targetPath);
                 @unlink($item['filepath']);
@@ -256,8 +282,10 @@ class AdminController {
         $stmt->execute(['id' => $id]);
         $item = $stmt->fetch();
 
-        if ($item && file_exists($item['filepath'])) {
-            @unlink($item['filepath']);
+        if ($item && !empty($item['filepath']) && file_exists($item['filepath'])) {
+            if (self::isPathWithinAllowedRoots($item['filepath'])) {
+                @unlink($item['filepath']);
+            }
         }
 
         $del = $db->prepare("DELETE FROM staged_imports WHERE id = :id");
@@ -1054,5 +1082,6 @@ class AdminController {
             'updated' => $updatedCount,
             'total' => count($episodes),
             'tmdb_title' => $tmdbResults[0]['title'] ?? $show['title']
+        ]);
     }
 }

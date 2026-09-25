@@ -3,28 +3,48 @@ require_once __DIR__ . '/../config.php';
 
 class RateLimiter {
     public static function check(string $key, int $maxAttempts, int $windowSeconds, &$retryAfter = null): bool {
-        $tempDir = rtrim(sys_get_temp_dir(), '/\\') . '/kura_ratelimits';
+        $tempDir = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'kura_ratelimits';
         if (!is_dir($tempDir)) {
             @mkdir($tempDir, 0777, true);
         }
 
-        $file = $tempDir . '/rl_' . md5($key) . '.json';
+        $file = $tempDir . DIRECTORY_SEPARATOR . 'rl_' . md5($key) . '.json';
         $now = time();
-        $records = [];
 
-        if (file_exists($file)) {
-            $data = json_decode(@file_get_contents($file), true) ?: [];
-            // Filtrar timestamps fuera de la ventana
-            $records = array_values(array_filter($data, fn($ts) => ($now - $ts) < $windowSeconds));
+        $fp = @fopen($file, 'c+');
+        if (!$fp) {
+            return true; // Fallback gracefully if filesystem fails
         }
+
+        if (!flock($fp, LOCK_EX)) {
+            fclose($fp);
+            return true;
+        }
+
+        $content = '';
+        while (!feof($fp)) {
+            $content .= fread($fp, 8192);
+        }
+
+        $data = json_decode($content, true) ?: [];
+        // Filter timestamps within the rolling window
+        $records = array_values(array_filter($data, fn($ts) => ($now - $ts) < $windowSeconds));
 
         if (count($records) >= $maxAttempts) {
             $retryAfter = max(1, ($records[0] + $windowSeconds) - $now);
+            flock($fp, LOCK_UN);
+            fclose($fp);
             return false;
         }
 
         $records[] = $now;
-        @file_put_contents($file, json_encode(array_values($records)));
+        ftruncate($fp, 0);
+        rewind($fp);
+        fwrite($fp, json_encode($records));
+        fflush($fp);
+        flock($fp, LOCK_UN);
+        fclose($fp);
+
         return true;
     }
 
