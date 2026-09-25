@@ -11,8 +11,16 @@ require_once __DIR__ . '/controllers/HistoryController.php';
 require_once __DIR__ . '/controllers/AdminController.php';
 require_once __DIR__ . '/controllers/PartyController.php';
 
-$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$method = $_SERVER['REQUEST_METHOD'];
+$uri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+$appStartTime = microtime(true);
+register_shutdown_function(function() use ($appStartTime, $uri) {
+    if (!headers_sent() && $uri !== null && str_starts_with($uri, '/api/')) {
+        $ms = round((microtime(true) - $appStartTime) * 1000);
+        header("X-Response-Time: {$ms}ms");
+    }
+});
 
 // Serve static frontend files and library media directly
 $frontendDir = ROOT_DIR . '/frontend';
@@ -43,6 +51,14 @@ if (!function_exists('serveStaticFile')) {
         if (str_ends_with($candidate, '.css')) $mime = 'text/css';
         if (str_ends_with($candidate, '.js')) $mime = 'application/javascript';
         header("Content-Type: {$mime}");
+        if ($cacheControl === null) {
+            $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
+            if (in_array($ext, ['css', 'js', 'woff2', 'svg', 'png', 'jpg', 'jpeg', 'webp'])) {
+                $cacheControl = 'public, max-age=86400';
+            } elseif ($ext === 'html') {
+                $cacheControl = 'no-cache, no-store, must-revalidate';
+            }
+        }
         if ($cacheControl !== null) header("Cache-Control: {$cacheControl}");
         readfile($candidate);
         exit();
@@ -51,6 +67,7 @@ if (!function_exists('serveStaticFile')) {
 
 if ($uri === '/' || $uri === '/index.html') {
     header('Content-Type: text/html; charset=utf-8');
+    header('Cache-Control: no-cache, no-store, must-revalidate');
     readfile($frontendDir . '/index.html');
     exit();
 }
@@ -86,6 +103,32 @@ if ($uri === '/api/register' && $method === 'POST') {
 
 if ($uri === '/api/logout' && $method === 'POST') {
     AuthController::logout();
+}
+
+if ($uri === '/api/health' && $method === 'GET') {
+    $response = [
+        'success' => true,
+        'status' => 'healthy',
+        'database' => 'connected',
+        'storage' => is_readable(LIBRARY_DIR) ? 'readable' : 'unreadable',
+        'php_version' => PHP_VERSION,
+        'timestamp' => date('c')
+    ];
+
+    try {
+        $db = Database::getConnection();
+        $db->query('SELECT 1');
+    } catch (Throwable $e) {
+        @http_response_code(503);
+        $response['success'] = false;
+        $response['status'] = 'degraded';
+        $response['database'] = 'disconnected';
+        echo json_encode($response);
+        if (defined('TESTING_MODE')) throw new ExitException(json_encode($response), 503, $response);
+        exit();
+    }
+    
+    jsonResponse($response);
 }
 
 if ($uri === '/api/debug-log' && $method === 'POST') {
@@ -462,4 +505,12 @@ if (($uri === '/api/admin/scan' || $uri === '/api/admin/repair-library') && $met
 }
 
 // 404 fallback
+if (str_starts_with($uri, '/api/')) {
+    @http_response_code(404);
+    @header('Content-Type: application/json; charset=utf-8');
+    $payload = ['success' => false, 'error' => 'Endpoint no encontrado'];
+    echo json_encode($payload);
+    if (defined('TESTING_MODE')) throw new ExitException(json_encode($payload), 404, $payload);
+    exit();
+}
 jsonError("Endpoint not found: {$method} {$uri}", 404);

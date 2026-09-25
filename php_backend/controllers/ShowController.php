@@ -43,22 +43,41 @@ class ShowController {
     }
 
     public static function getShowDetails(string $id): void {
-        $show = DbHelper::getShow($id);
-        if (!$show) {
-            $show = DbHelper::findShowByFolderOrTitle($id, $id);
+        try {
+            $show = DbHelper::getShow($id);
+            if (!$show) {
+                $show = DbHelper::findShowByFolderOrTitle($id, $id);
+            }
+            if (!$show) {
+                jsonError('Show no encontrado', 404);
+            }
+
+            $episodes = DbHelper::getEpisodesForShow($show['id']);
+            
+            $seasons = [];
+            foreach ($episodes as $ep) {
+                $sNum = (int)($ep['season_number'] ?? 1);
+                if (!isset($seasons[$sNum])) {
+                    $seasons[$sNum] = [];
+                }
+                $seasons[$sNum][] = $ep;
+            }
+
+            $show['episodes'] = $episodes;
+            $show['seasons'] = $seasons;
+
+            $response = $show;
+            $response['show'] = $show;
+            $response['episodes'] = $episodes;
+            $response['seasons'] = $seasons;
+
+            jsonResponse($response);
+        } catch (Throwable $e) {
+            if (get_class($e) === 'ExitException' || get_class($e) === 'Exception' && $e->getMessage() === 'ExitException') {
+                throw $e;
+            }
+            jsonError('Error interno al obtener los detalles del show', 500);
         }
-        if (!$show) {
-            jsonError('Show no encontrado', 404);
-        }
-
-        $episodes = DbHelper::getEpisodesForShow($show['id']);
-        $show['episodes'] = $episodes;
-
-        $response = $show;
-        $response['show'] = $show;
-        $response['episodes'] = $episodes;
-
-        jsonResponse($response);
     }
 
     public static function toggleStatus(): void {
@@ -96,8 +115,8 @@ class ShowController {
     }
 
     public static function addComment(?array $inputData = null): void {
-        RateLimiter::enforce('comment', 5, 60); // Máx 5 comentarios por minuto
         $authUser = AuthMiddleware::requireAuth();
+        RateLimiter::enforce('comment', 5, 60); // Máx 5 comentarios por minuto
         $username = $authUser['username'];
 
         if ($inputData !== null) {

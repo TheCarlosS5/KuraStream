@@ -25,6 +25,7 @@ Thumbs.db
 
 # Herramientas del agente
 .superpowers/
+.agy-atlas/
 
 # Proyectos externos
 android/

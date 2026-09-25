@@ -26,6 +26,68 @@ class PartyManager {
       participants: [],
       closed: []
     };
+    this.audioContext = null;
+    this.soundsMuted = localStorage.getItem('party_sounds_muted') === 'true';
+  }
+
+  initAudioContext() {
+    if (!this.audioContext) {
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        this.audioContext = new AudioContext();
+      } catch (e) {}
+    }
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      this.audioContext.resume();
+    }
+  }
+
+  playMessageChime() {
+    if (this.soundsMuted) return;
+    this.initAudioContext();
+    if (!this.audioContext) return;
+    const osc = this.audioContext.createOscillator();
+    const gainNode = this.audioContext.createGain();
+    osc.connect(gainNode);
+    gainNode.connect(this.audioContext.destination);
+    osc.type = 'sine';
+    const now = this.audioContext.currentTime;
+    osc.frequency.setValueAtTime(440, now);
+    osc.frequency.exponentialRampToValueAtTime(880, now + 0.06);
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(0.15, now + 0.01);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+    osc.start(now);
+    osc.stop(now + 0.06);
+  }
+
+  playJoinChime() {
+    if (this.soundsMuted) return;
+    this.initAudioContext();
+    if (!this.audioContext) return;
+    const osc = this.audioContext.createOscillator();
+    const gainNode = this.audioContext.createGain();
+    osc.connect(gainNode);
+    gainNode.connect(this.audioContext.destination);
+    osc.type = 'sine';
+    const now = this.audioContext.currentTime;
+    osc.frequency.setValueAtTime(330, now);
+    osc.frequency.exponentialRampToValueAtTime(660, now + 0.1);
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(0.2, now + 0.02);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    osc.start(now);
+    osc.stop(now + 0.1);
+  }
+
+  toggleSounds() {
+    this.soundsMuted = !this.soundsMuted;
+    localStorage.setItem('party_sounds_muted', this.soundsMuted ? 'true' : 'false');
+    const icon = document.getElementById('party-sound-icon');
+    if (icon) {
+      icon.setAttribute('data-lucide', this.soundsMuted ? 'volume-x' : 'volume-2');
+      if (window.lucide) window.lucide.createIcons({ root: icon.parentElement });
+    }
   }
 
   on(event, callback) {
@@ -171,6 +233,12 @@ class PartyManager {
       isHost,
       color: this.getRandomColor(username)
     };
+    if (!this.participantsMap) this.participantsMap = new Map();
+    this.participantsMap.set(username, this.currentUser.color);
+    if (room.host_user) {
+      this.participantsMap.set(room.host_user, this.getRandomColor(room.host_user));
+    }
+    this.renderAvatarStack();
     this.emit('sync', room);
   }
 
@@ -206,9 +274,26 @@ class PartyManager {
         const messages = JSON.parse(e.data);
         if (Array.isArray(messages)) {
           messages.forEach(msg => {
+            if (msg.username && msg.username !== 'Sistema') {
+              this.participantsMap.set(msg.username, this.getRandomColor(msg.username));
+            }
             if (msg.type === 'reaction') {
               this.triggerFlyingReaction(msg.message);
+            } else if (msg.type === 'system') {
+              this.triggerToastNotification(msg.message);
+              const joinMatch = msg.message.match(/(.+) se unió/);
+              if (joinMatch) {
+                this.participantsMap.set(joinMatch[1], this.getRandomColor(joinMatch[1]));
+                if (msg.id > this.lastMessageId) this.playJoinChime();
+              }
+              const leaveMatch = msg.message.match(/(.+) salió/);
+              if (leaveMatch) this.participantsMap.delete(leaveMatch[1]);
+            } else {
+              if (msg.id > this.lastMessageId && msg.username !== this.currentUser.username) {
+                this.playMessageChime();
+              }
             }
+            this.renderAvatarStack();
             this.emit('message', msg);
             if (msg.id > this.lastMessageId) this.lastMessageId = msg.id;
           });
@@ -248,9 +333,26 @@ class PartyManager {
         }
         if (data.messages && Array.isArray(data.messages)) {
           data.messages.forEach(msg => {
+            if (msg.username && msg.username !== 'Sistema') {
+              this.participantsMap.set(msg.username, this.getRandomColor(msg.username));
+            }
             if (msg.type === 'reaction') {
               this.triggerFlyingReaction(msg.message);
+            } else if (msg.type === 'system') {
+              this.triggerToastNotification(msg.message);
+              const joinMatch = msg.message.match(/(.+) se unió/);
+              if (joinMatch) {
+                this.participantsMap.set(joinMatch[1], this.getRandomColor(joinMatch[1]));
+                if (msg.id > this.lastMessageId) this.playJoinChime();
+              }
+              const leaveMatch = msg.message.match(/(.+) salió/);
+              if (leaveMatch) this.participantsMap.delete(leaveMatch[1]);
+            } else {
+              if (msg.id > this.lastMessageId && msg.username !== this.currentUser.username) {
+                this.playMessageChime();
+              }
             }
+            this.renderAvatarStack();
             this.emit('message', msg);
             if (msg.id > this.lastMessageId) this.lastMessageId = msg.id;
           });
@@ -270,8 +372,31 @@ class PartyManager {
     }
   }
 
+  renderAvatarStack() {
+    const container = document.getElementById('party-avatar-stack-container');
+    if (!container) return;
+    const list = Array.from(this.participantsMap ? this.participantsMap.entries() : []);
+    let html = '';
+    const maxVisible = 3;
+    for (let i = 0; i < Math.min(list.length, maxVisible); i++) {
+      const initial = (list[i][0] || 'U').charAt(0).toUpperCase();
+      html += `<div class="party-stack-avatar" style="background: ${list[i][1]}; z-index: ${100-i};" title="${list[i][0]}">${initial}</div>`;
+    }
+    if (list.length > maxVisible) {
+      html += `<div class="party-stack-count" style="z-index: 90;">+${list.length - maxVisible}</div>`;
+    }
+    container.innerHTML = html;
+  }
+
   handleRemoteSync(newRoom) {
     if (!newRoom) return;
+    if (this.activeRoom && this.activeRoom.is_playing !== newRoom.is_playing) {
+      if (newRoom.is_playing) {
+        this.triggerToastNotification("▶ El anfitrión ha reanudado el video");
+      } else {
+        this.triggerToastNotification("⏸ El anfitrión ha pausado el video");
+      }
+    }
     this.activeRoom = newRoom;
     this.emit('sync', newRoom);
   }
@@ -312,11 +437,17 @@ class PartyManager {
 
     this.isApplyingRemoteSync = true;
 
+    const syncPill = document.getElementById('party-sync-pill');
     // Smooth drift correction algorithm
     if (timeDiff > 2.0) {
       // Major jump / seek by host
       video.currentTime = targetTime;
     } else if (timeDiff > 0.4 && shouldPlay) {
+      if (syncPill) {
+        syncPill.innerHTML = `<span class="spinner" style="width: 10px; height: 10px; border-width: 2px; margin-right: 4px;"></span> Alineando...`;
+        syncPill.style.color = 'var(--rating-color)';
+        syncPill.style.borderColor = 'var(--rating-color)';
+      }
       // Settle drift gently without audio glitch
       if (video.currentTime < targetTime) {
         video.playbackRate = 1.06;
@@ -324,6 +455,11 @@ class PartyManager {
         video.playbackRate = 0.94;
       }
     } else {
+      if (syncPill) {
+        syncPill.innerHTML = `<span class="airing-pulse-dot" style="width: 6px; height: 6px; margin-right: 4px;"></span> Sincronizado`;
+        syncPill.style.color = 'var(--success-color)';
+        syncPill.style.borderColor = 'var(--success-color)';
+      }
       video.playbackRate = 1.0;
     }
 
@@ -406,6 +542,37 @@ class PartyManager {
     setTimeout(() => {
       if (particle.parentNode) particle.parentNode.removeChild(particle);
     }, 2300);
+  }
+
+  triggerToastNotification(message) {
+    if (typeof showVideoToast === 'function') {
+      showVideoToast(message);
+    } else {
+      const container = document.getElementById('player-container') || document.body;
+      const toast = document.createElement('div');
+      toast.style.cssText = `
+        position: absolute;
+        top: 80px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(19, 26, 28, 0.9);
+        color: #fff;
+        padding: 8px 16px;
+        border-radius: 4px;
+        font-size: 0.9rem;
+        z-index: 100000;
+        pointer-events: none;
+        border: 1px solid rgba(255,255,255,0.1);
+        backdrop-filter: blur(8px);
+        animation: fadeInDown 0.3s forwards;
+      `;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.animation = 'fadeOutUp 0.3s forwards';
+        setTimeout(() => { if(toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
+      }, 3000);
+    }
   }
 
   async fetchPublicRooms() {

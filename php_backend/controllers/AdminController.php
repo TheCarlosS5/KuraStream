@@ -42,6 +42,20 @@ class AdminController {
         AuthMiddleware::requireAdmin();
         $db = Database::getConnection();
 
+        // Pre-fetch all staged imports to eliminate N+1 queries
+        $existingRows = $db->query("SELECT id, filepath, original_filename FROM staged_imports")->fetchAll();
+        $stagedByPath = [];
+        $stagedByName = [];
+        $missingIds = [];
+
+        foreach ($existingRows as $ex) {
+            $stagedByPath[$ex['filepath']] = $ex['id'];
+            $stagedByName[$ex['original_filename']] = $ex['id'];
+            if (!file_exists($ex['filepath'])) {
+                $missingIds[] = $ex['id'];
+            }
+        }
+
         // 1. Scan physical staging directories for unindexed video files
         $searchDirs = [
             LIBRARY_DIR . '/downloads/staged',
@@ -62,10 +76,8 @@ class AdminController {
                 $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
                 if (!in_array($ext, ['mkv', 'mp4', 'avi', 'mov', 'webm', 'ts'])) continue;
 
-                // Check if this filepath or filename is already in staged_imports
-                $chk = $db->prepare("SELECT id FROM staged_imports WHERE filepath = :fp OR original_filename = :fn");
-                $chk->execute(['fp' => $fullPath, 'fn' => $file]);
-                if (!$chk->fetch()) {
+                // Check existence in memory
+                if (!isset($stagedByPath[$fullPath]) && !isset($stagedByName[$file])) {
                     $meta = self::parseFilenameMetadata($file);
                     $newId = 'staged_' . md5($fullPath . $file);
 
@@ -87,12 +99,10 @@ class AdminController {
             }
         }
 
-        // 2. Clean up any staged rows whose files no longer exist
-        $existing = $db->query("SELECT id, filepath FROM staged_imports")->fetchAll();
-        foreach ($existing as $ex) {
-            if (!file_exists($ex['filepath'])) {
-                $db->prepare("DELETE FROM staged_imports WHERE id = :id")->execute(['id' => $ex['id']]);
-            }
+        // 2. Clean up any staged rows whose files no longer exist with a single batch DELETE
+        if (!empty($missingIds)) {
+            $placeholders = implode(',', array_fill(0, count($missingIds), '?'));
+            $db->prepare("DELETE FROM staged_imports WHERE id IN ($placeholders)")->execute($missingIds);
         }
 
         // 3. Return all current staged items

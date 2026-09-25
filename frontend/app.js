@@ -2,7 +2,7 @@ import { initPlayer, destroyPlayer } from './player.js?v=2026.09.20-catalogue-ha
 import { initHeaderDropdowns, updateActiveNavHighlight, initAdminSidebar } from './js/modules/navigation.js';
 import { partyManager } from './js/modules/party.js';
 import { initCardPopovers } from './js/modules/card_popover_preview.js';
-import { initHeroAmbientGlow } from './js/modules/hero_ambient_glow.js';
+import { initHeroAmbientGlow, extractAndApplyGlow } from './js/modules/hero_ambient_glow.js';
 import { initEpisodeTracker } from './js/modules/catalog_episode_tracker.js';
 
 if (typeof window !== 'undefined') {
@@ -181,9 +181,9 @@ function initAppMain() {
 
   // Add search, status, sort and genre filter listeners
   const sInput = document.getElementById('search-input');
-  const gFilter = document.getElementById('genre-filter');
-  const stFilter = document.getElementById('status-filter');
-  const sSort = document.getElementById('sort-filter');
+  const genrePills = document.querySelectorAll('.genre-pill');
+  const statusChips = document.querySelectorAll('.filter-chip');
+  const sortChips = document.querySelectorAll('.sort-chip');
 
   const onFilterChange = () => {
     const mediaType = window.location.hash === '#/movies' ? 'movie' : 'anime';
@@ -191,10 +191,45 @@ function initAppMain() {
     loadDashboard(mediaType);
   };
 
-  if (sInput) sInput.addEventListener('input', onFilterChange);
-  if (gFilter) gFilter.addEventListener('change', onFilterChange);
-  if (stFilter) stFilter.addEventListener('change', onFilterChange);
-  if (sSort) sSort.addEventListener('change', onFilterChange);
+  let searchTimeout;
+  if (sInput) {
+    sInput.addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(onFilterChange, 250);
+    });
+  }
+  genrePills.forEach(pill => pill.addEventListener('click', (e) => { genrePills.forEach(p => p.classList.remove('active')); e.target.classList.add('active'); const sc = document.getElementById('dashboard-sections'); if(sc){ sc.classList.remove('fade-in-cards'); void sc.offsetWidth; sc.classList.add('fade-in-cards'); } onFilterChange(); }));
+  statusChips.forEach(chip => chip.addEventListener('click', (e) => { statusChips.forEach(c => c.classList.remove('active')); e.target.classList.add('active'); onFilterChange(); }));
+  sortChips.forEach(chip => chip.addEventListener('click', (e) => {
+    sortChips.forEach(c => c.classList.remove('active'));
+    e.target.classList.add('active');
+    
+    // Add subtle CSS fade-in animation trigger on the cards grid
+    const sectionsContainer = document.getElementById('dashboard-sections');
+    if (sectionsContainer) {
+      sectionsContainer.classList.remove('fade-in-cards');
+      void sectionsContainer.offsetWidth; // trigger reflow
+      sectionsContainer.classList.add('fade-in-cards');
+    }
+    onFilterChange();
+  }));
+  // Add throttled scroll listener for header-scrolled class
+  let scrollTimeout;
+  window.addEventListener('scroll', () => {
+    if (!scrollTimeout) {
+      scrollTimeout = setTimeout(() => {
+        const header = document.querySelector('.app-header');
+        if (header) {
+          if (window.scrollY > 40) {
+            header.classList.add('header-scrolled');
+          } else {
+            header.classList.remove('header-scrolled');
+          }
+        }
+        scrollTimeout = null;
+      }, 50);
+    }
+  });
 }
 
 if (document.readyState === 'loading') {
@@ -267,8 +302,7 @@ function setupRouter() {
       currentShowsPage = 1;
       if (searchInputEl) searchInputEl.value = '';
       if (genreFilterEl) genreFilterEl.value = 'all';
-      const stFilterEl = document.getElementById('status-filter');
-      if (stFilterEl) stFilterEl.value = 'all';
+      document.querySelectorAll('.filter-chip').forEach(c => { c.classList.remove('active'); if(c.getAttribute('data-status') === '') c.classList.add('active'); });
       document.getElementById('nav-home')?.classList.add('active');
       const dashView = document.getElementById('dashboard-view');
       if (dashView) { dashView.classList.add('active'); dashView.style.display = 'block'; }
@@ -278,8 +312,7 @@ function setupRouter() {
       currentShowsPage = 1;
       if (searchInputEl) searchInputEl.value = '';
       if (genreFilterEl) genreFilterEl.value = 'all';
-      const stFilterEl = document.getElementById('status-filter');
-      if (stFilterEl) stFilterEl.value = 'airing';
+      document.querySelectorAll('.filter-chip').forEach(c => { c.classList.remove('active'); if(c.getAttribute('data-status') === 'airing') c.classList.add('active'); });
       document.getElementById('nav-airing')?.classList.add('active');
       const dashView = document.getElementById('dashboard-view');
       if (dashView) { dashView.classList.add('active'); dashView.style.display = 'block'; }
@@ -295,8 +328,7 @@ function setupRouter() {
       currentShowsPage = 1;
       if (searchInputEl) searchInputEl.value = '';
       if (genreFilterEl) genreFilterEl.value = 'all';
-      const stFilterEl = document.getElementById('status-filter');
-      if (stFilterEl) stFilterEl.value = 'all';
+      document.querySelectorAll('.filter-chip').forEach(c => { c.classList.remove('active'); if(c.getAttribute('data-status') === '') c.classList.add('active'); });
       const dashView = document.getElementById('dashboard-view');
       if (dashView) { dashView.classList.add('active'); dashView.style.display = 'block'; }
       loadDashboard('movie');
@@ -631,26 +663,20 @@ async function loadDashboard(mediaType = 'anime') {
       }
     });
 
-    // Populate the genre filter select element
-    const genreFilterSelect = document.getElementById('genre-filter');
-    const selectedGenre = (genreFilterSelect ? genreFilterSelect.value : 'all') || 'all';
-    if (genreFilterSelect) {
-      let genreOpts = '<option value="all">Todos los géneros</option>';
-      Array.from(genresSet).sort().forEach(g => {
-        genreOpts += `<option value="${g}" ${selectedGenre === g ? 'selected' : ''}>${g}</option>`;
-      });
-      genreFilterSelect.innerHTML = genreOpts;
-    }
+    const activeGenrePill = document.querySelector('.genre-pill.active');
+    const selectedGenre = activeGenrePill ? activeGenrePill.getAttribute('data-genre') : 'all';
 
     // Apply search, genre, status and sort filters
     const searchInput = document.getElementById('search-input');
     const searchQuery = (searchInput ? searchInput.value : '').trim().toLowerCase();
 
-    const statusFilterSelect = document.getElementById('status-filter');
-    const selectedStatus = (statusFilterSelect ? statusFilterSelect.value : 'all') || 'all';
+    const activeStatusChip = document.querySelector('.filter-chip.active');
+    let selectedStatus = activeStatusChip ? activeStatusChip.getAttribute('data-status') : '';
+    if (!selectedStatus) selectedStatus = 'all';
+    if (selectedStatus === 'completed') selectedStatus = 'finished';
 
-    const sortFilterSelect = document.getElementById('sort-filter');
-    const selectedSort = (sortFilterSelect ? sortFilterSelect.value : 'default') || 'default';
+    const activeSortChip = document.querySelector('.sort-chip.active');
+    const selectedSort = activeSortChip ? activeSortChip.getAttribute('data-sort') : 'popular';
 
     let filteredCategoryShows = categoryShows;
 
@@ -674,23 +700,21 @@ async function loadDashboard(mediaType = 'anime') {
     }
 
     // Apply sorting
-    if (selectedSort === 'year_desc') {
-      filteredCategoryShows.sort((a, b) => (b.year || 0) - (a.year || 0));
-    } else if (selectedSort === 'year_asc') {
-      filteredCategoryShows.sort((a, b) => (a.year || 0) - (b.year || 0));
-    } else if (selectedSort === 'rating_desc') {
+    if (selectedSort === 'recent') {
+      filteredCategoryShows.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    } else if (selectedSort === 'rating') {
       filteredCategoryShows.sort((a, b) => (b.rating || 0) - (a.rating || 0));
-    } else if (selectedSort === 'title_asc') {
-      filteredCategoryShows.sort((a, b) => a.title.localeCompare(b.title));
+    } else if (selectedSort === 'popular') {
+      // popular sort is default
     }
 
     if (filteredCategoryShows.length === 0 && (searchQuery || selectedGenre !== 'all' || selectedStatus !== 'all')) {
       carouselContainer.style.display = 'none';
       sectionsContainer.innerHTML = `
-        <div class="empty-state" style="text-align: center; padding: 60px; color: var(--text-muted);">
+        <div class="empty-state" style="text-align: center; padding: 80px 20px; color: var(--text-muted);">
           <i data-lucide="search-code" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 12px; display: inline-block;"></i>
-          <h2>No se encontraron resultados</h2>
-          <p style="margin-top: 10px;">Prueba ajustando los filtros de búsqueda, estado o géneros.</p>
+          <h2 style="font-family: var(--font-title); font-size: 1.5rem; color: var(--text-main); margin-bottom: 8px;">El vacío del catálogo.</h2>
+          <p style="margin-top: 10px; font-size: 0.95rem;">No encontramos coincidencias para "${searchQuery}". Revisa la ortografía o intenta con términos más amplios.</p>
         </div>`;
       if (typeof lucide !== 'undefined') lucide.createIcons();
       return;
@@ -726,6 +750,12 @@ async function loadDashboard(mediaType = 'anime') {
           ` : ''}
         `;
         if (typeof lucide !== 'undefined') lucide.createIcons();
+
+        const heroBanner = carouselContainer.querySelector('.billboard-hero');
+        if (heroBanner) {
+          const bgUrl = show.backdrop_path || show.poster_path || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1600&q=80';
+          extractAndApplyGlow(catalogueImageUrl(bgUrl), heroBanner);
+        }
 
         const prevBtn = document.getElementById('carousel-prev-btn');
         const nextBtn = document.getElementById('carousel-next-btn');
@@ -952,9 +982,9 @@ function renderContinueWatching(historyItems) {
     const subtext = `${epLabel} • ${remainingText}`;
 
     return `
-      <div class="continue-watching-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" title="${escapeHtmlAttribute(`${item.show_title} - ${item.episode_title || epLabel}`)}">
-        <div class="continue-watching-thumb-wrapper">
-          <img class="continue-watching-thumb" src="${escapeHtmlAttribute(catalogueImageUrl(img))}" alt="${escapeHtmlAttribute(item.show_title)}" loading="lazy">
+      <div class="continue-watching-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" title="${escapeHtmlAttribute(`${item.show_title} - ${item.episode_title || epLabel}`)}" style="cursor: pointer;">
+        <div class="continue-watching-thumb-wrapper" style="overflow: hidden; border-radius: var(--radius-sm);">
+          <img class="continue-watching-thumb" src="${escapeHtmlAttribute(catalogueImageUrl(img))}" alt="${escapeHtmlAttribute(item.show_title)}" loading="lazy" style="transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
           <div class="continue-watching-play-btn" aria-label="Reproducir">
             <i data-lucide="play" style="width: 20px; height: 20px; fill: #ffffff; stroke: #ffffff;"></i>
           </div>
@@ -964,7 +994,8 @@ function renderContinueWatching(historyItems) {
         </div>
         <div class="continue-watching-info">
           <h4 class="continue-watching-title">${escapeHtml(item.show_title)}</h4>
-          <span class="continue-watching-subtext">${escapeHtml(subtext)}</span>
+          <span class="continue-watching-subtext" style="font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums;">${escapeHtml(subtext)}</span>
+          <div class="continue-watching-action" style="margin-top: 4px; color: var(--accent-color); font-size: 0.8rem; font-weight: 700;">Continuar <i data-lucide="chevron-right" style="width: 12px; height: 12px; vertical-align: middle;"></i></div>
         </div>
       </div>
     `;
@@ -1030,21 +1061,20 @@ function createShowCardHTML(show, historyMap = new Map()) {
   ` : '';
 
   return `
-    <div class="show-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" style="flex: 0 0 auto; width: 180px; height: 320px;">
-      <div class="card-img-wrapper" style="height: 220px; position: relative;">
-        <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy">
-        <div class="card-rating-badge">
-          <i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);margin-right:2px;display:inline-block;vertical-align:middle;"></i> 
-          ${rating}
+    <div class="show-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" style="flex: 0 0 auto; width: 180px; height: 320px; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); will-change: transform;">
+      <div class="card-img-wrapper" style="height: 250px; position: relative; background-color: var(--surface-muted); border-radius: var(--radius-sm); overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+        <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.4s ease;" onload="this.style.opacity=1">
+        <div class="card-rating-badge" style="position: absolute; top: 8px; right: 8px; background: rgba(9, 13, 14, 0.85); backdrop-filter: blur(4px); padding: 4px 6px; border-radius: var(--radius-xs); border: 1px solid rgba(255,255,255,0.08); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; gap: 4px;">
+          <i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);"></i>${rating}
         </div>
         ${airingBadgeHTML}
         ${progressHTML}
       </div>
-      <div class="card-info">
-        <h3 class="card-title" style="font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${escapeHtml(show.title)}</h3>
-        <div class="card-meta" style="font-size: 0.75rem;">
-          <span>${show.media_type === 'movie' ? 'Película' : 'Anime'}</span>
-          <span>•</span>
+      <div class="card-info" style="padding-top: 10px;">
+        <h3 class="card-title" style="font-size: 0.9rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em;">${escapeHtml(show.title)}</h3>
+        <div class="card-meta" style="font-size: 0.75rem; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; margin-top: 4px;">
+          <span>${show.media_type === 'movie' ? 'PELÍCULA' : 'ANIME'}</span>
+          <span style="margin: 0 4px; opacity: 0.5;">•</span>
           <span>${escapeHtml(show.year || 'N/A')}</span>
         </div>
       </div>
@@ -1546,8 +1576,11 @@ function renderEpisodeList(epList, targetContainer, fallbackPoster = '', showPro
 
     return `
       <div class="episode-item" role="button" tabindex="0" data-episode-id="${escapeHtmlAttribute(ep.id)}">
-        <div class="episode-thumb-wrapper">
-          <img class="episode-thumb" src="${escapeHtmlAttribute(catalogueImageUrl(thumb))}" alt="${escapeHtmlAttribute(ep.title || 'Episodio')}" loading="lazy">
+        <div class="episode-thumbnail-container" style="aspect-ratio: 16 / 9; width: 160px; background-color: var(--surface-muted); border-radius: var(--radius-sm); overflow: hidden; position: relative; flex-shrink: 0;">
+          <img class="episode-thumb" src="${escapeHtmlAttribute(catalogueImageUrl(thumb))}" alt="${escapeHtmlAttribute(ep.title || 'Episodio')}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;">
+          <div style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.8); border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; font-weight: 700; color: white; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums;">
+             ${durationMin > 0 ? `${durationMin}m` : ''}
+          </div>
           ${completedBadgeHTML}
           ${progressBarHTML}
           <div class="episode-play-overlay">
@@ -1556,8 +1589,7 @@ function renderEpisodeList(epList, targetContainer, fallbackPoster = '', showPro
         </div>
         <div class="episode-item-info">
           <div class="episode-item-top">
-            <h3 class="episode-item-title">${escapeHtml(ep.episode_number ? `${ep.episode_number}. ` : '')}${escapeHtml(ep.title || 'Capítulo')}</h3>
-            <span class="episode-item-duration">${durationMin > 0 ? `${durationMin} min` : ''}</span>
+            <h3 class="episode-item-title" style="font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 0.9rem; margin-bottom: 6px;"><span style="color: var(--accent-color);">EP. ${escapeHtml(String(ep.episode_number || 1).padStart(2, '0'))}</span> • ${escapeHtml(ep.title || 'Capítulo')}</h3>
           </div>
           <p class="episode-item-synopsis">${escapeHtml(ep.synopsis || 'Sin descripción disponible para este capítulo.')}</p>
         </div>
@@ -3361,10 +3393,25 @@ async function loadUserPreferences() {
 }
 window.loadUserPreferences = loadUserPreferences;
 
+window.updateAppBadge = async function(count) {
+  if ('setAppBadge' in navigator) {
+    try {
+      if (count > 0) {
+        await navigator.setAppBadge(count);
+      } else {
+        await navigator.clearAppBadge();
+      }
+    } catch (e) {
+      console.warn('Error setting app badge:', e);
+    }
+  }
+};
+
 function setupSettingsView() {
   const selectAudio = document.getElementById('pref-audio-lang');
   const selectSub = document.getElementById('pref-sub-lang');
   const autoSkipToggle = document.getElementById('autoSkipIntroToggle');
+  const notifToggle = document.getElementById('notificationsToggle');
   const toast = document.getElementById('settings-save-success');
   let toastTimeout = null;
 
@@ -3378,6 +3425,22 @@ function setupSettingsView() {
         toast.style.display = 'none';
       }, 3000);
     }
+  }
+
+  if (notifToggle) {
+    notifToggle.addEventListener('change', async function() {
+      const isChecked = this.checked;
+      saveSetting('kura_pref_notifications', isChecked);
+      if (isChecked && 'Notification' in window) {
+        if (Notification.permission !== 'granted') {
+          const perm = await Notification.requestPermission();
+          if (perm !== 'granted') {
+            this.checked = false;
+            saveSetting('kura_pref_notifications', false);
+          }
+        }
+      }
+    });
   }
 
   if (selectAudio) {
@@ -3426,12 +3489,17 @@ function setupSettingsView() {
 function loadSettingsView() {
   const audioLang = localStorage.getItem('kura_pref_audio_lang') || 'default';
   const subLang = localStorage.getItem('kura_pref_sub_lang') || 'default';
+  const notifEnabled = localStorage.getItem('kura_pref_notifications') === 'true';
 
   const selectAudio = document.getElementById('pref-audio-lang');
   const selectSub = document.getElementById('pref-sub-lang');
+  const notifToggle = document.getElementById('notificationsToggle');
 
   if (selectAudio) selectAudio.value = audioLang;
   if (selectSub) selectSub.value = subLang;
+  if (notifToggle) {
+    notifToggle.checked = notifEnabled && ('Notification' in window && Notification.permission === 'granted');
+  }
 
   loadUserPreferences();
   if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -6536,18 +6604,18 @@ function renderCalendarDay(dayName) {
         const timeString = new Date(item.airing_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
         return `
-          <div class="calendar-card" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s, border-color 0.2s;">
-            <div style="height: 180px; position: relative; overflow: hidden; background: #000;">
-              <img src="${escapeHtmlAttribute(catalogueImageUrl(cover))}" alt="${escapeHtmlAttribute(item.title)}" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.85;">
-              <div style="position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.8); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px 8px; font-size: 0.75rem; font-weight: 700; color: var(--accent-color);">
-                Episodio ${escapeHtml(item.episode)} • ${timeString}
+          <div class="calendar-card featured-bento" style="background: var(--surface-color); border: 1px solid var(--border-color); border-radius: var(--radius-sm); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.15s ease, box-shadow 0.15s ease; cursor: pointer;">
+            <div style="height: 180px; position: relative; overflow: hidden; background: var(--surface-muted);">
+              <img src="${escapeHtmlAttribute(catalogueImageUrl(cover))}" alt="${escapeHtmlAttribute(item.title)}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.3s ease; transform: scale(1.02);" onload="this.style.opacity=1">
+              <div style="position: absolute; bottom: 8px; left: 8px; background: rgba(9, 13, 14, 0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--radius-xs); padding: 4px 8px; font-size: 0.75rem; font-weight: 700; color: #FFFFFF; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums; z-index: 2;">
+                <span style="color: var(--accent-color);">EP ${escapeHtml(item.episode)}</span> • ${timeString}
               </div>
               ${inLibBadge}
             </div>
-            <div style="padding: 15px; display: flex; flex-direction: column; flex-grow: 1; justify-content: space-between;">
+            <div style="padding: 16px; display: flex; flex-direction: column; flex-grow: 1; justify-content: space-between;">
               <div>
-                <h3 style="font-family: var(--font-title); font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; line-clamp: 2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${escapeHtml(item.title)}</h3>
-                <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px;">${escapeHtml(item.studio || 'Estudio N/A')}</p>
+                <h3 style="font-family: var(--font-title); font-size: 1rem; font-weight: 800; color: var(--text-main); margin-bottom: 4px; line-height: 1.2; letter-spacing: -0.01em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${escapeHtml(item.title)}</h3>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; font-weight: 500;">${escapeHtml(item.studio || 'Estudio N/A')}</p>
                 <div style="font-size: 0.75rem; color: var(--text-muted); line-clamp: 1; overflow: hidden;">${escapeHtml(item.genres)}</div>
               </div>
               ${libAction}
@@ -7074,3 +7142,36 @@ if (typeof window !== 'undefined') {
   window.openWatchPartyModal = openWatchPartyModal;
   window.joinWatchPartyByCode = joinWatchPartyByCode;
 }
+
+
+
+
+
+
+
+
+// --- Network Connectivity Indicators ---
+window.addEventListener('offline', () => {
+  const banner = document.getElementById('offline-status-banner');
+  const text = document.getElementById('offline-banner-text');
+  const icon = document.getElementById('offline-banner-icon');
+  if (!banner) return;
+  banner.classList.remove('online');
+  if (icon && typeof lucide !== 'undefined') { icon.setAttribute('data-lucide', 'wifi-off'); lucide.createIcons(); }
+  if (text) text.textContent = '📡 Modo sin conexión — Mostrando contenido disponible';
+  banner.classList.add('visible');
+});
+
+window.addEventListener('online', () => {
+  const banner = document.getElementById('offline-status-banner');
+  const text = document.getElementById('offline-banner-text');
+  const icon = document.getElementById('offline-banner-icon');
+  if (!banner) return;
+  banner.classList.add('online');
+  if (icon && typeof lucide !== 'undefined') { icon.setAttribute('data-lucide', 'wifi'); lucide.createIcons(); }
+  if (text) text.textContent = '✓ Conexión restablecida';
+  setTimeout(() => {
+    banner.classList.remove('visible');
+  }, 3500);
+});
+

@@ -346,6 +346,14 @@ class PartyController {
             flush();
         }
 
+        if (connection_aborted()) {
+            $roomNow = DbHelper::getPartyRoom($roomId);
+            if ($roomNow) {
+                $newCount = max(1, (int)$roomNow['participants_count'] - 1);
+                DbHelper::updatePartyPlayback($roomId, (bool)$roomNow['is_playing'], (float)$roomNow['current_time'], null, $newCount);
+            }
+        }
+
         exit();
     }
 }

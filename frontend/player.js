@@ -82,18 +82,6 @@ export function getShowIdFromEpisodeId(epId) {
 }
 
 // QR Share elements
-let qrShareBtn = null;
-let qrShareModal = null;
-let qrShareClose = null;
-let qrImage = null;
-let qrUrlText = null;
-
-let isControlsVisible = true;
-let hideControlsTimeout = null;
-let isDraggingProgress = false;
-let handleKeyboard = null;
-let handleFullscreenChange = null;
-let currentEpisodeId = null;
 let currentEpisodeData = null;
 let currentShowData = null;
 let nextEpisodeId = null;
@@ -1008,7 +996,11 @@ function setupPlayerEventListeners() {
   
   // Click on video canvas to toggle play
   video.onclick = (e) => {
-    // Ignore click if clicking info panels or dropdowns
+    if (typeof isControlsLocked !== 'undefined' && isControlsLocked) {
+      if (typeof revealLockPill !== 'undefined') revealLockPill();
+      return;
+    }
+    if (typeof isSpeedHoldActive !== 'undefined' && isSpeedHoldActive) return;
     if (e.target.tagName === 'VIDEO') {
       togglePlay();
     }
@@ -1033,17 +1025,17 @@ function setupPlayerEventListeners() {
     if (e.code === 'Space' || e.code === 'KeyK') {
       e.preventDefault();
       togglePlay();
-      showVideoToast(video.paused ? 'Pausa' : 'Reproducir');
+      showVideoToast(video.paused ? formatToast('pause', 'Pausa') : formatToast('play', 'Reproducir'));
     } else if (e.code === 'ArrowRight') {
       e.preventDefault();
       seekRelative(10);
       showSeekIndicator('right');
-      showVideoToast('+10s');
+      showVideoToast(formatToast('fwd', '+10s'));
     } else if (e.code === 'ArrowLeft') {
       e.preventDefault();
       seekRelative(-10);
       showSeekIndicator('left');
-      showVideoToast('-10s');
+      showVideoToast(formatToast('rwd', '-10s'));
     } else if (e.code === 'ArrowUp') {
       e.preventDefault();
       video.volume = Math.min(1, video.volume + 0.1);
@@ -1069,7 +1061,7 @@ function setupPlayerEventListeners() {
       } else {
         video.muted = true;
         updateVolumeIcon(0);
-        showVideoToast('Silenciado');
+        showVideoToast(formatToast('mute', 'Silenciado'));
       }
       triggerControlsActivity();
     } else if (e.code === 'KeyN') {
@@ -1254,7 +1246,8 @@ function setupPlayerEventListeners() {
   // Scrubbing Timeline event listeners
   const getTimelineClickPos = (e) => {
     const rect = progressBar.getBoundingClientRect();
-    const pos = (e.clientX - rect.left) / rect.width;
+    const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+    const pos = (clientX - rect.left) / rect.width;
     return Math.max(0, Math.min(1, pos));
   };
 
@@ -1284,20 +1277,6 @@ function setupPlayerEventListeners() {
       if (!isDraggingProgress && progressHover) {
         progressHover.style.width = '0%';
       }
-      if (progressTooltip) {
-        progressTooltip.style.opacity = '0';
-      }
-    };
-
-    progressBar.onmousedown = (e) => {
-      isDraggingProgress = true;
-      updateProgressOnDrag(e);
-    };
-  }
-
-  const handleGlobalMouseMove = (e) => {
-    if (isDraggingProgress) {
-      updateProgressOnDrag(e);
       const pos = getTimelineClickPos(e);
       const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
       if (progressTooltip) {
@@ -1308,6 +1287,10 @@ function setupPlayerEventListeners() {
     }
   };
   window.addEventListener('mousemove', handleGlobalMouseMove);
+  window.addEventListener('touchmove', (e) => {
+    if (isDraggingProgress) e.preventDefault();
+    handleGlobalMouseMove(e);
+  }, { passive: false });
 
   const handleGlobalMouseUp = () => {
     if (isDraggingProgress) {
@@ -1324,6 +1307,7 @@ function setupPlayerEventListeners() {
     }
   };
   window.addEventListener('mouseup', handleGlobalMouseUp);
+  window.addEventListener('touchend', handleGlobalMouseUp);
 
   function updateProgressOnDrag(e) {
     const pos = getTimelineClickPos(e);
@@ -1553,6 +1537,7 @@ function setupWatchPartyIntegration() {
   const partyBtn = document.getElementById('player-party-btn');
   const partySidebar = document.getElementById('player-party-sidebar');
   const btnCloseSidebar = document.getElementById('party-btn-close-sidebar');
+  const btnSoundToggle = document.getElementById('party-sound-toggle');
   const btnCopyCode = document.getElementById('party-btn-copy-code');
   const btnLeave = document.getElementById('party-btn-leave');
   const chatInput = document.getElementById('party-chat-input');
@@ -1588,12 +1573,46 @@ function setupWatchPartyIntegration() {
     };
   }
 
+  if (btnSoundToggle) {
+    btnSoundToggle.onclick = (e) => {
+      e.stopPropagation();
+      partyManager.toggleSounds();
+    };
+    // init icon
+    const icon = document.getElementById('party-sound-icon');
+    if (icon) {
+      icon.setAttribute('data-lucide', partyManager.soundsMuted ? 'volume-x' : 'volume-2');
+      if (window.lucide) window.lucide.createIcons({ root: icon.parentElement });
+    }
+  }
+
   if (btnCopyCode) {
     btnCopyCode.onclick = (e) => {
       e.stopPropagation();
       if (!partyManager.activeRoom) return;
       const roomId = partyManager.activeRoom.id;
       const joinUrl = `${window.location.origin}/#/party/${roomId}`;
+      const originalHtml = btnCopyCode.innerHTML;
+      btnCopyCode.innerHTML = `<span style="font-size: 0.75rem; font-weight: 700; color: var(--success-color);">¡Copiado!</span>`;
+      setTimeout(() => { btnCopyCode.innerHTML = originalHtml; }, 1500);
+      navigator.clipboard.writeText(joinUrl).then(() => {
+        showVideoToast(`Enlace copiado: ${joinUrl}`);
+      }).catch(() => {
+        showVideoToast(`Código de sala: ${roomId}`);
+      });
+    };
+  }
+
+  const btnCopyCta = document.getElementById('party-btn-copy-cta');
+  if (btnCopyCta) {
+    btnCopyCta.onclick = (e) => {
+      e.stopPropagation();
+      if (!partyManager.activeRoom) return;
+      const roomId = partyManager.activeRoom.id;
+      const joinUrl = `${window.location.origin}/#/party/${roomId}`;
+      const originalHtml = btnCopyCta.innerHTML;
+      btnCopyCta.innerHTML = `¡Copiado!`;
+      setTimeout(() => { btnCopyCta.innerHTML = originalHtml; }, 1500);
       navigator.clipboard.writeText(joinUrl).then(() => {
         showVideoToast(`Enlace copiado: ${joinUrl}`);
       }).catch(() => {
@@ -1690,13 +1709,22 @@ function setupWatchPartyIntegration() {
     } else {
       const initial = (msg.username || 'U').charAt(0).toUpperCase();
       const color = partyManager.getRandomColor(msg.username || 'User');
+      const isHost = partyManager.activeRoom && partyManager.activeRoom.host_user === msg.username;
+      const bubbleClass = isHost ? 'party-msg-bubble is-host' : 'party-msg-bubble';
+      const hostCrown = isHost ? '<i data-lucide="crown" class="party-host-crown"></i>' : '';
+      const timeStr = msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      
       item.innerHTML = `
-        <div class="party-msg-avatar" style="background: ${color}">${initial}</div>
+        <div class="presence-avatar-container">
+          <div class="party-msg-avatar" style="background: ${color}">${initial}</div>
+          <div class="presence-status-dot"></div>
+        </div>
         <div class="party-msg-content">
-          <span class="party-msg-author">${escapeHtml(msg.username || 'Usuario')}</span>
-          <div class="party-msg-bubble">${escapeHtml(msg.message)}</div>
+          <span class="party-msg-author">${escapeHtml(msg.username || 'Usuario')}${hostCrown} <span class="party-msg-timestamp">${timeStr}</span></span>
+          <div class="${bubbleClass}">${escapeHtml(msg.message)}</div>
         </div>
       `;
+      if (window.lucide) window.lucide.createIcons({ root: item });
     }
 
     msgContainer.appendChild(item);
@@ -1745,14 +1773,22 @@ function toggleFullscreen() {
   if (!document.fullscreenElement && !document.webkitFullscreenElement) {
     const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
     if (req) {
-      req.call(el).catch(err => {
+      req.call(el).then(() => {
+        if (screen.orientation && screen.orientation.lock) {
+          screen.orientation.lock('landscape').catch(() => {});
+        }
+      }).catch(err => {
         console.error(`Error attempting to enable full-screen mode: ${err.message}`);
       });
     }
   } else {
     const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
     if (exit) {
-      exit.call(document).catch(err => {
+      exit.call(document).then(() => {
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
+      }).catch(err => {
         console.error(`Error attempting to exit full-screen mode: ${err.message}`);
       });
     }
@@ -1799,6 +1835,7 @@ function showTechnicalModal() {
 }
 
 function triggerControlsActivity() {
+  if (isControlsLocked) return;
   if (!controlsOverlay) return;
   controlsOverlay.classList.remove('hide');
   isControlsVisible = true;
@@ -2009,12 +2046,12 @@ function updateMediaSession() {
     navigator.mediaSession.setActionHandler('seekbackward', () => {
       seekRelative(-10);
       showSeekIndicator('left');
-      showVideoToast('-10s');
+      showVideoToast(formatToast('rwd', '-10s'));
     });
     navigator.mediaSession.setActionHandler('seekforward', () => {
       seekRelative(10);
       showSeekIndicator('right');
-      showVideoToast('+10s');
+      showVideoToast(formatToast('fwd', '+10s'));
     });
     if (nextEpisodeId) {
       navigator.mediaSession.setActionHandler('nexttrack', () => {
@@ -2129,7 +2166,7 @@ function setupTouchGestures() {
           seekRelative(-10);
           showSeekIndicator('left');
           showTouchRipple(touchX, touch.clientY - rect.top, 'left');
-          showVideoToast('-10s');
+          showVideoToast(formatToast('rwd', '-10s'));
           lastTapTime = 0;
           return;
         } else if (percentX >= 0.65) {
@@ -2137,7 +2174,7 @@ function setupTouchGestures() {
           seekRelative(10);
           showSeekIndicator('right');
           showTouchRipple(touchX, touch.clientY - rect.top, 'right');
-          showVideoToast('+10s');
+          showVideoToast(formatToast('fwd', '+10s'));
           lastTapTime = 0;
           return;
         }
@@ -2150,6 +2187,50 @@ function setupTouchGestures() {
   };
 
   container.addEventListener('touchstart', handleTouchStart, { passive: false });
+
+  let isSwiping = false;
+  let initialVolume = video ? video.volume : 0;
+  let initialBrightness = 1;
+
+  container.addEventListener('touchmove', (e) => {
+    if (!isPlayerActive || e.touches.length > 1) return;
+    const touch = e.touches[0];
+    const rect = container.getBoundingClientRect();
+    const touchX = touch.clientX - rect.left;
+    const percentX = touchX / rect.width;
+    
+    const deltaY = lastTapY - touch.clientY;
+    
+    if (Math.abs(deltaY) > 20) {
+      isSwiping = true;
+      e.preventDefault();
+      
+      const adjustment = deltaY * 0.005;
+      if (percentX < 0.5) {
+        let newBrightness = Math.max(0.1, Math.min(2.0, initialBrightness + adjustment));
+        if (video) video.style.filter = `brightness(${newBrightness})`;
+        showVideoToast(`Brillo: ${Math.round(newBrightness * 100)}%`);
+      } else {
+        let newVolume = Math.max(0, Math.min(1, initialVolume + adjustment));
+        if (video) {
+          video.volume = newVolume;
+          updateVolumeIcon(newVolume);
+        }
+        showVideoToast(`Volumen: ${Math.round(newVolume * 100)}%`);
+      }
+    }
+  }, { passive: false });
+
+  container.addEventListener('touchend', (e) => {
+    if (isSwiping) {
+      isSwiping = false;
+      if (video) {
+        initialVolume = video.volume;
+        const filterVal = video.style.filter.match(/brightness\(([^)]+)\)/);
+        if (filterVal) initialBrightness = parseFloat(filterVal[1]);
+      }
+    }
+  });
 }
 
 function showTouchRipple(x, y, side) {
@@ -2361,7 +2442,7 @@ function showVideoToast(message) {
     playerContainer.appendChild(toast);
   }
   
-  toast.textContent = message;
+  toast.innerHTML = message;
   toast.classList.add('show');
   
   if (toastTimeout) clearTimeout(toastTimeout);
@@ -2538,3 +2619,191 @@ export function formatChapterTime(seconds) {
 }
 
 
+
+
+function revealLockPill() {
+  const pill = document.querySelector('.player-lock-pill');
+  if (pill) {
+    pill.classList.remove('hide');
+    clearTimeout(lockPillTimeout);
+    lockPillTimeout = setTimeout(() => {
+      pill.classList.add('hide');
+    }, 3000);
+  }
+}
+
+function initScreenLock() {
+  const topBar = document.querySelector('.player-top-bar');
+  if (topBar && !document.getElementById('btn-lock-controls')) {
+    const lockBtn = document.createElement('button');
+    lockBtn.id = 'btn-lock-controls';
+    lockBtn.className = 'player-btn';
+    lockBtn.title = 'Bloquear Pantalla';
+    lockBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-lock"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+    topBar.appendChild(lockBtn);
+    lockBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      isControlsLocked = true;
+      const overlay = document.querySelector('.player-controls-overlay');
+      if (overlay) overlay.classList.add('hide');
+      isControlsVisible = false;
+      if (typeof showVideoToast !== 'undefined') showVideoToast(formatToast('lock', 'Pantalla bloqueada'));
+      revealLockPill();
+    });
+  }
+  const container = document.getElementById('player-container');
+  if (container && !document.querySelector('.player-lock-pill')) {
+    const pill = document.createElement('div');
+    pill.className = 'player-lock-pill hide';
+    pill.innerHTML = '🔒 Pantalla bloqueada - Toca para desbloquear';
+    container.appendChild(pill);
+    pill.addEventListener('click', (e) => {
+      e.stopPropagation();
+      isControlsLocked = false;
+      pill.classList.add('hide');
+      if (typeof showVideoToast !== 'undefined') showVideoToast(formatToast('unlock', 'Pantalla desbloqueada'));
+      if (typeof triggerControlsActivity !== 'undefined') triggerControlsActivity();
+    });
+  }
+}
+
+setInterval(() => {
+  if (document.querySelector('.player-top-bar') && !document.getElementById('btn-lock-controls')) {
+    initScreenLock();
+  }
+}, 1000);
+
+// Long-Press 2x Speed Accelerator
+let speedHoldTimer = null;
+let isSpeedHoldActive = false;
+let previousSpeed = 1.0;
+
+function showSpeedPill() {
+  let pill = document.getElementById('speed-accelerator-pill');
+  if (!pill) {
+    pill = document.createElement('div');
+    pill.id = 'speed-accelerator-pill';
+    pill.className = 'speed-accelerator-pill hide';
+    pill.innerHTML = '▶▶ 2x Rápido';
+    const container = document.getElementById('player-container') || document.body;
+    container.appendChild(pill);
+  }
+  pill.classList.remove('hide');
+}
+
+function hideSpeedPill() {
+  const pill = document.getElementById('speed-accelerator-pill');
+  if (pill) pill.classList.add('hide');
+}
+
+function handleHoldStart(e) {
+  if (typeof isControlsLocked !== 'undefined' && isControlsLocked) return;
+  if (e.button === 2) return;
+  if (e.target.tagName !== 'VIDEO') return;
+  
+  speedHoldTimer = setTimeout(() => {
+    isSpeedHoldActive = true;
+    const v = document.getElementById('video-player') || document.querySelector('video');
+    if (v) {
+      previousSpeed = v.playbackRate;
+      v.playbackRate = 2.0;
+      showSpeedPill();
+    }
+  }, 500);
+}
+
+function handleHoldEnd(e) {
+  clearTimeout(speedHoldTimer);
+  if (isSpeedHoldActive) {
+    const v = document.getElementById('video-player') || document.querySelector('video');
+    if (v) v.playbackRate = previousSpeed;
+    hideSpeedPill();
+    setTimeout(() => { isSpeedHoldActive = false; }, 50);
+  }
+}
+
+setInterval(() => {
+  const v = document.getElementById('video-player') || document.querySelector('video');
+  if (v && !v.dataset.holdBound) {
+    v.dataset.holdBound = 'true';
+    v.addEventListener('mousedown', handleHoldStart);
+    v.addEventListener('touchstart', handleHoldStart, { passive: true });
+    window.addEventListener('mouseup', handleHoldEnd);
+    window.addEventListener('touchend', handleHoldEnd);
+  }
+}, 1000);
+
+// Speed Popover Menu
+function initSpeedMenu() {
+  const speedBtn = document.getElementById('player-speed-btn') || document.getElementById('speed-btn');
+  if (!speedBtn || speedBtn.dataset.menuBound) return;
+  speedBtn.dataset.menuBound = 'true';
+
+  let speedMenu = document.getElementById('player-speed-menu');
+  if (!speedMenu) {
+    speedMenu = document.createElement('div');
+    speedMenu.id = 'player-speed-menu';
+    speedMenu.className = 'player-speed-menu hide';
+    
+    const options = [
+      { val: 0.5, label: '0.5x' },
+      { val: 0.75, label: '0.75x' },
+      { val: 1.0, label: '1.0x (Normal)' },
+      { val: 1.25, label: '1.25x' },
+      { val: 1.5, label: '1.5x' },
+      { val: 2.0, label: '2.0x' }
+    ];
+
+    options.forEach(opt => {
+      const btn = document.createElement('button');
+      btn.className = 'speed-menu-opt';
+      btn.dataset.speed = opt.val;
+      btn.innerHTML = '<span class="check-icon"></span> <span class="label">' + opt.label + '</span>';
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const rate = opt.val;
+        const v = document.getElementById('video-player') || document.querySelector('video');
+        if (v) v.playbackRate = rate;
+        speedBtn.textContent = rate + 'x';
+        localStorage.setItem('kura_playback_speed', rate);
+        updateSpeedMenuState(rate);
+        speedMenu.classList.add('hide');
+        if (typeof showVideoToast !== 'undefined') showVideoToast('Velocidad: ' + rate + 'x');
+      };
+      speedMenu.appendChild(btn);
+    });
+
+    speedBtn.parentElement.style.position = 'relative';
+    speedBtn.parentElement.appendChild(speedMenu);
+  }
+
+  function updateSpeedMenuState(rate) {
+    document.querySelectorAll('.speed-menu-opt').forEach(btn => {
+      if (parseFloat(btn.dataset.speed) === rate) {
+        btn.classList.add('active');
+        btn.querySelector('.check-icon').textContent = '✓';
+      } else {
+        btn.classList.remove('active');
+        btn.querySelector('.check-icon').textContent = '';
+      }
+    });
+  }
+
+  const currentSpeed = parseFloat(speedBtn.textContent) || 1.0;
+  updateSpeedMenuState(currentSpeed);
+
+  speedBtn.onclick = (e) => {
+    e.stopPropagation();
+    speedMenu.classList.toggle('hide');
+    const currentSpeed = parseFloat(speedBtn.textContent) || 1.0;
+    updateSpeedMenuState(currentSpeed);
+  };
+
+  document.addEventListener('click', (e) => {
+    if (speedMenu && !speedMenu.classList.contains('hide') && !speedMenu.contains(e.target) && e.target !== speedBtn) {
+      speedMenu.classList.add('hide');
+    }
+  });
+}
+
+setInterval(initSpeedMenu, 1000);

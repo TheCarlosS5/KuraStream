@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../config.php';
 
 class RateLimiter {
-    public static function check(string $key, int $maxAttempts, int $windowSeconds): bool {
+    public static function check(string $key, int $maxAttempts, int $windowSeconds, &$retryAfter = null): bool {
         $tempDir = rtrim(sys_get_temp_dir(), '/\\') . '/kura_ratelimits';
         if (!is_dir($tempDir)) {
             @mkdir($tempDir, 0777, true);
@@ -15,10 +15,11 @@ class RateLimiter {
         if (file_exists($file)) {
             $data = json_decode(@file_get_contents($file), true) ?: [];
             // Filtrar timestamps fuera de la ventana
-            $records = array_filter($data, fn($ts) => ($now - $ts) < $windowSeconds);
+            $records = array_values(array_filter($data, fn($ts) => ($now - $ts) < $windowSeconds));
         }
 
         if (count($records) >= $maxAttempts) {
+            $retryAfter = max(1, ($records[0] + $windowSeconds) - $now);
             return false;
         }
 
@@ -30,8 +31,21 @@ class RateLimiter {
     public static function enforce(string $action, int $maxAttempts, int $windowSeconds): void {
         $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
         $key = "{$action}_{$ip}";
-        if (!self::check($key, $maxAttempts, $windowSeconds)) {
-            jsonError("Demasiadas peticiones. Intenta de nuevo en unos minutos.", 429);
+        $retryAfter = 0;
+        if (!self::check($key, $maxAttempts, $windowSeconds, $retryAfter)) {
+            @http_response_code(429);
+            @header("Retry-After: {$retryAfter}");
+            @header('Content-Type: application/json; charset=utf-8');
+            $payload = [
+                'success' => false,
+                'error' => 'Demasiadas peticiones. Por favor espera...',
+                'retry_after' => $retryAfter
+            ];
+            echo json_encode($payload);
+            if (defined('TESTING_MODE')) {
+                throw new ExitException(json_encode($payload), 429, $payload);
+            }
+            exit();
         }
     }
 

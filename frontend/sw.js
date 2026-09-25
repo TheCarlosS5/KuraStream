@@ -27,7 +27,8 @@ const SHELL_ASSETS = [
   '/js/modules/player_shortcuts_hud.js',
   '/js/modules/player_smart_skip.js',
   '/vendor/lucide/lucide.min.js',
-  '/manifest.json'
+  '/manifest.json',
+  '/offline.html'
 ];
 
 self.addEventListener('install', (event) => {
@@ -102,25 +103,38 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first with cache fallback for other static assets
+  // Stale-While-Revalidate for other static assets
+  const isStaticAsset = url.pathname.endsWith('.js') || url.pathname.endsWith('.css') || 
+                        url.pathname.endsWith('.png') || url.pathname.endsWith('.jpg') || 
+                        url.pathname.endsWith('.svg') || url.pathname.endsWith('.woff2');
+
+  if (isStaticAsset) {
+    event.respondWith(
+      caches.match(event.request).then((cachedResponse) => {
+        const fetchPromise = fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return networkResponse;
+        }).catch(() => {});
+        return cachedResponse || fetchPromise;
+      })
+    );
+    return;
+  }
+
+  // Network-first with offline fallback for navigation
   event.respondWith(
     fetch(event.request)
-      .then((networkResponse) => {
-        if (
-          networkResponse &&
-          networkResponse.status === 200 &&
-          (url.pathname.endsWith('.js') ||
-           url.pathname.endsWith('.css') ||
-           url.pathname.endsWith('.png') ||
-           url.pathname.endsWith('.jpg') ||
-           url.pathname.endsWith('.svg') ||
-           url.pathname.endsWith('.woff2'))
-        ) {
-          const copy = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        }
-        return networkResponse;
+      .catch(() => {
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
+          if (event.request.mode === 'navigate') {
+            return caches.match('/offline.html');
+          }
+        });
       })
-      .catch(() => caches.match(event.request))
   );
 });
+self.addEventListener('notificationclick', (event) => { event.notification.close(); event.waitUntil(clients.matchAll({ type: 'window' }).then((clientList) => { for (const client of clientList) { if (client.url === '/' && 'focus' in client) return client.focus(); } if (clients.openWindow) return clients.openWindow('/'); })); });

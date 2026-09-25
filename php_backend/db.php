@@ -18,10 +18,11 @@ class Database {
                     ]
                 );
             } catch (PDOException $e) {
+                error_log("Database Connection Error: " . $e->getMessage());
                 if (defined('TESTING_MODE')) {
-                    throw $e;
+                    throw new PDOException("Database connection error (sanitized)", (int)$e->getCode());
                 }
-                jsonError("Database Connection Failed: " . $e->getMessage(), 500);
+                jsonError("Database Connection Failed. Please check server logs.", 500);
             }
         }
         return self::$pdo;

@@ -479,7 +479,7 @@ export function initCardPopovers(containerSelector = document.body, options = {}
     const bannerUrl = meta.backdrop || meta.cover || '/api/placeholder-poster';
 
     const genresHtml = meta.genres.map(
-      (g) => `<span class="popover-genre-tag">${escapeHtml(g)}</span>`
+      (g) => `<span class="popover-genre-chip">${escapeHtml(g)}</span>`
     ).join('');
 
     popoverEl.innerHTML = `
@@ -489,16 +489,16 @@ export function initCardPopovers(containerSelector = document.body, options = {}
       </div>
       <div class="popover-preview-content">
         <div class="popover-preview-actions">
-          <button class="popover-btn-play" type="button" aria-label="Reproducir"><i data-lucide="play"></i> Reproducir</button>
+          <button class="popover-btn-play cta-copper" type="button" aria-label="Reproducir"><i data-lucide="play" style="width:16px;height:16px;fill:currentColor;"></i> Reproducir</button>
           <button class="popover-btn-list" type="button" title="Mi Lista" aria-label="Mi Lista"><i data-lucide="plus"></i></button>
           <button class="popover-btn-info" type="button" title="Más información" aria-label="Más información"><i data-lucide="info"></i></button>
         </div>
         <div class="popover-preview-meta">
-          <span class="popover-badge-rating">${escapeHtml(meta.rating)}</span>
+          <span class="popover-badge-rating-tabular"><i data-lucide="star" style="width:10px;height:10px;fill:var(--rating-color);stroke:var(--rating-color);"></i> ${escapeHtml(meta.rating.replace('★', '').trim())}</span>
           <span class="popover-badge-year">${escapeHtml(meta.year)}</span>
           <span class="popover-badge-episodes">${escapeHtml(meta.episodes)}</span>
         </div>
-        <div class="popover-preview-genres">
+        <div class="popover-preview-genres" style="gap: 6px;">
           ${genresHtml}
         </div>
         <p class="popover-preview-synopsis">${escapeHtml(meta.synopsis)}</p>

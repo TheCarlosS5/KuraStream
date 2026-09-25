@@ -12,6 +12,7 @@ $tests = [
     'test_cookie_auth.php',
     'test_episode_integrity_and_streaming.php',
     'test_ffmpeg_scanner.php',
+    'test_health_endpoint.php',
     'test_history_isolation.php',
     'test_legacy_isolation.php',
     'test_library_scan_and_player_routes.php',

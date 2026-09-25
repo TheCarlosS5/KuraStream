@@ -43,6 +43,11 @@
   <link rel="stylesheet" href="style.css?v=2026.09.20-catalogue-hardening">
 </head>
 <body>
+  <!-- Offline Status Banner -->
+  <div id="offline-status-banner" class="offline-status-banner">
+    <i data-lucide="wifi-off" id="offline-banner-icon" style="width: 16px; height: 16px;"></i>
+    <span id="offline-banner-text">📡 Modo sin conexión — Mostrando contenido disponible</span>
+  </div>
 
   <!-- App Header -->
   <header class="app-header">
@@ -71,8 +76,11 @@
       <a href="javascript:void(0)" class="nav-link" id="nav-party" style="color: var(--accent-color); font-weight: 700;"><i data-lucide="users"></i> Watch Party</a>
     </nav>
     <div class="header-right" style="display: flex; align-items: center; gap: 15px;">
+      <button id="pwa-install-btn" class="btn btn-primary" style="display: none; font-size: 0.85rem; padding: 6px 14px; gap: 6px;">
+        <i data-lucide="download"></i> Instalar App
+      </button>
       <div class="header-search">
-        <input type="text" id="search-input" placeholder="Buscar series, películas...">
+        <input type="search" id="search-input" placeholder="Buscar series, películas...">
         <i data-lucide="search" class="search-icon"></i>
       </div>
       <!-- Notifications Bell Widget -->
@@ -138,21 +146,27 @@
           <span style="font-family: var(--font-title); font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">
             <i data-lucide="sliders-horizontal" style="width:16px;height:16px;color:var(--accent-color);"></i> Filtrar:
           </span>
-          <select id="status-filter" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 4px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px; transition: border-color 0.2s;">
-            <option value="all" style="background: var(--bg-card); color: var(--text-main);">Estado: Todos</option>
-            <option value="airing" style="background: var(--bg-card); color: #00e08f; font-weight: 600;">● En Emisión</option>
-            <option value="finished" style="background: var(--bg-card); color: var(--text-muted);">Finalizados</option>
-          </select>
-          <select id="sort-filter" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 4px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px; transition: border-color 0.2s;">
-            <option value="default" style="background: var(--bg-card); color: var(--text-main);">Ordenar: Por defecto</option>
-            <option value="year_desc" style="background: var(--bg-card); color: var(--text-main);">Año (Más recientes)</option>
-            <option value="year_asc" style="background: var(--bg-card); color: var(--text-main);">Año (Más antiguos)</option>
-            <option value="rating_desc" style="background: var(--bg-card); color: var(--text-main);">★ Mejor valorados</option>
-            <option value="title_asc" style="background: var(--bg-card); color: var(--text-main);">Nombre (A - Z)</option>
-          </select>
-          <select id="genre-filter" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 4px; padding: 0 14px; font-size: 0.85rem; font-family: var(--font-title); outline: none; cursor: pointer; height: 36px; transition: border-color 0.2s;">
-            <option value="all" style="background: var(--bg-card); color: var(--text-main);">Todos los géneros</option>
-          </select>
+          <div class="filter-chip-group" style="display: flex; gap: 8px;">
+            <button type="button" class="filter-chip active" data-status="">Todos</button>
+            <button type="button" class="filter-chip" data-status="airing">En Emisión</button>
+            <button type="button" class="filter-chip" data-status="completed">Finalizados</button>
+          </div>
+          <div class="filter-sort-group" style="display: flex; gap: 8px;">
+            <button type="button" class="sort-chip active" data-sort="popular">Más Populares</button>
+            <button type="button" class="sort-chip" data-sort="rating">Mejor Valorados</button>
+            <button type="button" class="sort-chip" data-sort="recent">Recientes</button>
+          </div>
+          <div class="genre-pill-rail" style="display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; white-space: nowrap;">
+            <button type="button" class="genre-pill active" data-genre="all">Todos</button>
+            <button type="button" class="genre-pill" data-genre="Acción">Acción</button>
+            <button type="button" class="genre-pill" data-genre="Aventura">Aventura</button>
+            <button type="button" class="genre-pill" data-genre="Comedia">Comedia</button>
+            <button type="button" class="genre-pill" data-genre="Drama">Drama</button>
+            <button type="button" class="genre-pill" data-genre="Fantasía">Fantasía</button>
+            <button type="button" class="genre-pill" data-genre="Ciencia Ficción">Ciencia Ficción</button>
+            <button type="button" class="genre-pill" data-genre="Romance">Romance</button>
+            <button type="button" class="genre-pill" data-genre="Sobrenatural">Sobrenatural</button>
+          </div>
         </div>
       </div>
 
@@ -548,6 +562,7 @@
               <span id="party-header-title">Watch Party</span>
             </div>
             <div class="party-header-actions">
+              <button class="party-icon-btn" id="party-sound-toggle" title="Alternar sonidos"><i data-lucide="volume-2" id="party-sound-icon"></i></button>
               <button class="party-icon-btn" id="party-btn-copy-code" title="Copiar código y enlace de sala"><i data-lucide="share-2"></i></button>
               <button class="party-icon-btn" id="party-btn-leave" title="Salir de la sala" style="color: var(--danger-color);"><i data-lucide="log-out"></i></button>
               <button class="party-icon-btn" id="party-btn-close-sidebar" title="Ocultar chat"><i data-lucide="x"></i></button>
@@ -556,8 +571,12 @@
 
           <div class="party-status-banner" id="party-status-banner">
             <div class="party-info-row">
+              <span id="party-sync-pill" class="badge" style="background: rgba(45, 212, 191, 0.15); color: var(--success-color); border: 1px solid var(--success-color);">
+                <span class="airing-pulse-dot" style="width: 6px; height: 6px; margin-right: 4px;"></span> Sincronizado
+              </span>
               <span id="party-room-code-display" class="party-code-pill" title="Clic para copiar código">KURA-XXXX</span>
-              <span id="party-participants-badge" class="party-users-pill"><i data-lucide="user"></i> 1</span>
+              <button id="party-btn-copy-cta" class="party-icon-btn" title="Copiar código de sala" style="font-size: 0.75rem; font-weight: 700; color: var(--accent-color); background: rgba(var(--accent-rgb), 0.1); border-radius: 4px; padding: 2px 6px;">Copiar código</button>
+              <div id="party-avatar-stack-container" class="party-avatar-stack"></div>
               <span id="party-host-badge" class="party-host-pill">👑 Anfitrión</span>
             </div>
           </div>
@@ -1236,6 +1255,17 @@
 
           <div class="setting-item">
             <div class="setting-info">
+              <label for="notificationsToggle" class="setting-label">Notificaciones de nuevos episodios</label>
+              <p class="setting-desc">Si está activado, recibirás notificaciones push cuando se añadan nuevos capítulos o animes al catálogo.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="notificationsToggle">
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
               <label for="autoSkipIntroToggle" class="setting-label">Saltar Intro / Outro Automáticamente</label>
               <p class="setting-desc">Si está activado, el reproductor omitirá la intro y outro automáticamente al alcanzar su inicio.</p>
             </div>
@@ -1542,7 +1572,7 @@
 
   <!-- WATCH PARTY MODAL (Crear, Unirse, Públicas) -->
   <div class="pin-modal-overlay" id="modal-watch-party" style="display: none; z-index: 2100;">
-    <div class="pin-modal" style="max-width: 500px; width: 92%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; padding: 0;">
+    <div class="pin-modal" style="max-width: 500px; width: 92%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; padding: 0; background: #131A1C; border-radius: 4px; border: 1px solid var(--border-color);">
       <!-- Tabs Header -->
       <div class="party-modal-tabs" style="display: flex; background: rgba(0,0,0,0.3); border-bottom: 1px solid var(--border-color);">
         <button class="party-tab-btn active" id="party-tab-join" style="flex: 1; padding: 12px; background: transparent; border: none; border-bottom: 2px solid var(--accent-color); color: var(--text-main); font-weight: 700; font-size: 0.9rem; cursor: pointer; text-align: center;">Unirse a Sala</button>
@@ -1557,7 +1587,7 @@
           <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Ingresa el código que te compartió tu amigo para ver juntos en sincronía.</p>
           <div style="margin-bottom: 12px;">
             <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Código de Sala</label>
-            <input type="text" id="party-join-code-input" placeholder="Ej: KURA-9X2F" style="width: 100%; padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); font-weight: 700; font-size: 1rem; text-transform: uppercase;">
+            <input type="text" id="party-join-code-input" placeholder="Ej: KURA-9X2F" style="width: 100%; padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main); font-weight: 700; font-size: 1rem; text-transform: uppercase; font-variant-numeric: tabular-nums;">
           </div>
           <div style="margin-bottom: 15px;">
             <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Tu Nombre o Apodo</label>
@@ -1579,11 +1609,17 @@
             <input type="text" id="party-create-name-input" placeholder="Ej: Maratón de anime con amigos" style="width: 100%; padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-main);">
           </div>
           <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">
-            <input type="checkbox" id="party-create-public-check" style="width: 18px; height: 18px; accent-color: var(--accent-color);">
+            <label class="toggle-switch">
+              <input type="checkbox" id="party-create-public-check">
+              <span class="toggle-slider"></span>
+            </label>
             <label for="party-create-public-check" style="font-size: 0.85rem; color: var(--text-main); cursor: pointer;">Hacer sala pública (visible en la lista)</label>
           </div>
           <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-            <input type="checkbox" id="party-create-controls-check" style="width: 18px; height: 18px; accent-color: var(--accent-color);">
+            <label class="toggle-switch">
+              <input type="checkbox" id="party-create-controls-check">
+              <span class="toggle-slider"></span>
+            </label>
             <label for="party-create-controls-check" style="font-size: 0.85rem; color: var(--text-main); cursor: pointer;">Permitir que los invitados controlen la reproducción</label>
           </div>
           <div id="party-create-error" style="color: var(--danger-color); font-size: 0.8rem; margin-bottom: 12px; display: none;"></div>
