@@ -1,3 +1,11 @@
+@import url('./css/tokens.css');
+@import url('./css/base.css');
+@import url('./css/layout.css');
+@import url('./css/components.css');
+@import url('./css/catalog.css');
+@import url('./css/player.css');
+@import url('./css/admin.css');
+
 :root {
   --font-title: 'Outfit', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-body: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
