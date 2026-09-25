@@ -29,17 +29,14 @@ class FfmpegScanner {
 
         $output = shell_exec($cmd);
         if (!$output) {
-            return [
-                'duration' => 0,
-                'resolution' => '1080p',
-                'video_codec' => 'h264',
-                'fps' => 24.0,
-                'audio_tracks' => [],
-                'subtitle_tracks' => []
-            ];
+            throw new RuntimeException("FFprobe error: No se pudo leer el archivo multimedia o ffprobe fallo para: " . basename($filepath));
         }
 
-        $data = json_decode($output, true) ?: [];
+        $data = json_decode($output, true);
+        if (!is_array($data)) {
+            throw new RuntimeException("FFprobe error: Respuesta JSON invalida para: " . basename($filepath));
+        }
+
         $format = $data['format'] ?? [];
         $streams = $data['streams'] ?? [];
 
@@ -49,11 +46,15 @@ class FfmpegScanner {
             if (isset($s['disposition']['attached_pic']) && $s['disposition']['attached_pic'] == 1) return false;
             return true;
         }));
-        $videoStream = $videoStreams[0] ?? array_values(array_filter($streams, fn($s) => ($s['codec_type'] ?? '') === 'video'))[0] ?? [];
         
-        $height = $videoStream['height'] ?? 1080;
-        $resolution = "{$height}p";
-        $videoCodec = $videoStream['codec_name'] ?? 'h264';
+        if (empty($videoStreams)) {
+            throw new RuntimeException("FFprobe error: No se encontro ningun flujo de video en: " . basename($filepath));
+        }
+        $videoStream = $videoStreams[0];
+        
+        $height = isset($videoStream['height']) ? (int)$videoStream['height'] : 0;
+        $resolution = $height > 0 ? "{$height}p" : 'unknown';
+        $videoCodec = (string)($videoStream['codec_name'] ?? 'unknown');
         
         $fps = self::parseFrameRate((string)($videoStream['r_frame_rate'] ?? ''));
         

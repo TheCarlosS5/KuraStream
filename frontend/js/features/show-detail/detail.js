@@ -107,8 +107,8 @@ export async function loadAndRenderShowDetail(showId, container) {
       const resumeBtn = e.target.closest('[data-action="resume-episode"]');
       if (resumeBtn) {
         const epId = resumeBtn.getAttribute('data-episode-id');
-        if (typeof window.playEpisode === 'function' && epId) {
-          window.playEpisode(epId);
+        if (epId) {
+          window.location.hash = `#/player/${encodeURIComponent(epId)}`;
         }
         return;
       }
@@ -116,8 +116,8 @@ export async function loadAndRenderShowDetail(showId, container) {
       const epItem = e.target.closest('.episode-item');
       if (epItem) {
         const epId = epItem.getAttribute('data-episode-id');
-        if (typeof window.playEpisode === 'function' && epId) {
-          window.playEpisode(epId);
+        if (epId) {
+          window.location.hash = `#/player/${encodeURIComponent(epId)}`;
         }
       }
     };

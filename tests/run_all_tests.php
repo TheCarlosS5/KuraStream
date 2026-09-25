@@ -66,7 +66,12 @@ try {
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
     ]);
     $mysqlAvailable = true;
-    echo "MySQL Database: ONLINE (All integration tests enabled)\n\n";
+    echo "MySQL Database: ONLINE (All integration tests enabled)\n";
+    require_once __DIR__ . '/../php_backend/db.php';
+    require_once __DIR__ . '/../php_backend/services/MigrationManager.php';
+    Database::initializeSchema($pdo);
+    MigrationManager::runPending();
+    echo "Schema & Migrations: APPLIED ✓\n\n";
 } catch (Throwable $e) {
     $mysqlAvailable = false;
     echo "MySQL Database: OFFLINE (DB-dependent integration tests will be skipped)\n\n";

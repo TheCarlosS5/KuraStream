@@ -191,17 +191,6 @@ ob_get_clean();
 assert($caughtLogs, "AdminController::getLogs should return 200 OK");
 echo "✓ Admin Logs Endpoint OK\n";
 
-// 9. Test Autodownload Status
-$caughtTorrent = false;
-ob_start();
-try {
-    AdminController::getTorrentStatus();
-} catch (ExitException $e) {
-    $caughtTorrent = ($e->statusCode === 200);
-}
-ob_get_clean();
-assert($caughtTorrent, "AdminController::getTorrentStatus should return 200 OK");
-echo "✓ Torrent / Autodownload Status Endpoint OK\n";
 
 // 10. Test Show Details Dual Object Compatibility
 DbHelper::saveShow([

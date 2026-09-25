@@ -7,9 +7,13 @@ class HistoryController {
     private static function resolveUserAndProfile(array $body = []): array {
         $authUser = AuthMiddleware::requireAuth();
         $username = $authUser['username'];
-        $profile = trim((string)($_GET['profile_name'] ?? ($body['profile_name'] ?? 'Principal')));
-        if (empty($profile)) {
-            $profile = 'Principal';
+        if (!empty($authUser['profile_name'])) {
+            $profile = trim((string)$authUser['profile_name']);
+        } else {
+            $profile = trim((string)($_GET['profile_name'] ?? ($body['profile_name'] ?? 'Principal')));
+            if (empty($profile)) {
+                $profile = 'Principal';
+            }
         }
         return [$username, $profile];
     }

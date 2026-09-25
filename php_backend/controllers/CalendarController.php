@@ -37,7 +37,8 @@ class CalendarController {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
             CURLOPT_TIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => false
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2
         ]);
 
         $res = curl_exec($ch);

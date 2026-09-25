@@ -201,6 +201,9 @@ Run all test suites locally:
 node tests/ui_catalogue_rendering.mjs
 node tests/ui_review_regressions.mjs
 
+# Run Playwright end-to-end browser tests
+npm run test:e2e
+
 # Run ESLint linter
 npm run lint
 

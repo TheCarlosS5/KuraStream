@@ -83,6 +83,14 @@ export function getShowIdFromEpisodeId(epId) {
 }
 
 // QR Share elements
+let hideControlsTimeout = null;
+let qrShareBtn = null;
+let qrShareModal = null;
+let qrShareClose = null;
+let qrImage = null;
+let qrUrlText = null;
+let handleKeyboard = null;
+let handleFullscreenChange = null;
 let currentEpisodeData = null;
 let currentShowData = null;
 let nextEpisodeId = null;
@@ -90,28 +98,6 @@ let selectedAudioTrackNum = 0;
 let selectedSubtitleTrackNum = -1; // -1 = Off
 let currentStreamStartOffset = 0;
 let outroDismissed = false;
-
-  // Initialize Timeline Seek Scrub Preview
-  if (progressBar && video) {
-    if (scrubPreviewInstance) {
-      scrubPreviewInstance.destroy();
-    }
-    scrubPreviewInstance = initScrubPreview(progressBar, video);
-  }
-
-  // Initialize Ultra-Cinematic Pro Modules
-  if (video) {
-    if (audioEnhancerInstance) audioEnhancerInstance.destroy();
-    audioEnhancerInstance = initAudioEnhancer(video);
-
-    if (shortcutsHudInstance) shortcutsHudInstance.destroy();
-    shortcutsHudInstance = initShortcutsHud(video, container, {
-      audioEnhancer: audioEnhancerInstance
-    });
-
-    if (smartSkipInstance) smartSkipInstance.destroy();
-    smartSkipInstance = initSmartSkip(video, container);
-  }
 let hasSkippedIntroForCurrentEpisode = false;
 let hasSkippedOutroForCurrentEpisode = false;
 
@@ -130,14 +116,6 @@ let ambilightInterval = null;
 let ambilightActive = false;
 let ambilightToggleBtn = null;
 let countdownAutoplayInterval = null;
-
-// Sakura Rain Pause Effect
-let sakuraCanvas = null;
-let sakuraCtx = null;
-let sakuraAnimationId = null;
-let sakuraParticles = [];
-let mousePos = { x: -1000, y: -1000 };
-let isSakuraActive = false;
 
 // SubtitlesOctopus Instance
 let octopusInstance = null;
@@ -218,25 +196,31 @@ export async function initPlayer(rawEpisodeId) {
 
   // Load episode metadata
   try {
-    const rawShowId = getShowIdFromEpisodeId(episodeId);
+    let rawShowId = getShowIdFromEpisodeId(episodeId);
     let res = await fetch(`/api/shows/${encodeURIComponent(rawShowId)}`);
-    let data = await res.json();
-
-    if (!res.ok || (!data.show && !data.id && !data.title)) {
-      const altShowId = rawShowId.includes('_') ? rawShowId.replace(/_/g, ' ') : rawShowId.replace(/ /g, '_');
-      res = await fetch(`/api/shows/${encodeURIComponent(altShowId)}`);
-      data = await res.json();
+    let data = null;
+    if (res.ok) {
+      try { data = await res.json(); } catch {}
     }
 
-    currentShowData = data.show || data;
-    
-    const episodesList = Array.isArray(data.episodes) ? data.episodes : (currentShowData.episodes || []);
-    currentEpisodeData = episodesList.find(e => 
-      e.id === episodeId || 
-      decodeURIComponent(e.id) === episodeId ||
-      e.id === rawEpisodeId ||
-      e.id.toLowerCase() === episodeId.toLowerCase()
-    );
+    if (!data || (!data.show && !data.id && !data.title)) {
+      const altShowId = rawShowId.includes('_') ? rawShowId.replace(/_/g, ' ') : rawShowId.replace(/ /g, '_');
+      res = await fetch(`/api/shows/${encodeURIComponent(altShowId)}`);
+      if (res.ok) {
+        try { data = await res.json(); } catch {}
+      }
+    }
+
+    currentShowData = data ? (data.show || data) : null;
+    const episodesList = Array.isArray(data?.episodes) ? data.episodes : (currentShowData?.episodes || []);
+    if (!currentEpisodeData) {
+      currentEpisodeData = episodesList.find(e => 
+        e.id === episodeId || 
+        decodeURIComponent(e.id) === episodeId ||
+        e.id === rawEpisodeId ||
+        e.id.toLowerCase() === episodeId.toLowerCase()
+      );
+    }
 
     if (!currentEpisodeData && episodesList.length > 0) {
       const match = episodeId.match(/_S(\d+)_E(\d+)$/i);
@@ -253,7 +237,7 @@ export async function initPlayer(rawEpisodeId) {
     if (!currentEpisodeData) {
       try {
         const epRes = await fetch(`/api/episodes/${encodeURIComponent(episodeId)}`);
-        if (epRes.ok) {
+        if (epRes && epRes.ok) {
           currentEpisodeData = await epRes.json();
         }
       } catch (err) {}
@@ -294,7 +278,9 @@ export async function initPlayer(rawEpisodeId) {
     renderChaptersDropdown(currentEpisodeData);
   } catch (e) {
     console.error(e);
-    alert('Error al cargar datos del reproductor: ' + (e.message || e));
+    if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+      window.showToast('Error al cargar datos del reproductor: ' + (e.message || e), 'error');
+    }
     location.hash = '#/';
     return;
   }
@@ -398,8 +384,25 @@ export async function initPlayer(rawEpisodeId) {
   // Setup Ambilight
   setupAmbilight();
 
-  // Setup Sakura Effect
-  setupSakuraEffect();
+  // Initialize Timeline Seek Scrub Preview
+  if (progressBar && video) {
+    if (scrubPreviewInstance) scrubPreviewInstance.destroy();
+    scrubPreviewInstance = initScrubPreview(progressBar, video);
+  }
+
+  // Initialize Ultra-Cinematic Pro Modules
+  if (video) {
+    if (audioEnhancerInstance) audioEnhancerInstance.destroy();
+    audioEnhancerInstance = initAudioEnhancer(video);
+
+    if (shortcutsHudInstance) shortcutsHudInstance.destroy();
+    shortcutsHudInstance = initShortcutsHud(video, container, {
+      audioEnhancer: audioEnhancerInstance
+    });
+
+    if (smartSkipInstance) smartSkipInstance.destroy();
+    smartSkipInstance = initSmartSkip(video, container);
+  }
 
   // Reset controls timer
   triggerControlsActivity();
@@ -665,10 +668,22 @@ export function destroyPlayer() {
 
   destroySubtitles();
   stopAmbilightLoop();
-  stopSakuraEffect();
-  if (sakuraCanvas) {
-    sakuraCanvas.removeEventListener('mousemove', trackMouse);
-    sakuraCanvas.removeEventListener('mouseleave', resetMouse);
+
+  if (scrubPreviewInstance) {
+    scrubPreviewInstance.destroy();
+    scrubPreviewInstance = null;
+  }
+  if (audioEnhancerInstance) {
+    audioEnhancerInstance.destroy();
+    audioEnhancerInstance = null;
+  }
+  if (shortcutsHudInstance) {
+    shortcutsHudInstance.destroy();
+    shortcutsHudInstance = null;
+  }
+  if (smartSkipInstance) {
+    smartSkipInstance.destroy();
+    smartSkipInstance = null;
   }
 
   if (video) {
@@ -942,7 +957,6 @@ function setupPlayerEventListeners() {
     setLucideIcon('play-icon', 'pause');
     setLucideIcon('center-play-icon', 'pause');
     if (centerPlayBtn) centerPlayBtn.style.display = 'none';
-    stopSakuraEffect();
     if (ambilightActive) {
       startAmbilightLoop();
     }
@@ -983,8 +997,6 @@ function setupPlayerEventListeners() {
       centerPlayBtn.style.display = 'flex';
     }
     saveWatchProgress();
-
-    startSakuraEffect();
 
     if (partyManager && partyManager.isInRoom()) {
       const currentPos = currentStreamStartOffset + (video.currentTime || 0);
@@ -1275,17 +1287,11 @@ function setupPlayerEventListeners() {
     };
 
     progressBar.onmouseleave = () => {
-      if (!isDraggingProgress && progressHover) {
-        progressHover.style.width = '0%';
+      if (!isDraggingProgress) {
+        if (progressHover) progressHover.style.width = '0%';
+        if (progressTooltip) progressTooltip.style.opacity = '0';
       }
-      const pos = getTimelineClickPos(e);
-      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
-      if (progressTooltip) {
-        progressTooltip.style.left = `${pos * 100}%`;
-        progressTooltip.textContent = formatTime(pos * duration);
-        progressTooltip.style.opacity = '1';
-      }
-    }
+    };
   };
   window.addEventListener('mousemove', handleGlobalMouseMove);
   window.addEventListener('touchmove', (e) => {
@@ -1948,9 +1954,9 @@ function setupAmbilight() {
     ambilightCtx = ambilightCanvas.getContext('2d', { willReadFrequently: true, alpha: false });
   }
 
-  // Toggle button in player controls: "Luz ambiental" (on/off, on by default)
+  // Toggle button in player controls: "Luz ambiental" (on/off, opt-in, off by default)
   const savedAmbient = localStorage.getItem('kura_ambilight');
-  ambilightActive = savedAmbient !== null ? savedAmbient === 'true' : true;
+  ambilightActive = savedAmbient === 'true'; // Off by default (opt-in)
 
   if (ambilightToggleBtn) {
     ambilightToggleBtn.title = 'Luz ambiental';
@@ -2244,135 +2250,6 @@ function showTouchRipple(x, y, side) {
   setTimeout(() => {
     ripple.remove();
   }, 600);
-}
-
-// Sakura Rain Pause Effect Logic
-function setupSakuraEffect() {
-  sakuraCanvas = document.getElementById('player-pause-canvas');
-  if (!sakuraCanvas) return;
-  sakuraCtx = sakuraCanvas.getContext('2d');
-  
-  // Setup dimensions
-  resizeSakuraCanvas();
-  window.addEventListener('resize', resizeSakuraCanvas);
-
-  // Initialize particles
-  sakuraParticles = [];
-  const numParticles = 60;
-  for (let i = 0; i < numParticles; i++) {
-    sakuraParticles.push(createSakuraParticle());
-  }
-
-  // Mouse tracking
-  if (container) {
-    container.addEventListener('mousemove', trackMouse);
-    container.addEventListener('mouseleave', resetMouse);
-  }
-}
-
-function resizeSakuraCanvas() {
-  if (!sakuraCanvas) return;
-  sakuraCanvas.width = sakuraCanvas.parentElement.clientWidth;
-  sakuraCanvas.height = sakuraCanvas.parentElement.clientHeight;
-}
-
-function trackMouse(e) {
-  if (!sakuraCanvas) return;
-  const rect = sakuraCanvas.getBoundingClientRect();
-  mousePos.x = e.clientX - rect.left;
-  mousePos.y = e.clientY - rect.top;
-}
-
-function resetMouse() {
-  mousePos.x = -1000;
-  mousePos.y = -1000;
-}
-
-function createSakuraParticle(yPos) {
-  const w = sakuraCanvas ? sakuraCanvas.width : window.innerWidth;
-  const h = sakuraCanvas ? sakuraCanvas.height : window.innerHeight;
-  return {
-    x: Math.random() * w,
-    y: yPos !== undefined ? yPos : Math.random() * h - h,
-    size: Math.random() * 8 + 6,
-    speedY: Math.random() * 1 + 0.5,
-    speedX: Math.random() * 0.5 - 0.25,
-    rotation: Math.random() * Math.PI * 2,
-    rotationSpeed: (Math.random() - 0.5) * 0.02,
-    driftOffset: Math.random() * Math.PI * 2,
-    driftSpeed: Math.random() * 0.02 + 0.01,
-    opacity: Math.random() * 0.5 + 0.3
-  };
-}
-
-function startSakuraEffect() {
-  if (isSakuraActive || !sakuraCanvas) return;
-  isSakuraActive = true;
-  sakuraCanvas.classList.add('active');
-  resizeSakuraCanvas();
-  sakuraAnimationId = requestAnimationFrame(updateSakuraEffect);
-}
-
-function stopSakuraEffect() {
-  if (!isSakuraActive || !sakuraCanvas) return;
-  isSakuraActive = false;
-  sakuraCanvas.classList.remove('active');
-  if (sakuraAnimationId) {
-    cancelAnimationFrame(sakuraAnimationId);
-    sakuraAnimationId = null;
-  }
-}
-
-function updateSakuraEffect() {
-  if (!isSakuraActive || !sakuraCtx || !sakuraCanvas) return;
-  
-  sakuraCtx.clearRect(0, 0, sakuraCanvas.width, sakuraCanvas.height);
-  
-  sakuraParticles.forEach(p => {
-    // Basic movement
-    p.y += p.speedY;
-    p.x += p.speedX + Math.sin(p.driftOffset) * 0.5;
-    p.rotation += p.rotationSpeed;
-    p.driftOffset += p.driftSpeed;
-    
-    // Mouse repelling interaction
-    const dx = p.x - mousePos.x;
-    const dy = p.y - mousePos.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    const repelRadius = 100;
-    
-    if (distance < repelRadius) {
-      const force = (repelRadius - distance) / repelRadius;
-      p.x += (dx / distance) * force * 3;
-      p.y += (dy / distance) * force * 3;
-    }
-    
-    // Reset if offscreen
-    if (p.y > sakuraCanvas.height + p.size || p.x > sakuraCanvas.width + p.size || p.x < -p.size) {
-      Object.assign(p, createSakuraParticle(-p.size));
-      p.x = Math.random() * sakuraCanvas.width;
-    }
-    
-    // Draw petal
-    sakuraCtx.save();
-    sakuraCtx.translate(p.x, p.y);
-    sakuraCtx.rotate(p.rotation);
-    sakuraCtx.globalAlpha = p.opacity;
-    
-    sakuraCtx.fillStyle = '#ffb7c5';
-    sakuraCtx.beginPath();
-    // Organic petal shape
-    sakuraCtx.moveTo(0, -p.size/2);
-    sakuraCtx.bezierCurveTo(p.size/2, -p.size/2, p.size/2, p.size/2, 0, p.size/2);
-    sakuraCtx.bezierCurveTo(-p.size/3, p.size/2, -p.size/2, -p.size/3, 0, -p.size/2);
-    sakuraCtx.fill();
-    
-    sakuraCtx.restore();
-  });
-  
-  if (isSakuraActive) {
-    sakuraAnimationId = requestAnimationFrame(updateSakuraEffect);
-  }
 }
 
 // QR Share helper

@@ -12,9 +12,28 @@ class PartyController {
         if ($payload && !empty($payload['username'])) {
             return $payload['username'];
         }
-        $guestName = !empty($body['username']) ? trim((string)$body['username']) : (!empty($_GET['username']) ? trim((string)$_GET['username']) : 'Invitado_' . substr(uniqid(), -4));
+        $guestName = !empty($body['username']) ? trim((string)$body['username']) : (!empty($_GET['username']) ? trim((string)$_GET['username']) : '');
+        if (empty($guestName) && !empty($_COOKIE['kurastream_guest_name'])) {
+            $guestName = trim((string)$_COOKIE['kurastream_guest_name']);
+        }
+        if (empty($guestName)) {
+            $guestName = 'Invitado_' . substr(bin2hex(random_bytes(4)), -4);
+        }
         $guestName = strip_tags($guestName);
-        return mb_substr($guestName, 0, 64);
+        $cleanName = mb_substr($guestName, 0, 64);
+        if (empty($_COOKIE['kurastream_guest_name']) || $_COOKIE['kurastream_guest_name'] !== $cleanName) {
+            $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+            @setcookie('kurastream_guest_name', $cleanName, [
+                'expires' => time() + (24 * 3600),
+                'path' => '/',
+                'httponly' => true,
+                'samesite' => 'Lax',
+                'secure' => $isSecure
+            ]);
+            $_COOKIE['kurastream_guest_name'] = $cleanName;
+        }
+        return $cleanName;
     }
 
     private static function requireAuthenticatedUser(): string {
@@ -47,6 +66,8 @@ class PartyController {
             'current_time' => 0.0
         ]);
 
+        DbHelper::recordPartyMember($roomId, $user);
+
         // Welcome system message
         DbHelper::addPartyMessage($roomId, 'Sistema', "¡Sala de Watch Party creada por {$user}! 🎉", 'system');
 
@@ -76,19 +97,24 @@ class PartyController {
             jsonError('La sala de Watch Party no existe o ha expirado', 404);
         }
 
+        DbHelper::recordPartyMember($roomId, $user);
+        $memberCount = DbHelper::getPartyMembersCount($roomId);
+
         // Add system message if not host joining initial room
         if ($room['host_user'] !== $user) {
             DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} se unió al Watch Party 👋", 'system');
-            DbHelper::updatePartyPlayback($roomId, (bool)$room['is_playing'], (float)$room['current_time'], null, (int)$room['participants_count'] + 1);
+            DbHelper::updatePartyPlayback($roomId, (bool)$room['is_playing'], (float)$room['current_time'], null, $memberCount);
             $room = DbHelper::getPartyRoom($roomId);
         }
 
         $recentMessages = DbHelper::getPartyMessages($roomId, 0, 40);
+        $activeMembers = DbHelper::getActivePartyMembers($roomId);
 
         jsonResponse([
             'success' => true,
             'room' => $room,
             'messages' => $recentMessages,
+            'members' => $activeMembers,
             'user' => $user,
             // An unauthenticated visitor may choose any display name, but never gains host rights.
             'is_host' => (AuthMiddleware::verifyToken(AuthMiddleware::getBearerToken()) !== null && $room['host_user'] === $user)
@@ -105,8 +131,9 @@ class PartyController {
         if (!empty($roomId)) {
             $room = DbHelper::getPartyRoom($roomId);
             if ($room) {
+                DbHelper::removePartyMember($roomId, $user);
+                $newCount = DbHelper::getPartyMembersCount($roomId);
                 DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} salió de la sala", 'system');
-                $newCount = max(1, (int)$room['participants_count'] - 1);
                 DbHelper::updatePartyPlayback($roomId, (bool)$room['is_playing'], (float)$room['current_time'], null, $newCount);
             }
         }
@@ -271,6 +298,9 @@ class PartyController {
             exit();
         }
 
+        $user = self::resolveUser();
+        DbHelper::recordPartyMember($roomId, $user);
+
         // Setup SSE response headers
         @header('Content-Type: text/event-stream; charset=utf-8');
         @header('Cache-Control: no-cache, no-transform');
@@ -288,14 +318,17 @@ class PartyController {
             $lastMsgId = end($initialMessages)['id'];
         }
 
+        $activeMembers = DbHelper::getActivePartyMembers($roomId);
+
         echo "event: init\n";
-        echo "data: " . json_encode(['room' => $room, 'messages' => $initialMessages]) . "\n\n";
+        echo "data: " . json_encode(['room' => $room, 'messages' => $initialMessages, 'members' => $activeMembers]) . "\n\n";
         flush();
 
         $lastSyncTime = $room['last_sync_timestamp'];
         $lastEpisode = $room['episode_id'];
         $lastPlaying = $room['is_playing'];
         $lastCurrentTime = $room['current_time'];
+        $lastMemberPing = time();
 
         $startTime = time();
         $maxDuration = 25; // Reconnect every 25 seconds for reliable proxy / keepalive compatibility
@@ -306,6 +339,12 @@ class PartyController {
             }
 
             usleep(400000); // 400ms check interval
+
+            // Periodic presence heartbeat every 5s
+            if (time() - $lastMemberPing >= 5) {
+                DbHelper::recordPartyMember($roomId, $user);
+                $lastMemberPing = time();
+            }
 
             // Fetch room updates
             $currentRoom = DbHelper::getPartyRoom($roomId);
@@ -347,9 +386,10 @@ class PartyController {
         }
 
         if (connection_aborted()) {
+            DbHelper::removePartyMember($roomId, $user);
             $roomNow = DbHelper::getPartyRoom($roomId);
             if ($roomNow) {
-                $newCount = max(1, (int)$roomNow['participants_count'] - 1);
+                $newCount = DbHelper::getPartyMembersCount($roomId);
                 DbHelper::updatePartyPlayback($roomId, (bool)$roomNow['is_playing'], (float)$roomNow['current_time'], null, $newCount);
             }
         }

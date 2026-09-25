@@ -15,17 +15,29 @@ $forbiddenPatterns = [
     'autodownloader' => '/\banime_autodownloader\b/i'
 ];
 
-$scanDirs = [
+$scanTargets = [
     $repoDir . '/php_backend',
     $repoDir . '/frontend/js',
+    $repoDir . '/frontend/index.html',
     $repoDir . '/tests'
 ];
 
 $violations = [];
 
-foreach ($scanDirs as $dir) {
-    if (!is_dir($dir)) continue;
-    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, RecursiveDirectoryIterator::SKIP_DOTS));
+foreach ($scanTargets as $target) {
+    if (is_file($target)) {
+        $content = @file_get_contents($target);
+        if ($content !== false) {
+            foreach ($forbiddenPatterns as $name => $pattern) {
+                if (preg_match($pattern, $content)) {
+                    $violations[] = "Forbidden artifact '{$name}' detected in " . $target;
+                }
+            }
+        }
+        continue;
+    }
+    if (!is_dir($target)) continue;
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($target, RecursiveDirectoryIterator::SKIP_DOTS));
     foreach ($iterator as $file) {
         if ($file->isFile()) {
             if (realpath($file->getPathname()) === realpath(__FILE__)) continue;

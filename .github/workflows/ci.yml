@@ -50,6 +50,12 @@ jobs:
           node tests/ui_catalogue_rendering.mjs
           node tests/ui_review_regressions.mjs
 
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright E2E Tests
+        run: npm run test:e2e
+
       - name: Run PHP Test Suite
         env:
           DB_HOST: 127.0.0.1
@@ -57,5 +63,6 @@ jobs:
           DB_NAME: kurastream
           DB_USER: kurastream
           DB_PASS: testpassword
-          JWT_SECRET: ci_test_secret_key_1234567890
-        run: php tests/run_all_tests.php
+        run: |
+          export JWT_SECRET=$(openssl rand -hex 32)
+          php tests/run_all_tests.php

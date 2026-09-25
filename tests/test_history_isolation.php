@@ -8,6 +8,7 @@ require_once __DIR__ . '/../php_backend/controllers/HistoryController.php';
 echo "Running Comprehensive Anti-Spoofing Tests (History, Progress, Favorites, Preferences)...\n";
 
 $db = Database::getConnection();
+Database::initializeSchema();
 
 // Clean up test data for users
 $alice = 'alice_anti_spoof_' . substr(uniqid(), -6);

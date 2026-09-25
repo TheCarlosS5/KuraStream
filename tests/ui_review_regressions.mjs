@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import test from 'node:test';
 
-const app = fs.readFileSync(new URL('../frontend/app.js', import.meta.url), 'utf8');
+const app = fs.readFileSync(new URL('../frontend/js/main.js', import.meta.url), 'utf8');
 const player = fs.readFileSync(new URL('../frontend/player.js', import.meta.url), 'utf8');
 const html = fs.readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('../frontend/style.css', import.meta.url), 'utf8');
@@ -112,8 +112,13 @@ test('new service worker installs exact versioned shell assets and retires old c
   await done;
   assert.notEqual(cacheName, 'kurastream-v2.0', 'Existing installations must get a fresh cache');
   assert.ok(cacheModes.every(mode => mode === 'reload'), 'Install must not copy stale HTTP-cached HTML or modules into the new cache');
-  for (const match of html.matchAll(/(?:src|href)="((?:app\.js|player\.js|style\.css)\?[^" ]+)"/g)) assert.ok(installed.includes('/' + match[1]), `Precache ${match[1]}`);
-  const playerImport = app.match(/from '\.\/(player\.js[^']+)'/)[1];
+  for (const match of html.matchAll(/(?:src|href)="((?:(?:js\/)?main\.js|player\.js|style\.css)\?[^" ]+)"/g)) {
+    const assetPath = match[1].startsWith('/') ? match[1] : '/' + match[1];
+    assert.ok(installed.includes(assetPath), `Precache ${match[1]}`);
+  }
+  const playerImportMatch = app.match(/from '(?:\.\/|\.\.\/)(player\.js[^']+)'/);
+  assert.ok(playerImportMatch, 'Missing player.js import in main.js');
+  const playerImport = playerImportMatch[1];
   assert.ok(html.includes(`src="${playerImport}"`), 'App and HTML must load the same player version');
   const visited = new Set();
   const checkModule = path => {
@@ -127,7 +132,7 @@ test('new service worker installs exact versioned shell assets and retires old c
       checkModule(dependency.pathname + dependency.search);
     }
   };
-  checkModule('/app.js?v=2026.09.20-catalogue-hardening');
+  checkModule('/js/main.js?v=2026.09.25-modern-platform');
   handlers.activate({ waitUntil: promise => { done = promise; } });
   await done;
   assert.deepEqual(removed, ['kurastream-v2.0']);

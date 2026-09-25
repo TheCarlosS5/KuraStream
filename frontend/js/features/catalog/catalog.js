@@ -119,14 +119,14 @@ export function attachCatalogEventListeners(container) {
     const playHeroBtn = e.target.closest('[data-action="play-hero"]');
     if (playHeroBtn) {
       const showId = playHeroBtn.getAttribute('data-show-id');
-      window.location.hash = `#/show/${showId}?autoplay=1`;
+      if (showId) window.location.hash = `#/show/${encodeURIComponent(showId)}`;
       return;
     }
 
     const infoHeroBtn = e.target.closest('[data-action="info-hero"]');
     if (infoHeroBtn) {
       const showId = infoHeroBtn.getAttribute('data-show-id');
-      window.location.hash = `#/show/${showId}`;
+      if (showId) window.location.hash = `#/show/${encodeURIComponent(showId)}`;
       return;
     }
 
@@ -134,10 +134,10 @@ export function attachCatalogEventListeners(container) {
     if (contCard) {
       const epId = contCard.getAttribute('data-episode-id');
       const showId = contCard.getAttribute('data-show-id');
-      if (typeof window.playEpisode === 'function' && epId) {
-        window.playEpisode(epId);
+      if (epId) {
+        window.location.hash = `#/player/${encodeURIComponent(epId)}`;
       } else if (showId) {
-        window.location.hash = `#/show/${showId}`;
+        window.location.hash = `#/show/${encodeURIComponent(showId)}`;
       }
       return;
     }
@@ -146,7 +146,7 @@ export function attachCatalogEventListeners(container) {
     if (showCard) {
       const showId = showCard.getAttribute('data-show-id');
       if (showId) {
-        window.location.hash = `#/show/${showId}`;
+        window.location.hash = `#/show/${encodeURIComponent(showId)}`;
       }
     }
   });

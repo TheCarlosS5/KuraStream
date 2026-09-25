@@ -66,9 +66,7 @@ if (!file_exists($playerJsPath)) {
 }
 
 // 5. Verify App Integration for Hover Popovers
-$appJsPath = file_exists(__DIR__ . '/../frontend/js/main.js')
-    ? __DIR__ . '/../frontend/js/main.js'
-    : __DIR__ . '/../frontend/app.js';
+$appJsPath = __DIR__ . '/../frontend/js/main.js';
 if (!file_exists($appJsPath)) {
     $errors[] = "Application entry point does not exist";
 } else {

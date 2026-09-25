@@ -172,6 +172,16 @@ class Database {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_party_messages_room (room_id, id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+            CREATE TABLE IF NOT EXISTS party_members (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                room_id VARCHAR(64) NOT NULL,
+                username VARCHAR(255) NOT NULL,
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_ping TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_party_members_room (room_id),
+                UNIQUE KEY uniq_room_user (room_id, username)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ");
 
         try {
@@ -189,6 +199,15 @@ class Database {
             $db->exec("ALTER TABLE user_profiles MODIFY pin VARCHAR(255) DEFAULT ''");
         } catch (Throwable $e) {
             // Ignore if check or alter column fails
+        }
+
+        if (class_exists('MigrationManager') || file_exists(__DIR__ . '/services/MigrationManager.php')) {
+            require_once __DIR__ . '/services/MigrationManager.php';
+            try {
+                MigrationManager::runPending();
+            } catch (Throwable $e) {
+                // Ignore migration runner error if schema is initialized
+            }
         }
     }
 }
@@ -670,7 +689,7 @@ class DbHelper {
 
         // Create default profile
         self::saveUserProfile($username, [
-            'id' => 'profile_' . uniqid(),
+            'id' => 'profile_' . bin2hex(random_bytes(16)),
             'name' => 'Principal',
             'avatar' => '',
             'color' => '#a855f7'
@@ -735,7 +754,7 @@ class DbHelper {
                 }
             }
         } else {
-            $id = 'prof_' . uniqid();
+            $id = 'prof_' . bin2hex(random_bytes(16));
         }
 
         $name = trim($data['profile_name'] ?? $data['name'] ?? 'Perfil');
@@ -810,7 +829,7 @@ class DbHelper {
 
     public static function addComment(string $showId, string $username, string $profile, string $content, string $episodeId = ''): array {
         $db = Database::getConnection();
-        $id = 'comm_' . uniqid();
+        $id = 'comm_' . bin2hex(random_bytes(16));
         $stmt = $db->prepare("
             INSERT INTO comments (id, show_id, episode_id, username, profile_name, content)
             VALUES (:id, :s, :e, :u, :p, :c)
@@ -1037,5 +1056,37 @@ class DbHelper {
         }
 
         return $deleted;
+    }
+
+    public static function recordPartyMember(string $roomId, string $username): void {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            INSERT INTO party_members (room_id, username, joined_at, last_ping)
+            VALUES (:r, :u, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON DUPLICATE KEY UPDATE last_ping = CURRENT_TIMESTAMP
+        ");
+        $stmt->execute(['r' => $roomId, 'u' => $username]);
+    }
+
+    public static function removePartyMember(string $roomId, string $username): void {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("DELETE FROM party_members WHERE room_id = :r AND username = :u");
+        $stmt->execute(['r' => $roomId, 'u' => $username]);
+    }
+
+    public static function getActivePartyMembers(string $roomId, int $timeoutSeconds = 60): array {
+        $db = Database::getConnection();
+        $cleanup = $db->prepare("DELETE FROM party_members WHERE last_ping < DATE_SUB(NOW(), INTERVAL :sec SECOND)");
+        $cleanup->bindValue(':sec', max(30, $timeoutSeconds * 2), PDO::PARAM_INT);
+        $cleanup->execute();
+
+        $stmt = $db->prepare("SELECT username, joined_at, last_ping FROM party_members WHERE room_id = :r ORDER BY joined_at ASC");
+        $stmt->execute(['r' => $roomId]);
+        return $stmt->fetchAll();
+    }
+
+    public static function getPartyMembersCount(string $roomId): int {
+        $members = self::getActivePartyMembers($roomId);
+        return max(1, count($members));
     }
 }

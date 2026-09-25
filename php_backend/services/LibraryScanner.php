@@ -186,7 +186,12 @@ class LibraryScanner {
                         }
                     }
 
-                    $probe = FfmpegScanner::probeVideo($fullPath);
+                    try {
+                        $probe = FfmpegScanner::probeVideo($fullPath);
+                    } catch (Throwable $e) {
+                        error_log("[LibraryScanner] No se pudo leer el archivo multimedia {$fullPath}: " . $e->getMessage());
+                        continue;
+                    }
 
                     DbHelper::saveEpisode([
                         'id' => $epId,

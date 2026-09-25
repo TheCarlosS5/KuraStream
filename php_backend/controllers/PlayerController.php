@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/ShowController.php';
+require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
 class TranscodeLimiter {
     public static int $maxWorkers = 3;
@@ -67,12 +69,26 @@ class TranscodeLimiter {
 }
 
 class PlayerController {
+    public static function checkKidsModeAccess(string $showId): void {
+        if (!ShowController::isKidsProfileActive()) {
+            return;
+        }
+        $show = DbHelper::getShow($showId);
+        if ($show && ShowController::isAdultOrMaturityRestricted($show)) {
+            jsonError('Contenido restringido por el perfil infantil activo', 403);
+        }
+    }
+
     public static function getEpisodeDetails(string $id): void {
         $ep = DbHelper::getEpisode($id);
         if (!$ep) {
             jsonError('Episodio no encontrado', 404);
         }
+        if (!empty($ep['show_id'])) {
+            self::checkKidsModeAccess($ep['show_id']);
+        }
         $ep['stream_url'] = "/api/stream/" . urlencode($ep['id']);
+        unset($ep['filepath']);
         jsonResponse($ep);
     }
 
@@ -95,6 +111,10 @@ class PlayerController {
             echo "";
             if (defined('TESTING_MODE')) throw new ExitException("Subtitle not found", 404);
             exit();
+        }
+
+        if (!empty($ep['show_id'])) {
+            self::checkKidsModeAccess($ep['show_id']);
         }
 
         $filepath = $ep['filepath'];
@@ -163,6 +183,10 @@ class PlayerController {
 
         if (!$ep) {
             jsonError('Episodio no encontrado en el catálogo', 404);
+        }
+
+        if (!empty($ep['show_id'])) {
+            self::checkKidsModeAccess($ep['show_id']);
         }
 
         $realPath = realpath($ep['filepath'] ?? '');

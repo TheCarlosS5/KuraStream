@@ -335,7 +335,8 @@ class TmdbScraper {
             CURLOPT_FILE => $fp,
             CURLOPT_HEADER => 0,
             CURLOPT_TIMEOUT => 20,
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_FOLLOWLOCATION => true
         ]);
         $success = curl_exec($ch);
