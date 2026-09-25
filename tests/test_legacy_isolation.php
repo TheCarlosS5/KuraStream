@@ -17,10 +17,10 @@ assert(str_contains($pkg['scripts']['start'] ?? '', 'php_backend/router.php'),
 assert(str_contains($pkg['scripts']['dev'] ?? '', 'php_backend/router.php'),
     "package.json 'dev' script must point to php_backend/router.php");
 
-assert(is_dir($baseDir . '/legacy_backend'),
-    "legacy_backend directory must exist");
-
 assert(!is_dir($baseDir . '/backend'),
-    "backend directory must be moved to legacy_backend");
+    "legacy backend directory must not exist");
+
+assert(!is_dir($baseDir . '/legacy_backend'),
+    "legacy_backend directory must be completely eliminated");
 
 echo "✓ Legacy Isolation Tests Passed\n";
