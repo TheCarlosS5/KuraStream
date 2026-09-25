@@ -315,9 +315,7 @@ export function extractCardMetadata(card) {
     }
   }
   if (!rating) rating = '8.5';
-  const formattedRating = rating.startsWith('★')
-    ? rating
-    : `★ ${parseFloat(rating) ? parseFloat(rating).toFixed(1) : rating}`;
+  const formattedRating = parseFloat(rating) ? parseFloat(rating).toFixed(1) : String(rating).replace(/[^\d.]/g, '');
 
   // Extract Year
   let year = ds.year || '';
@@ -494,7 +492,7 @@ export function initCardPopovers(containerSelector = document.body, options = {}
           <button class="popover-btn-info" type="button" title="Más información" aria-label="Más información"><i data-lucide="info"></i></button>
         </div>
         <div class="popover-preview-meta">
-          <span class="popover-badge-rating-tabular"><i data-lucide="star" style="width:10px;height:10px;fill:var(--rating-color);stroke:var(--rating-color);"></i> ${escapeHtml(meta.rating.replace('★', '').trim())}</span>
+          <span class="popover-badge-rating-tabular"><i data-lucide="star" style="width:10px;height:10px;fill:var(--rating-color);stroke:var(--rating-color);"></i> ${escapeHtml(meta.rating)}</span>
           <span class="popover-badge-year">${escapeHtml(meta.year)}</span>
           <span class="popover-badge-episodes">${escapeHtml(meta.episodes)}</span>
         </div>
