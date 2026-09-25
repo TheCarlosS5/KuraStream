@@ -13,6 +13,7 @@ require_once __DIR__ . '/controllers/PartyController.php';
 
 $uri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+setSecurityHeaders();
 
 $appStartTime = microtime(true);
 register_shutdown_function(function() use ($appStartTime, $uri) {
