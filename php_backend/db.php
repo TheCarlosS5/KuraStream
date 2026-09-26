@@ -639,6 +639,21 @@ class DbHelper {
         $stmt->execute(['u' => $username, 'p' => $profile]);
     }
 
+    public static function toggleFavorite(string $username, string $profile = 'Principal', string $showId = ''): bool {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT 1 FROM favorites WHERE username = :u AND profile_name = :p AND show_id = :s");
+        $stmt->execute(['u' => $username, 'p' => $profile, 's' => $showId]);
+        if ($stmt->fetch()) {
+            $del = $db->prepare("DELETE FROM favorites WHERE username = :u AND profile_name = :p AND show_id = :s");
+            $del->execute(['u' => $username, 'p' => $profile, 's' => $showId]);
+            return false;
+        } else {
+            $ins = $db->prepare("INSERT INTO favorites (username, profile_name, show_id) VALUES (:u, :p, :s)");
+            $ins->execute(['u' => $username, 'p' => $profile, 's' => $showId]);
+            return true;
+        }
+    }
+
     public static function registerUser(string $username, string $password, string $role = 'user'): ?array {
         $db = Database::getConnection();
         $stmt = $db->prepare("SELECT * FROM users WHERE username = :u");
