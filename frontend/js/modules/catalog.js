@@ -28,7 +28,7 @@ export async function loadShowsCatalog() {
         <div class="show-poster-wrap">
           <img src="${show.poster_path || '/api/placeholder-poster'}" class="show-poster" alt="${show.title}" onerror="this.src='/api/placeholder-poster'">
           <div class="show-badge">${show.media_type === 'movie' ? 'Película' : 'Anime'}</div>
-          <div class="show-rating">★ ${show.rating ? show.rating.toFixed(1) : 'N/A'}</div>
+          <div class="show-rating"><i data-lucide="star" style="width: 12px; height: 12px; display: inline-block;"></i> ${show.rating ? show.rating.toFixed(1) : 'N/A'}</div>
         </div>
         <div class="show-info">
           <h3 class="show-title" title="${show.title}">${show.title}</h3>
@@ -79,7 +79,7 @@ export async function loadShowDetail(showId) {
               </span>
               <span class="badge">${show.year || '2026'}</span>
               <span class="badge">${show.age_rating || 'TV-14'}</span>
-              <span class="badge badge-rating">★ ${show.rating ? show.rating.toFixed(1) : '8.5'}</span>
+              <span class="badge badge-rating"><i data-lucide="star" style="width: 12px; height: 12px; display: inline-block;"></i> ${show.rating ? show.rating.toFixed(1) : '8.5'}</span>
             </div>
             <p class="show-detail-synopsis">${show.synopsis || 'Sin descripción disponible para esta serie.'}</p>
           </div>

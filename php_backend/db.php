@@ -166,9 +166,11 @@ class DbHelper {
             $loops = json_decode($existing['backdrop_loops'], true);
         }
 
+        $tmdbId = !empty($show['tmdb_id']) ? (int)$show['tmdb_id'] : ($existing['tmdb_id'] ?? null);
+
         $stmt = $db->prepare("
-            INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating, status)
-            VALUES (:id, :title, :synopsis, :rating, :year, :studio, :director, :writer, :cast_members, :poster_path, :backdrop_path, :media_type, :backdrop_loops, :genres, :trailer_key, :age_rating, :status)
+            INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating, status, tmdb_id)
+            VALUES (:id, :title, :synopsis, :rating, :year, :studio, :director, :writer, :cast_members, :poster_path, :backdrop_path, :media_type, :backdrop_loops, :genres, :trailer_key, :age_rating, :status, :tmdb_id)
             ON DUPLICATE KEY UPDATE
                 title = VALUES(title),
                 synopsis = VALUES(synopsis),
@@ -185,7 +187,8 @@ class DbHelper {
                 genres = VALUES(genres),
                 trailer_key = VALUES(trailer_key),
                 age_rating = VALUES(age_rating),
-                status = VALUES(status)
+                status = VALUES(status),
+                tmdb_id = COALESCE(VALUES(tmdb_id), tmdb_id)
         ");
 
         $stmt->execute([
@@ -205,7 +208,8 @@ class DbHelper {
             'genres' => $show['genres'] ?? '',
             'trailer_key' => $show['trailer_key'] ?? null,
             'age_rating' => $show['age_rating'] ?? 'TV-14',
-            'status' => $show['status'] ?? 'finished'
+            'status' => $show['status'] ?? 'finished',
+            'tmdb_id' => $tmdbId
         ]);
     }
 
@@ -344,30 +348,91 @@ class DbHelper {
         }, $episodes);
     }
 
+    public static function serializeEpisodeForClient(array $ep): array {
+        $ext = !empty($ep['filepath']) ? strtolower(pathinfo($ep['filepath'], PATHINFO_EXTENSION)) : '';
+        $isDirect = ($ext === 'mp4' || $ext === 'webm');
+        $container = !empty($ext) ? $ext : 'unknown';
+
+        $audioTracks = !empty($ep['audio_tracks']) 
+            ? (is_array($ep['audio_tracks']) ? $ep['audio_tracks'] : json_decode($ep['audio_tracks'], true)) 
+            : [];
+        $subtitleTracks = !empty($ep['subtitle_tracks']) 
+            ? (is_array($ep['subtitle_tracks']) ? $ep['subtitle_tracks'] : json_decode($ep['subtitle_tracks'], true)) 
+            : [];
+        $chapters = !empty($ep['chapters']) 
+            ? (is_array($ep['chapters']) ? $ep['chapters'] : json_decode($ep['chapters'], true)) 
+            : [];
+
+        return [
+            'id' => $ep['id'],
+            'show_id' => $ep['show_id'] ?? '',
+            'season_number' => (int)($ep['season_number'] ?? 1),
+            'episode_number' => (int)($ep['episode_number'] ?? 1),
+            'title' => $ep['title'] ?? '',
+            'synopsis' => $ep['synopsis'] ?? '',
+            'duration' => (float)($ep['duration'] ?? 0.0),
+            'size' => (int)($ep['size'] ?? 0),
+            'video_codec' => $ep['video_codec'] ?? '',
+            'audio_codec' => $ep['audio_codec'] ?? '',
+            'resolution' => $ep['resolution'] ?? '',
+            'fps' => (float)($ep['fps'] ?? 0.0),
+            'audio_tracks' => $audioTracks ?: [],
+            'subtitle_tracks' => $subtitleTracks ?: [],
+            'thumbnail_path' => $ep['thumbnail_path'] ?? '',
+            'intro_start' => isset($ep['intro_start']) && $ep['intro_start'] !== null ? (float)$ep['intro_start'] : null,
+            'intro_end' => isset($ep['intro_end']) && $ep['intro_end'] !== null ? (float)$ep['intro_end'] : null,
+            'outro_start' => isset($ep['outro_start']) && $ep['outro_start'] !== null ? (float)$ep['outro_start'] : null,
+            'chapters' => $chapters ?: [],
+            'created_at' => $ep['created_at'] ?? null,
+            'stream_url' => "/api/stream/" . urlencode($ep['id']),
+            'direct_playable' => $isDirect,
+            'container' => $container
+        ];
+    }
+
     public static function saveEpisode(array $ep): void {
         $db = Database::getConnection();
-        $stmt = $db->prepare("
-            INSERT INTO episodes (id, show_id, season_number, episode_number, title, synopsis, filepath, duration, size, video_codec, resolution, fps, audio_tracks, subtitle_tracks, thumbnail_path, intro_start, intro_end, outro_start, chapters)
-            VALUES (:id, :show_id, :season_number, :episode_number, :title, :synopsis, :filepath, :duration, :size, :video_codec, :resolution, :fps, :audio_tracks, :subtitle_tracks, :thumbnail_path, :intro_start, :intro_end, :outro_start, :chapters)
-            ON DUPLICATE KEY UPDATE
-                title = VALUES(title),
-                synopsis = VALUES(synopsis),
-                filepath = VALUES(filepath),
-                duration = VALUES(duration),
-                size = VALUES(size),
-                video_codec = VALUES(video_codec),
-                resolution = VALUES(resolution),
-                fps = VALUES(fps),
-                audio_tracks = VALUES(audio_tracks),
-                subtitle_tracks = VALUES(subtitle_tracks),
-                thumbnail_path = VALUES(thumbnail_path),
-                intro_start = VALUES(intro_start),
-                intro_end = VALUES(intro_end),
-                outro_start = VALUES(outro_start),
-                chapters = VALUES(chapters)
-        ");
+        
+        $hasCreatedAt = !empty($ep['created_at']);
+        $hasFileMtime = isset($ep['file_mtime']);
 
-        $stmt->execute([
+        $cols = "id, show_id, season_number, episode_number, title, synopsis, filepath, duration, size, video_codec, resolution, fps, audio_tracks, subtitle_tracks, thumbnail_path, intro_start, intro_end, outro_start, chapters, availability_status, missing_scan_count, missing_since";
+        $vals = ":id, :show_id, :season_number, :episode_number, :title, :synopsis, :filepath, :duration, :size, :video_codec, :resolution, :fps, :audio_tracks, :subtitle_tracks, :thumbnail_path, :intro_start, :intro_end, :outro_start, :chapters, 'available', 0, NULL";
+        
+        if ($hasCreatedAt) {
+            $cols .= ", created_at";
+            $vals .= ", :created_at";
+        }
+        if ($hasFileMtime) {
+            $cols .= ", file_mtime";
+            $vals .= ", :file_mtime";
+        }
+
+        $updatePart = "
+            title = VALUES(title),
+            synopsis = VALUES(synopsis),
+            filepath = VALUES(filepath),
+            duration = VALUES(duration),
+            size = VALUES(size),
+            video_codec = VALUES(video_codec),
+            resolution = VALUES(resolution),
+            fps = VALUES(fps),
+            audio_tracks = VALUES(audio_tracks),
+            subtitle_tracks = VALUES(subtitle_tracks),
+            thumbnail_path = VALUES(thumbnail_path),
+            intro_start = VALUES(intro_start),
+            intro_end = VALUES(intro_end),
+            outro_start = VALUES(outro_start),
+            chapters = VALUES(chapters),
+            availability_status = 'available',
+            missing_scan_count = 0,
+            missing_since = NULL
+        ";
+        if ($hasFileMtime) {
+            $updatePart .= ", file_mtime = VALUES(file_mtime)";
+        }
+
+        $params = [
             'id' => $ep['id'],
             'show_id' => $ep['show_id'],
             'season_number' => $ep['season_number'],
@@ -387,7 +452,22 @@ class DbHelper {
             'intro_end' => $ep['intro_end'] ?? null,
             'outro_start' => $ep['outro_start'] ?? null,
             'chapters' => json_encode($ep['chapters'] ?? [])
-        ]);
+        ];
+        if ($hasCreatedAt) {
+            $params['created_at'] = $ep['created_at'];
+        }
+        if ($hasFileMtime) {
+            $params['file_mtime'] = (int)$ep['file_mtime'];
+        }
+
+        try {
+            $updateWithAvail = $updatePart . ", availability_status = 'available', missing_scan_count = 0, missing_since = NULL";
+            $stmt = $db->prepare("INSERT INTO episodes ({$cols}) VALUES ({$vals}) ON DUPLICATE KEY UPDATE {$updateWithAvail}");
+            $stmt->execute($params);
+        } catch (Throwable $e) {
+            $stmt = $db->prepare("INSERT INTO episodes ({$cols}) VALUES ({$vals}) ON DUPLICATE KEY UPDATE {$updatePart}");
+            $stmt->execute($params);
+        }
     }
 
     public static function getRandomShow(bool $isKids = false): ?array {
@@ -499,12 +579,13 @@ class DbHelper {
 
         $stmt = $db->prepare("
             SELECT e.id as episode_id, e.season_number, e.episode_number, e.title as episode_title, 
+                   e.created_at as episode_created_at,
                    s.id as show_id, s.title as show_title, s.poster_path, s.created_at as show_created_at
             FROM favorites f
             JOIN shows s ON f.show_id = s.id
             JOIN episodes e ON e.show_id = s.id
             WHERE f.username = :u AND f.profile_name = :p
-            ORDER BY e.season_number DESC, e.episode_number DESC
+            ORDER BY COALESCE(e.created_at, s.created_at) DESC, e.season_number DESC, e.episode_number DESC
             LIMIT 20
         ");
         $stmt->execute(['u' => $username, 'p' => $profile]);
@@ -514,7 +595,7 @@ class DbHelper {
         $notifications = [];
 
         foreach ($rows as $r) {
-            $createdAt = !empty($r['show_created_at']) ? $r['show_created_at'] : '2026-01-01 00:00:00';
+            $createdAt = !empty($r['episode_created_at']) ? $r['episode_created_at'] : (!empty($r['show_created_at']) ? $r['show_created_at'] : '2026-01-01 00:00:00');
             $isUnread = false;
             if ($lastSeenAt === null) {
                 $isUnread = true;
@@ -550,14 +631,12 @@ class DbHelper {
 
     public static function markNotificationsSeen(string $username, string $profile = 'Principal'): void {
         $db = Database::getConnection();
-        try {
-            $stmt = $db->prepare("
-                INSERT INTO user_preferences (username, profile_name, notifications_last_seen_at)
-                VALUES (:u, :p, CURRENT_TIMESTAMP)
-                ON DUPLICATE KEY UPDATE notifications_last_seen_at = CURRENT_TIMESTAMP
-            ");
-            $stmt->execute(['u' => $username, 'p' => $profile]);
-        } catch (Throwable $e) {}
+        $stmt = $db->prepare("
+            INSERT INTO user_preferences (username, profile_name, notifications_last_seen_at)
+            VALUES (:u, :p, CURRENT_TIMESTAMP)
+            ON DUPLICATE KEY UPDATE notifications_last_seen_at = CURRENT_TIMESTAMP
+        ");
+        $stmt->execute(['u' => $username, 'p' => $profile]);
     }
 
     public static function registerUser(string $username, string $password, string $role = 'user'): ?array {

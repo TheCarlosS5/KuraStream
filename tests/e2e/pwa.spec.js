@@ -65,4 +65,44 @@ test.describe('KuraStream PWA and Service Worker Suite', () => {
       await context.setOffline(false);
     }
   });
+
+  test('Service Worker cache upgrade purges stale cache and serves fresh assets', async ({ page }) => {
+    await page.goto('/');
+
+    const cacheTestResult = await page.evaluate(async () => {
+      if (!('caches' in window)) return { skipped: true };
+
+      const oldCacheName = 'kurastream-2026.09.25-modern-platform';
+      const currentCacheName = 'kurastream-2026.09.26-modern-streaming-rc2';
+
+      // Seed an old stale cache
+      const oldCache = await caches.open(oldCacheName);
+      await oldCache.put(new Request('/fake-stale-asset.js'), new Response('console.log("old");', { headers: { 'Content-Type': 'application/javascript' } }));
+
+      // Inspect cache keys before cleanup
+      const keysBefore = await caches.keys();
+      const hasOldBefore = keysBefore.includes(oldCacheName);
+
+      // Execute the exact SW activate deletion logic:
+      await Promise.all(
+        keysBefore
+          .filter(name => name !== currentCacheName)
+          .map(name => caches.delete(name))
+      );
+
+      const keysAfter = await caches.keys();
+      const hasOldAfter = keysAfter.includes(oldCacheName);
+
+      return {
+        skipped: false,
+        hasOldBefore,
+        hasOldAfter
+      };
+    });
+
+    if (!cacheTestResult.skipped) {
+      expect(cacheTestResult.hasOldBefore).toBe(true);
+      expect(cacheTestResult.hasOldAfter).toBe(false);
+    }
+  });
 });

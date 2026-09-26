@@ -34,6 +34,9 @@ class PartyManager {
     this.audioContext = null;
     this.soundsMuted = localStorage.getItem('party_sounds_muted') === 'true';
     this.userBaseRate = 1.0;
+    this.sseReconnectTimer = null;
+    this.sseRotationTimer = null;
+    this.sseFailures = 0;
   }
 
   initAudioContext() {
@@ -333,11 +336,19 @@ class PartyManager {
   }
 
   async connectEventStream(roomId) {
-    this.disconnectEventStream();
+    this.disconnectEventStream(false);
+
+    if (!this.isInRoom()) return;
 
     let sseTicket = null;
     if (this.memberId && this.memberToken) {
       sseTicket = await this.getSseTicket(roomId);
+    }
+
+    if (!sseTicket && this.sseFailures >= 2) {
+      console.warn('[WatchParty] No se pudo obtener nuevo ticket SSE, pasando a polling de contingencia.');
+      this.startPollingFallback(roomId);
+      return;
     }
 
     let streamUrl = `/api/party/stream?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
@@ -347,7 +358,20 @@ class PartyManager {
     try {
       this.eventSource = new EventSource(streamUrl);
 
+      this.eventSource.onopen = () => {
+        this.sseFailures = 0;
+        if (this.pollInterval) {
+          clearInterval(this.pollInterval);
+          this.pollInterval = null;
+        }
+      };
+
       this.eventSource.addEventListener('init', (e) => {
+        this.sseFailures = 0;
+        if (this.pollInterval) {
+          clearInterval(this.pollInterval);
+          this.pollInterval = null;
+        }
         const data = JSON.parse(e.data);
         if (data.room) {
           this.activeRoom = data.room;
@@ -401,9 +425,33 @@ class PartyManager {
       });
 
       this.eventSource.onerror = () => {
-        // Fallback to polling if SSE fails or disconnects
-        this.startPollingFallback(roomId);
+        // Immediately close dead connection to prevent browser auto-reconnect with stale ticket
+        if (this.eventSource) {
+          this.eventSource.close();
+          this.eventSource = null;
+        }
+
+        if (!this.isInRoom()) return;
+
+        this.sseFailures++;
+        if (this.sseFailures > 3) {
+          this.startPollingFallback(roomId);
+        } else {
+          if (this.sseReconnectTimer) clearTimeout(this.sseReconnectTimer);
+          this.sseReconnectTimer = setTimeout(() => {
+            this.connectEventStream(roomId);
+          }, 1500);
+        }
       };
+
+      // Proactive ticket rotation: SSE ticket has 60s TTL. Proactively renew connection at 45s
+      if (this.sseRotationTimer) clearTimeout(this.sseRotationTimer);
+      this.sseRotationTimer = setTimeout(() => {
+        if (this.isInRoom() && this.eventSource) {
+          this.connectEventStream(roomId);
+        }
+      }, 45000);
+
     } catch (err) {
       console.warn('[WatchParty] SSE connection failed, starting fallback polling:', err);
       this.startPollingFallback(roomId);
@@ -462,7 +510,15 @@ class PartyManager {
     }, 1500);
   }
 
-  disconnectEventStream() {
+  disconnectEventStream(resetFailures = true) {
+    if (this.sseReconnectTimer) {
+      clearTimeout(this.sseReconnectTimer);
+      this.sseReconnectTimer = null;
+    }
+    if (this.sseRotationTimer) {
+      clearTimeout(this.sseRotationTimer);
+      this.sseRotationTimer = null;
+    }
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
@@ -470,6 +526,9 @@ class PartyManager {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
+    }
+    if (resetFailures) {
+      this.sseFailures = 0;
     }
   }
 
@@ -505,9 +564,9 @@ class PartyManager {
     if (!newRoom) return;
     if (this.activeRoom && this.activeRoom.is_playing !== newRoom.is_playing) {
       if (newRoom.is_playing) {
-        this.triggerToastNotification("▶ El anfitrión ha reanudado el video");
+        this.triggerToastNotification("El anfitrión ha reanudado el video");
       } else {
-        this.triggerToastNotification("⏸ El anfitrión ha pausado el video");
+        this.triggerToastNotification("El anfitrión ha pausado el video");
       }
     }
     this.activeRoom = newRoom;

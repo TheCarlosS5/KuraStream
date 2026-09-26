@@ -32,7 +32,7 @@ graph TD
 ## Core Capabilities
 
 ### 1. High-Performance Video Player
-- **On-the-Fly Remuxing and Transcoding**: Instant fragmented MP4 streaming (`/api/stream/{id}`) with AAC audio downmix, managed software transcoding, and strict worker concurrency limits to prevent host saturation.
+- **On-the-Fly Remuxing and Transcoding**: Instant fragmented MP4 streaming (`/api/stream/{id}`) with optional stereo downmix, managed software transcoding, and strict worker concurrency limits to prevent host saturation.
 - **WebAssembly Subtitle Rendering**: Pixel-perfect canvas rendering for advanced `.ass` and `.ssa` subtitle styles, karaoke effects, and custom fonts using WebAssembly libass.
 - **Multi-Track Audio and Subtitle Management**: Instant switching between original audio, localized dubs, and multiple subtitle streams with persistent user preferences.
 - **Chapters and Smart Skip**: Support for opening/ending timestamps with automated skip prompts and progress tracking.
@@ -47,7 +47,7 @@ graph TD
 ### 3. Multi-User Profiles and Parental Controls
 - **Independent User Profiles**: Netflix-style profile selector supporting unique watch history, continue watching queues, and custom avatars under a single account.
 - **PIN Protection and IDOR Elimination**: Cryptographic bcrypt PIN verification and ownership checks on profile mutation and deletion.
-- **Server-Side Kids Mode**: Enforcement of content ratings (filtering adult titles, TV-MA/18+ classifications, and adult genres) directly within SQL queries and streaming endpoints.
+- **Server-Side Kids Mode**: Enforcement of content ratings (filtering adult titles, TV-MA/18+ classifications, and adult genres) within application-side PHP controllers and streaming capability gates.
 
 ### 4. Automated Catalog & Metadata Scraping
 - **Local Filesystem Scanner**: Scans media libraries (`Anime/` and `Movies/`), extracting codecs, resolutions, and audio channels using FFprobe.
@@ -176,7 +176,7 @@ KuraStream/
 │   └── services/                 # Scrapers, migration manager, and transcode limiter
 ├── tests/                        # Unified automated test suite (PHP & Node.js)
 ├── .github/workflows/            # CI workflows (Security audit & test automation)
-├── Dockerfile                    # Unprivileged multi-stage container build
+├── Dockerfile                    # Unprivileged single-stage container build
 └── docker-compose.yml            # Docker Compose service definition
 ```
 
@@ -185,8 +185,8 @@ KuraStream/
 ## Security Architecture
 
 - **Unprivileged Containers**: Docker containers run under a non-root `kurastream` user account.
-- **Strict Content Security Policy**: CSP, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and strict `SameSite=Lax` HTTP-only cookies are enforced on all routes.
-- **Key-Based Remote Operations**: Deployment scripts (`deploy_remote.py`) strictly require SSH key authentication with `known_hosts` fingerprint verification.
+- **Content Security Policy & Hardening**: Standard CSP with scoped script-src, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `SameSite=Lax` HTTP-only cookies are enforced on all routes.
+- **Key-Based Remote Operations**: Deployment scripts (`deploy_remote.py`) strictly require SSH key authentication with TOFU (Trust On First Use via accept-new) host verification.
 - **Path Traversal Guards**: Strict `realpath()` boundary checks prevent access outside designated library and staging roots.
 - **Secret Scanning**: Automated CI scanning via Gitleaks verifies no credentials, API keys, or private keys are committed.
 - **Notice**: Any credentials or access keys committed prior to version 2.0 must be rotated immediately in external systems.
@@ -216,4 +216,4 @@ php tests/run_all_tests.php
 
 ## License
 
-Personal and home server use only. All rights reserved.
+No software license file is currently provided. All rights reserved unless otherwise stated by the owner.

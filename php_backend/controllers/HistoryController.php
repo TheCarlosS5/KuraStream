@@ -201,8 +201,12 @@ class HistoryController {
 
     public static function markNotificationsSeen(): void {
         list($username, $profile) = self::resolveUserAndProfile();
-        DbHelper::markNotificationsSeen($username, $profile);
-        jsonResponse(['success' => true]);
+        try {
+            DbHelper::markNotificationsSeen($username, $profile);
+            jsonResponse(['success' => true]);
+        } catch (Throwable $e) {
+            jsonError('Error persistiendo estado de notificaciones: ' . $e->getMessage(), 500);
+        }
     }
 }
 

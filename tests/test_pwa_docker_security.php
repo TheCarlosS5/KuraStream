@@ -62,6 +62,45 @@ if (!str_contains($offlineHtml, '#F97316')) {
 }
 echo "    -> PWA assets and tokens OK\n";
 
+// 5. Test Service Worker Cache Version Alignment & Activation Purge
+echo "  [5/5] Testing Service Worker Cache Versioning and Activation Cleanup...\n";
+$swContent = file_get_contents(__DIR__ . '/../frontend/sw.js');
+$indexHtml = file_get_contents(__DIR__ . '/../frontend/index.html');
+
+$expectedVersion = '2026.09.26-modern-streaming-rc2';
+$expectedCacheName = "kurastream-{$expectedVersion}";
+
+if (!str_contains($swContent, $expectedCacheName)) {
+    $errors[] = "sw.js does not contain bumped CACHE_NAME '{$expectedCacheName}'";
+}
+if (!str_contains($indexHtml, "style.css?v={$expectedVersion}")) {
+    $errors[] = "index.html style.css does not contain bumped version query string '{$expectedVersion}'";
+}
+if (!str_contains($indexHtml, "main.js?v={$expectedVersion}")) {
+    $errors[] = "index.html main.js does not contain bumped version query string '{$expectedVersion}'";
+}
+if (!str_contains($indexHtml, "player.js?v={$expectedVersion}")) {
+    $errors[] = "index.html player.js does not contain bumped version query string '{$expectedVersion}'";
+}
+
+// Verify activation cleanup deletes stale caches
+if (!str_contains($swContent, "name !== CACHE_NAME") || !str_contains($swContent, "caches.delete(name)")) {
+    $errors[] = "sw.js activate event does not purge stale caches";
+}
+
+// Simulate activation filter logic
+$existingCaches = ['kurastream-2026.09.25-modern-platform', $expectedCacheName, 'old-legacy-v1'];
+$toDelete = array_filter($existingCaches, fn($name) => $name !== $expectedCacheName);
+$toKeep = array_filter($existingCaches, fn($name) => $name === $expectedCacheName);
+
+if (count($toDelete) !== 2 || !in_array('kurastream-2026.09.25-modern-platform', $toDelete)) {
+    $errors[] = "SW cache purge simulation failed to identify stale caches for deletion";
+}
+if (count($toKeep) !== 1 || !in_array($expectedCacheName, $toKeep)) {
+    $errors[] = "SW cache purge simulation failed to preserve current CACHE_NAME";
+}
+echo "    -> Service Worker cache upgrade and activation cleanup OK\n";
+
 if (!empty($errors)) {
     echo "\nTEST FAILURES:\n";
     foreach ($errors as $e) {

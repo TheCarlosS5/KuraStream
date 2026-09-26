@@ -402,8 +402,7 @@ export async function initPlayer(rawEpisodeId) {
   // Initialize Timeline Seek Scrub Preview
   if (progressBar && video) {
     if (scrubPreviewInstance) scrubPreviewInstance.destroy();
-    const filePath = (currentEpisodeData && currentEpisodeData.filepath) ? currentEpisodeData.filepath.toLowerCase() : '';
-    const isDirectPlayable = filePath.endsWith('.mp4') || filePath.endsWith('.webm');
+    const isDirectPlayable = !!(currentEpisodeData && (currentEpisodeData.direct_playable || currentEpisodeData.container === 'mp4' || currentEpisodeData.container === 'webm'));
     scrubPreviewInstance = initScrubPreview(progressBar, video, {
       canDirectPlay: isDirectPlayable,
       duration: currentEpisodeData ? currentEpisodeData.duration : null
@@ -1761,7 +1760,11 @@ function setupWatchPartyIntegration() {
     if (codeDisplay) codeDisplay.textContent = room.id;
     if (usersBadge) usersBadge.innerHTML = `<i data-lucide="user"></i> ${room.participants_count || 1}`;
     if (hostBadge) {
-      hostBadge.textContent = partyManager.isHost() ? '👑 Anfitrión' : `Host: ${room.host_user}`;
+      if (partyManager.isHost()) {
+        hostBadge.innerHTML = `<i data-lucide="crown"></i> Anfitrión`;
+      } else {
+        hostBadge.textContent = `Host: ${room.host_user}`;
+      }
     }
 
     if (window.lucide && typeof window.lucide.createIcons === 'function') {

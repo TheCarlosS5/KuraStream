@@ -172,9 +172,9 @@ function ensurePopoverStyles() {
       color: #000000;
     }
 
-    .popover-btn-play i:empty::before { content: "▶ "; font-style: normal; font-size: 0.8rem; }
+    .popover-btn-play i:empty::before { content: ""; display: inline-block; width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid currentColor; margin-right: 2px; }
     .popover-btn-list i:empty::before { content: "+"; font-style: normal; font-size: 1.1rem; line-height: 1; }
-    .popover-btn-info i:empty::before { content: "ℹ"; font-style: normal; font-size: 1rem; line-height: 1; }
+    .popover-btn-info i:empty::before { content: "i"; font-style: normal; font-weight: bold; font-family: sans-serif; font-size: 0.9rem; line-height: 1; }
 
     .popover-btn-play svg,
     .popover-btn-list svg,

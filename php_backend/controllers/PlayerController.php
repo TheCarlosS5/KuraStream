@@ -160,9 +160,7 @@ class PlayerController {
         if (!empty($ep['show_id'])) {
             self::checkKidsModeAccess($ep['show_id']);
         }
-        $ep['stream_url'] = "/api/stream/" . urlencode($ep['id']);
-        unset($ep['filepath']);
-        jsonResponse($ep);
+        jsonResponse(DbHelper::serializeEpisodeForClient($ep));
     }
 
     public static function saveTimestamps(string $id): void {

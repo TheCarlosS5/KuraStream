@@ -132,7 +132,8 @@ test('new service worker installs exact versioned shell assets and retires old c
       checkModule(dependency.pathname + dependency.search);
     }
   };
-  checkModule('/js/main.js?v=2026.09.25-modern-platform');
+  const mainScriptMatch = html.match(/src="(\/js\/main\.js\?[^"]+)"/);
+  checkModule(mainScriptMatch ? mainScriptMatch[1] : '/js/main.js?v=2026.09.26-modern-streaming-rc2');
   handlers.activate({ waitUntil: promise => { done = promise; } });
   await done;
   assert.deepEqual(removed, ['kurastream-v2.0']);

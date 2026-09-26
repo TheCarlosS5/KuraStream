@@ -1,13 +1,13 @@
-const CACHE_NAME = 'kurastream-2026.09.25-modern-platform';
+const CACHE_NAME = 'kurastream-2026.09.26-modern-streaming-rc2';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
   '/style.css',
-  '/style.css?v=2026.09.25-modern-platform',
+  '/style.css?v=2026.09.26-modern-streaming-rc2',
   '/js/main.js',
-  '/js/main.js?v=2026.09.25-modern-platform',
+  '/js/main.js?v=2026.09.26-modern-streaming-rc2',
   '/player.js',
-  '/player.js?v=2026.09.25-modern-platform',
+  '/player.js?v=2026.09.26-modern-streaming-rc2',
   '/js/core/router.js',
   '/js/core/auth.js',
   '/js/core/api.js',

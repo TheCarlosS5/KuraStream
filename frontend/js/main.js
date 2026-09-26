@@ -7,7 +7,7 @@ import { appRouter } from './core/router.js';
 import { AuthManager } from './core/auth.js';
 import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
-import { initPlayer, destroyPlayer, getShowIdFromEpisodeId } from '../player.js?v=2026.09.25-modern-platform';
+import { initPlayer, destroyPlayer, getShowIdFromEpisodeId } from '../player.js?v=2026.09.26-modern-streaming-rc2';
 import { partyManager } from './modules/party.js';
 import { updateActiveNavHighlight, initHeaderDropdowns, initAdminSidebar } from './modules/navigation.js';
 import { initCardPopovers } from './modules/card_popover_preview.js';
@@ -602,7 +602,7 @@ export async function loadPopularSidebar(currentShowId) {
           <img src="${escapeHtmlAttribute(catalogueImageUrl(s.poster_path || ''))}" alt="${escapeHtmlAttribute(s.title)}" style="width: 50px; height: 70px; object-fit: cover; border-radius: 4px;">
           <div>
             <h4 style="font-size: 0.85rem; margin: 0 0 4px 0;">${escapeHtml(s.title)}</h4>
-            <span style="font-size: 0.75rem; color: var(--accent-color);">★ ${s.rating ? Number(s.rating).toFixed(1) : '8.5'}</span>
+            <span style="font-size: 0.75rem; color: var(--accent-color); display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="star" style="width: 12px; height: 12px;"></i> ${s.rating ? Number(s.rating).toFixed(1) : '8.5'}</span>
           </div>
         </a>
       `).join('')}
@@ -782,8 +782,12 @@ export async function loadNotifications() {
         const poster = item.poster_path || `/api/placeholder-poster?title=${encodeURIComponent(title)}`;
         const targetHash = item.episode_id ? `#/player/${encodeURIComponent(item.episode_id)}` : `#/show/${encodeURIComponent(item.show_id)}`;
 
+        const isUnread = !!item.is_unread;
+        const readClass = isUnread ? '' : ' notification-item-read';
+        const opacityStyle = isUnread ? '' : ' style="opacity: 0.65;"';
+
         return `
-          <a href="${escapeHtmlAttribute(targetHash)}" class="notification-item" data-show-id="${escapeHtmlAttribute(item.show_id || '')}" data-episode-id="${escapeHtmlAttribute(item.episode_id || '')}">
+          <a href="${escapeHtmlAttribute(targetHash)}" class="notification-item${readClass}"${opacityStyle} data-show-id="${escapeHtmlAttribute(item.show_id || '')}" data-episode-id="${escapeHtmlAttribute(item.episode_id || '')}">
             <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(title)}" class="notification-poster" onerror="this.onerror=null;this.src='/api/placeholder-poster?title=Show';">
             <div class="notification-info">
               <span class="notification-title">${escapeHtml(title)}</span>
@@ -1240,30 +1244,40 @@ document.addEventListener('DOMContentLoaded', () => {
   setupWatchPartyModal();
   initHeaderDropdowns();
   setupRouter();
+  loadNotifications();
 
-  // Notifications Bell
-  const notifTrigger = document.getElementById('btn-notifications-trigger');
-  const notifDropdown = document.getElementById('notifications-dropdown');
-  if (notifTrigger && notifDropdown) {
-    notifTrigger.onclick = async (e) => {
+  // Notifications Mark Read Action
+  const btnMarkNotificationsRead = document.getElementById('btn-mark-notifications-read');
+
+  if (btnMarkNotificationsRead) {
+    btnMarkNotificationsRead.onclick = async (e) => {
       e.stopPropagation();
-      const isVisible = notifDropdown.style.display !== 'none';
-      notifDropdown.style.display = isVisible ? 'none' : 'block';
-      if (!isVisible) {
-        await loadNotifications();
-        try {
-          const { activeUser, profileName } = getUserAndProfile();
-          const token = (typeof AuthManager !== 'undefined' && typeof AuthManager.getToken === 'function') ? AuthManager.getToken() : null;
-          const headers = { 'Content-Type': 'application/json' };
-          if (token) headers['Authorization'] = `Bearer ${token}`;
-          await fetch('/api/notifications/seen', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ username: activeUser, profile_name: profileName })
-          });
+      try {
+        const { activeUser, profileName } = getUserAndProfile();
+        const token = (typeof AuthManager !== 'undefined' && typeof AuthManager.getToken === 'function') ? AuthManager.getToken() : null;
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch('/api/notifications/seen', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ username: activeUser, profile_name: profileName })
+        });
+        if (res.ok) {
           const badge = document.getElementById('notification-badge');
-          if (badge) badge.style.display = 'none';
-        } catch (e) {}
+          if (badge) {
+            badge.textContent = '0';
+            badge.style.display = 'none';
+          }
+          const list = document.getElementById('notifications-list');
+          if (list) {
+            list.querySelectorAll('.notification-item').forEach(item => {
+              item.classList.add('notification-item-read');
+              item.style.opacity = '0.65';
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error marking notifications seen:', err);
       }
     };
   }

@@ -38,10 +38,10 @@ const SPEED_RATES_DEFAULT = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const BOOST_LEVELS_DEFAULT = [100, 125, 150, 175, 200];
 
 const ICON_SYMBOL_MAP = {
-  play: '▶',
-  pause: '⏸',
-  rewind: '⏪',
-  'fast-forward': '⏩',
+  play: 'PLAY',
+  pause: 'PAUSE',
+  rewind: 'REW',
+  'fast-forward': 'FF',
   'volume-high': 'VOL',
   'volume-2': 'VOL',
   'volume-low': 'VOL',
@@ -547,7 +547,7 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
     <div class="shortcuts-modal-dialog">
       <div class="shortcuts-modal-header">
         <h3 class="shortcuts-modal-title" id="kura-shortcuts-title">
-          <span>⌨️</span> Atajos de Teclado
+          <i data-lucide="keyboard"></i> Atajos de Teclado
         </h3>
         <button type="button" class="shortcuts-modal-close" aria-label="Cerrar">&times;</button>
       </div>
@@ -680,13 +680,13 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
           if (playPromise !== undefined && typeof playPromise.catch === 'function') {
             playPromise.catch(() => {});
           }
-          showHud('▶', 'Reproducir');
+          showHud('PLAY', 'Reproducir');
         } else {
           videoElement.pause();
-          showHud('⏸', 'Pausa');
+          showHud('PAUSE', 'Pausa');
         }
       } else {
-        showHud('▶', 'Reproducir');
+        showHud('PLAY', 'Reproducir');
       }
       return;
     }

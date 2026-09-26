@@ -2,23 +2,24 @@
 require_once __DIR__ . '/../config.php';
 
 class FfmpegScanner {
-    public static function parseFrameRate(string $value): float {
+    public static function parseFrameRate(?string $value): float {
+        if ($value === null) return 0.0;
         $value = trim($value);
-        if ($value === '') return 24.0;
+        if ($value === '') return 0.0;
 
         if (!preg_match('/^([+]?(?:\d+(?:\.\d*)?|\.\d+))(?:\/([+]?(?:\d+(?:\.\d*)?|\.\d+)))?$/', $value, $matches)) {
-            return 24.0;
+            return 0.0;
         }
 
         $numerator = (float)$matches[1];
         $denominator = isset($matches[2]) ? (float)$matches[2] : 1.0;
-        if ($numerator <= 0 || $denominator <= 0) return 24.0;
+        if ($numerator <= 0 || $denominator <= 0) return 0.0;
 
         $fps = $numerator / $denominator;
-        if (!is_finite($fps) || $fps <= 0) return 24.0;
+        if (!is_finite($fps) || $fps <= 0) return 0.0;
 
         $fps = round($fps, 3);
-        return $fps > 0 ? $fps : 24.0;
+        return $fps > 0 ? $fps : 0.0;
     }
 
     public static function probeVideo(string $filepath): array {
@@ -72,7 +73,7 @@ class FfmpegScanner {
             if ($type === 'audio') {
                 $audioTracks[] = [
                     'index' => $s['index'] ?? $audioIdx,
-                    'codec' => $s['codec_name'] ?? 'aac',
+                    'codec' => $s['codec_name'] ?? 'unknown',
                     'language' => $lang,
                     'title' => $title
                 ];
@@ -80,7 +81,7 @@ class FfmpegScanner {
             } else if ($type === 'subtitle') {
                 $subtitleTracks[] = [
                     'index' => $s['index'] ?? $subIdx,
-                    'codec' => $s['codec_name'] ?? 'ass',
+                    'codec' => $s['codec_name'] ?? 'unknown',
                     'language' => $lang,
                     'title' => $title
                 ];

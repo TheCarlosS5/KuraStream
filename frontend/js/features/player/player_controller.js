@@ -7,7 +7,7 @@
 import { api } from '../../core/api.js';
 import { appState } from '../../core/state.js';
 import { renderQRCodeToElement } from './qr_generator.js';
-import { initPlayer, destroyPlayer } from '../../../player.js?v=2026.09.25-modern-platform';
+import { initPlayer, destroyPlayer } from '../../../player.js?v=2026.09.26-modern-streaming-rc2';
 
 export class PlayerController {
   constructor() {

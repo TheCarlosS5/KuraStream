@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../middleware/RateLimiter.php';
+require_once __DIR__ . '/ShowController.php';
 
 class PartyController {
 
@@ -129,11 +130,32 @@ class PartyController {
     public static function createRoom(): void {
         RateLimiter::enforce('party_create', 10, 60);
         $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+        $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
 
-        $user = self::requireAuthenticatedUser();
+        $profilePayload = AuthMiddleware::requireProfile();
+        $user = $profilePayload['username'];
+        $isKids = !empty($profilePayload['is_kids']);
+
         $name = !empty($data['name']) ? trim($data['name']) : ("Sala de " . $user);
-        $episodeId = $data['episode_id'] ?? '';
+        $episodeId = trim($data['episode_id'] ?? '');
+        if (empty($episodeId)) {
+            jsonError('episode_id requerido para crear una sala', 400);
+        }
+
+        $ep = DbHelper::getEpisode($episodeId);
+        if (!$ep) {
+            jsonError('Episodio no encontrado', 404);
+        }
+
+        $show = DbHelper::getShow($ep['show_id']);
+        if (!$show) {
+            jsonError('Show no encontrado', 404);
+        }
+
+        if ($isKids && ShowController::isAdultOrMaturityRestricted($show)) {
+            jsonError('Contenido restringido por el perfil infantil activo', 403);
+        }
+
         $isPublic = !empty($data['is_public']) ? 1 : 0;
         $allowGuestControls = !empty($data['allow_guest_controls']) ? 1 : 0;
 
@@ -191,7 +213,7 @@ class PartyController {
     public static function joinRoom(): void {
         RateLimiter::enforce('party_join', 30, 60);
         $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+        $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
 
         $roomId = strtoupper(trim($data['room_id'] ?? ($_GET['room_id'] ?? '')));
         $user = self::resolveUser($data);
@@ -307,7 +329,7 @@ class PartyController {
     public static function syncPlayback(): void {
         RateLimiter::enforce('party_sync', 120, 60);
         $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+        $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
 
         $roomId = strtoupper(trim($data['room_id'] ?? ''));
         if (empty($roomId)) {
@@ -337,10 +359,36 @@ class PartyController {
             }
         }
 
+        $requestedEpisodeId = !empty($data['episode_id']) ? trim($data['episode_id']) : $room['episode_id'];
+        $action = $data['action'] ?? null;
+
+        if ($action === 'episode_change' && !$isHost) {
+            jsonError('Solo el anfitrión puede cambiar el episodio de la sala', 403);
+        }
+
+        if ($requestedEpisodeId !== $room['episode_id']) {
+            if (!$isHost) {
+                jsonError('Solo el anfitrión puede cambiar el episodio de la sala', 403);
+            }
+            $targetEp = DbHelper::getEpisode($requestedEpisodeId);
+            if (!$targetEp) {
+                jsonError('Episodio no encontrado', 404);
+            }
+            $targetShow = DbHelper::getShow($targetEp['show_id']);
+            if (!$targetShow) {
+                jsonError('Show no encontrado', 404);
+            }
+            $isKidsHost = ShowController::isKidsProfileActive();
+            if ($isKidsHost && ShowController::isAdultOrMaturityRestricted($targetShow)) {
+                jsonError('Contenido restringido por el perfil infantil activo', 403);
+            }
+            $episodeId = $requestedEpisodeId;
+        } else {
+            $episodeId = $room['episode_id'];
+        }
+
         $isPlaying = isset($data['is_playing']) ? (bool)$data['is_playing'] : (bool)$room['is_playing'];
         $currentTime = isset($data['current_time']) ? (float)$data['current_time'] : (float)$room['current_time'];
-        $episodeId = !empty($data['episode_id']) ? trim($data['episode_id']) : $room['episode_id'];
-        $action = $data['action'] ?? null;
 
         DbHelper::updatePartyPlayback($roomId, $isPlaying, $currentTime, $episodeId);
 
@@ -349,7 +397,7 @@ class PartyController {
             $min = floor($currentTime / 60);
             $sec = str_pad((int)($currentTime % 60), 2, '0', STR_PAD_LEFT);
             DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} saltó a {$min}:{$sec}", 'system');
-        } elseif ($action === 'episode_change') {
+        } elseif ($action === 'episode_change' || $requestedEpisodeId !== $room['episode_id']) {
             DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} cambió de episodio", 'system');
         }
 
@@ -364,7 +412,7 @@ class PartyController {
     public static function sendMessage(): void {
         RateLimiter::enforce('party_msg', 20, 60);
         $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+        $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
 
         $roomId = strtoupper(trim($data['room_id'] ?? ''));
         if (empty($roomId)) {
@@ -608,7 +656,7 @@ class PartyController {
     public static function refreshStreamTicket(): void {
         RateLimiter::enforce('party_ticket', 60, 60);
         $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+        $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
 
         $roomId = strtoupper(trim($data['room_id'] ?? ($_GET['room_id'] ?? '')));
         if (empty($roomId)) {
@@ -646,7 +694,7 @@ class PartyController {
     public static function getSseTicket(): void {
         RateLimiter::enforce('party_ticket', 60, 60);
         $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+        $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
 
         $roomId = strtoupper(trim($data['room_id'] ?? ($_GET['room_id'] ?? '')));
         if (empty($roomId)) {

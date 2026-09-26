@@ -90,7 +90,8 @@ class ShowController {
                 jsonError('Contenido restringido por el perfil infantil activo', 403);
             }
 
-            $episodes = DbHelper::getEpisodesForShow($show['id']);
+            $rawEpisodes = DbHelper::getEpisodesForShow($show['id']);
+            $episodes = array_map([DbHelper::class, 'serializeEpisodeForClient'], $rawEpisodes);
             
             $seasons = [];
             foreach ($episodes as $ep) {

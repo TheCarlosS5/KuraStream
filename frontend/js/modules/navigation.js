@@ -139,6 +139,9 @@ export function initHeaderDropdowns() {
       } else {
         notifDropdown.style.display = 'flex';
         notifDropdown.classList.add('show');
+        if (typeof window.loadNotifications === 'function') {
+          window.loadNotifications();
+        }
         if (exploreMenu) {
           exploreMenu.classList.remove('show');
           if (exploreDropdown) exploreDropdown.classList.remove('open');

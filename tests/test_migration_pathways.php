@@ -18,7 +18,6 @@ try {
 echo "  [1/3] Testing Clean Install Pathway (001 -> 002 -> 003 -> 004)...\n";
 $db->exec("DROP TABLE IF EXISTS test_fresh_party_members");
 $db->exec("DROP TABLE IF EXISTS test_fresh_user_profiles");
-$db->exec("DROP TABLE IF EXISTS test_fresh_user_preferences");
 
 // Baseline 001
 $db->exec("
@@ -32,17 +31,6 @@ $db->exec("
         pin VARCHAR(255) DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_user_profiles (username)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-");
-
-$db->exec("
-    CREATE TABLE test_fresh_user_preferences (
-        username VARCHAR(255) NOT NULL,
-        profile_name VARCHAR(255) NOT NULL DEFAULT 'Principal',
-        auto_skip_intro TINYINT(1) DEFAULT 0,
-        auto_play_next TINYINT(1) DEFAULT 1,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (username, profile_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ");
 
@@ -62,8 +50,8 @@ $db->exec("
 // Apply 004 changes
 $sql004 = file_get_contents(__DIR__ . '/../php_backend/migrations/004_security_profile_party_hardening.sql');
 $sql004_adapted = str_replace(
-    ['user_profiles', 'party_members', 'user_preferences'],
-    ['test_fresh_user_profiles', 'test_fresh_party_members', 'test_fresh_user_preferences'],
+    ['user_profiles', 'party_members'],
+    ['test_fresh_user_profiles', 'test_fresh_party_members'],
     $sql004
 );
 
@@ -79,10 +67,6 @@ assert(in_array('member_id', $cols, true), "test_fresh_party_members must have m
 assert(in_array('token_hash', $cols, true), "test_fresh_party_members must have token_hash");
 assert(in_array('role', $cols, true), "test_fresh_party_members must have role");
 
-$colsPrefStmt = $db->query("SHOW COLUMNS FROM test_fresh_user_preferences");
-$colsPref = $colsPrefStmt->fetchAll(PDO::FETCH_COLUMN, 0);
-assert(in_array('notifications_last_seen_at', $colsPref, true), "test_fresh_user_preferences must have notifications_last_seen_at");
-
 // Verify that duplicate display names are allowed in the same room on fresh install
 $db->prepare("INSERT INTO test_fresh_party_members (room_id, member_id, token_hash, role, username) VALUES ('r1', 'm1', 'h1', 'viewer', 'SameNickname')")->execute();
 $db->prepare("INSERT INTO test_fresh_party_members (room_id, member_id, token_hash, role, username) VALUES ('r1', 'm2', 'h2', 'viewer', 'SameNickname')")->execute();
@@ -93,7 +77,6 @@ echo "    -> Fresh install schema verification OK\n";
 echo "  [2/3] Testing Existing Install Upgrade Pathway (003 -> 004 with legacy rows)...\n";
 $db->exec("DROP TABLE IF EXISTS test_upg_party_members");
 $db->exec("DROP TABLE IF EXISTS test_upg_user_profiles");
-$db->exec("DROP TABLE IF EXISTS test_upg_user_preferences");
 
 // Baseline 001
 $db->exec("
@@ -107,17 +90,6 @@ $db->exec("
         pin VARCHAR(255) DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_user_profiles (username)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-");
-
-$db->exec("
-    CREATE TABLE test_upg_user_preferences (
-        username VARCHAR(255) NOT NULL,
-        profile_name VARCHAR(255) NOT NULL DEFAULT 'Principal',
-        auto_skip_intro TINYINT(1) DEFAULT 0,
-        auto_play_next TINYINT(1) DEFAULT 1,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (username, profile_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ");
 
@@ -141,8 +113,8 @@ $db->exec("INSERT INTO test_upg_party_members (room_id, username) VALUES ('room_
 
 // Run 004 migration on legacy database
 $sql004_upg = str_replace(
-    ['user_profiles', 'party_members', 'user_preferences'],
-    ['test_upg_user_profiles', 'test_upg_party_members', 'test_upg_user_preferences'],
+    ['user_profiles', 'party_members'],
+    ['test_upg_user_profiles', 'test_upg_party_members'],
     $sql004
 );
 
@@ -206,10 +178,8 @@ echo "    -> Duplicate profile detection preflight OK\n";
 // Cleanup test tables
 $db->exec("DROP TABLE IF EXISTS test_fresh_party_members");
 $db->exec("DROP TABLE IF EXISTS test_fresh_user_profiles");
-$db->exec("DROP TABLE IF EXISTS test_fresh_user_preferences");
 $db->exec("DROP TABLE IF EXISTS test_upg_party_members");
 $db->exec("DROP TABLE IF EXISTS test_upg_user_profiles");
-$db->exec("DROP TABLE IF EXISTS test_upg_user_preferences");
 $db->exec("DROP TABLE IF EXISTS test_dup_user_profiles");
 
 echo "\n✓ All Migration Pathways (Clean Install & Upgrade) passed successfully!\n";

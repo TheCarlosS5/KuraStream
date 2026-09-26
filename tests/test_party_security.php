@@ -32,11 +32,41 @@ ob_get_clean();
 assert($unauthCreateBlocked, "createRoom MUST require authentication (401)");
 echo "✓ createRoom requires authentication OK\n";
 
-// 2. Create Room with authenticated host
+// 2. Create Room with authenticated host and active profile
+DbHelper::saveShow([
+    'id' => 'show_party_sec',
+    'title' => 'Party Security Show',
+    'synopsis' => 'Test show for party security',
+    'rating' => 8.0,
+    'year' => 2024,
+    'age_rating' => 'PG-13',
+    'genres' => 'Action'
+]);
+DbHelper::saveEpisode([
+    'id' => 'ep_party_sec_01',
+    'show_id' => 'show_party_sec',
+    'season_number' => 1,
+    'episode_number' => 1,
+    'title' => 'Party Sec Ep 1',
+    'filepath' => '/media/party_sec_01.mp4',
+    'duration' => 1200
+]);
+
 $hostUser = 'host_' . substr(uniqid(), -4);
-$hostToken = AuthMiddleware::createToken(['username' => $hostUser, 'role' => 'user', 'exp' => time() + 3600]);
+$hostToken = AuthMiddleware::createToken([
+    'username' => $hostUser,
+    'role' => 'user',
+    'profile_id' => 101,
+    'profile_name' => 'HostProfile',
+    'is_kids' => false,
+    'exp' => time() + 3600
+]);
 $_COOKIE['kurastream_token'] = $hostToken;
 $_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$hostToken}";
+$GLOBALS['_MOCKED_JSON_INPUT'] = [
+    'episode_id' => 'ep_party_sec_01',
+    'name' => 'Security Party Room'
+];
 
 $roomCreated = false;
 $roomId = '';
@@ -50,6 +80,7 @@ try {
     }
 }
 ob_get_clean();
+$GLOBALS['_MOCKED_JSON_INPUT'] = [];
 assert($roomCreated && !empty($roomId), "Authenticated user should create room successfully");
 echo "✓ Authenticated user room creation OK (Room: {$roomId})\n";
 

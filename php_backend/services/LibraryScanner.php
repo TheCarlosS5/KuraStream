@@ -19,6 +19,15 @@ class LibraryScanner {
         }
 
         try {
+            if (!is_dir(LIBRARY_DIR) || !is_readable(LIBRARY_DIR)) {
+                return [
+                    'success' => false,
+                    'error' => 'LIBRARY_DIR no existe o no tiene permisos de lectura',
+                    'scanned_count' => 0,
+                    'shows_count' => 0
+                ];
+            }
+
             $categories = [
                 'Anime' => 'anime',
                 'Movies' => 'movie'
@@ -81,49 +90,53 @@ class LibraryScanner {
                         'status' => $dbShow['status'] ?? 'finished'
                     ];
 
-                    $tmdbId = 0;
+                    $tmdbId = (int)($dbShow['tmdb_id'] ?? 0);
                     // If show is missing metadata, attempt TMDB enrichment
                     if (empty($showData['synopsis']) || empty($showData['poster_path']) || empty($showData['director']) || empty($showData['writer']) || empty($showData['cast_members']) || $showData['cast_members'] === '[]') {
                         try {
-                            $tmdbResults = TmdbScraper::search($cleanTitle, $mediaType);
-                            if (!empty($tmdbResults)) {
-                                $first = $tmdbResults[0];
-                                $candTitle = $first['title'] ?? ($first['name'] ?? '');
-                                similar_text(mb_strtolower($cleanTitle), mb_strtolower($candTitle), $similarityPercent);
-                                // If multiple ambiguous candidates exist and similarity is below 65%, do not auto-bind
-                                if (!(count($tmdbResults) > 1 && $similarityPercent < 65.0)) {
-                                    $tmdbId = (int)$first['id'];
-                                    $details = TmdbScraper::getDetails($tmdbId, $mediaType);
-                                    if ($details) {
-                                        if (empty($showData['synopsis'])) $showData['synopsis'] = $details['synopsis'] ?? '';
-                                        if ($showData['rating'] == 0) $showData['rating'] = $details['rating'] ?? 0.0;
-                                        if ($showData['year'] === null) $showData['year'] = $details['year'] ?? null;
-                                        if (empty($showData['studio']) || in_array($showData['studio'], ['Nippon TV', 'Tokyo MX', 'TV Tokyo', 'AT-X', 'TBS'])) {
-                                            if (!empty($details['studio'])) $showData['studio'] = $details['studio'];
-                                        }
-                                        if (empty($showData['director']) && !empty($details['director'])) {
-                                            $showData['director'] = $details['director'];
-                                        }
-                                        if (empty($showData['writer']) && !empty($details['writer'])) {
-                                            $showData['writer'] = $details['writer'];
-                                        }
-                                        if (empty($showData['cast_members']) || $showData['cast_members'] === '[]') {
-                                            $showData['cast_members'] = $details['cast_members'] ?? [];
-                                        }
-                                        if (empty($showData['genres']) && !empty($details['genres'])) {
-                                            $showData['genres'] = $details['genres'];
-                                        }
-                                        if (empty($showData['trailer_key']) && !empty($details['trailer_key'])) {
-                                            $showData['trailer_key'] = $details['trailer_key'];
-                                        }
-                                        if (empty($showData['poster_path']) && !empty($details['poster_path'])) {
-                                            $showData['poster_path'] = $details['poster_path'];
-                                        }
-                                        if (empty($showData['backdrop_path']) && !empty($details['backdrop_path'])) {
-                                            $showData['backdrop_path'] = $details['backdrop_path'];
-                                        }
-                                        if (!empty($details['status'])) $showData['status'] = $details['status'];
+                            if ($tmdbId <= 0) {
+                                $tmdbResults = TmdbScraper::search($cleanTitle, $mediaType);
+                                if (!empty($tmdbResults)) {
+                                    $first = $tmdbResults[0];
+                                    $candTitle = $first['title'] ?? ($first['name'] ?? '');
+                                    similar_text(mb_strtolower($cleanTitle), mb_strtolower($candTitle), $similarityPercent);
+                                    // If multiple ambiguous candidates exist and similarity is below 65%, do not auto-bind
+                                    if (!(count($tmdbResults) > 1 && $similarityPercent < 65.0)) {
+                                        $tmdbId = (int)$first['id'];
                                     }
+                                }
+                            }
+                            if ($tmdbId > 0) {
+                                $details = TmdbScraper::getDetails($tmdbId, $mediaType);
+                                if ($details) {
+                                    if (empty($showData['synopsis'])) $showData['synopsis'] = $details['synopsis'] ?? '';
+                                    if ($showData['rating'] == 0) $showData['rating'] = $details['rating'] ?? 0.0;
+                                    if ($showData['year'] === null) $showData['year'] = $details['year'] ?? null;
+                                    if (empty($showData['studio']) || in_array($showData['studio'], ['Nippon TV', 'Tokyo MX', 'TV Tokyo', 'AT-X', 'TBS'])) {
+                                        if (!empty($details['studio'])) $showData['studio'] = $details['studio'];
+                                    }
+                                    if (empty($showData['director']) && !empty($details['director'])) {
+                                        $showData['director'] = $details['director'];
+                                    }
+                                    if (empty($showData['writer']) && !empty($details['writer'])) {
+                                        $showData['writer'] = $details['writer'];
+                                    }
+                                    if (empty($showData['cast_members']) || $showData['cast_members'] === '[]') {
+                                        $showData['cast_members'] = $details['cast_members'] ?? [];
+                                    }
+                                    if (empty($showData['genres']) && !empty($details['genres'])) {
+                                        $showData['genres'] = $details['genres'];
+                                    }
+                                    if (empty($showData['trailer_key']) && !empty($details['trailer_key'])) {
+                                        $showData['trailer_key'] = $details['trailer_key'];
+                                    }
+                                    if (empty($showData['poster_path']) && !empty($details['poster_path'])) {
+                                        $showData['poster_path'] = $details['poster_path'];
+                                    }
+                                    if (empty($showData['backdrop_path']) && !empty($details['backdrop_path'])) {
+                                        $showData['backdrop_path'] = $details['backdrop_path'];
+                                    }
+                                    if (!empty($details['status'])) $showData['status'] = $details['status'];
                                 }
                             }
                         } catch (Throwable $e) {
@@ -131,6 +144,9 @@ class LibraryScanner {
                         }
                     }
 
+                    if ($tmdbId > 0) {
+                        $showData['tmdb_id'] = $tmdbId;
+                    }
                     DbHelper::saveShow($showData);
                     $showsCount++;
 
@@ -163,8 +179,25 @@ class LibraryScanner {
                         }
                     }
 
-                    // Process discovered video files
+                    // Collision detection: group files by season_episode and resolve duplicates honestly
+                    $uniqueVideoFiles = [];
                     foreach ($videoFiles as $vf) {
+                        $epKey = "S{$vf['season']}_E{$vf['episode']}";
+                        if (isset($uniqueVideoFiles[$epKey])) {
+                            $existingVf = $uniqueVideoFiles[$epKey];
+                            $size1 = @filesize($existingVf['filepath']) ?: 0;
+                            $size2 = @filesize($vf['filepath']) ?: 0;
+                            error_log("[LibraryScanner] COLISIÓN DETECTADA: Dos archivos mapean al mismo episodio ({$showId} {$epKey}): '{$existingVf['filepath']}' ({$size1} bytes) y '{$vf['filepath']}' ({$size2} bytes). Se prioriza el de mayor tamaño para prevenir sobrescritura silenciosa.");
+                            if ($size2 > $size1) {
+                                $uniqueVideoFiles[$epKey] = $vf;
+                            }
+                        } else {
+                            $uniqueVideoFiles[$epKey] = $vf;
+                        }
+                    }
+
+                    // Process discovered video files
+                    foreach ($uniqueVideoFiles as $vf) {
                         $fullPath = $vf['filepath'];
                         $season = $vf['season'];
                         $episode = $vf['episode'];
@@ -194,15 +227,26 @@ class LibraryScanner {
                         }
 
                         $fileSize = (int)filesize($fullPath);
+                        $fileMtime = (int)@filemtime($fullPath);
+                        $realFullPath = realpath($fullPath) ?: $fullPath;
+                        $existingReal = !empty($existingEp['filepath']) ? (realpath($existingEp['filepath']) ?: $existingEp['filepath']) : '';
                         $probe = null;
 
-                        // Fingerprint cache check: if existing episode exists with matching filesize and valid duration, reuse probe data
-                        if ($existingEp && !empty($existingEp['duration']) && (float)$existingEp['duration'] > 0 && (int)($existingEp['size'] ?? 0) === $fileSize) {
+                        // Fingerprint cache check: canonical filepath, size, valid duration, and file_mtime match
+                        if (
+                            $existingEp 
+                            && $realFullPath === $existingReal
+                            && !empty($existingEp['duration']) 
+                            && (float)$existingEp['duration'] > 0 
+                            && (int)($existingEp['size'] ?? 0) === $fileSize
+                            && isset($existingEp['file_mtime'])
+                            && (int)$existingEp['file_mtime'] === $fileMtime
+                        ) {
                             $probe = [
                                 'duration' => (float)$existingEp['duration'],
-                                'video_codec' => $existingEp['video_codec'] ?? 'h264',
-                                'resolution' => $existingEp['resolution'] ?? '1080p',
-                                'fps' => (float)($existingEp['fps'] ?? 24.0),
+                                'video_codec' => $existingEp['video_codec'] ?? 'unknown',
+                                'resolution' => $existingEp['resolution'] ?? 'unknown',
+                                'fps' => (float)($existingEp['fps'] ?? 0.0),
                                 'audio_tracks' => is_array($existingEp['audio_tracks']) ? $existingEp['audio_tracks'] : json_decode($existingEp['audio_tracks'] ?? '[]', true),
                                 'subtitle_tracks' => is_array($existingEp['subtitle_tracks']) ? $existingEp['subtitle_tracks'] : json_decode($existingEp['subtitle_tracks'] ?? '[]', true)
                             ];
@@ -243,6 +287,7 @@ class LibraryScanner {
                             'filepath' => $fullPath,
                             'duration' => $probe['duration'],
                             'size' => $fileSize,
+                            'file_mtime' => $fileMtime,
                             'video_codec' => $probe['video_codec'],
                             'resolution' => $probe['resolution'],
                             'fps' => $probe['fps'],
@@ -255,15 +300,21 @@ class LibraryScanner {
                 }
             }
 
-            // DB reconciliation: clean up orphan episodes whose filepath no longer exists on disk
+            // DB reconciliation: mark missing files instead of destructive delete
             try {
                 $db = Database::getConnection();
                 $stmt = $db->query("SELECT id, filepath FROM episodes");
                 $allEps = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                $deleteStmt = $db->prepare("DELETE FROM episodes WHERE id = :id");
+                $updateMissingStmt = $db->prepare("
+                    UPDATE episodes 
+                    SET availability_status = 'missing',
+                        missing_scan_count = missing_scan_count + 1,
+                        missing_since = COALESCE(missing_since, NOW())
+                    WHERE id = :id
+                ");
                 foreach ($allEps as $dbEp) {
                     if (!empty($dbEp['filepath']) && !file_exists($dbEp['filepath'])) {
-                        $deleteStmt->execute(['id' => $dbEp['id']]);
+                        $updateMissingStmt->execute(['id' => $dbEp['id']]);
                     }
                 }
             } catch (Throwable $e) {
