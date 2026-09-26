@@ -143,6 +143,15 @@ class AuthController {
         ]);
         unset($_COOKIE['kurastream_token']);
 
+        @setcookie('kurastream_party_session', '', [
+            'expires' => time() - 3600,
+            'path' => '/api/party',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => $isSecure
+        ]);
+        unset($_COOKIE['kurastream_party_session']);
+
         jsonResponse(['success' => true, 'message' => 'Sesión cerrada']);
     }
 

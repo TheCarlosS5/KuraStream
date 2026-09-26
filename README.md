@@ -193,7 +193,7 @@ KuraStream/
 
 ### Known Post-Release Limitations
 
-- **Stateless Profile JWTs**: Currently, profile-scoped JWTs are stateless and remain cryptographically valid until their expiry timestamp. Previously issued profile JWTs are not centrally revoked in the database upon switching profiles. Active watch party memberships enforce real-time profile binding and active profile context validation server-side (preventing capability reuse across adult/kids profiles). Future architectural iterations may incorporate `session_version`, active-profile session IDs, or central token revocation.
+- **Stateless Profile JWTs**: Currently, profile-scoped JWTs are stateless and remain cryptographically valid until their expiry timestamp. Previously issued profile JWTs are not centrally revoked in the database upon switching profiles. A previously issued valid Adult JWT could still be replayed until expiration. Active watch party memberships enforce real-time profile binding and mandatory valid authentication server-side (ensuring account-bound capabilities cannot operate without a current valid JWT matching the bound profile, and preventing capability reuse across adult/kids profiles). Future architectural iterations may incorporate `session_version`, active-profile session IDs, or central token revocation.
 
 ---
 

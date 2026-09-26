@@ -48,17 +48,34 @@ class PartyController {
             return null;
         }
 
-        // 1. If Web JWT is available, enforce strict match with account_username and profile_id
-        $userToken = AuthMiddleware::getBearerToken();
-        if (!empty($userToken)) {
-            $jwt = AuthMiddleware::verifyToken($userToken);
-            if ($jwt && !empty($jwt['username'])) {
-                $jwtUsername = $jwt['username'];
-                $jwtProfileId = $jwt['profile_id'] ?? null;
-                if ($jwtUsername !== $member['account_username'] || (string)$jwtProfileId !== (string)$member['profile_id']) {
-                    jsonError('El perfil activo cambió. Vuelve a entrar a la sala.', 403, ['code' => 'PARTY_PROFILE_CHANGED']);
-                }
-            }
+        // 1. Mandatory valid Web JWT for account-bound memberships
+        $token = AuthMiddleware::getBearerToken();
+        if (empty($token)) {
+            jsonError(
+                'La sesión de usuario ya no está activa. Vuelve a entrar a la sala.',
+                403,
+                ['code' => 'PARTY_AUTH_REQUIRED']
+            );
+        }
+
+        $jwt = AuthMiddleware::verifyToken($token);
+        if (!$jwt || empty($jwt['username'])) {
+            jsonError(
+                'La sesión de usuario ya no está activa. Vuelve a entrar a la sala.',
+                403,
+                ['code' => 'PARTY_AUTH_REQUIRED']
+            );
+        }
+
+        if (
+            $jwt['username'] !== $member['account_username']
+            || (string)($jwt['profile_id'] ?? '') !== (string)$member['profile_id']
+        ) {
+            jsonError(
+                'El perfil activo cambió. Vuelve a entrar a la sala.',
+                403,
+                ['code' => 'PARTY_PROFILE_CHANGED']
+            );
         }
 
         // 2. Fetch live profile state from database to ensure it still exists and obtain real-time is_kids

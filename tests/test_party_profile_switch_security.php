@@ -41,17 +41,121 @@ echo "  [0/5] Verifying static code invariants...\n";
 $partyCode = file_get_contents(__DIR__ . '/../php_backend/controllers/PartyController.php');
 assert(str_contains($partyCode, 'validatePartyMemberProfileContext'), "PartyController MUST define validatePartyMemberProfileContext!");
 assert(str_contains($partyCode, 'PARTY_PROFILE_CHANGED'), "PartyController MUST emit PARTY_PROFILE_CHANGED error code!");
+assert(str_contains($partyCode, 'PARTY_AUTH_REQUIRED'), "PartyController MUST emit PARTY_AUTH_REQUIRED error code!");
 
 $playerCode = file_get_contents(__DIR__ . '/../php_backend/controllers/PlayerController.php');
 assert(str_contains($playerCode, 'PartyController::validatePartyMemberProfileContext'), "PlayerController MUST call validatePartyMemberProfileContext!");
 
 $authCode = file_get_contents(__DIR__ . '/../php_backend/controllers/AuthController.php');
-assert(str_contains($authCode, 'kurastream_party_session'), "AuthController::selectProfile MUST clear kurastream_party_session cookie!");
+assert(str_contains($authCode, 'kurastream_party_session'), "AuthController MUST reference kurastream_party_session cookie!");
+$logoutPos = strpos($authCode, 'function logout(');
+assert($logoutPos !== false, "AuthController MUST define logout() method!");
+$nextFuncPos = strpos($authCode, 'function ', $logoutPos + 10);
+$logoutBody = ($nextFuncPos !== false) ? substr($authCode, $logoutPos, $nextFuncPos - $logoutPos) : substr($authCode, $logoutPos);
+assert(str_contains($logoutBody, 'kurastream_party_session'), "AuthController::logout MUST clear kurastream_party_session cookie!");
 
 $dbCode = file_get_contents(__DIR__ . '/../php_backend/db.php');
 assert(str_contains($dbCode, 'getUserProfileById'), "DbHelper MUST implement getUserProfileById!");
 
 echo "    ✓ Static invariants verified successfully\n";
+
+// -------------------------------------------------------------------------------------------------
+// 0b. Unit Verification of validatePartyMemberProfileContext & logout (Host Offline-Capable)
+// -------------------------------------------------------------------------------------------------
+echo "  [0b] Verifying unit behavior of validatePartyMemberProfileContext & logout...\n";
+
+// 1. Account-bound member without JWT -> MUST throw 403 PARTY_AUTH_REQUIRED
+unset($_SERVER['HTTP_AUTHORIZATION']);
+unset($_COOKIE['kurastream_token']);
+$mockAccountMember = [
+    'member_id' => 'mem_unit_1',
+    'room_id' => 'ROOM1',
+    'username' => 'UnitUser',
+    'account_username' => 'unituser',
+    'profile_id' => 'prof_unit_1',
+    'is_kids' => 0
+];
+$authRequiredThrown = false;
+$authRequiredCode = null;
+ob_start();
+try {
+    PartyController::validatePartyMemberProfileContext($mockAccountMember);
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $authRequiredThrown = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $authRequiredCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+assert($authRequiredThrown && $authRequiredCode === 'PARTY_AUTH_REQUIRED', "Account member without JWT MUST fail with 403 PARTY_AUTH_REQUIRED");
+
+// 2. Account-bound member with invalid JWT -> MUST throw 403 PARTY_AUTH_REQUIRED
+$_SERVER['HTTP_AUTHORIZATION'] = 'Bearer invalid-token-xyz';
+$invalidJwtThrown = false;
+$invalidJwtCode = null;
+ob_start();
+try {
+    PartyController::validatePartyMemberProfileContext($mockAccountMember);
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $invalidJwtThrown = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $invalidJwtCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+unset($_SERVER['HTTP_AUTHORIZATION']);
+assert($invalidJwtThrown && $invalidJwtCode === 'PARTY_AUTH_REQUIRED', "Account member with invalid JWT MUST fail with 403 PARTY_AUTH_REQUIRED");
+
+// 3. Account-bound member with mismatched user/profile JWT -> MUST throw 403 PARTY_PROFILE_CHANGED
+$mismatchJwt = AuthMiddleware::createToken([
+    'username' => 'different_user',
+    'role' => 'user',
+    'profile_id' => 'prof_unit_other',
+    'exp' => time() + 3600
+]);
+$_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$mismatchJwt}";
+$mismatchThrown = false;
+$mismatchCode = null;
+ob_start();
+try {
+    PartyController::validatePartyMemberProfileContext($mockAccountMember);
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $mismatchThrown = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $mismatchCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+unset($_SERVER['HTTP_AUTHORIZATION']);
+assert($mismatchThrown && $mismatchCode === 'PARTY_PROFILE_CHANGED', "Account member with mismatched profile MUST fail with 403 PARTY_PROFILE_CHANGED");
+
+// 4. Anonymous guest without JWT -> returns null without requiring JWT
+$mockAnonMember = [
+    'member_id' => 'mem_unit_anon',
+    'room_id' => 'ROOM1',
+    'username' => 'AnonUnit',
+    'account_username' => null,
+    'profile_id' => null,
+    'is_kids' => 0
+];
+$anonRes = PartyController::validatePartyMemberProfileContext($mockAnonMember);
+assert($anonRes === null, "Anonymous guest MUST return null without requiring JWT");
+
+// 5. AuthController::logout clears both kurastream_token and kurastream_party_session cookies
+$_COOKIE['kurastream_token'] = 'token_test_123';
+$_COOKIE['kurastream_party_session'] = 'party_session_test_456';
+ob_start();
+try {
+    AuthController::logout();
+} catch (ExitException $e) {}
+ob_end_clean();
+assert(!isset($_COOKIE['kurastream_token']), "AuthController::logout MUST unset kurastream_token cookie");
+assert(!isset($_COOKIE['kurastream_party_session']), "AuthController::logout MUST unset kurastream_party_session cookie");
+
+echo "    ✓ Unit verification of validatePartyMemberProfileContext & logout passed\n";
 
 // -------------------------------------------------------------------------------------------------
 // Database Connection Guard
@@ -203,9 +307,205 @@ assert($streamAllowed, "Adult profile with room capability must be authorized to
 echo "    ✓ Adult member joined and authorized to stream adult content\n";
 
 // -------------------------------------------------------------------------------------------------
+// 1b. TEST 1: Account Membership Without JWT -> MUST return 403 PARTY_AUTH_REQUIRED
+// -------------------------------------------------------------------------------------------------
+echo "  [1b/6] Account membership without JWT: verify stream, subtitle, refresh-ticket, sse-ticket return 403...\n";
+unset($_SERVER['HTTP_AUTHORIZATION']);
+unset($_COOKIE['kurastream_token']);
+$_COOKIE['kurastream_party_session'] = json_encode([
+    'room_id' => $adultRoomId,
+    'member_id' => $adultMemberId,
+    'member_token' => $adultMemberToken
+]);
+
+// A. Stream attempt with capability
+$_GET['ticket'] = $adultCapToken;
+$streamNoJwtBlocked = false;
+$streamNoJwtCode = null;
+ob_start();
+try {
+    PlayerController::authorizeStreamAccess('ep_sw_adult_01');
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $streamNoJwtBlocked = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $streamNoJwtCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+assert($streamNoJwtBlocked && $streamNoJwtCode === 'PARTY_AUTH_REQUIRED', "Stream without JWT MUST return 403 PARTY_AUTH_REQUIRED");
+
+// B. Subtitle stream attempt
+$subNoJwtBlocked = false;
+$subNoJwtCode = null;
+ob_start();
+try {
+    PlayerController::streamSubtitle('ep_sw_adult_01', 0);
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $subNoJwtBlocked = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $subNoJwtCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+assert($subNoJwtBlocked && $subNoJwtCode === 'PARTY_AUTH_REQUIRED', "Subtitle stream without JWT MUST return 403 PARTY_AUTH_REQUIRED");
+
+// C. refresh-ticket attempt
+$GLOBALS['_MOCKED_JSON_INPUT'] = [
+    'room_id' => $adultRoomId,
+    'member_id' => $adultMemberId,
+    'member_token' => $adultMemberToken
+];
+$refNoJwtBlocked = false;
+$refNoJwtCode = null;
+ob_start();
+try {
+    PartyController::refreshStreamTicket();
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $refNoJwtBlocked = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $refNoJwtCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+assert($refNoJwtBlocked && $refNoJwtCode === 'PARTY_AUTH_REQUIRED', "refresh-ticket without JWT MUST return 403 PARTY_AUTH_REQUIRED");
+
+// D. SSE ticket attempt
+$sseNoJwtBlocked = false;
+$sseNoJwtCode = null;
+ob_start();
+try {
+    PartyController::getSseTicket();
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $sseNoJwtBlocked = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $sseNoJwtCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+assert($sseNoJwtBlocked && $sseNoJwtCode === 'PARTY_AUTH_REQUIRED', "SSE ticket without JWT MUST return 403 PARTY_AUTH_REQUIRED");
+echo "    ✓ Account membership without JWT correctly rejected with 403 PARTY_AUTH_REQUIRED\n";
+
+// -------------------------------------------------------------------------------------------------
+// 1c. TEST 2: Account Membership With Invalid JWT -> MUST return 403 PARTY_AUTH_REQUIRED
+// -------------------------------------------------------------------------------------------------
+echo "  [1c/6] Account membership with invalid JWT: verify 403 PARTY_AUTH_REQUIRED and no DB fallback...\n";
+$_SERVER['HTTP_AUTHORIZATION'] = 'Bearer invalid-token';
+unset($_COOKIE['kurastream_token']);
+
+// A. Stream attempt
+$streamInvJwtBlocked = false;
+$streamInvJwtCode = null;
+ob_start();
+try {
+    PlayerController::authorizeStreamAccess('ep_sw_adult_01');
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $streamInvJwtBlocked = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $streamInvJwtCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+assert($streamInvJwtBlocked && $streamInvJwtCode === 'PARTY_AUTH_REQUIRED', "Stream with invalid JWT MUST return 403 PARTY_AUTH_REQUIRED");
+
+// B. Subtitle stream attempt
+$subInvJwtBlocked = false;
+$subInvJwtCode = null;
+ob_start();
+try {
+    PlayerController::streamSubtitle('ep_sw_adult_01', 0);
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $subInvJwtBlocked = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $subInvJwtCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+assert($subInvJwtBlocked && $subInvJwtCode === 'PARTY_AUTH_REQUIRED', "Subtitle with invalid JWT MUST return 403 PARTY_AUTH_REQUIRED");
+
+// C. refresh-ticket attempt
+$refInvJwtBlocked = false;
+$refInvJwtCode = null;
+ob_start();
+try {
+    PartyController::refreshStreamTicket();
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $refInvJwtBlocked = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $refInvJwtCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+assert($refInvJwtBlocked && $refInvJwtCode === 'PARTY_AUTH_REQUIRED', "refresh-ticket with invalid JWT MUST return 403 PARTY_AUTH_REQUIRED");
+
+// D. SSE ticket attempt
+$sseInvJwtBlocked = false;
+$sseInvJwtCode = null;
+ob_start();
+try {
+    PartyController::getSseTicket();
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $sseInvJwtBlocked = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $sseInvJwtCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+assert($sseInvJwtBlocked && $sseInvJwtCode === 'PARTY_AUTH_REQUIRED', "SSE ticket with invalid JWT MUST return 403 PARTY_AUTH_REQUIRED");
+unset($_SERVER['HTTP_AUTHORIZATION']);
+echo "    ✓ Account membership with invalid JWT correctly rejected with 403 PARTY_AUTH_REQUIRED\n";
+
+// -------------------------------------------------------------------------------------------------
+// 1d. TEST 3: Logout Clears Both Cookies & Subsequent Stream Returns 403 PARTY_AUTH_REQUIRED
+// -------------------------------------------------------------------------------------------------
+echo "  [1d/6] Logout clears both cookies and old capability without auth returns 403...\n";
+$_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$adultJwt}";
+$_COOKIE['kurastream_token'] = $adultJwt;
+$_COOKIE['kurastream_party_session'] = json_encode([
+    'room_id' => $adultRoomId,
+    'member_id' => $adultMemberId,
+    'member_token' => $adultMemberToken
+]);
+
+ob_start();
+try {
+    AuthController::logout();
+} catch (ExitException $e) {}
+ob_end_clean();
+
+assert(!isset($_COOKIE['kurastream_token']), "AuthController::logout MUST clear kurastream_token cookie");
+assert(!isset($_COOKIE['kurastream_party_session']), "AuthController::logout MUST clear kurastream_party_session cookie");
+
+// Capability without auth now fails
+unset($_SERVER['HTTP_AUTHORIZATION']);
+$_GET['ticket'] = $adultCapToken;
+$postLogoutBlocked = false;
+$postLogoutCode = null;
+ob_start();
+try {
+    PlayerController::authorizeStreamAccess('ep_sw_adult_01');
+} catch (ExitException $e) {
+    if ($e->statusCode === 403) {
+        $postLogoutBlocked = true;
+        $d = json_decode($e->getMessage(), true) ?: $e->data;
+        $postLogoutCode = $d['code'] ?? null;
+    }
+}
+ob_end_clean();
+assert($postLogoutBlocked && $postLogoutCode === 'PARTY_AUTH_REQUIRED', "Stream after logout MUST return 403 PARTY_AUTH_REQUIRED");
+echo "    ✓ Logout clears both cookies and subsequent capability access rejected with 403\n";
+
+// -------------------------------------------------------------------------------------------------
 // 2. Simulate Profile Switch: Active Profile Becomes Kids
 // -------------------------------------------------------------------------------------------------
-echo "  [2/5] Switching active profile to Kids: verify refresh-ticket and capability blocked...\n";
+echo "  [2/6] Switching active profile to Kids: verify refresh-ticket and capability blocked...\n";
 $_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$kidsJwt}";
 $_COOKIE['kurastream_token'] = $kidsJwt;
 
@@ -412,7 +712,18 @@ try {
 }
 $anonRefreshData = json_decode(ob_get_clean(), true);
 assert($anonRefreshOk && !empty($anonRefreshData['stream_capability_token']), "Anonymous guest ticket refresh MUST succeed");
-echo "    ✓ Anonymous guest streaming and ticket refresh completely functional\n";
+
+// Anonymous guest requests SSE ticket
+$anonSseOk = false;
+ob_start();
+try {
+    PartyController::getSseTicket();
+} catch (ExitException $e) {
+    if ($e->statusCode === 200) $anonSseOk = true;
+}
+$anonSseData = json_decode(ob_get_clean(), true);
+assert($anonSseOk && !empty($anonSseData['sse_ticket']), "Anonymous guest SSE ticket MUST succeed");
+echo "    ✓ Anonymous guest streaming, ticket refresh, and SSE ticket completely functional\n";
 
 // Cleanup test fixtures
 $db->exec("DELETE FROM party_messages WHERE room_id LIKE 'KURA-SW-%'");
