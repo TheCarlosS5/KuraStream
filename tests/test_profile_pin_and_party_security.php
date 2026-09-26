@@ -114,7 +114,7 @@ echo "    -> All profile-scoped endpoints strictly enforce PROFILE_REQUIRED (403
 echo "  [2/3] Testing Kids Mode streaming maturity restriction...\n";
 
 // Seed Adult / TV-MA show and episode
-$db->exec("INSERT INTO shows (id, title, media_type, age_rating, is_adult) VALUES ('mature_anime_1', 'Berserk 18+', 'anime', 'TV-MA', 1)");
+$db->exec("INSERT INTO shows (id, title, media_type, age_rating) VALUES ('mature_anime_1', 'Berserk 18+', 'anime', 'TV-MA')");
 $db->exec("INSERT INTO episodes (id, show_id, episode_number, duration, filepath) VALUES ('mature_ep_1', 'mature_anime_1', 1, 1400.0, '/tmp/fake.mp4')");
 
 // Token with active kids profile claim
