@@ -46,13 +46,13 @@ export async function loadShowsCatalog() {
       const rating = (show.rating && Number(show.rating) > 0) ? Number(show.rating).toFixed(1) : 'N/A';
       const year = show.year ? escapeHtml(String(show.year)) : 'N/A';
       const ageRating = show.age_rating ? escapeHtml(show.age_rating) : 'TV-14';
-      const poster = show.poster_path ? escapeHtmlAttribute(show.poster_path) : '/api/placeholder-poster';
+      const poster = show.poster_path ? escapeHtmlAttribute(show.poster_path) : '/assets/illustrations/poster_placeholder.svg';
       const title = escapeHtml(show.title || 'Sin título');
 
       return `
         <div class="show-card" onclick="location.hash='#/show/${showId}'" style="cursor: pointer;">
           <div class="show-poster-wrap">
-            <img src="${poster}" class="show-poster" alt="${title}" onerror="this.src='/api/placeholder-poster'">
+            <img src="${poster}" class="show-poster" alt="${title}" onerror="this.src='/assets/illustrations/poster_placeholder.svg'">
             <div class="show-badge">${show.media_type === 'movie' ? 'Película' : 'Anime'}</div>
             <div class="show-rating">${rating !== 'N/A' ? `<i data-lucide="star" style="width: 12px; height: 12px; display: inline-block;"></i> ${rating}` : 'N/A'}</div>
           </div>
@@ -97,13 +97,13 @@ export async function loadShowDetail(showId) {
     const ageRating = show.age_rating ? escapeHtml(show.age_rating) : 'TV-14';
     const title = escapeHtml(show.title || 'Sin título');
     const synopsis = escapeHtml(show.synopsis || 'Sin descripción disponible para esta serie.');
-    const poster = show.poster_path ? escapeHtmlAttribute(show.poster_path) : '/api/placeholder-poster';
-    const backdrop = show.backdrop_path ? escapeHtmlAttribute(show.backdrop_path) : poster;
+    const poster = show.poster_path ? escapeHtmlAttribute(show.poster_path) : '/assets/illustrations/poster_placeholder.svg';
+    const backdrop = show.backdrop_path ? escapeHtmlAttribute(show.backdrop_path) : '/assets/illustrations/backdrop_placeholder.svg';
 
     container.innerHTML = `
-      <div class="show-detail-hero" style="background-image: linear-gradient(to bottom, rgba(15,23,42,0.4), var(--bg-color)), url('${backdrop}');">
+      <div class="show-detail-hero" style="background-image: linear-gradient(to bottom, rgba(8,10,16,0.4), var(--bg-color)), url('${backdrop}');">
         <div class="show-detail-content">
-          <img src="${poster}" class="show-detail-poster" alt="${title}" onerror="this.src='/api/placeholder-poster'">
+          <img src="${poster}" class="show-detail-poster" alt="${title}" onerror="this.src='/assets/illustrations/poster_placeholder.svg'">
           <div class="show-detail-main">
             <h1 class="show-detail-title">${title}</h1>
             <div class="show-detail-badges">

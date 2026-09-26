@@ -1,5 +1,5 @@
 /**
- * KuraStream v2.0 - Video Player Styles: Kura Ember
+ * KuraStream v2.0 - Video Player Styles: Nocturnal Cinematic
  * Cinematic full-bleed video player, accessible controls, tracks modal & HUD.
  */
 
@@ -82,10 +82,10 @@
   padding: 24px 36px;
   background: linear-gradient(
     180deg,
-    rgba(0, 0, 0, 0.82) 0%,
-    rgba(0, 0, 0, 0.15) 25%,
-    rgba(0, 0, 0, 0.15) 65%,
-    rgba(0, 0, 0, 0.9) 100%
+    rgba(0, 0, 0, 0.85) 0%,
+    rgba(0, 0, 0, 0.1) 25%,
+    rgba(0, 0, 0, 0.1) 65%,
+    rgba(0, 0, 0, 0.92) 100%
   );
   opacity: 1;
   transition: opacity var(--transition-normal);
@@ -128,7 +128,7 @@
 }
 
 .center-action-btn {
-  background: rgba(17, 24, 33, 0.75);
+  background: rgba(23, 33, 49, 0.8);
   border: 1px solid var(--border-color);
   width: 72px;
   height: 72px;
@@ -141,14 +141,14 @@
   justify-content: center;
   transition: var(--transition-smooth);
   pointer-events: auto;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(8px);
 }
 
 .center-action-btn:hover {
   transform: scale(1.1);
   background: var(--accent-color);
-  color: var(--text-inverse);
+  color: #080A10;
   box-shadow: 0 0 24px var(--accent-glow);
   border-color: var(--accent-color);
 }
@@ -211,7 +211,7 @@
 .player-progress-bar {
   flex-grow: 1;
   height: 6px;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.18);
   border-radius: var(--radius-pill);
   position: relative;
   cursor: pointer;
@@ -228,7 +228,7 @@
   left: 0;
   height: 100%;
   width: 0%;
-  background: rgba(255, 255, 255, 0.35);
+  background: rgba(94, 216, 198, 0.35);
   border-radius: var(--radius-pill);
   pointer-events: none;
   transition: width 0.2s ease-out;
@@ -240,7 +240,7 @@
   left: 0;
   height: 100%;
   width: 0%;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-pill);
   pointer-events: none;
 }
@@ -333,7 +333,7 @@
 
 .player-btn:hover {
   color: var(--accent-color);
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.08);
   transform: scale(1.08);
 }
 
@@ -500,7 +500,7 @@
 .player-error-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(7, 9, 13, 0.95);
+  background: rgba(8, 10, 16, 0.95);
   display: flex;
   align-items: center;
   justify-content: center;

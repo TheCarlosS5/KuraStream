@@ -358,7 +358,8 @@ export function setupCatalogueActions() {
 
 export function renderBillboardHero(featuredShow) {
   if (!featuredShow) return '';
-  const bg = featuredShow.backdrop_path || featuredShow.poster_path || '';
+  const rawBg = featuredShow.backdrop_path || featuredShow.poster_path || '';
+  const bgUrl = catalogueImageUrl(rawBg) || '/assets/illustrations/backdrop_placeholder.svg';
   const rating = (featuredShow.rating && Number(featuredShow.rating) > 0) ? Number(featuredShow.rating).toFixed(1) : 'N/A';
   const year = featuredShow.year ? String(featuredShow.year) : 'N/A';
   const genres = featuredShow.genres
@@ -368,7 +369,7 @@ export function renderBillboardHero(featuredShow) {
 
   return `
     <div class="billboard-hero">
-      <img class="billboard-hero-background" src="${escapeHtmlAttribute(catalogueImageUrl(bg))}" alt="">
+      <img class="billboard-hero-background" src="${escapeHtmlAttribute(bgUrl)}" alt="">
       <div class="billboard-hero-vignette"></div>
       <div class="billboard-hero-content">
         <div class="billboard-hero-badges">
@@ -409,6 +410,7 @@ export function renderContinueWatching(historyItems) {
     const dur = (item.duration > 0) ? item.duration : (item.ep_duration || 1);
     const progressPercent = Math.min(100, Math.max(0, ((item.progress_seconds || 0) / dur) * 100));
     const img = item.thumbnail_path || item.poster_path || '';
+    const imgUrl = catalogueImageUrl(img) || '/assets/illustrations/backdrop_placeholder.svg';
     const epLabel = item.season_number ? `T${item.season_number}:E${item.episode_number}` : (item.episode_number ? `E${item.episode_number}` : 'Película');
     const remainingSec = Math.max(0, dur - (item.progress_seconds || 0));
     const remainingMin = Math.ceil(remainingSec / 60);
@@ -418,7 +420,7 @@ export function renderContinueWatching(historyItems) {
     return `
       <div class="continue-watching-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" title="${escapeHtmlAttribute(`${item.show_title || ''} - ${item.episode_title || epLabel}`)}" style="cursor: pointer;">
         <div class="continue-watching-thumb-wrapper" style="overflow: hidden; border-radius: var(--radius-sm);">
-          <img class="continue-watching-thumb" src="${escapeHtmlAttribute(catalogueImageUrl(img))}" alt="${escapeHtmlAttribute(item.show_title || '')}" loading="lazy" style="transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
+          <img class="continue-watching-thumb" src="${escapeHtmlAttribute(imgUrl)}" alt="${escapeHtmlAttribute(item.show_title || '')}" loading="lazy" style="transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
           <div class="continue-watching-play-btn" aria-label="Reproducir">
             <i data-lucide="play" style="width: 20px; height: 20px; fill: #ffffff; stroke: #ffffff;"></i>
           </div>
@@ -447,6 +449,7 @@ export function renderContinueWatching(historyItems) {
 
 export function createShowCardHTML(show, historyMap = new Map()) {
   const poster = show.poster_path || '';
+  const posterSrc = catalogueImageUrl(poster) || '/assets/illustrations/poster_placeholder.svg';
   const rating = show.rating ? Number(show.rating).toFixed(1) : 'N/A';
 
   const historyItem = historyMap && historyMap.get ? historyMap.get(String(show.id)) : null;
@@ -474,7 +477,7 @@ export function createShowCardHTML(show, historyMap = new Map()) {
   return `
     <div class="show-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" style="flex: 0 0 auto; width: 180px; height: 320px; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); will-change: transform; cursor: pointer;">
       <div class="card-img-wrapper" style="height: 250px; position: relative; background-color: var(--surface-muted); border-radius: var(--radius-sm); overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-        <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.4s ease;" onload="this.style.opacity=1">
+        <img src="${escapeHtmlAttribute(posterSrc)}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.4s ease;" onload="this.style.opacity=1">
         <div class="card-rating-badge" style="position: absolute; top: 8px; right: 8px; background: rgba(9, 13, 14, 0.85); backdrop-filter: blur(4px); padding: 4px 6px; border-radius: var(--radius-xs); border: 1px solid rgba(255,255,255,0.08); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; gap: 4px;">
           <i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);"></i>${rating}
         </div>
@@ -503,6 +506,7 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
   targetContainer.innerHTML = epList.map(ep => {
     const durationMin = Math.round((ep.duration || 0) / 60);
     const thumb = ep.thumbnail_path || fallbackPoster || '';
+    const thumbSrc = catalogueImageUrl(thumb) || '/assets/illustrations/backdrop_placeholder.svg';
 
     const prog = (showProgressMap && showProgressMap[ep.id]) || {};
     const watchedSec = prog.progress_seconds ?? prog.progress ?? 0;
@@ -526,7 +530,7 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
     return `
       <div class="episode-item" role="button" tabindex="0" data-episode-id="${escapeHtmlAttribute(ep.id)}">
         <div class="episode-thumbnail-container" style="aspect-ratio: 16 / 9; width: 160px; background-color: var(--surface-muted); border-radius: var(--radius-sm); overflow: hidden; position: relative; flex-shrink: 0;">
-          <img class="episode-thumb" src="${escapeHtmlAttribute(catalogueImageUrl(thumb))}" alt="${escapeHtmlAttribute(ep.title || 'Episodio')}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;">
+          <img class="episode-thumb" src="${escapeHtmlAttribute(thumbSrc)}" alt="${escapeHtmlAttribute(ep.title || 'Episodio')}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;">
           <div style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.8); border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; font-weight: 700; color: white; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums;">
              ${durationMin > 0 ? `${durationMin}m` : ''}
           </div>
@@ -665,11 +669,15 @@ export async function loadShowDetails(id) {
 
     if (detailTitle) detailTitle.textContent = show.title || 'Detalle del Anime';
     if (detailSynopsis) detailSynopsis.textContent = show.synopsis || 'Sin sinopsis disponible.';
-    if (detailPoster) detailPoster.src = catalogueImageUrl(show.poster_path || '');
+    const detailPosterSrc = catalogueImageUrl(show.poster_path || '') || '/assets/illustrations/poster_placeholder.svg';
+    if (detailPoster) {
+      detailPoster.onerror = () => { detailPoster.src = '/assets/illustrations/poster_placeholder.svg'; };
+      detailPoster.src = detailPosterSrc;
+    }
     const ambientBg = document.querySelector('.detail-ambient-bg');
     if (ambientBg) {
-      const backdropUrl = catalogueImageUrl(show.backdrop_path || show.poster_path || '');
-      ambientBg.style.backgroundImage = backdropUrl ? `url("${backdropUrl}")` : 'none';
+      const backdropUrl = catalogueImageUrl(show.backdrop_path || show.poster_path || '') || '/assets/illustrations/backdrop_placeholder.svg';
+      ambientBg.style.backgroundImage = `url("${backdropUrl}")`;
     }
     if (detailRating) detailRating.textContent = show.rating ? Number(show.rating).toFixed(1) : 'N/A';
     if (detailYear) detailYear.textContent = show.year || 'N/A';
@@ -765,7 +773,15 @@ export async function renderMyListView() {
   }
 
   if (!Array.isArray(favorites) || favorites.length === 0) {
-    container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 60px; color: var(--text-muted);">No tienes animes en tu lista aún.</div>`;
+    container.innerHTML = `
+      <div class="empty-state-card" style="grid-column: 1 / -1;">
+        <img src="/assets/illustrations/empty_watchlist.svg" alt="" class="empty-state-img">
+        <h3>Tu lista está vacía</h3>
+        <p>Guarda tus series y películas favoritas para encontrarlas fácilmente en cualquier momento.</p>
+        <a href="#/" class="btn btn-primary"><i data-lucide="compass"></i> Explorar Catálogo</a>
+      </div>
+    `;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
     return;
   }
 
@@ -777,7 +793,7 @@ export async function renderHistoryView() {
   const container = document.getElementById('history-list');
   if (!container) return;
 
-  container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--text-muted);">Cargando historial...</div>`;
+  container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--text-muted);"><div class="spinner" style="margin: 0 auto 12px auto;"></div>Cargando historial...</div>`;
   const { activeUser, profileName, token } = getUserAndProfile();
   let historyItems = [];
 
@@ -793,7 +809,15 @@ export async function renderHistoryView() {
   }
 
   if (!Array.isArray(historyItems) || historyItems.length === 0) {
-    container.innerHTML = `<div class="empty-state" style="text-align: center; padding: 60px; color: var(--text-muted);">No hay historial de reproducción aún.</div>`;
+    container.innerHTML = `
+      <div class="empty-state-card">
+        <img src="/assets/illustrations/empty_history.svg" alt="" class="empty-state-img">
+        <h3>Tu historial está despejado</h3>
+        <p>Los episodios y películas que reproduzcas aparecerán aquí para que continúes donde los dejaste.</p>
+        <a href="#/" class="btn btn-primary"><i data-lucide="compass"></i> Explorar Catálogo</a>
+      </div>
+    `;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
     return;
   }
 

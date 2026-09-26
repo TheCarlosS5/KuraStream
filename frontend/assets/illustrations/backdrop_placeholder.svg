@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bdGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0E1624" />
+      <stop offset="40%" stop-color="#0C1018" />
+      <stop offset="100%" stop-color="#080A10" />
+    </linearGradient>
+    <radialGradient id="nebula1" cx="70%" cy="30%" r="50%">
+      <stop offset="0%" stop-color="#818CF8" stop-opacity="0.16" />
+      <stop offset="60%" stop-color="#818CF8" stop-opacity="0.03" />
+      <stop offset="100%" stop-color="#818CF8" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="nebula2" cx="30%" cy="70%" r="45%">
+      <stop offset="0%" stop-color="#5ED8C6" stop-opacity="0.12" />
+      <stop offset="60%" stop-color="#5ED8C6" stop-opacity="0.02" />
+      <stop offset="100%" stop-color="#5ED8C6" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="vignette" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#080A10" stop-opacity="0.95" />
+      <stop offset="40%" stop-color="#080A10" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#080A10" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bdGrad)" />
+  <rect width="1920" height="1080" fill="url(#nebula1)" />
+  <rect width="1920" height="1080" fill="url(#nebula2)" />
+
+  <!-- Constellations & Subtle Stars -->
+  <g fill="#F5F7FB" opacity="0.35">
+    <circle cx="240" cy="180" r="1.5" />
+    <circle cx="480" cy="120" r="1" />
+    <circle cx="820" cy="220" r="2" />
+    <circle cx="1120" cy="160" r="1.5" />
+    <circle cx="1460" cy="280" r="2" />
+    <circle cx="1680" cy="140" r="1" />
+    <circle cx="1320" cy="420" r="1.5" />
+    <circle cx="980" cy="480" r="1" />
+    <circle cx="420" cy="380" r="1.5" />
+  </g>
+
+  <!-- Constellation lines -->
+  <path d="M 820 220 L 980 480 L 1120 160 L 1320 420 L 1460 280" stroke="#818CF8" stroke-width="0.8" stroke-opacity="0.2" fill="none" />
+
+  <!-- Vignette -->
+  <rect width="1920" height="1080" fill="url(#vignette)" />
+</svg>

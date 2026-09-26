@@ -1,37 +1,50 @@
 /**
- * KuraStream v2.0 - Core Design System Tokens: Kura Ember
- * Deep cinematic dark canvas, surface hierarchy, ember accent, strict radii standards.
+ * KuraStream v2.0 - Core Design System Tokens: Nocturnal Cinematic (Indigo & Mint)
+ * Deep nocturnal dark canvas, refined indigo primary, mint/teal secondary, strict 4px grid.
  */
 
 :root {
   /* Color Palette - Neutrals */
-  --bg-color: #07090D;
-  --surface-color: #111821;
-  --surface-raised: #17212C;
-  --surface-muted: #141c26;
-  --surface-overlay: rgba(17, 24, 33, 0.85);
-  --border-color: #273545;
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-strong: #273545;
+  --bg-color: #080A10;
+  --bg-secondary: #0C1018;
+  --surface-color: #111824;
+  --surface-raised: #172131;
+  --surface-hover: #1D2A3C;
+  --surface-muted: #131C2A;
+  --surface-overlay: rgba(8, 10, 16, 0.85);
 
-  /* Color Palette - Kura Ember Accent */
-  --accent-color: #FF6B2C;
-  --accent-hover: #FF824D;
-  --accent-glow: rgba(255, 107, 44, 0.25);
+  /* Border Tokens */
+  --border-color: #263447;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-strong: #34465E;
+
+  /* Primary Brand (Nocturnal Cold Indigo) */
+  --accent-color: #818CF8;
+  --accent-hover: #9AA3FF;
+  --accent-pressed: #6C76E8;
+  --accent-soft: rgba(129, 140, 248, 0.14);
+  --accent-glow: rgba(129, 140, 248, 0.22);
   --progress-color: var(--accent-color);
 
+  /* Secondary Brand & Watch Party (Mint / Teal) */
+  --accent-secondary: #5ED8C6;
+  --accent-secondary-hover: #75E5D4;
+  --accent-secondary-soft: rgba(94, 216, 198, 0.14);
+  --accent-secondary-glow: rgba(94, 216, 198, 0.25);
+
   /* Status Colors */
-  --success-color: #35D39A;
-  --rating-color: #FBBF24;
-  --danger-color: #FF667E;
-  --info-color: #5DD6C0;
+  --success-color: #4DD4A7;
+  --rating-color: #F1C75B;
+  --danger-color: #FF6B81;
+  --info-color: #5AA7FF;
+  --warning-color: #EBCB70;
 
   /* Typography Colors */
-  --text-main: #F4F8F9;
-  --text-secondary: #CBD5E1;
-  --text-muted: #93A4A7;
-  --text-disabled: #475569;
-  --text-inverse: #07090D;
+  --text-main: #F5F7FB;
+  --text-secondary: #B8C1D1;
+  --text-muted: #7D899C;
+  --text-disabled: #5F6B7D;
+  --text-inverse: #080A10;
 
   /* Typography Scales */
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -51,7 +64,7 @@
   --space-12: 48px;
   --space-16: 64px;
 
-  /* Kura Ember Radii System */
+  /* Strict Radii System */
   --radius-control: 8px;
   --radius-card: 12px;
   --radius-panel: 14px;
@@ -72,6 +85,7 @@
   --shadow-md: 0 4px 16px 0 rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 12px 36px 0 rgba(0, 0, 0, 0.7);
   --shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.6);
+  --shadow-accent: 0 0 24px rgba(129, 140, 248, 0.18);
 
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);

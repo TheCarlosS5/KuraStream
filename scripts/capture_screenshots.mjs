@@ -14,8 +14,8 @@ const mockShow = {
   rating: 9.1,
   genres: 'Aventura, Fantasía, Drama',
   synopsis: 'El viaje de la maga elfa Frieren tras derrotar al Rey Demonio explorando el paso del tiempo y las conexiones humanas.',
-  poster_path: '/assets/branding/KuraStreamLogoWhiteTransparent.png',
-  backdrop_path: '/assets/branding/KuraStreamBannerBlackTransparent.png',
+  poster_path: '/assets/illustrations/poster_placeholder.svg',
+  backdrop_path: '/assets/illustrations/backdrop_placeholder.svg',
   is_featured: 1,
   status: 'airing'
 };
@@ -27,7 +27,7 @@ const mockEpisode = {
   episode_number: 1,
   title: 'El final del viaje',
   synopsis: 'La era de paz ha comenzado, pero para Frieren el tiempo corre de manera distinta.',
-  thumbnail_path: '/assets/branding/KuraStreamLogoWhiteTransparent.png',
+  thumbnail_path: '/assets/illustrations/backdrop_placeholder.svg',
   duration: 1440,
   stream_url: '/api/stream/frieren-beyond-journeys-end_S1_E1',
   audio_tracks: [{ id: '1', language: 'Japonés', label: 'Japonés (Original)', is_default: true }],
@@ -85,7 +85,7 @@ async function setupMocks(page) {
       body: JSON.stringify({
         success: true,
         profiles: [
-          { id: 'prof-1', name: 'Principal', is_kids: 0, color: '#FF6B2C' },
+          { id: 'prof-1', name: 'Principal', is_kids: 0, color: '#818CF8' },
           { id: 'prof-2', name: 'Kids', is_kids: 1, color: '#35D39A' }
         ]
       })

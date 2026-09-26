@@ -1,6 +1,6 @@
 /**
- * KuraStream v2.0 - Core Components: Kura Ember
- * Ember buttons, polished modals, accessible toasts, badges, interactive chips,
+ * KuraStream v2.0 - Core Components: Nocturnal Cinematic
+ * Indigo & Mint buttons, polished modals, accessible toasts, badges, interactive chips,
  * and unified settings and stats components.
  */
 
@@ -26,9 +26,10 @@
 .btn-smart-resume,
 .detail-smart-resume-btn {
   background: var(--accent-color);
-  color: var(--text-inverse);
-  font-weight: 700;
-  box-shadow: 0 4px 16px var(--accent-glow);
+  color: #080A10;
+  font-weight: 800;
+  box-shadow: 0 4px 14px var(--accent-glow);
+  letter-spacing: -0.01em;
 }
 
 .btn-primary:hover,
@@ -37,30 +38,32 @@
 .detail-smart-resume-btn:hover {
   background: var(--accent-hover);
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(255, 107, 44, 0.4);
+  box-shadow: 0 6px 20px var(--accent-glow);
+  color: #080A10;
 }
 
 .btn-secondary {
-  background: var(--surface-color);
+  background: var(--surface-raised);
   color: var(--text-main);
   border: 1px solid var(--border-color);
 }
 
 .btn-secondary:hover {
-  background: var(--surface-raised);
+  background: var(--surface-hover);
   border-color: var(--border-strong);
   color: var(--text-main);
 }
 
 .btn-danger {
-  background: rgba(255, 102, 126, 0.15);
+  background: rgba(255, 107, 129, 0.15);
   color: var(--danger-color);
-  border: 1px solid rgba(255, 102, 126, 0.3);
+  border: 1px solid rgba(255, 107, 129, 0.3);
 }
 
 .btn-danger:hover {
   background: var(--danger-color);
-  color: var(--text-inverse);
+  color: #080A10;
+  font-weight: 700;
 }
 
 .btn-text-sm {
@@ -86,12 +89,14 @@
   font-size: 0.75rem;
   font-weight: 600;
   border-radius: var(--radius-xs);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-color);
   color: var(--text-secondary);
 }
 
 .badge-hd {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-color);
   color: var(--text-main);
   font-weight: 700;
   padding: 2px 6px;
@@ -120,9 +125,9 @@
 .pin-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.82);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(8, 10, 16, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -134,7 +139,7 @@
   background: var(--surface-color);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-modal);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), 0 0 24px rgba(0, 0, 0, 0.6);
   width: 100%;
   max-width: 440px;
   padding: 28px;
@@ -198,7 +203,7 @@
 }
 
 .kura-toast-warning {
-  border-left: 4px solid var(--rating-color);
+  border-left: 4px solid var(--warning-color);
 }
 
 .kura-toast-error {
@@ -220,6 +225,46 @@
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* Empty State Cards */
+.empty-state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px;
+  max-width: 520px;
+  margin: 40px auto;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-md);
+}
+
+.empty-state-img {
+  width: 140px;
+  height: 105px;
+  margin-bottom: 20px;
+  object-fit: contain;
+  opacity: 0.95;
+}
+
+.empty-state-card h3 {
+  font-family: var(--font-title);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 8px;
+}
+
+.empty-state-card p {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 24px;
+  max-width: 380px;
 }
 
 /* Watch Party Modal */
@@ -244,8 +289,8 @@
 }
 
 .party-tab-btn.active {
-  color: var(--text-main);
-  border-bottom-color: var(--accent-color);
+  color: var(--accent-secondary);
+  border-bottom-color: var(--accent-secondary);
 }
 
 .party-modal-content {
@@ -325,6 +370,7 @@
 
 .settings-select:focus {
   border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .settings-tip {
@@ -401,7 +447,7 @@
   width: 18px;
   left: 3px;
   bottom: 3px;
-  background-color: var(--text-secondary);
+  background-color: var(--text-muted);
   transition: all 0.25s ease;
   border-radius: 50%;
 }
@@ -413,13 +459,13 @@ input:checked + .slider {
 
 input:checked + .slider:before {
   transform: translateX(22px);
-  background-color: #ffffff;
+  background-color: #080A10;
 }
 
 .settings-toast {
   margin-top: 16px;
   padding: 12px 18px;
-  background: rgba(53, 211, 154, 0.15);
+  background: rgba(77, 212, 167, 0.14);
   border: 1px solid var(--success-color);
   color: var(--success-color);
   border-radius: var(--radius-control);
@@ -539,11 +585,12 @@ input:checked + .slider:before {
   background: var(--surface-color);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-card);
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
 }
 
 .history-item:hover {
   border-color: var(--border-strong);
+  transform: translateY(-1px);
 }
 
 .history-item img {
@@ -552,6 +599,7 @@ input:checked + .slider:before {
   object-fit: cover;
   border-radius: var(--radius-control);
   flex-shrink: 0;
+  background: var(--surface-raised);
 }
 
 .history-item-info {

@@ -1,6 +1,6 @@
 /**
- * KuraStream v2.0 - Admin Dashboard Styles: Kura Ember
- * 240px sidebar, ember active pills, stat cards (12px radius), system panels & console logs.
+ * KuraStream v2.0 - Admin Dashboard Styles: Nocturnal Cinematic
+ * 240px sidebar, cold indigo active indicators, stat cards (12px radius), system panels & console logs.
  */
 
 #admin-view {
@@ -22,7 +22,7 @@
 /* Sidebar Navigation */
 .admin-sidebar {
   width: 240px;
-  background: var(--surface-color);
+  background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   padding: 24px 16px;
   flex-shrink: 0;
@@ -55,7 +55,7 @@
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   transition: all var(--transition-fast);
   text-align: left;
@@ -64,13 +64,20 @@
 
 .admin-nav-item:hover {
   color: var(--text-main);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-hover);
 }
 
 .admin-nav-item.active {
-  color: var(--accent-color);
-  background: rgba(255, 107, 44, 0.12);
+  color: var(--text-main);
+  background: var(--surface-raised);
+  border-color: var(--border-color);
   font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-nav-item.active i,
+.admin-nav-item.active [data-lucide] {
+  color: var(--accent-color);
 }
 
 /* Admin Content Area */
@@ -128,6 +135,12 @@
   display: flex;
   align-items: center;
   gap: 16px;
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
 }
 
 .stat-icon-wrapper {
@@ -140,10 +153,11 @@
   flex-shrink: 0;
 }
 
-.stat-icon-wrapper.orange { background: rgba(255, 107, 44, 0.15); color: var(--accent-color); }
-.stat-icon-wrapper.blue { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
-.stat-icon-wrapper.green { background: rgba(53, 211, 154, 0.15); color: var(--success-color); }
-.stat-icon-wrapper.gold { background: rgba(251, 191, 36, 0.15); color: var(--rating-color); }
+.stat-icon-wrapper.indigo,
+.stat-icon-wrapper.orange { background: var(--accent-soft); color: var(--accent-color); }
+.stat-icon-wrapper.blue { background: rgba(90, 167, 255, 0.15); color: var(--info-color); }
+.stat-icon-wrapper.green { background: rgba(77, 212, 167, 0.15); color: var(--success-color); }
+.stat-icon-wrapper.gold { background: rgba(241, 199, 91, 0.15); color: var(--rating-color); }
 
 .stat-info {
   display: flex;
@@ -194,15 +208,16 @@
   color: var(--text-muted);
   font-weight: 600;
   letter-spacing: 0.05em;
+  background: var(--surface-raised);
 }
 
 .admin-table tr:hover td {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-hover);
 }
 
 /* Console Logs Box */
 .console-logs-wrapper {
-  background: #000000;
+  background: #05070A;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-control);
   padding: 16px;

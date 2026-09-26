@@ -1,6 +1,6 @@
 /**
- * KuraStream v2.0 - Catalog & Show Presentation: Kura Ember
- * Billboard hero with ember CTA, 2:3 show cards (12px radius), continue watching rails,
+ * KuraStream v2.0 - Catalog & Show Presentation: Nocturnal Cinematic
+ * Billboard hero with cold indigo CTA, 2:3 show cards (12px radius), continue watching rails,
  * cinematic show details with ambient backdrop, and catalog toolbar.
  */
 
@@ -35,6 +35,7 @@
   padding: 0 4% 56px 4%;
   overflow: hidden;
   border-radius: var(--radius-card);
+  background-color: var(--bg-color);
 }
 
 .billboard-hero-background {
@@ -50,36 +51,40 @@
 .billboard-vignette {
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    90deg,
-    rgba(7, 9, 13, 0.96) 0%,
-    rgba(7, 9, 13, 0.75) 45%,
-    rgba(7, 9, 13, 0.15) 85%
-  ),
-  linear-gradient(
-    0deg,
-    #07090D 0%,
-    rgba(7, 9, 13, 0) 50%
-  );
+  background:
+    linear-gradient(
+      90deg,
+      rgba(8, 10, 16, 0.98) 0%,
+      rgba(8, 10, 16, 0.82) 42%,
+      rgba(8, 10, 16, 0.25) 75%,
+      transparent 100%
+    ),
+    linear-gradient(
+      0deg,
+      #080A10 0%,
+      rgba(8, 10, 16, 0.7) 32%,
+      transparent 70%
+    );
   pointer-events: none;
+  z-index: 1;
 }
 
 .billboard-hero-content,
 .billboard-content {
   position: relative;
   z-index: 2;
-  max-width: 620px;
+  max-width: 640px;
 }
 
 .billboard-hero-title,
 .billboard-title {
   font-family: var(--font-title);
-  font-size: 2.75rem;
+  font-size: 2.85rem;
   font-weight: 800;
-  letter-spacing: -0.03em;
-  margin-bottom: 12px;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
-  line-height: 1.15;
+  letter-spacing: -0.035em;
+  margin-bottom: 14px;
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.9);
+  line-height: 1.12;
   color: var(--text-main);
 }
 
@@ -87,7 +92,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   flex-wrap: wrap;
 }
 
@@ -98,38 +103,40 @@
 }
 
 .billboard-genre-tag {
-  padding: 2px 8px;
-  background: rgba(255, 255, 255, 0.08);
+  padding: 3px 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-xs);
   font-size: 0.75rem;
+  font-weight: 500;
   color: var(--text-secondary);
 }
 
 .billboard-hero-synopsis,
 .billboard-synopsis {
   font-size: 0.95rem;
-  line-height: 1.6;
+  line-height: 1.65;
   color: var(--text-secondary);
-  margin-bottom: 24px;
+  margin-bottom: 26px;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
 }
 
 .billboard-hero-actions,
 .billboard-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .btn-billboard-play {
   background: var(--accent-color);
-  color: var(--text-inverse);
-  font-weight: 700;
-  padding: 12px 24px;
+  color: #080A10;
+  font-weight: 800;
+  padding: 12px 26px;
   border-radius: var(--radius-control);
   display: inline-flex;
   align-items: center;
@@ -137,17 +144,20 @@
   border: none;
   font-size: 0.95rem;
   font-family: var(--font-title);
-  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  letter-spacing: -0.01em;
+  box-shadow: 0 4px 16px var(--accent-glow);
+  transition: all var(--transition-fast);
 }
 
 .btn-billboard-play:hover {
   background: var(--accent-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(255, 107, 44, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(129, 140, 248, 0.35);
+  color: #080A10;
 }
 
 .btn-billboard-info {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--surface-raised);
   color: var(--text-main);
   font-weight: 600;
   padding: 12px 22px;
@@ -155,15 +165,18 @@
   border: 1px solid var(--border-color);
   display: inline-flex;
   align-items: center;
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   cursor: pointer;
   font-size: 0.95rem;
   font-family: var(--font-title);
-  transition: background var(--transition-fast);
+  transition: all var(--transition-fast);
 }
 
 .btn-billboard-info:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
 }
 
 /* Catalog Filter Toolbar */
@@ -176,7 +189,7 @@
   padding: 14px 20px;
   background: var(--surface-color);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-card);
   backdrop-filter: blur(12px);
 }
 
@@ -200,7 +213,8 @@
   gap: 6px;
 }
 
-.catalog-toolbar-label i {
+.catalog-toolbar-label i,
+.catalog-toolbar-label [data-lucide] {
   width: 16px;
   height: 16px;
   color: var(--accent-color);
@@ -248,17 +262,18 @@
 .genre-pill:hover,
 .sort-chip:hover {
   color: var(--text-main);
-  background: var(--surface-muted);
+  background: var(--surface-hover);
   border-color: var(--border-strong);
 }
 
 .filter-chip.active,
 .genre-pill.active,
 .sort-chip.active {
-  background: rgba(255, 107, 44, 0.15);
+  background: var(--accent-soft);
   color: var(--accent-color);
   border-color: var(--accent-color);
   font-weight: 600;
+  box-shadow: 0 0 10px rgba(129, 140, 248, 0.15);
 }
 
 /* Media Rails & Sections */
@@ -294,7 +309,9 @@
   background: var(--surface-color);
   overflow: hidden;
   border: 1px solid var(--border-color);
-  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color var(--transition-fast),
+              box-shadow 0.25s ease;
   cursor: pointer;
   position: relative;
   display: flex;
@@ -302,18 +319,19 @@
 }
 
 .show-card:hover {
-  transform: translateY(-4px) scale(1.02);
+  transform: translateY(-5px) scale(1.025);
   border-color: var(--accent-color);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.7), 0 0 16px var(--accent-soft);
   z-index: 5;
 }
 
-.show-card-poster-wrap {
+.show-card-poster-wrap,
+.card-img-wrapper {
   position: relative;
   width: 100%;
   aspect-ratio: 2 / 3;
   overflow: hidden;
-  background: #0b0f14;
+  background: var(--surface-raised);
 }
 
 .show-card-poster {
@@ -353,8 +371,8 @@
   position: absolute;
   top: 8px;
   left: 8px;
-  background: rgba(17, 24, 33, 0.85);
-  border: 1px solid rgba(53, 211, 154, 0.4);
+  background: rgba(8, 10, 16, 0.88);
+  border: 1px solid rgba(77, 212, 167, 0.35);
   color: var(--success-color);
   font-size: 0.68rem;
   font-weight: 700;
@@ -363,7 +381,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(6px);
 }
 
 .airing-pulse-dot {
@@ -384,8 +402,8 @@
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgba(17, 24, 33, 0.85);
-  backdrop-filter: blur(4px);
+  background: rgba(8, 10, 16, 0.88);
+  backdrop-filter: blur(6px);
   padding: 3px 6px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--border-color);
@@ -393,6 +411,7 @@
   font-variant-numeric: tabular-nums;
   font-size: 0.75rem;
   font-weight: 700;
+  color: var(--text-main);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -436,7 +455,7 @@
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: #0b0f14;
+  background: var(--surface-raised);
   overflow: hidden;
   border-radius: var(--radius-control) var(--radius-control) 0 0;
 }
@@ -460,14 +479,15 @@
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(17, 24, 33, 0.75);
+  background: rgba(8, 10, 16, 0.85);
   border: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
   transition: all var(--transition-fast);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(6px);
+  color: var(--accent-color);
 }
 
 .continue-watching-card:hover .continue-watching-play-btn {
@@ -551,8 +571,8 @@
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(7, 9, 13, 0.4) 0%, rgba(7, 9, 13, 0.85) 60%, var(--bg-color) 100%),
-    linear-gradient(90deg, rgba(7, 9, 13, 0.95) 0%, rgba(7, 9, 13, 0.6) 40%, transparent 100%);
+    linear-gradient(180deg, rgba(8, 10, 16, 0.4) 0%, rgba(8, 10, 16, 0.85) 60%, var(--bg-color) 100%),
+    linear-gradient(90deg, rgba(8, 10, 16, 0.95) 0%, rgba(8, 10, 16, 0.6) 40%, transparent 100%);
 }
 
 .detail-back-bar {
@@ -703,7 +723,8 @@
 
 .season-tab.active {
   background: var(--accent-color);
-  color: var(--text-inverse);
+  color: #080A10;
+  font-weight: 800;
   border-color: var(--accent-color);
 }
 
@@ -739,7 +760,7 @@
   border-radius: var(--radius-control);
   overflow: hidden;
   position: relative;
-  background: #000;
+  background: var(--surface-raised);
 }
 
 .episode-thumb {
@@ -805,8 +826,8 @@
   position: absolute;
   top: 6px;
   left: 6px;
-  background: rgba(53, 211, 154, 0.9);
-  color: var(--text-inverse);
+  background: rgba(77, 212, 167, 0.92);
+  color: #080A10;
   font-size: 0.65rem;
   font-weight: 800;
   padding: 2px 6px;
@@ -992,5 +1013,6 @@
 .day-tab.active {
   background: var(--accent-color);
   border-color: var(--accent-color);
-  color: #fff;
+  color: #080A10;
+  font-weight: 800;
 }

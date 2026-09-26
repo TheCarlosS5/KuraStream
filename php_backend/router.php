@@ -386,15 +386,21 @@ if ($uri === '/api/placeholder-poster' && $method === 'GET') {
 <svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450">
   <defs>
     <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#181824"/>
-      <stop offset="100%" stop-color="#0a0a10"/>
+      <stop offset="0%" stop-color="#111824"/>
+      <stop offset="100%" stop-color="#080A10"/>
     </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="45%" r="40%">
+      <stop offset="0%" stop-color="#818CF8" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#818CF8" stop-opacity="0"/>
+    </radialGradient>
   </defs>
   <rect width="300" height="450" fill="url(#g)"/>
-  <circle cx="150" cy="200" r="50" fill="#a855f7" opacity="0.2"/>
-  <polygon points="140,180 170,200 140,220" fill="#a855f7"/>
-  <text x="150" y="280" font-family="system-ui, sans-serif" font-size="16" font-weight="600" fill="#e2e8f0" text-anchor="middle">{$title}</text>
-  <text x="150" y="305" font-family="system-ui, sans-serif" font-size="12" fill="#94a3b8" text-anchor="middle">KuraStream</text>
+  <rect width="300" height="450" fill="url(#glow)"/>
+  <rect x="20" y="20" width="260" height="410" rx="12" fill="none" stroke="#263447" stroke-width="1.5" stroke-opacity="0.6"/>
+  <circle cx="150" cy="195" r="44" fill="#172131" stroke="#34465E" stroke-width="1.5"/>
+  <polygon points="144,180 166,195 144,210" fill="#818CF8"/>
+  <text x="150" y="275" font-family="'Outfit', system-ui, sans-serif" font-size="15" font-weight="700" fill="#F5F7FB" text-anchor="middle">{$title}</text>
+  <text x="150" y="298" font-family="'Inter', system-ui, sans-serif" font-size="11" font-weight="500" fill="#7D899C" letter-spacing="1" text-anchor="middle">KURASTREAM</text>
 </svg>
 SVG;
     exit();
