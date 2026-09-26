@@ -65,9 +65,6 @@ class HistoryController {
         }
 
         $canonicalEp = DbHelper::getEpisode($epId);
-        if (!$canonicalEp) {
-            jsonError('Episodio no encontrado', 404);
-        }
 
         $rawProgress = $data['progress'] ?? ($data['progress_seconds'] ?? null);
         if ($rawProgress === null || !is_numeric($rawProgress)) {

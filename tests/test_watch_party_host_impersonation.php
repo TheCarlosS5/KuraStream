@@ -53,7 +53,7 @@ try {
 // Clean test fixtures
 $db->exec("DELETE FROM party_messages WHERE room_id LIKE 'KURA-%'");
 $db->exec("DELETE FROM party_members WHERE room_id LIKE 'KURA-%'");
-$db->exec("DELETE FROM party_rooms WHERE room_id LIKE 'KURA-%'");
+$db->exec("DELETE FROM party_rooms WHERE id LIKE 'KURA-%'");
 $db->exec("DELETE FROM episodes WHERE show_id = 'show_impersonation_test'");
 $db->exec("DELETE FROM shows WHERE id = 'show_impersonation_test'");
 $db->exec("DELETE FROM user_profiles WHERE username = 'Carlos'");

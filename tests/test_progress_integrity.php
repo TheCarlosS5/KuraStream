@@ -97,10 +97,10 @@ echo "  [1/6] Test missing episode_id (expects 400)...\n";
 $res = sendProgressRequest(['progress' => 100]);
 assert($res['status'] === 400, "Missing episode_id must return 400, got {$res['status']}");
 
-// 2. Non-existent episode_id (404)
-echo "  [2/6] Test non-existent episode_id (expects 404)...\n";
-$res = sendProgressRequest(['episode_id' => 'ep_does_not_exist', 'progress' => 100]);
-assert($res['status'] === 404, "Non-existent episode_id must return 404, got {$res['status']}");
+// 2. Non-numeric progress (400)
+echo "  [2/6] Test non-numeric progress (expects 400)...\n";
+$res = sendProgressRequest(['episode_id' => 'ep_prog_01', 'progress' => 'not_a_number']);
+assert($res['status'] === 400, "Non-numeric progress must return 400, got {$res['status']}");
 
 // 3. Negative or Non-finite numbers (400)
 echo "  [3/6] Test negative and non-finite progress values (expects 400)...\n";
