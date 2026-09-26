@@ -27,12 +27,16 @@ export class Router {
   }
 
   getHash() {
-    return window.location.hash.slice(1) || '/';
+    let hash = window.location.hash.slice(1).trim();
+    if (!hash || hash === '') return '/';
+    if (!hash.startsWith('/')) hash = '/' + hash;
+    return hash;
   }
 
   async handleRouting() {
     const rawPath = this.getHash();
-    const [pathOnly, queryString] = rawPath.split('?');
+    const [rawPathOnly, queryString] = rawPath.split('?');
+    const pathOnly = (rawPathOnly.length > 1 && rawPathOnly.endsWith('/')) ? rawPathOnly.slice(0, -1) : (rawPathOnly || '/');
     const query = new URLSearchParams(queryString || '');
 
     // Match route

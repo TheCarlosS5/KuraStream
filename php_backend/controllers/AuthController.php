@@ -182,20 +182,26 @@ class AuthController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
+        $profileId = trim((string)($data['profile_id'] ?? ($data['id'] ?? '')));
         $profileName = trim((string)($data['profile_name'] ?? ''));
         $pin = trim((string)($data['pin'] ?? ''));
 
-        if (empty($profileName)) {
-            jsonError('profile_name requerido', 400);
+        if (empty($profileId) && empty($profileName)) {
+            jsonError('profile_id o profile_name requerido', 400);
         }
 
         $db = Database::getConnection();
-        $stmt = $db->prepare("SELECT * FROM user_profiles WHERE username = :u AND name = :p");
-        $stmt->execute(['u' => $username, 'p' => $profileName]);
+        if (!empty($profileId)) {
+            $stmt = $db->prepare("SELECT * FROM user_profiles WHERE id = :id AND username = :u");
+            $stmt->execute(['id' => $profileId, 'u' => $username]);
+        } else {
+            $stmt = $db->prepare("SELECT * FROM user_profiles WHERE name = :p AND username = :u");
+            $stmt->execute(['p' => $profileName, 'u' => $username]);
+        }
         $profile = $stmt->fetch();
 
         if (!$profile) {
-            jsonError('Perfil no encontrado', 404);
+            jsonError('Perfil no encontrado o no pertenece a este usuario', 404);
         }
 
         if (!empty($profile['pin'])) {
@@ -206,9 +212,10 @@ class AuthController {
 
         $tokenPayload = [
             'username' => $username,
-            'profile_name' => $profileName,
-            'is_kids' => (bool)$profile['is_kids'],
             'role' => $authUser['role'] ?? 'user',
+            'profile_id' => $profile['id'],
+            'profile_name' => $profile['name'],
+            'is_kids' => (bool)$profile['is_kids'],
             'exp' => time() + (30 * 24 * 3600)
         ];
         $token = AuthMiddleware::createToken($tokenPayload);

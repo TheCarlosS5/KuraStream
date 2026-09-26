@@ -53,10 +53,33 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
 
+      - name: Initialize Database Migrations
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: kurastream
+          DB_USER: kurastream
+          DB_PASS: testpassword
+        run: |
+          export JWT_SECRET=$(openssl rand -hex 32)
+          php -r 'require_once "php_backend/db.php"; Database::initializeSchema();'
+
       - name: Run Playwright E2E Tests
-        run: npm run test:e2e
+        id: e2e
+        continue-on-error: true
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: kurastream
+          DB_USER: kurastream
+          DB_PASS: testpassword
+        run: |
+          export JWT_SECRET=$(openssl rand -hex 32)
+          npm run test:e2e
 
       - name: Run PHP Test Suite
+        id: php_tests
+        continue-on-error: true
         env:
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
@@ -66,3 +89,10 @@ jobs:
         run: |
           export JWT_SECRET=$(openssl rand -hex 32)
           php tests/run_all_tests.php
+
+      - name: Verify All Test Suites Passed
+        run: |
+          if [ "${{ steps.e2e.outcome }}" != "success" ] || [ "${{ steps.php_tests.outcome }}" != "success" ]; then
+            echo "::error::One or more test suites failed. E2E outcome: ${{ steps.e2e.outcome }}, PHP tests outcome: ${{ steps.php_tests.outcome }}"
+            exit 1
+          fi

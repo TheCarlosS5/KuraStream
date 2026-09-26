@@ -8,7 +8,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 
 class MigrationManager {
-    private static function initMigrationTable(PDO $db): void {
+    public static function initMigrationTable(PDO $db): void {
         $db->exec("
             CREATE TABLE IF NOT EXISTS schema_migrations (
                 version VARCHAR(255) PRIMARY KEY,
@@ -38,6 +38,38 @@ class MigrationManager {
         return $migrations;
     }
 
+    /**
+     * Parse SQL file content into individual executable statements,
+     * stripping block comments and line comments cleanly before splitting by semicolon.
+     */
+    public static function parseSqlStatements(string $sql): array {
+        // Strip block comments /* ... */
+        $clean = preg_replace('!/\*.*?\*/!s', '', $sql);
+
+        // Strip single line comments (-- and #)
+        $lines = explode("\n", $clean);
+        $filteredLines = [];
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            if (str_starts_with($trimmed, '--') || str_starts_with($trimmed, '#')) {
+                continue;
+            }
+            $filteredLines[] = $line;
+        }
+        $clean = implode("\n", $filteredLines);
+
+        // Split by semicolon
+        $rawStatements = explode(';', $clean);
+        $statements = [];
+        foreach ($rawStatements as $stmt) {
+            $trimmed = trim($stmt);
+            if (!empty($trimmed)) {
+                $statements[] = $trimmed;
+            }
+        }
+        return $statements;
+    }
+
     public static function getStatus(): array {
         try {
             $db = Database::getConnection();
@@ -62,8 +94,8 @@ class MigrationManager {
         }
     }
 
-    public static function runPending(): array {
-        $db = Database::getConnection();
+    public static function runPending(?PDO $customDb = null): array {
+        $db = $customDb ?: Database::getConnection();
         self::initMigrationTable($db);
 
         $applied = self::getAppliedMigrations($db);
@@ -80,15 +112,19 @@ class MigrationManager {
                 continue;
             }
 
-            // Split into individual SQL statements separated by semicolon
-            $statements = array_filter(
-                array_map('trim', explode(';', $sql)),
-                fn($s) => !empty($s) && !str_starts_with($s, '--')
-            );
+            $statements = self::parseSqlStatements($sql);
 
             foreach ($statements as $statement) {
                 if (!empty($statement)) {
-                    $db->exec($statement);
+                    try {
+                        $db->exec($statement);
+                    } catch (Throwable $e) {
+                        throw new RuntimeException(
+                            "Database migration failed in '{$version}': " . $e->getMessage() . "\nFailed Query:\n" . $statement,
+                            (int)$e->getCode(),
+                            $e
+                        );
+                    }
                 }
             }
 

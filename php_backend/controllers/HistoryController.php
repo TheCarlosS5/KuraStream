@@ -7,15 +7,29 @@ class HistoryController {
     private static function resolveUserAndProfile(array $body = []): array {
         $authUser = AuthMiddleware::requireAuth();
         $username = $authUser['username'];
+
+        // Strict priority: active verified profile from token claims
         if (!empty($authUser['profile_name'])) {
-            $profile = trim((string)$authUser['profile_name']);
-        } else {
-            $profile = trim((string)($_GET['profile_name'] ?? ($body['profile_name'] ?? 'Principal')));
-            if (empty($profile)) {
-                $profile = 'Principal';
-            }
+            return [$username, trim((string)$authUser['profile_name'])];
         }
-        return [$username, $profile];
+
+        // If authenticated without active profile in token, resolve from user's verified profiles in DB
+        $profiles = DbHelper::getUserProfiles($username);
+        if (!empty($profiles)) {
+            $requestedId = trim((string)($body['profile_id'] ?? ($_GET['profile_id'] ?? '')));
+            if (!empty($requestedId)) {
+                foreach ($profiles as $p) {
+                    if ($p['id'] === $requestedId) {
+                        return [$username, $p['name']];
+                    }
+                }
+            }
+            return [$username, $profiles[0]['name']];
+        }
+
+        // If no profiles exist, ensure default Principal profile
+        $defaultProf = DbHelper::saveUserProfile($username, ['name' => 'Principal']);
+        return [$username, $defaultProf['name']];
     }
 
     public static function getHistory(): void {

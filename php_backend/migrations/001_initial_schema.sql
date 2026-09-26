@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     is_kids TINYINT(1) DEFAULT 0,
     pin VARCHAR(255) DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_user_profiles (username)
+    INDEX idx_user_profiles (username),
+    UNIQUE KEY uniq_user_profile_name (username, name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS shows (

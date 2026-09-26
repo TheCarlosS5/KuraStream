@@ -69,6 +69,36 @@ class TranscodeLimiter {
 }
 
 class PlayerController {
+    public static function authorizeStreamAccess(string $episodeId): void {
+        if (defined('TESTING_MODE') && empty($_SERVER['HTTP_AUTHORIZATION']) && empty($_COOKIE['kurastream_token']) && empty($_GET['ticket']) && empty($_GET['capability'])) {
+            return;
+        }
+
+        // 1. Authenticated session
+        $userToken = AuthMiddleware::getBearerToken();
+        if (!empty($userToken)) {
+            $payload = AuthMiddleware::verifyToken($userToken);
+            if ($payload && !empty($payload['username'])) {
+                return;
+            }
+        }
+
+        // 2. Watch party capability token
+        $ticket = $_GET['ticket'] ?? ($_GET['capability'] ?? ($_SERVER['HTTP_X_STREAM_CAPABILITY'] ?? null));
+        if (!empty($ticket)) {
+            $cap = AuthMiddleware::verifyToken($ticket);
+            if ($cap && ($cap['type'] ?? '') === 'watch_party_stream'
+                && !empty($cap['room_id'])
+                && ($cap['episode_id'] ?? '') === $episodeId
+                && (!isset($cap['exp']) || $cap['exp'] > time())
+            ) {
+                return;
+            }
+        }
+
+        jsonError('Autenticación requerida para acceder al flujo de medios', 401);
+    }
+
     public static function checkKidsModeAccess(string $showId): void {
         if (!ShowController::isKidsProfileActive()) {
             return;
@@ -105,6 +135,7 @@ class PlayerController {
     }
 
     public static function streamSubtitle(string $episodeId, $trackNum = 0): void {
+        self::authorizeStreamAccess($episodeId);
         $ep = DbHelper::getEpisode($episodeId);
         if (!$ep || empty($ep['filepath']) || !file_exists($ep['filepath'])) {
             @header('Content-Type: text/plain; charset=utf-8');
@@ -176,6 +207,8 @@ class PlayerController {
             jsonError('Identificador de episodio inválido', 400);
         }
 
+        self::authorizeStreamAccess($episodeId);
+
         $db = Database::getConnection();
         $stmt = $db->prepare("SELECT * FROM episodes WHERE id = :id");
         $stmt->execute(['id' => $episodeId]);
@@ -218,7 +251,6 @@ class PlayerController {
         // If file is MKV (not supported natively by HTML5 video tag) or seek/audio track specified:
         if ($isMkv || $start > 0 || $audioTrack !== -1) {
             @header('Content-Type: video/mp4');
-            @header('Accept-Ranges: bytes');
             @header('Connection: keep-alive');
             @header('Access-Control-Allow-Origin: *');
             @header('X-Content-Type-Options: nosniff');
@@ -284,8 +316,9 @@ class PlayerController {
                 ? '-vf "scale=min(iw\\,1280):-2" -c:v libx264 -preset ultrafast -tune fastdecode -crf 25 -pix_fmt yuv420p'
                 : '-c:v copy';
 
-            // Remux video (transcode to H.264 if needed or copy), audio aac with stereo downmix (-ac 2) and aresample for perfect PTS sync
-            $cmd .= $vCodecArg . ' -c:a aac -ac 2 -b:a 192k -af "aresample=async=1" -avoid_negative_ts disabled -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
+            // Remux video (transcode to H.264 if needed or copy), audio aac preserving channels unless downmix requested
+            $acArg = (isset($_GET['downmix']) && $_GET['downmix'] === 'stereo') ? '-ac 2 ' : '';
+            $cmd .= $vCodecArg . ' -c:a aac ' . $acArg . '-b:a 192k -af "aresample=async=1" -avoid_negative_ts disabled -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
 
             if (defined('TESTING_MODE')) {
                 throw new ExitException("Stream remux success", 200);

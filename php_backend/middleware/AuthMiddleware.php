@@ -105,6 +105,19 @@ class AuthMiddleware {
         return $payload;
     }
 
+    /**
+     * Enforce User Authentication AND Active Profile Check
+     */
+    public static function requireProfile(): array {
+        $payload = self::requireAuth();
+
+        if (empty($payload['profile_id']) && empty($payload['profile_name'])) {
+            jsonError('Selección de perfil requerida', 403, ['code' => 'PROFILE_REQUIRED']);
+        }
+
+        return $payload;
+    }
+
     private static function base64UrlEncode(string $data): string {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
     }

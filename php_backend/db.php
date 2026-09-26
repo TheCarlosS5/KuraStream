@@ -28,187 +28,10 @@ class Database {
         return self::$pdo;
     }
 
-    public static function initializeSchema(?PDO $customPdo = null) {
+    public static function initializeSchema(?PDO $customPdo = null): array {
         $db = $customPdo ?: self::getConnection();
-
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS shows (
-                id VARCHAR(255) PRIMARY KEY,
-                title VARCHAR(255) NOT NULL,
-                synopsis TEXT,
-                rating DOUBLE DEFAULT 0.0,
-                year INT NULL,
-                studio VARCHAR(255) DEFAULT '',
-                director VARCHAR(255) DEFAULT '',
-                writer VARCHAR(255) DEFAULT '',
-                cast_members LONGTEXT,
-                poster_path VARCHAR(500) DEFAULT '',
-                backdrop_path VARCHAR(500) DEFAULT '',
-                media_type VARCHAR(50) NOT NULL DEFAULT 'anime',
-                backdrop_loops LONGTEXT,
-                genres VARCHAR(500) DEFAULT '',
-                trailer_key VARCHAR(255) NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                age_rating VARCHAR(50) DEFAULT 'TV-14',
-                status VARCHAR(50) DEFAULT 'finished'
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS episodes (
-                id VARCHAR(255) PRIMARY KEY,
-                show_id VARCHAR(255) NOT NULL,
-                season_number INT NOT NULL,
-                episode_number INT NOT NULL,
-                title VARCHAR(255) DEFAULT '',
-                synopsis TEXT,
-                filepath VARCHAR(500) NOT NULL,
-                duration DOUBLE DEFAULT 0,
-                size BIGINT DEFAULT 0,
-                video_codec VARCHAR(100) DEFAULT '',
-                resolution VARCHAR(100) DEFAULT '',
-                fps DOUBLE DEFAULT 0,
-                audio_tracks LONGTEXT,
-                subtitle_tracks LONGTEXT,
-                thumbnail_path VARCHAR(500) DEFAULT '',
-                intro_start INT NULL,
-                intro_end INT NULL,
-                outro_start INT NULL,
-                chapters LONGTEXT NULL,
-                INDEX idx_episodes_show (show_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS user_preferences (
-                username VARCHAR(255) NOT NULL,
-                profile_name VARCHAR(255) NOT NULL DEFAULT 'Principal',
-                auto_skip_intro TINYINT(1) DEFAULT 0,
-                auto_play_next TINYINT(1) DEFAULT 1,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (username, profile_name)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS watch_history (
-                username VARCHAR(255) NOT NULL,
-                profile_name VARCHAR(255) NOT NULL DEFAULT 'Principal',
-                episode_id VARCHAR(255) NOT NULL,
-                progress_seconds DOUBLE NOT NULL DEFAULT 0,
-                duration DOUBLE NOT NULL DEFAULT 0,
-                completed TINYINT(1) DEFAULT 0,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (username, profile_name, episode_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS favorites (
-                username VARCHAR(255) NOT NULL,
-                profile_name VARCHAR(255) NOT NULL DEFAULT 'Principal',
-                show_id VARCHAR(255) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (username, profile_name, show_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS staged_imports (
-                id VARCHAR(255) PRIMARY KEY,
-                original_filename VARCHAR(500) NOT NULL,
-                filepath VARCHAR(500) NOT NULL,
-                media_type VARCHAR(50) DEFAULT 'anime',
-                clean_title VARCHAR(255) DEFAULT '',
-                season INT DEFAULT 1,
-                episode INT DEFAULT 1,
-                filesize BIGINT DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS users (
-                username VARCHAR(255) PRIMARY KEY,
-                password_hash VARCHAR(255) NOT NULL,
-                role VARCHAR(50) NOT NULL DEFAULT 'user',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS user_profiles (
-                id VARCHAR(255) PRIMARY KEY,
-                username VARCHAR(255) NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                avatar VARCHAR(500) DEFAULT '',
-                color VARCHAR(50) DEFAULT '#a855f7',
-                is_kids TINYINT(1) DEFAULT 0,
-                pin VARCHAR(255) DEFAULT '',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_user_profiles (username)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS comments (
-                id VARCHAR(255) PRIMARY KEY,
-                show_id VARCHAR(255) NOT NULL,
-                episode_id VARCHAR(255) DEFAULT '',
-                username VARCHAR(255) NOT NULL,
-                profile_name VARCHAR(255) NOT NULL DEFAULT 'Principal',
-                content TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_comments_show (show_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS party_rooms (
-                id VARCHAR(64) PRIMARY KEY,
-                name VARCHAR(255) DEFAULT '',
-                host_user VARCHAR(64) NOT NULL,
-                episode_id VARCHAR(255) NOT NULL,
-                is_playing TINYINT(1) DEFAULT 0,
-                `current_time` DOUBLE DEFAULT 0,
-                last_sync_timestamp BIGINT NOT NULL DEFAULT 0,
-                is_public TINYINT(1) DEFAULT 0,
-                allow_guest_controls TINYINT(1) DEFAULT 0,
-                participants_count INT DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_party_rooms_public (is_public),
-                INDEX idx_party_rooms_updated (updated_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS party_messages (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                room_id VARCHAR(64) NOT NULL,
-                username VARCHAR(64) NOT NULL,
-                message TEXT NOT NULL,
-                type VARCHAR(32) DEFAULT 'chat',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_party_messages_room (room_id, id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS party_members (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                room_id VARCHAR(64) NOT NULL,
-                username VARCHAR(255) NOT NULL,
-                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_ping TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_party_members_room (room_id),
-                UNIQUE KEY uniq_room_user (room_id, username)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ");
-
-        try {
-            $checkCol = $db->query("SHOW COLUMNS FROM episodes LIKE 'chapters'");
-            if ($checkCol && $checkCol->rowCount() === 0) {
-                $db->exec("ALTER TABLE episodes ADD COLUMN chapters LONGTEXT NULL");
-            }
-            $checkComp = $db->query("SHOW COLUMNS FROM watch_history LIKE 'completed'");
-            if ($checkComp && $checkComp->rowCount() === 0) {
-                $db->exec("ALTER TABLE watch_history ADD COLUMN completed TINYINT(1) DEFAULT 0");
-            }
-            // Existing installations predate the longer, high-entropy Watch Party IDs.
-            $db->exec("ALTER TABLE party_rooms MODIFY id VARCHAR(64) NOT NULL");
-            $db->exec("ALTER TABLE party_messages MODIFY room_id VARCHAR(64) NOT NULL");
-            $db->exec("ALTER TABLE user_profiles MODIFY pin VARCHAR(255) DEFAULT ''");
-        } catch (Throwable $e) {
-            // Ignore if check or alter column fails
-        }
-
-        if (class_exists('MigrationManager') || file_exists(__DIR__ . '/services/MigrationManager.php')) {
-            require_once __DIR__ . '/services/MigrationManager.php';
-            try {
-                MigrationManager::runPending();
-            } catch (Throwable $e) {
-                // Ignore migration runner error if schema is initialized
-            }
-        }
+        require_once __DIR__ . '/services/MigrationManager.php';
+        return MigrationManager::runPending($db);
     }
 }
 
@@ -563,11 +386,23 @@ class DbHelper {
         ]);
     }
 
-    public static function getRandomShow(): ?array {
+    public static function getRandomShow(bool $isKids = false): ?array {
         $db = Database::getConnection();
-        $stmt = $db->query("SELECT * FROM shows ORDER BY RAND() LIMIT 1");
-        $show = $stmt->fetch();
-        if (!$show) return null;
+        $shows = $db->query("SELECT * FROM shows")->fetchAll();
+        if (empty($shows)) return null;
+
+        if ($isKids) {
+            $shows = array_values(array_filter($shows, function($s) {
+                $rating = strtoupper(trim((string)($s['age_rating'] ?? '')));
+                if (in_array($rating, ['R', 'TV-MA', '18+', 'NC-17', 'RX', 'R18'])) return false;
+                $genres = strtolower((string)($s['genres'] ?? ''));
+                if (str_contains($genres, 'ecchi') || str_contains($genres, 'hentai') || str_contains($genres, 'erotica')) return false;
+                return true;
+            }));
+            if (empty($shows)) return null;
+        }
+
+        $show = $shows[array_rand($shows)];
         $show['rating'] = (float)$show['rating'];
         $show['year'] = $show['year'] !== null ? (int)$show['year'] : null;
         return $show;
@@ -752,19 +587,36 @@ class DbHelper {
                         jsonError('PIN actual requerido o incorrecto para modificar este perfil', 403);
                     }
                 }
+            } else {
+                // Client supplied an id that doesn't exist: ignore it and generate a secure random ID
+                $id = 'prof_' . bin2hex(random_bytes(16));
             }
         } else {
             $id = 'prof_' . bin2hex(random_bytes(16));
         }
 
         $name = trim($data['profile_name'] ?? $data['name'] ?? 'Perfil');
+        if (empty($name)) {
+            $name = 'Perfil';
+        }
+
+        // Enforce uniqueness of profile name per user
+        $dupCheck = $db->prepare("SELECT id FROM user_profiles WHERE username = :u AND name = :n AND id != :id");
+        $dupCheck->execute(['u' => $username, 'n' => $name, 'id' => $id]);
+        if ($dupCheck->fetch()) {
+            jsonError('Ya existe un perfil con ese nombre para este usuario', 409);
+        }
+
         $avatar = $data['avatar'] ?? ($data['avatar_image'] ?? '');
         $color = $data['avatar_color'] ?? $data['color'] ?? '#a855f7';
         $isKids = !empty($data['is_kids']) ? 1 : 0;
         $rawPin = trim((string)($data['pin'] ?? ''));
         $pinHash = $existing ? ($existing['pin'] ?? '') : '';
         if ($rawPin !== '') {
-            $pinHash = str_starts_with($rawPin, '$2y$') ? $rawPin : password_hash($rawPin, PASSWORD_BCRYPT);
+            // Always hash with bcrypt - never accept raw unverified hash prefixes
+            $pinHash = password_hash($rawPin, PASSWORD_BCRYPT);
+        } elseif (!empty($data['remove_pin'])) {
+            $pinHash = '';
         }
 
         $stmt = $db->prepare("
@@ -1058,14 +910,35 @@ class DbHelper {
         return $deleted;
     }
 
-    public static function recordPartyMember(string $roomId, string $username): void {
+    public static function recordPartyMember(string $roomId, string $username, ?string $memberId = null, ?string $tokenHash = null, string $role = 'guest'): void {
         $db = Database::getConnection();
         $stmt = $db->prepare("
-            INSERT INTO party_members (room_id, username, joined_at, last_ping)
-            VALUES (:r, :u, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON DUPLICATE KEY UPDATE last_ping = CURRENT_TIMESTAMP
+            INSERT INTO party_members (room_id, username, member_id, token_hash, role, joined_at, last_ping)
+            VALUES (:r, :u, :m, :t, :role, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON DUPLICATE KEY UPDATE 
+                member_id = COALESCE(VALUES(member_id), member_id),
+                token_hash = COALESCE(VALUES(token_hash), token_hash),
+                role = VALUES(role),
+                last_ping = CURRENT_TIMESTAMP
         ");
-        $stmt->execute(['r' => $roomId, 'u' => $username]);
+        $stmt->execute([
+            'r' => $roomId,
+            'u' => $username,
+            'm' => $memberId,
+            't' => $tokenHash,
+            'role' => $role
+        ]);
+    }
+
+    public static function validatePartyMemberToken(string $roomId, string $memberId, string $memberToken): ?array {
+        $db = Database::getConnection();
+        $tokenHash = hash('sha256', $memberToken);
+        $stmt = $db->prepare("
+            SELECT * FROM party_members 
+            WHERE room_id = :r AND member_id = :m AND token_hash = :h
+        ");
+        $stmt->execute(['r' => $roomId, 'm' => $memberId, 'h' => $tokenHash]);
+        return $stmt->fetch() ?: null;
     }
 
     public static function removePartyMember(string $roomId, string $username): void {

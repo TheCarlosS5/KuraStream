@@ -41,6 +41,47 @@ class PartyController {
         return $payload['username'];
     }
 
+    private static function resolvePartyParticipant(array $data, array $room): array {
+        $userToken = AuthMiddleware::getBearerToken();
+        if (!empty($userToken)) {
+            $payload = AuthMiddleware::verifyToken($userToken);
+            if ($payload && !empty($payload['username'])) {
+                $username = $payload['username'];
+                $isHost = ($room['host_user'] === $username);
+                return [
+                    'username' => $username,
+                    'is_host' => $isHost,
+                    'authenticated' => true,
+                    'member_id' => null
+                ];
+            }
+        }
+
+        $memberId = trim((string)($data['member_id'] ?? ($_GET['member_id'] ?? '')));
+        $memberToken = trim((string)($data['member_token'] ?? ($_GET['member_token'] ?? '')));
+
+        if (!empty($memberId) && !empty($memberToken)) {
+            $member = DbHelper::validatePartyMemberToken($room['id'], $memberId, $memberToken);
+            if ($member) {
+                $isHost = ($member['role'] === 'host' || $room['host_user'] === $member['username']);
+                return [
+                    'username' => $member['username'],
+                    'is_host' => $isHost,
+                    'authenticated' => false,
+                    'member_id' => $member['member_id']
+                ];
+            }
+        }
+
+        $user = self::resolveUser($data);
+        return [
+            'username' => $user,
+            'is_host' => false,
+            'authenticated' => false,
+            'member_id' => null
+        ];
+    }
+
     public static function createRoom(): void {
         RateLimiter::enforce('party_create', 10, 60);
         $raw = file_get_contents('php://input');
@@ -66,17 +107,32 @@ class PartyController {
             'current_time' => 0.0
         ]);
 
-        DbHelper::recordPartyMember($roomId, $user);
+        $memberId = 'mem_' . bin2hex(random_bytes(16));
+        $memberToken = 'mptk_' . bin2hex(random_bytes(32));
+        $tokenHash = hash('sha256', $memberToken);
+
+        DbHelper::recordPartyMember($roomId, $user, $memberId, $tokenHash, 'host');
 
         // Welcome system message
         DbHelper::addPartyMessage($roomId, 'Sistema', "¡Sala de Watch Party creada por {$user}! 🎉", 'system');
 
         $room = DbHelper::getPartyRoom($roomId);
+        $capabilityToken = AuthMiddleware::createToken([
+            'type' => 'watch_party_stream',
+            'room_id' => $roomId,
+            'member_id' => $memberId,
+            'episode_id' => $episodeId,
+            'exp' => time() + 86400
+        ]);
 
         jsonResponse([
             'success' => true,
             'room_id' => $roomId,
-            'room' => $room
+            'room' => $room,
+            'member_id' => $memberId,
+            'member_token' => $memberToken,
+            'stream_capability_token' => $capabilityToken,
+            'is_host' => true
         ]);
     }
 
@@ -97,7 +153,15 @@ class PartyController {
             jsonError('La sala de Watch Party no existe o ha expirado', 404);
         }
 
-        DbHelper::recordPartyMember($roomId, $user);
+        $memberId = 'mem_' . bin2hex(random_bytes(16));
+        $memberToken = 'mptk_' . bin2hex(random_bytes(32));
+        $tokenHash = hash('sha256', $memberToken);
+
+        $authPayload = AuthMiddleware::verifyToken(AuthMiddleware::getBearerToken());
+        $isHost = ($authPayload !== null && !empty($authPayload['username']) && $room['host_user'] === $authPayload['username']);
+        $role = $isHost ? 'host' : 'guest';
+
+        DbHelper::recordPartyMember($roomId, $user, $memberId, $tokenHash, $role);
         $memberCount = DbHelper::getPartyMembersCount($roomId);
 
         // Add system message if not host joining initial room
@@ -110,14 +174,24 @@ class PartyController {
         $recentMessages = DbHelper::getPartyMessages($roomId, 0, 40);
         $activeMembers = DbHelper::getActivePartyMembers($roomId);
 
+        $capabilityToken = AuthMiddleware::createToken([
+            'type' => 'watch_party_stream',
+            'room_id' => $roomId,
+            'member_id' => $memberId,
+            'episode_id' => $room['episode_id'],
+            'exp' => time() + 86400
+        ]);
+
         jsonResponse([
             'success' => true,
             'room' => $room,
             'messages' => $recentMessages,
             'members' => $activeMembers,
             'user' => $user,
-            // An unauthenticated visitor may choose any display name, but never gains host rights.
-            'is_host' => (AuthMiddleware::verifyToken(AuthMiddleware::getBearerToken()) !== null && $room['host_user'] === $user)
+            'member_id' => $memberId,
+            'member_token' => $memberToken,
+            'stream_capability_token' => $capabilityToken,
+            'is_host' => $isHost
         ]);
     }
 
@@ -147,8 +221,6 @@ class PartyController {
         $data = json_decode($raw, true) ?: [];
 
         $roomId = strtoupper(trim($data['room_id'] ?? ''));
-        $user = self::requireAuthenticatedUser();
-
         if (empty($roomId)) {
             jsonError('room_id requerido', 400);
         }
@@ -158,11 +230,18 @@ class PartyController {
             jsonError('Sala no encontrada', 404);
         }
 
-        $isHost = ($room['host_user'] === $user);
+        $participant = self::resolvePartyParticipant($data, $room);
+        $user = $participant['username'];
+        $isHost = $participant['is_host'];
         $allowGuests = (bool)$room['allow_guest_controls'];
 
-        if (!$isHost && !$allowGuests) {
-            jsonError('Solo el anfitrión puede controlar la reproducción', 403);
+        if (!$isHost) {
+            if (!$allowGuests) {
+                jsonError('Solo el anfitrión puede controlar la reproducción', 403);
+            }
+            if (!$participant['authenticated'] && empty($participant['member_id'])) {
+                jsonError('Token de miembro requerido para controles de invitado', 403);
+            }
         }
 
         $isPlaying = isset($data['is_playing']) ? (bool)$data['is_playing'] : (bool)$room['is_playing'];
@@ -195,19 +274,26 @@ class PartyController {
         $data = json_decode($raw, true) ?: [];
 
         $roomId = strtoupper(trim($data['room_id'] ?? ''));
-        $user = self::resolveUser($data);
+        if (empty($roomId)) {
+            jsonError('room_id y message requeridos', 400);
+        }
+
+        $room = DbHelper::getPartyRoom($roomId);
+        if (!$room) {
+            jsonError('Sala no encontrada', 404);
+        }
+
+        $participant = self::resolvePartyParticipant($data, $room);
+        $user = $participant['username'];
         $message = trim($data['message'] ?? '');
         $message = strip_tags($message);
         $type = in_array($data['type'] ?? '', ['chat', 'reaction']) ? $data['type'] : 'chat';
 
-        if (empty($roomId) || empty($message)) {
+        if (empty($message)) {
             jsonError('room_id y message requeridos', 400);
         }
         if (mb_strlen($message) > 500) {
             jsonError('El mensaje no puede superar 500 caracteres', 400);
-        }
-        if (!DbHelper::getPartyRoom($roomId)) {
-            jsonError('Sala no encontrada', 404);
         }
 
         $msgId = DbHelper::addPartyMessage($roomId, $user, $message, $type);

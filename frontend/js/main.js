@@ -869,7 +869,7 @@ export function setupRouter() {
     if (typeof updateMosaicBgVisibility === 'function') updateMosaicBgVisibility();
 
     const rawHash = window.location.hash || '#/';
-    const [routeWithPrefix, queryString] = rawHash.split('?');
+    const [routeWithPrefix] = rawHash.split('?');
     const path = routeWithPrefix.replace(/^#/, '') || '/';
     
     if (typeof updateActiveNavHighlight === 'function') updateActiveNavHighlight(rawHash);
@@ -1030,6 +1030,14 @@ export function setupRouter() {
       } else {
         if (typeof setupWatchPartyModal === 'function') setupWatchPartyModal();
       }
+    } else {
+      currentView = 'dashboard';
+      const dashView = document.getElementById('dashboard-view');
+      if (dashView) {
+        dashView.classList.add('active');
+        dashView.style.display = 'block';
+      }
+      if (typeof initCatalogView === 'function') await initCatalogView();
     }
 
     if (typeof lucide !== 'undefined') lucide.createIcons();

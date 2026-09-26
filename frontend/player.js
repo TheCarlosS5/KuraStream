@@ -129,6 +129,12 @@ let lastSavedTime = 0;
 
 // Active state tracker for keyboard inputs
 let isPlayerActive = false;
+let playerAbortController = null;
+let isControlsLocked = false;
+let lockPillTimeout = null;
+let speedHoldTimer = null;
+let isSpeedHoldActive = false;
+let previousSpeed = 1.0;
 
 export async function initPlayer(rawEpisodeId) {
   // Router and party callers supply decoded IDs, not a hash or query string.
@@ -137,7 +143,18 @@ export async function initPlayer(rawEpisodeId) {
   selectedAudioTrackNum = 0;
   selectedSubtitleTrackNum = -1;
   isPlayerActive = true;
-  
+
+  if (typeof playerAbortController !== 'undefined' && playerAbortController) {
+    playerAbortController.abort();
+    playerAbortController = null;
+  }
+  if (typeof AbortController !== 'undefined') {
+    playerAbortController = new AbortController();
+  }
+  if (typeof isControlsLocked !== 'undefined') {
+    isControlsLocked = false;
+  }
+
   // Cache DOM elements
   video = document.getElementById('video-element');
   container = document.getElementById('player-container');
@@ -467,6 +484,9 @@ function loadVideoStream(startTime = 0) {
   if (startTime > 0) {
     streamUrl += `&start=${startTime}`;
   }
+  if (partyManager && partyManager.streamCapabilityToken) {
+    streamUrl += `&ticket=${encodeURIComponent(partyManager.streamCapabilityToken)}`;
+  }
   
   video.src = streamUrl;
   video.load();
@@ -605,7 +625,10 @@ async function startOctopusInstance(trackNum) {
     let subContent = subtitleContentCache.get(cacheKey);
 
     if (!subContent) {
-      const subFetchUrl = `/api/subtitles/${encodeURIComponent(currentEpisodeId)}/${trackNum}`;
+      let subFetchUrl = `/api/subtitles/${encodeURIComponent(currentEpisodeId)}/${trackNum}`;
+      if (partyManager && partyManager.streamCapabilityToken) {
+        subFetchUrl += `?ticket=${encodeURIComponent(partyManager.streamCapabilityToken)}`;
+      }
       const subRes = await fetch(subFetchUrl);
       if (!subRes.ok) throw new Error(`HTTP ${subRes.status}`);
       subContent = await subRes.text();
@@ -657,6 +680,46 @@ export function destroyPlayer() {
   hideControlsTimeout = null;
   document.body.style.cursor = '';
   if (container) container.classList.remove('hide-cursor');
+
+  if (typeof playerAbortController !== 'undefined' && playerAbortController) {
+    playerAbortController.abort();
+    playerAbortController = null;
+  }
+  if (typeof isControlsLocked !== 'undefined') {
+    isControlsLocked = false;
+  }
+  if (typeof lockPillTimeout !== 'undefined' && lockPillTimeout) {
+    clearTimeout(lockPillTimeout);
+    lockPillTimeout = null;
+  }
+  if (typeof speedHoldTimer !== 'undefined' && speedHoldTimer) {
+    clearTimeout(speedHoldTimer);
+    speedHoldTimer = null;
+  }
+  if (typeof isSpeedHoldActive !== 'undefined') {
+    isSpeedHoldActive = false;
+  }
+  hideSpeedPill();
+  const speedPill = document.getElementById('speed-accelerator-pill');
+  if (speedPill && speedPill.parentElement) {
+    speedPill.parentElement.removeChild(speedPill);
+  }
+  const speedBtn = document.getElementById('player-speed-btn') || document.getElementById('speed-btn');
+  if (speedBtn) {
+    delete speedBtn.dataset.menuBound;
+  }
+  const speedMenu = document.getElementById('player-speed-menu');
+  if (speedMenu && speedMenu.parentElement) {
+    speedMenu.parentElement.removeChild(speedMenu);
+  }
+  const lockBtn = document.getElementById('btn-lock-controls');
+  if (lockBtn && lockBtn.parentElement) {
+    lockBtn.parentElement.removeChild(lockBtn);
+  }
+  const lockPill = document.querySelector('.player-lock-pill');
+  if (lockPill && lockPill.parentElement) {
+    lockPill.parentElement.removeChild(lockPill);
+  }
 
   // Save progress before destroying
   saveWatchProgress(true);
@@ -1093,7 +1156,7 @@ function setupPlayerEventListeners() {
       }
     }
   };
-  document.addEventListener('keydown', handleKeyboard);
+  document.addEventListener('keydown', handleKeyboard, playerAbortController ? { signal: playerAbortController.signal } : undefined);
 
   // Fullscreen change listener
   if (handleFullscreenChange) {
@@ -1119,7 +1182,7 @@ function setupPlayerEventListeners() {
       }
     }
   };
-  document.addEventListener('fullscreenchange', handleFullscreenChange);
+  document.addEventListener('fullscreenchange', handleFullscreenChange, playerAbortController ? { signal: playerAbortController.signal } : undefined);
 
   // Time Updates & Progress scrubber
   video.ontimeupdate = () => {
@@ -1293,11 +1356,11 @@ function setupPlayerEventListeners() {
       }
     };
   };
-  window.addEventListener('mousemove', handleGlobalMouseMove);
+  window.addEventListener('mousemove', handleGlobalMouseMove, playerAbortController ? { signal: playerAbortController.signal } : undefined);
   window.addEventListener('touchmove', (e) => {
     if (isDraggingProgress) e.preventDefault();
     handleGlobalMouseMove(e);
-  }, { passive: false });
+  }, playerAbortController ? { passive: false, signal: playerAbortController.signal } : { passive: false });
 
   const handleGlobalMouseUp = () => {
     if (isDraggingProgress) {
@@ -1313,8 +1376,8 @@ function setupPlayerEventListeners() {
       loadVideoStream(targetTime);
     }
   };
-  window.addEventListener('mouseup', handleGlobalMouseUp);
-  window.addEventListener('touchend', handleGlobalMouseUp);
+  window.addEventListener('mouseup', handleGlobalMouseUp, playerAbortController ? { signal: playerAbortController.signal } : undefined);
+  window.addEventListener('touchend', handleGlobalMouseUp, playerAbortController ? { signal: playerAbortController.signal } : undefined);
 
   function updateProgressOnDrag(e) {
     const pos = getTimelineClickPos(e);
@@ -1534,10 +1597,15 @@ function setupPlayerEventListeners() {
       startAmbilightLoop();
     }
   };
-  document.addEventListener('visibilitychange', handleVisibilityChange);
+  document.addEventListener('visibilitychange', handleVisibilityChange, playerAbortController ? { signal: playerAbortController.signal } : undefined);
 
   // Mobile double-tap seek touch gestures
   setupTouchGestures();
+
+  const abortSignal = playerAbortController ? playerAbortController.signal : undefined;
+  initScreenLock(abortSignal);
+  setupHoldSpeed(abortSignal);
+  initSpeedMenu(abortSignal);
 }
 
 function setupWatchPartyIntegration() {
@@ -2510,7 +2578,7 @@ function revealLockPill() {
   }
 }
 
-function initScreenLock() {
+function initScreenLock(signal) {
   const topBar = document.querySelector('.player-top-bar');
   if (topBar && !document.getElementById('btn-lock-controls')) {
     const lockBtn = document.createElement('button');
@@ -2527,7 +2595,7 @@ function initScreenLock() {
       isControlsVisible = false;
       if (typeof showVideoToast !== 'undefined') showVideoToast(formatToast('lock', 'Pantalla bloqueada'));
       revealLockPill();
-    });
+    }, signal ? { signal } : undefined);
   }
   const container = document.getElementById('player-container');
   if (container && !document.querySelector('.player-lock-pill')) {
@@ -2541,20 +2609,9 @@ function initScreenLock() {
       pill.classList.add('hide');
       if (typeof showVideoToast !== 'undefined') showVideoToast(formatToast('unlock', 'Pantalla desbloqueada'));
       if (typeof triggerControlsActivity !== 'undefined') triggerControlsActivity();
-    });
+    }, signal ? { signal } : undefined);
   }
 }
-
-setInterval(() => {
-  if (document.querySelector('.player-top-bar') && !document.getElementById('btn-lock-controls')) {
-    initScreenLock();
-  }
-}, 1000);
-
-// Long-Press 2x Speed Accelerator
-let speedHoldTimer = null;
-let isSpeedHoldActive = false;
-let previousSpeed = 1.0;
 
 function showSpeedPill() {
   let pill = document.getElementById('speed-accelerator-pill');
@@ -2575,7 +2632,7 @@ function hideSpeedPill() {
 }
 
 function handleHoldStart(e) {
-  if (typeof isControlsLocked !== 'undefined' && isControlsLocked) return;
+  if (isControlsLocked) return;
   if (e.button === 2) return;
   if (e.target.tagName !== 'VIDEO') return;
   
@@ -2600,19 +2657,18 @@ function handleHoldEnd(e) {
   }
 }
 
-setInterval(() => {
+function setupHoldSpeed(signal) {
   const v = document.getElementById('video-player') || document.querySelector('video');
-  if (v && !v.dataset.holdBound) {
-    v.dataset.holdBound = 'true';
-    v.addEventListener('mousedown', handleHoldStart);
-    v.addEventListener('touchstart', handleHoldStart, { passive: true });
-    window.addEventListener('mouseup', handleHoldEnd);
-    window.addEventListener('touchend', handleHoldEnd);
+  if (v) {
+    v.addEventListener('mousedown', handleHoldStart, signal ? { signal } : undefined);
+    v.addEventListener('touchstart', handleHoldStart, signal ? { passive: true, signal } : { passive: true });
+    window.addEventListener('mouseup', handleHoldEnd, signal ? { signal } : undefined);
+    window.addEventListener('touchend', handleHoldEnd, signal ? { signal } : undefined);
   }
-}, 1000);
+}
 
 // Speed Popover Menu
-function initSpeedMenu() {
+function initSpeedMenu(signal) {
   const speedBtn = document.getElementById('player-speed-btn') || document.getElementById('speed-btn');
   if (!speedBtn || speedBtn.dataset.menuBound) return;
   speedBtn.dataset.menuBound = 'true';
@@ -2681,7 +2737,5 @@ function initSpeedMenu() {
     if (speedMenu && !speedMenu.classList.contains('hide') && !speedMenu.contains(e.target) && e.target !== speedBtn) {
       speedMenu.classList.add('hide');
     }
-  });
+  }, signal ? { signal } : undefined);
 }
-
-setInterval(initSpeedMenu, 1000);

@@ -14,6 +14,9 @@ class PartyManager {
       isHost: false,
       color: '#00e08f'
     };
+    this.memberId = null;
+    this.memberToken = null;
+    this.streamCapabilityToken = null;
     this.eventSource = null;
     this.pollInterval = null;
     this.lastMessageId = 0;
@@ -171,6 +174,10 @@ class PartyManager {
       throw new Error(data.error || 'No se pudo crear la sala');
     }
 
+    this.memberId = data.member_id || null;
+    this.memberToken = data.member_token || null;
+    this.streamCapabilityToken = data.stream_capability_token || null;
+
     this.setupRoomState(data.room, username, true);
     this.connectEventStream(data.room.id);
     return data.room;
@@ -194,6 +201,10 @@ class PartyManager {
       throw new Error(data.error || 'No se pudo conectar a la sala');
     }
 
+    this.memberId = data.member_id || null;
+    this.memberToken = data.member_token || null;
+    this.streamCapabilityToken = data.stream_capability_token || null;
+
     this.setupRoomState(data.room, username, data.is_host);
     if (data.messages && Array.isArray(data.messages)) {
       data.messages.forEach(msg => {
@@ -215,6 +226,9 @@ class PartyManager {
     this.disconnectEventStream();
     this.activeRoom = null;
     this.currentUser.isHost = false;
+    this.memberId = null;
+    this.memberToken = null;
+    this.streamCapabilityToken = null;
 
     try {
       await fetch('/api/party/leave', {
@@ -376,17 +390,29 @@ class PartyManager {
   renderAvatarStack() {
     const container = document.getElementById('party-avatar-stack-container');
     if (!container) return;
+    container.innerHTML = '';
     const list = Array.from(this.participantsMap ? this.participantsMap.entries() : []);
-    let html = '';
     const maxVisible = 3;
     for (let i = 0; i < Math.min(list.length, maxVisible); i++) {
-      const initial = (list[i][0] || 'U').charAt(0).toUpperCase();
-      html += `<div class="party-stack-avatar" style="background: ${list[i][1]}; z-index: ${100-i};" title="${list[i][0]}">${initial}</div>`;
+      const username = String(list[i][0] || 'U');
+      const color = String(list[i][1] || '#a855f7');
+      const initial = username.charAt(0).toUpperCase();
+
+      const avatar = document.createElement('div');
+      avatar.className = 'party-stack-avatar';
+      avatar.style.background = color;
+      avatar.style.zIndex = String(100 - i);
+      avatar.title = username;
+      avatar.textContent = initial;
+      container.appendChild(avatar);
     }
     if (list.length > maxVisible) {
-      html += `<div class="party-stack-count" style="z-index: 90;">+${list.length - maxVisible}</div>`;
+      const countEl = document.createElement('div');
+      countEl.className = 'party-stack-count';
+      countEl.style.zIndex = '90';
+      countEl.textContent = `+${list.length - maxVisible}`;
+      container.appendChild(countEl);
     }
-    container.innerHTML = html;
   }
 
   handleRemoteSync(newRoom) {
@@ -417,6 +443,8 @@ class PartyManager {
           body: JSON.stringify({
             room_id: this.activeRoom.id,
             username: this.currentUser.username,
+            member_id: this.memberId,
+            member_token: this.memberToken,
             is_playing: isPlaying ? 1 : 0,
             current_time: currentTime,
             episode_id: episodeId || (this.activeRoom ? this.activeRoom.episode_id : ''),
@@ -488,6 +516,8 @@ class PartyManager {
       body: JSON.stringify({
         room_id: this.activeRoom.id,
         username: this.currentUser.username,
+        member_id: this.memberId,
+        member_token: this.memberToken,
         message,
         type: 'chat'
       })
@@ -512,6 +542,8 @@ class PartyManager {
         body: JSON.stringify({
           room_id: this.activeRoom.id,
           username: this.currentUser.username,
+          member_id: this.memberId,
+          member_token: this.memberToken,
           message: emoji,
           type: 'reaction'
         })

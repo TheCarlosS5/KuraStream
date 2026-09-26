@@ -70,6 +70,9 @@ class ShowController {
         }
 
         $results = TmdbScraper::search($query, $type);
+        if (self::isKidsProfileActive()) {
+            $results = array_values(array_filter($results, fn($s) => !self::isAdultOrMaturityRestricted($s)));
+        }
         jsonResponse($results);
     }
 
@@ -163,7 +166,11 @@ class ShowController {
 
         $showId = trim((string)($data['show_id'] ?? ($data['showId'] ?? '')));
         $content = trim((string)($data['content'] ?? ($data['comment'] ?? '')));
-        $profile = trim((string)($data['profile_name'] ?? ($authUser['profile_name'] ?? 'Principal')));
+        $profile = !empty($authUser['profile_name']) ? trim((string)$authUser['profile_name']) : '';
+        if (empty($profile)) {
+            $userProfiles = DbHelper::getUserProfiles($username);
+            $profile = !empty($userProfiles) ? ($userProfiles[0]['name'] ?? 'Principal') : 'Principal';
+        }
         $episodeId = trim((string)($data['episode_id'] ?? ''));
 
         if (empty($showId) || empty($content)) {
@@ -193,7 +200,8 @@ class ShowController {
     }
 
     public static function getRandomShow(): void {
-        $show = DbHelper::getRandomShow();
+        $isKids = self::isKidsProfileActive();
+        $show = DbHelper::getRandomShow($isKids);
         jsonResponse([
             'success' => true,
             'show' => $show
