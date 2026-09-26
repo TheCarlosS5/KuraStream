@@ -1,12 +1,6 @@
 /**
  * KuraStream v2.0 - Core Authentication & Profile Session Manager
- * 
- * Note on Web JWT Dual Storage (Known Architecture Limitation):
- * The active session JWT is currently stored in two distinct client locations:
- * 1. Web localStorage ('kurastream_jwt') for client-initiated API requests with Bearer headers.
- * 2. HttpOnly Cookie ('kurastream_token') for native video/audio streaming elements and direct navigations.
- * In a future major release, this dual-storage model will be refined into pure HttpOnly cookies
- * coupled with CSRF protection to eliminate token replication and localStorage exposure.
+ * Single Canonical Source of Truth for client session, user identity, roles, and profiles.
  */
 
 import { api, setApiAuthToken } from './api.js';
@@ -19,7 +13,7 @@ const STORAGE_KEYS = {
 
 export class AuthManager {
   static getToken() {
-    return localStorage.getItem(STORAGE_KEYS.TOKEN);
+    return localStorage.getItem(STORAGE_KEYS.TOKEN) || localStorage.getItem('kurastream_token') || null;
   }
 
   static getUser() {
@@ -29,6 +23,15 @@ export class AuthManager {
     } catch {
       return null;
     }
+  }
+
+  static getRole() {
+    const user = this.getUser();
+    return user ? (user.role || 'user') : 'guest';
+  }
+
+  static isAdmin() {
+    return this.isAuthenticated() && this.getRole() === 'admin';
   }
 
   static getActiveProfile() {
@@ -55,6 +58,7 @@ export class AuthManager {
 
   static clearSession() {
     localStorage.removeItem(STORAGE_KEYS.TOKEN);
+    localStorage.removeItem('kurastream_token');
     localStorage.removeItem(STORAGE_KEYS.USER);
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_PROFILE);
     setApiAuthToken(null);
@@ -67,17 +71,34 @@ export class AuthManager {
   static async login(username, password) {
     const res = await api.post('/api/login', { username, password });
     if (res.data && res.data.token) {
-      this.setSession(res.data.token, res.data.user || { username });
+      const user = res.data.user || {
+        username: res.data.username || username,
+        role: res.data.role || 'user'
+      };
+      this.setSession(res.data.token, user);
       return res.data;
     }
-    throw new Error('Respuesta inválida del servidor al iniciar sesión');
+    throw new Error(res.data?.error || 'Respuesta inválida del servidor al iniciar sesión');
+  }
+
+  static async register(username, password) {
+    const res = await api.post('/api/register', { username, password });
+    if (res.data && res.data.token) {
+      const user = res.data.user || {
+        username: res.data.username || username,
+        role: res.data.role || 'user'
+      };
+      this.setSession(res.data.token, user);
+      return res.data;
+    }
+    throw new Error(res.data?.error || 'Error al registrar usuario');
   }
 
   static async logout() {
     try {
       await api.post('/api/logout');
     } catch {
-      // Ignorar errores de red en logout
+      // Ignorar fallas de red durante logout
     } finally {
       this.clearSession();
       window.location.hash = '#/';
@@ -98,6 +119,6 @@ export class AuthManager {
       }
       return res.data.profile;
     }
-    throw new Error(res.data.error || 'Error al seleccionar perfil');
+    throw new Error(res.data?.error || 'Error al seleccionar perfil');
   }
 }

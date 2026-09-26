@@ -540,7 +540,7 @@ class PartyManager {
     const maxVisible = 3;
     for (let i = 0; i < Math.min(list.length, maxVisible); i++) {
       const username = String(list[i][0] || 'U');
-      const color = String(list[i][1] || '#a855f7');
+      const color = String(list[i][1] || 'var(--accent-color)');
       const initial = username.charAt(0).toUpperCase();
 
       const avatar = document.createElement('div');

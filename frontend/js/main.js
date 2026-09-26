@@ -8,7 +8,7 @@ import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
 import { initPlayer, destroyPlayer, getShowIdFromEpisodeId } from '../player.js?v=2026.09.26-modern-streaming-rc2';
 import { partyManager } from './modules/party.js';
-import { updateActiveNavHighlight, initHeaderDropdowns, initAdminSidebar } from './modules/navigation.js';
+import { updateActiveNavHighlight, initHeaderDropdowns, initAdminSidebar, stopAdminPolling } from './modules/navigation.js';
 import { initCardPopovers } from './modules/card_popover_preview.js';
 
 // Cache for calendar day items
@@ -64,31 +64,268 @@ export function getUserAndProfile() {
   };
 }
 
-export function showToast(message, type = 'info') {
+export function showToast(message, type = 'info', duration = 3000) {
   const existing = document.getElementById('kura-toast');
   if (existing) existing.remove();
 
   const toast = document.createElement('div');
   toast.id = 'kura-toast';
   toast.className = `kura-toast kura-toast-${type}`;
+  toast.setAttribute('role', 'alert');
   toast.textContent = message;
-  toast.style.cssText = `
-    position: fixed; bottom: 24px; right: 24px; z-index: 99999;
-    background: #1c2230; color: #fff; border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 6px; padding: 12px 20px; font-size: 0.9rem;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(8px);
-    transition: opacity 0.3s ease, transform 0.3s ease;
-  `;
   document.body.appendChild(toast);
+
   setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(10px)';
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
+    toast.classList.add('kura-toast-exit');
+    setTimeout(() => toast.remove(), 250);
+  }, duration);
 }
 
 if (typeof window !== 'undefined') {
   window.showToast = showToast;
+}
+
+// -------------------------------------------------------------
+// Auth & Header State Synchronization
+// -------------------------------------------------------------
+
+export function renderAuthState() {
+  const btnLoginTrigger = document.getElementById('btn-login-trigger');
+  const userProfileMenu = document.getElementById('user-profile-menu');
+  const userProfileName = document.getElementById('user-profile-name');
+  const userAvatarInitial = document.getElementById('user-avatar-initial');
+  const btnAdminDirect = document.getElementById('btn-admin-direct');
+  const notifContainer = document.getElementById('notifications-container');
+  const btnSwitchProfile = document.getElementById('btn-switch-profile');
+  const profilesList = document.getElementById('dropdown-profiles-list');
+
+  const isAuth = AuthManager.isAuthenticated();
+  const isAdmin = AuthManager.isAdmin();
+  const user = AuthManager.getUser();
+  const activeProfile = AuthManager.getActiveProfile();
+
+  if (isAuth && user) {
+    if (btnLoginTrigger) btnLoginTrigger.style.display = 'none';
+    if (userProfileMenu) userProfileMenu.style.display = 'flex';
+
+    if (isAdmin) {
+      if (userProfileName) userProfileName.textContent = user.username || 'admin';
+      if (userAvatarInitial) userAvatarInitial.textContent = (user.username || 'A')[0].toUpperCase();
+      if (btnAdminDirect) btnAdminDirect.style.display = 'flex';
+      if (btnSwitchProfile) btnSwitchProfile.style.display = 'none';
+      if (profilesList) profilesList.style.display = 'none';
+    } else {
+      if (btnAdminDirect) btnAdminDirect.style.display = 'none';
+      if (btnSwitchProfile) btnSwitchProfile.style.display = 'flex';
+      if (profilesList) profilesList.style.display = 'block';
+
+      if (activeProfile && activeProfile.name) {
+        if (userProfileName) userProfileName.textContent = activeProfile.name;
+        if (userAvatarInitial) userAvatarInitial.textContent = (activeProfile.name[0] || 'U').toUpperCase();
+      } else {
+        if (userProfileName) userProfileName.textContent = user.username || 'Usuario';
+        if (userAvatarInitial) userAvatarInitial.textContent = (user.username || 'U')[0].toUpperCase();
+      }
+    }
+  } else {
+    if (btnLoginTrigger) btnLoginTrigger.style.display = 'flex';
+    if (userProfileMenu) userProfileMenu.style.display = 'none';
+    if (btnAdminDirect) btnAdminDirect.style.display = 'none';
+  }
+
+  if (notifContainer) {
+    notifContainer.style.display = 'flex';
+  }
+}
+
+
+export function openAuthModal(mode = 'login') {
+  const modal = document.getElementById('login-modal');
+  if (!modal) return;
+  const title = document.getElementById('login-modal-title');
+  const submitBtn = document.getElementById('login-modal-submit');
+  const tabLogin = document.getElementById('tab-login');
+  const tabRegister = document.getElementById('tab-register');
+  const errorMsg = document.getElementById('login-error-msg');
+  const userInput = document.getElementById('login-username-input');
+  const passInput = document.getElementById('login-password-input');
+
+  if (errorMsg) {
+    errorMsg.textContent = '';
+    errorMsg.style.display = 'none';
+  }
+  if (userInput) userInput.value = '';
+  if (passInput) passInput.value = '';
+
+  modal.dataset.mode = (mode === 'register') ? 'register' : (mode === 'admin' ? 'admin' : 'login');
+
+  if (mode === 'register') {
+    if (tabLogin) {
+      tabLogin.classList.remove('active');
+      tabLogin.style.borderBottom = '2px solid transparent';
+      tabLogin.style.color = 'var(--text-muted)';
+    }
+    if (tabRegister) {
+      tabRegister.classList.add('active');
+      tabRegister.style.borderBottom = '2px solid var(--accent-color)';
+      tabRegister.style.color = 'var(--text-main)';
+    }
+    if (title) title.textContent = 'Crear una nueva cuenta';
+    if (submitBtn) submitBtn.textContent = 'Registrarse';
+  } else if (mode === 'admin') {
+    if (tabLogin) {
+      tabLogin.classList.add('active');
+      tabLogin.style.borderBottom = '2px solid var(--accent-color)';
+      tabLogin.style.color = 'var(--text-main)';
+    }
+    if (tabRegister) {
+      tabRegister.classList.remove('active');
+      tabRegister.style.borderBottom = '2px solid transparent';
+      tabRegister.style.color = 'var(--text-muted)';
+    }
+    if (title) title.textContent = 'Acceso de Administrador';
+    if (submitBtn) submitBtn.textContent = 'Iniciar Sesión';
+  } else {
+    // Default login
+    if (tabLogin) {
+      tabLogin.classList.add('active');
+      tabLogin.style.borderBottom = '2px solid var(--accent-color)';
+      tabLogin.style.color = 'var(--text-main)';
+    }
+    if (tabRegister) {
+      tabRegister.classList.remove('active');
+      tabRegister.style.borderBottom = '2px solid transparent';
+      tabRegister.style.color = 'var(--text-muted)';
+    }
+    if (title) title.textContent = 'Inicia sesión en tu cuenta';
+    if (submitBtn) submitBtn.textContent = 'Iniciar Sesión';
+  }
+
+  modal.style.display = 'flex';
+  if (userInput) userInput.focus();
+}
+
+export function closeAuthModal() {
+  const modal = document.getElementById('login-modal');
+  if (modal) modal.style.display = 'none';
+  const errorMsg = document.getElementById('login-error-msg');
+  if (errorMsg) {
+    errorMsg.textContent = '';
+    errorMsg.style.display = 'none';
+  }
+}
+
+export function setupAuthModalListeners() {
+  const modal = document.getElementById('login-modal');
+  const btnLoginTrigger = document.getElementById('btn-login-trigger');
+  const cancelBtn = document.getElementById('login-modal-cancel');
+  const submitBtn = document.getElementById('login-modal-submit');
+  const tabLogin = document.getElementById('tab-login');
+  const tabRegister = document.getElementById('tab-register');
+  const userInput = document.getElementById('login-username-input');
+  const passInput = document.getElementById('login-password-input');
+  const errorMsg = document.getElementById('login-error-msg');
+
+  if (btnLoginTrigger) {
+    btnLoginTrigger.addEventListener('click', (e) => {
+      e.preventDefault();
+      openAuthModal('login');
+    });
+  }
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => closeAuthModal());
+  }
+
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeAuthModal();
+    });
+  }
+
+  if (tabLogin) {
+    tabLogin.addEventListener('click', (e) => {
+      e.preventDefault();
+      openAuthModal('login');
+    });
+  }
+  if (tabRegister) {
+    tabRegister.addEventListener('click', (e) => {
+      e.preventDefault();
+      openAuthModal('register');
+    });
+  }
+
+  const handleAuthSubmit = async () => {
+    const username = userInput ? userInput.value.trim() : '';
+    const password = passInput ? passInput.value : '';
+    const mode = modal ? modal.dataset.mode : 'login';
+
+    if (!username || !password) {
+      if (errorMsg) {
+        errorMsg.textContent = 'Por favor introduce usuario y contraseña';
+        errorMsg.style.display = 'block';
+      }
+      return;
+    }
+
+    if (errorMsg) errorMsg.style.display = 'none';
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.dataset.originalText = submitBtn.textContent;
+      submitBtn.textContent = mode === 'register' ? 'Registrando...' : 'Iniciando...';
+    }
+
+    try {
+      if (mode === 'register') {
+        await AuthManager.register(username, password);
+        closeAuthModal();
+        renderAuthState();
+        showToast('Cuenta creada con éxito');
+        window.location.hash = '#/profiles';
+      } else {
+        await AuthManager.login(username, password);
+        closeAuthModal();
+        renderAuthState();
+        showToast('Sesión iniciada con éxito');
+        if (mode === 'admin' || AuthManager.isAdmin()) {
+          window.location.hash = '#/admin';
+        } else if (!AuthManager.getActiveProfile()) {
+          window.location.hash = '#/profiles';
+        }
+      }
+    } catch (err) {
+      if (errorMsg) {
+        errorMsg.textContent = err.message || 'Error de autenticación';
+        errorMsg.style.display = 'block';
+      }
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        if (submitBtn.dataset.originalText) {
+          submitBtn.textContent = submitBtn.dataset.originalText;
+        }
+      }
+    }
+  };
+
+  if (submitBtn) {
+    submitBtn.addEventListener('click', handleAuthSubmit);
+  }
+
+  const handleKeydown = (e) => {
+    if (modal && modal.style.display !== 'none' && modal.style.display !== '') {
+      if (e.key === 'Escape') {
+        closeAuthModal();
+      } else if (e.key === 'Enter') {
+        if (document.activeElement === userInput || document.activeElement === passInput) {
+          e.preventDefault();
+          handleAuthSubmit();
+        }
+      }
+    }
+  };
+  document.addEventListener('keydown', handleKeydown);
 }
 
 // -------------------------------------------------------------
@@ -429,6 +666,11 @@ export async function loadShowDetails(id) {
     if (detailTitle) detailTitle.textContent = show.title || 'Detalle del Anime';
     if (detailSynopsis) detailSynopsis.textContent = show.synopsis || 'Sin sinopsis disponible.';
     if (detailPoster) detailPoster.src = catalogueImageUrl(show.poster_path || '');
+    const ambientBg = document.querySelector('.detail-ambient-bg');
+    if (ambientBg) {
+      const backdropUrl = catalogueImageUrl(show.backdrop_path || show.poster_path || '');
+      ambientBg.style.backgroundImage = backdropUrl ? `url("${backdropUrl}")` : 'none';
+    }
     if (detailRating) detailRating.textContent = show.rating ? Number(show.rating).toFixed(1) : 'N/A';
     if (detailYear) detailYear.textContent = show.year || 'N/A';
 
@@ -563,13 +805,13 @@ export async function renderHistoryView() {
     const seasonEpStr = item.season_number && item.episode_number ? `T${item.season_number} E${item.episode_number}` : (item.episode_number ? `Ep. ${item.episode_number}` : '');
 
     return `
-      <div class="history-item" style="display: flex; gap: 16px; align-items: center; padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; margin-bottom: 10px;">
-        <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(showTitle)}" style="width: 80px; height: 50px; object-fit: cover; border-radius: 4px;">
-        <div style="flex: 1;">
-          <h4 style="margin: 0 0 4px 0; font-size: 0.95rem;">${escapeHtml(showTitle)}</h4>
-          <span style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(seasonEpStr ? seasonEpStr + ' - ' : '')}${escapeHtml(epTitle)} • ${progressPercent}% visto</span>
+      <div class="history-item">
+        <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(showTitle)}">
+        <div class="history-item-info">
+          <h4>${escapeHtml(showTitle)}</h4>
+          <span>${escapeHtml(seasonEpStr ? seasonEpStr + ' - ' : '')}${escapeHtml(epTitle)} • ${progressPercent}% visto</span>
         </div>
-        <a href="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" class="btn btn-secondary" style="font-size: 0.8rem; padding: 6px 14px; text-decoration: none;">Reproducir</a>
+        <a href="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" class="btn btn-secondary">Reproducir</a>
       </div>
     `;
   }).join('');
@@ -720,21 +962,21 @@ export async function renderStatsView() {
 
   const hours = Math.round((stats.total_time_seconds || 0) / 3600);
   cardsGrid.innerHTML = `
-    <div class="stat-card" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 20px;">
-      <h4 style="color: var(--text-muted); font-size: 0.85rem; margin: 0 0 8px 0;">Tiempo Total</h4>
-      <div style="font-size: 1.8rem; font-weight: 800; color: #2DD4BF;">${hours} horas</div>
+    <div class="stat-card">
+      <span class="stat-card-label">Tiempo Total</span>
+      <div class="stat-card-value" style="color: var(--info-color);">${hours} horas</div>
     </div>
-    <div class="stat-card" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 20px;">
-      <h4 style="color: var(--text-muted); font-size: 0.85rem; margin: 0 0 8px 0;">Capítulos Vistos</h4>
-      <div style="font-size: 1.8rem; font-weight: 800; color: var(--accent-color);">${stats.watched_episodes || 0}</div>
+    <div class="stat-card">
+      <span class="stat-card-label">Capítulos Vistos</span>
+      <div class="stat-card-value" style="color: var(--accent-color);">${stats.watched_episodes || 0}</div>
     </div>
-    <div class="stat-card" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 20px;">
-      <h4 style="color: var(--text-muted); font-size: 0.85rem; margin: 0 0 8px 0;">Series Completadas</h4>
-      <div style="font-size: 1.8rem; font-weight: 800; color: #a855f7;">${stats.completed_shows || 0}</div>
+    <div class="stat-card">
+      <span class="stat-card-label">Series Completadas</span>
+      <div class="stat-card-value" style="color: var(--success-color);">${stats.completed_shows || 0}</div>
     </div>
   `;
 
-  chartContainer.innerHTML = `<p style="color: var(--text-muted); font-size: 0.9rem;">Género favorito: <strong style="color: #2DD4BF;">${escapeHtml(stats.top_genre || 'Anime')}</strong></p>`;
+  chartContainer.innerHTML = `<p style="color: var(--text-muted); font-size: 0.9rem;">Género favorito: <strong style="color: var(--info-color);">${escapeHtml(stats.top_genre || 'Anime')}</strong></p>`;
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
@@ -877,6 +1119,7 @@ export function hideAllViews() {
 export function setupRouter() {
   const handleRoute = async () => {
     if (typeof updateMosaicBgVisibility === 'function') updateMosaicBgVisibility();
+    if (typeof renderAuthState === 'function') renderAuthState();
 
     const rawHash = window.location.hash || '#/';
     const [routeWithPrefix] = rawHash.split('?');
@@ -915,6 +1158,9 @@ export function setupRouter() {
       if (trailerModal) trailerModal.style.display = 'none';
       if (trailerIframe) trailerIframe.src = '';
     }
+
+    const partyModal = document.getElementById('modal-watch-party');
+    if (partyModal) partyModal.style.display = 'none';
 
     document.querySelectorAll('.app-view, .view-section').forEach(view => {
       view.classList.remove('active');
@@ -991,6 +1237,17 @@ export function setupRouter() {
       }
       if (typeof loadSettingsView === 'function') await loadSettingsView();
     } else if (path === '/admin') {
+      if (typeof AuthManager !== 'undefined' && !AuthManager.isAdmin()) {
+        if (!AuthManager.isAuthenticated()) {
+          if (typeof openAuthModal === 'function') openAuthModal('admin');
+          window.location.hash = '#/';
+          return;
+        } else {
+          if (typeof showToast === 'function') showToast('Acceso denegado: Se requieren permisos administrativos', 'error');
+          window.location.hash = '#/';
+          return;
+        }
+      }
       currentView = 'admin';
       const admView = document.getElementById('admin-view');
       if (admView) {
@@ -1150,8 +1407,8 @@ async function renderGenresView() {
   const genres = ['Acción', 'Aventura', 'Comedia', 'Drama', 'Fantasía', 'Ciencia Ficción', 'Romance', 'Sobrenatural', 'Misterio'];
 
   genresGrid.innerHTML = genres.map(g => `
-    <div class="genre-card" onclick="window.location.hash='#/genres?genre=${encodeURIComponent(g)}'" style="padding: 24px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; text-align: center; cursor: pointer; transition: transform 0.2s;">
-      <h3 style="margin: 0; font-size: 1.1rem; color: #2DD4BF;">${escapeHtml(g)}</h3>
+    <div class="genre-card" onclick="window.location.hash='#/genres?genre=${encodeURIComponent(g)}'">
+      <h3>${escapeHtml(g)}</h3>
     </div>
   `).join('');
 }
@@ -1187,11 +1444,11 @@ async function loadProfilesView() {
     const profiles = Array.isArray(data) ? data : (data.profiles || []);
 
     grid.innerHTML = profiles.map(p => `
-      <div class="profile-card" onclick="window.KuraStream.selectProfile('${escapeHtmlAttribute(p.id)}')" style="cursor: pointer; text-align: center; padding: 16px;">
-        <div style="width: 100px; height: 100px; border-radius: 50%; background: ${escapeHtmlAttribute(p.color || '#a855f7')}; margin: 0 auto 12px auto; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 700; color: #fff;">
+      <div class="profile-card" onclick="window.KuraStream.selectProfile('${escapeHtmlAttribute(p.id)}')">
+        <div class="profile-avatar" style="background: ${escapeHtmlAttribute(p.color || 'var(--accent-color)')};">
           ${escapeHtml((p.name || 'P')[0].toUpperCase())}
         </div>
-        <div style="font-weight: 600; font-size: 1rem;">${escapeHtml(p.name)}</div>
+        <div class="profile-name">${escapeHtml(p.name)}</div>
       </div>
     `).join('');
   } catch (e) {
@@ -1227,11 +1484,18 @@ if (typeof window !== 'undefined') {
   window.playEpisode = (epId) => {
     if (epId) window.location.hash = `#/player/${encodeURIComponent(epId)}`;
   };
+  window.renderAuthState = renderAuthState;
+  window.openAuthModal = openAuthModal;
+  window.closeAuthModal = closeAuthModal;
+  window.openLoginDialog = openAuthModal;
 
   window.KuraStream = {
     auth: AuthManager,
     state: appState,
     showToast,
+    openAuthModal,
+    closeAuthModal,
+    renderAuthState,
     selectProfile: async (id) => {
       await AuthManager.selectProfile(id);
       window.location.hash = '#/';
@@ -1247,6 +1511,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeaderDropdowns();
   setupRouter();
   loadNotifications();
+  renderAuthState();
+  setupAuthModalListeners();
 
   // Notifications Mark Read Action
   const btnMarkNotificationsRead = document.getElementById('btn-mark-notifications-read');
@@ -1306,42 +1572,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Login Modal
-  const btnLogin = document.getElementById('btn-login-trigger');
-  const loginModal = document.getElementById('login-modal');
-  const loginCancel = document.getElementById('login-modal-cancel');
-  const loginSubmit = document.getElementById('login-modal-submit');
-  const usernameInput = document.getElementById('login-username-input');
-  const passwordInput = document.getElementById('login-password-input');
-
-  if (btnLogin && loginModal) {
-    btnLogin.onclick = () => { loginModal.style.display = 'flex'; };
-  }
-  if (loginCancel && loginModal) {
-    loginCancel.onclick = () => { loginModal.style.display = 'none'; };
-  }
-  if (loginSubmit) {
-    loginSubmit.onclick = async () => {
-      const u = usernameInput ? usernameInput.value.trim() : '';
-      const p = passwordInput ? passwordInput.value : '';
-      if (!u || !p) {
-        showToast('Por favor introduce usuario y contraseña', 'warning');
-        return;
-      }
-      try {
-        await AuthManager.login(u, p);
-        if (loginModal) loginModal.style.display = 'none';
-        showToast('Sesión iniciada con éxito');
-        window.location.reload();
-      } catch (err) {
-        showToast('Error al iniciar sesión: ' + err.message, 'error');
-      }
-    };
-  }
-
   // Logout
   const btnLogout = document.getElementById('btn-logout');
   if (btnLogout) {
-    btnLogout.onclick = () => AuthManager.logout();
+    btnLogout.onclick = (e) => {
+      e.preventDefault();
+      AuthManager.logout();
+    };
   }
 });

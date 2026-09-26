@@ -7,7 +7,12 @@ services:
     environment:
       - PORT=3000
       - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET in .env before starting Docker}
-      - TMDB_API_KEY=
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - ADMIN_USER=${ADMIN_USER:-}
+      - ADMIN_PASS=${ADMIN_PASS:-}
+      - ADMIN_PASS_HASH=${ADMIN_PASS_HASH:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
       - MEDIA_LIBRARY_PATH=/app/library
       - DB_HOST=mysql
       - DB_PORT=3306

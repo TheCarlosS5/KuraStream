@@ -1,39 +1,44 @@
 /**
- * KuraStream v2.0 - Core Design System Tokens
- * Strict 4px standard radii, deep cinematic dark neutrals, copper primary accent, jade success.
+ * KuraStream v2.0 - Core Design System Tokens: Kura Ember
+ * Deep cinematic dark canvas, surface hierarchy, ember accent, strict radii standards.
  */
 
 :root {
   /* Color Palette - Neutrals */
-  --bg-color: #090D0E;
-  --surface-color: #131A1C;
-  --surface-raised: #1C2427;
-  --surface-overlay: rgba(19, 26, 28, 0.85);
+  --bg-color: #07090D;
+  --surface-color: #111821;
+  --surface-raised: #17212C;
+  --surface-muted: #141c26;
+  --surface-overlay: rgba(17, 24, 33, 0.85);
+  --border-color: #273545;
   --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-strong: #273545;
 
-  /* Color Palette - Accents */
-  --accent-color: #F97316;
-  --accent-hover: #FB923C;
-  --accent-glow: rgba(249, 115, 22, 0.2);
+  /* Color Palette - Kura Ember Accent */
+  --accent-color: #FF6B2C;
+  --accent-hover: #FF824D;
+  --accent-glow: rgba(255, 107, 44, 0.25);
   --progress-color: var(--accent-color);
-  
+
   /* Status Colors */
-  --success-color: #2DD4BF;
+  --success-color: #35D39A;
   --rating-color: #FBBF24;
-  --danger-color: #FB7185;
-  --info-color: #38BDF8;
+  --danger-color: #FF667E;
+  --info-color: #5DD6C0;
 
   /* Typography Colors */
   --text-main: #F4F8F9;
   --text-secondary: #CBD5E1;
   --text-muted: #93A4A7;
   --text-disabled: #475569;
+  --text-inverse: #07090D;
 
   /* Typography Scales */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-title: 'Outfit', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-body: var(--font-sans);
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-  
+
   /* Spacing Scale (4px grid) */
   --space-1: 4px;
   --space-2: 8px;
@@ -46,34 +51,39 @@
   --space-12: 48px;
   --space-16: 64px;
 
-  /* Strict Radii Standards (4px max) */
-  --radius-xs: 2px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-full: 9999px;
+  /* Kura Ember Radii System */
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-panel: 14px;
+  --radius-modal: 16px;
+  --radius-pill: 999px;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
 
   /* Layout Constraints */
   --content-max-width: 1600px;
   --header-height: 68px;
 
   /* Elevations & Shadows */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px 0 rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 12px 32px 0 rgba(0, 0, 0, 0.6);
-  --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px 0 rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 36px 0 rgba(0, 0, 0, 0.7);
+  --shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.6);
 
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 300ms cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* Z-Index Layers */
+  /* Z-Index Hierarchy */
   --z-background: 0;
   --z-content: 10;
   --z-header: 100;
   --z-overlay: 200;
-  --z-modal: 500;
-  --z-toast: 1000;
+  --z-modal: 1000;
+  --z-toast: 9999;
   --z-player-controls: 2000;
 }

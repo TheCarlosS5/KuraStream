@@ -8,9 +8,13 @@ class AuthController {
         return hash_hmac('sha256', $password, PASSWORD_SALT);
     }
 
-    public static function login(): void {
-        $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+    public static function login(?array $inputData = null): void {
+        if ($inputData !== null) {
+            $data = $inputData;
+        } else {
+            $raw = file_get_contents('php://input');
+            $data = json_decode($raw, true) ?: [];
+        }
 
         $username = trim($data['username'] ?? '');
         $password = $data['password'] ?? '';
@@ -45,13 +49,24 @@ class AuthController {
                     'success' => true,
                     'token' => $token,
                     'role' => 'admin',
-                    'username' => $username
+                    'username' => $username,
+                    'user' => [
+                        'username' => $username,
+                        'role' => 'admin'
+                    ]
                 ]);
             }
+
+            jsonError('Credenciales incorrectas', 401);
         }
 
         // DB user credentials check
-        $user = DbHelper::getUser($username);
+        $user = null;
+        try {
+            $user = DbHelper::getUser($username);
+        } catch (Throwable $e) {
+            $user = null;
+        }
         if ($user) {
             $storedHash = $user['password_hash'] ?? '';
             $isPassValid = false;
@@ -77,11 +92,16 @@ class AuthController {
                 $token = AuthMiddleware::createToken($tokenPayload);
                 self::setSessionCookie($token);
 
+                $role = $user['role'] ?? 'user';
                 jsonResponse([
                     'success' => true,
                     'token' => $token,
-                    'role' => $user['role'] ?? 'user',
-                    'username' => $actualUsername
+                    'role' => $role,
+                    'username' => $actualUsername,
+                    'user' => [
+                        'username' => $actualUsername,
+                        'role' => $role
+                    ]
                 ]);
             }
         }
@@ -89,9 +109,13 @@ class AuthController {
         jsonError('Credenciales incorrectas', 401);
     }
 
-    public static function register(): void {
-        $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+    public static function register(?array $inputData = null): void {
+        if ($inputData !== null) {
+            $data = $inputData;
+        } else {
+            $raw = file_get_contents('php://input');
+            $data = json_decode($raw, true) ?: [];
+        }
 
         $username = trim($data['username'] ?? '');
         $password = $data['password'] ?? '';
@@ -125,7 +149,11 @@ class AuthController {
             'success' => true,
             'token' => $token,
             'role' => 'user',
-            'username' => $username
+            'username' => $username,
+            'user' => [
+                'username' => $username,
+                'role' => 'user'
+            ]
         ]);
     }
 

@@ -315,10 +315,6 @@ if (($uri === '/api/admin/import-show' || $uri === '/api/admin/create-show-tmdb'
     AdminController::importShow();
 }
 
-if ($uri === '/api/admin/detect-intros' && $method === 'POST') {
-    AdminController::detectIntros();
-}
-
 if (($uri === '/api/admin/scrape-show-cover' || $uri === '/api/admin/scrape-cover') && $method === 'POST') {
     AdminController::scrapeShowCover();
 }
