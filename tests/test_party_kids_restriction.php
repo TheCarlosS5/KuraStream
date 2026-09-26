@@ -143,7 +143,8 @@ DbHelper::registerUser('adult_guest', 'Pass123!');
 
 $kidProfiles = DbHelper::getUserProfiles('kid_user');
 $kidProfileId = $kidProfiles[0]['id'];
-DbHelper::updateUserProfile('kid_user', $kidProfileId, [
+DbHelper::saveUserProfile('kid_user', [
+    'id' => $kidProfileId,
     'name' => 'Kiddo',
     'avatar' => 'avatar1.png',
     'is_kids' => 1
@@ -258,6 +259,19 @@ try {
     $statusCode = $e->statusCode;
 }
 assert($blocked && $statusCode === 403, "Kids member streaming adult episode must be blocked with 403, got {$statusCode}");
+
+// 5b. Kids member tries to stream subtitles for adult episode 2 -> MUST return 403
+echo "  [5b/6] Kids member tries to stream subtitles for adult episode 2 (expects 403)...\n";
+$_GET['ticket'] = $kidCapabilityToken;
+$subBlocked = false;
+$subStatusCode = 200;
+try {
+    PlayerController::streamSubtitle('ep_adult_02', 0);
+} catch (ExitException $e) {
+    $subBlocked = true;
+    $subStatusCode = $e->statusCode;
+}
+assert($subBlocked && $subStatusCode === 403, "Kids member streaming subtitles for adult episode must be blocked with 403, got {$subStatusCode}");
 
 // -------------------------------------------------------------------------------------------------
 // 6. Adult member can stream adult episode 2 -> MUST succeed
