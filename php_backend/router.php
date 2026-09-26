@@ -376,7 +376,6 @@ if ($uri === '/api/comments' && $method === 'GET') {
 }
 
 if ($uri === '/api/comments' && $method === 'POST') {
-    RateLimiter::enforce('comment', 5, 60);
     ShowController::addComment();
 }
 

@@ -135,6 +135,7 @@ class PartyController {
         $profilePayload = AuthMiddleware::requireProfile();
         $user = $profilePayload['username'];
         $isKids = !empty($profilePayload['is_kids']);
+        $profileId = $profilePayload['profile_id'] ?? null;
 
         $name = !empty($data['name']) ? trim($data['name']) : ("Sala de " . $user);
         $episodeId = trim($data['episode_id'] ?? '');
@@ -324,7 +325,10 @@ class PartyController {
         if ($memberId) {
             DbHelper::removePartyMemberById($roomId, $memberId);
         } else {
-            DbHelper::removePartyMember($roomId, $user);
+            $hostMember = DbHelper::getPartyHostMember($roomId);
+            if ($hostMember && !empty($hostMember['member_id'])) {
+                DbHelper::removePartyMemberById($roomId, $hostMember['member_id']);
+            }
         }
 
         $newCount = DbHelper::getPartyMembersCount($roomId);
@@ -671,7 +675,10 @@ class PartyController {
             if ($memberId) {
                 DbHelper::removePartyMemberById($roomId, $memberId);
             } else {
-                DbHelper::removePartyMember($roomId, $user);
+                $hostMember = DbHelper::getPartyHostMember($roomId);
+                if ($hostMember && !empty($hostMember['member_id'])) {
+                    DbHelper::removePartyMemberById($roomId, $hostMember['member_id']);
+                }
             }
             $roomNow = DbHelper::getPartyRoom($roomId);
             if ($roomNow) {

@@ -1137,10 +1137,15 @@ class DbHelper {
         return $stmt->fetch() ?: null;
     }
 
-    public static function removePartyMember(string $roomId, string $username): void {
+    public static function getPartyHostMember(string $roomId): ?array {
         $db = Database::getConnection();
-        $stmt = $db->prepare("DELETE FROM party_members WHERE room_id = :r AND username = :u");
-        $stmt->execute(['r' => $roomId, 'u' => $username]);
+        $stmt = $db->prepare("
+            SELECT * FROM party_members 
+            WHERE room_id = :r AND role = 'host'
+            ORDER BY joined_at ASC LIMIT 1
+        ");
+        $stmt->execute(['r' => $roomId]);
+        return $stmt->fetch() ?: null;
     }
 
     public static function removePartyMemberById(string $roomId, string $memberId): void {

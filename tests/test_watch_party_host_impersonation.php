@@ -40,7 +40,12 @@ assert(!str_contains($partyCode, "\$member['username'] === \$room['host_user']")
 
 $playerJs = file_get_contents(__DIR__ . '/../frontend/player.js');
 assert(!str_contains($playerJs, "partyManager.activeRoom.host_user === msg.username"), "CRITICAL: player.js MUST NOT infer host by comparing msg.username to host_user!");
-echo "    ✓ Static code invariants verified: no display-name host inference\n";
+
+assert(!str_contains($partyCode, "DbHelper::removePartyMember("), "CRITICAL: PartyController MUST NOT call removePartyMember by username!");
+$dbCode = file_get_contents(__DIR__ . '/../php_backend/db.php');
+assert(!str_contains($dbCode, "function removePartyMember("), "CRITICAL: DbHelper::removePartyMember by username MUST NOT exist!");
+assert(str_contains($dbCode, "function getPartyHostMember("), "DbHelper::getPartyHostMember MUST exist!");
+echo "    ✓ Static code invariants verified: no display-name host inference or deletion\n";
 
 try {
     $db = Database::getConnection();
@@ -305,6 +310,95 @@ assert($hostChangeOk === true || (!empty($hostRes['success'])), "Real Host episo
 $updatedRoom = DbHelper::getPartyRoom($roomId);
 assert($updatedRoom['episode_id'] === 'ep_imp_02', "Room episode must be updated to ep_imp_02 by real host");
 echo "    ✓ Real host retains full privileges and changed episode to ep_imp_02\n";
+
+// -------------------------------------------------------------------------------------------------
+// 7. Membership deletion isolation with duplicate display names ('Carlos' host & 'Carlos' guest)
+// -------------------------------------------------------------------------------------------------
+echo "  [7/7] Verifying member deletion isolation when host and guest share identical nickname 'Carlos'...\n";
+
+// Ensure both members currently exist
+$hostBefore = DbHelper::getPartyMemberById($roomId, $hostMemberId);
+$guestBefore = DbHelper::getPartyMemberById($roomId, $guestMemberId);
+assert($hostBefore !== null, "Host member must exist before leave tests");
+assert($guestBefore !== null, "Guest member must exist before leave tests");
+assert($hostBefore['username'] === $guestBefore['username'], "Both members must have identical username 'Carlos'");
+
+// Case A: Guest leaves room -> Guest row removed, Host row MUST survive
+unset($_SERVER['HTTP_AUTHORIZATION']);
+$GLOBALS['_MOCKED_JSON_INPUT'] = [
+    'room_id' => $roomId,
+    'member_id' => $guestMemberId,
+    'member_token' => $guestMemberToken
+];
+ob_start();
+try {
+    PartyController::leaveRoom();
+} catch (ExitException $e) {
+    //
+}
+ob_end_clean();
+
+assert(DbHelper::getPartyMemberById($roomId, $guestMemberId) === null, "Guest row must be removed when guest leaves");
+assert(DbHelper::getPartyMemberById($roomId, $hostMemberId) !== null, "CRITICAL: Host row MUST survive when guest with identical display name leaves");
+echo "    ✓ Case A: Guest 'Carlos' leaves -> Guest row deleted, Host 'Carlos' row survived\n";
+
+// Rejoin guest "Carlos"
+$GLOBALS['_MOCKED_JSON_INPUT'] = [
+    'room_id' => $roomId,
+    'username' => 'Carlos'
+];
+ob_start();
+try {
+    PartyController::joinRoom();
+} catch (ExitException $e) {
+    //
+}
+$rejoinData = json_decode(ob_get_clean(), true);
+$newGuestMemberId = $rejoinData['member_id'];
+$newGuestMemberToken = $rejoinData['member_token'];
+assert(!empty($newGuestMemberId), "Rejoin must succeed and produce member_id");
+assert(DbHelper::getPartyMemberById($roomId, $newGuestMemberId) !== null, "New guest member must exist in DB");
+assert(DbHelper::getPartyMemberById($roomId, $hostMemberId) !== null, "Host must still exist");
+
+// Case B: Host leaves room -> Host row removed, Guest row MUST survive
+$GLOBALS['_MOCKED_JSON_INPUT'] = [
+    'room_id' => $roomId,
+    'member_id' => $hostMemberId,
+    'member_token' => $hostMemberToken
+];
+$_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$hostJwt}";
+ob_start();
+try {
+    PartyController::leaveRoom();
+} catch (ExitException $e) {
+    //
+}
+ob_end_clean();
+
+assert(DbHelper::getPartyMemberById($roomId, $hostMemberId) === null, "Host row must be removed when host leaves");
+assert(DbHelper::getPartyMemberById($roomId, $newGuestMemberId) !== null, "CRITICAL: Guest row MUST survive when host with identical display name leaves");
+echo "    ✓ Case B: Host 'Carlos' leaves -> Host row deleted, Guest 'Carlos' row survived\n";
+
+// Case C: Authenticated Host fallback without member_id resolves host by role without touching guest
+DbHelper::recordPartyMember($roomId, 'Carlos', 'mem_fallback_host', 'hash_fallback', 'host', 0, 'Carlos', $hostProfile['id']);
+assert(DbHelper::getPartyMemberById($roomId, 'mem_fallback_host') !== null, "Fallback host member must exist");
+assert(DbHelper::getPartyMemberById($roomId, $newGuestMemberId) !== null, "Guest member must still exist");
+
+$_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$hostJwt}";
+$GLOBALS['_MOCKED_JSON_INPUT'] = [
+    'room_id' => $roomId
+];
+ob_start();
+try {
+    PartyController::leaveRoom();
+} catch (ExitException $e) {
+    //
+}
+ob_end_clean();
+
+assert(DbHelper::getPartyMemberById($roomId, 'mem_fallback_host') === null, "Fallback host row must be deleted via role resolution");
+assert(DbHelper::getPartyMemberById($roomId, $newGuestMemberId) !== null, "CRITICAL: Guest row MUST survive during host fallback leave");
+echo "    ✓ Case C: Host fallback leave (no member_id) deleted host row by role without touching guest row\n";
 
 // Cleanup
 $db->exec("DELETE FROM party_messages WHERE room_id = '{$roomId}'");

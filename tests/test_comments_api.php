@@ -99,4 +99,61 @@ $showControllerCode = file_get_contents(__DIR__ . '/../php_backend/controllers/S
 assert(str_contains($showControllerCode, "DbHelper::getShow(\$showId)"), "addComment must verify show exists in DB");
 assert(str_contains($showControllerCode, "\$ep['show_id'] !== \$showId"), "addComment must verify episode belongs to show");
 
+// 8. Integration / Routing test: Dispatched via router.php to ensure no double rate limiting
+$routerCode = file_get_contents(__DIR__ . '/../php_backend/router.php');
+assert(!str_contains($routerCode, "RateLimiter::enforce('comment'"), "router.php MUST NOT enforce comment rate limiting (must be solely in ShowController::addComment)");
+
+RateLimiter::clear("comment_{$ip}");
+$routerRateLimitOccurredAt = null;
+$statuses = [];
+
+try {
+    $db = Database::getConnection();
+    $db->exec("INSERT IGNORE INTO shows (id, title, synopsis, rating, year) VALUES ('test_show_rate', 'Rate Test Show', 'Desc', 8.0, 2026)");
+} catch (Throwable $e) {
+    // DB offline on host
+}
+
+for ($i = 1; $i <= 6; $i++) {
+    $_SERVER['REQUEST_URI'] = '/api/comments';
+    $_SERVER['REQUEST_METHOD'] = 'POST';
+    $_COOKIE['kurastream_token'] = $token;
+    $GLOBALS['_MOCKED_JSON_INPUT'] = ['show_id' => 'test_show_rate', 'content' => "Comment #{$i}"];
+
+    try {
+        ob_start();
+        require __DIR__ . '/../php_backend/router.php';
+        $rawOut = ob_get_clean();
+        $statuses[$i] = 200;
+    } catch (ExitException $e) {
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
+        $statuses[$i] = $e->statusCode;
+        if ($e->statusCode === 429) {
+            $routerRateLimitOccurredAt = $i;
+            break;
+        }
+    } catch (Throwable $e) {
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
+        $statuses[$i] = 500;
+    }
+}
+
+try {
+    $db = Database::getConnection();
+    $db->exec("DELETE FROM comments WHERE show_id = 'test_show_rate'");
+    $db->exec("DELETE FROM shows WHERE id = 'test_show_rate'");
+} catch (Throwable $e) {
+    //
+}
+
+for ($i = 1; $i <= 5; $i++) {
+    assert(isset($statuses[$i]) && $statuses[$i] !== 429, "Request #{$i} through router.php must NOT be 429, got {$statuses[$i]}");
+}
+assert($routerRateLimitOccurredAt === 6, "Through router.php, first 5 requests must pass rate limiting; 6th request must trigger 429. Triggered at: " . var_export($routerRateLimitOccurredAt, true));
+RateLimiter::clear("comment_{$ip}");
+
 echo "✓ Comments Alignment Tests Passed\n";

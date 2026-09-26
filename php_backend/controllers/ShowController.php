@@ -197,7 +197,7 @@ class ShowController {
             $data = $inputData;
         } else {
             $raw = file_get_contents('php://input');
-            $data = json_decode($raw, true) ?: [];
+            $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
         }
 
         $showId = trim((string)($data['show_id'] ?? ($data['showId'] ?? '')));

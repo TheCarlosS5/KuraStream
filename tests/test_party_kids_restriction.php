@@ -38,6 +38,7 @@ echo "  [0/6] Verifying static code invariants...\n";
 $partyCode = file_get_contents(__DIR__ . '/../php_backend/controllers/PartyController.php');
 assert(str_contains($partyCode, 'isAdultOrMaturityRestricted'), "PartyController::joinRoom MUST enforce isAdultOrMaturityRestricted!");
 assert(str_contains($partyCode, "\$isKids, \$accountUsername, \$profileId"), "PartyController::joinRoom MUST persist profile context to recordPartyMember!");
+assert(str_contains($partyCode, "\$profileId = \$profilePayload['profile_id'] ?? null;"), "PartyController::createRoom MUST define profileId from profilePayload!");
 
 $playerCode = file_get_contents(__DIR__ . '/../php_backend/controllers/PlayerController.php');
 assert(str_contains($playerCode, "isAdultOrMaturityRestricted"), "PlayerController::authorizeStreamAccess MUST enforce isAdultOrMaturityRestricted on capability requests!");
@@ -286,6 +287,47 @@ try {
     $adultAllowed = false;
 }
 assert($adultAllowed, "Adult member must be authorized to stream adult episode in party room");
+
+// -------------------------------------------------------------------------------------------------
+// 7. Host createRoom persists active profile ID in party_members
+// -------------------------------------------------------------------------------------------------
+echo "  [7/7] Host creates room and persists profile_id (expects active profile ID)...\n";
+$adultHostProfiles = DbHelper::getUserProfiles('adult_host');
+$adultHostProfileId = $adultHostProfiles[0]['id'];
+$adultHostToken = AuthMiddleware::createToken([
+    'username' => 'adult_host',
+    'role' => 'user',
+    'profile_id' => $adultHostProfileId,
+    'profile_name' => 'AdultHost',
+    'is_kids' => false,
+    'exp' => time() + 3600
+]);
+
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$adultHostToken}";
+$GLOBALS['_MOCKED_JSON_INPUT'] = [
+    'name' => 'Host Profile Persistence Room',
+    'episode_id' => 'ep_safe_01',
+    'is_public' => 1
+];
+
+ob_start();
+$hostCreatedRoomId = null;
+try {
+    PartyController::createRoom();
+} catch (ExitException $e) {
+    //
+}
+$hostCreateRaw = ob_get_clean();
+$hostCreateData = json_decode($hostCreateRaw, true) ?: [];
+$hostCreatedRoomId = $hostCreateData['room_id'] ?? null;
+assert(!empty($hostCreatedRoomId), "createRoom must return room_id");
+
+$hostMemberRow = $db->query("SELECT * FROM party_members WHERE room_id = '{$hostCreatedRoomId}' AND role = 'host'")->fetch();
+assert($hostMemberRow !== false, "Host party member row must exist");
+assert($hostMemberRow['profile_id'] === $adultHostProfileId, "Host party_members.profile_id must match active profile ID");
+assert((int)$hostMemberRow['is_kids'] === 0, "Adult host is_kids must be 0");
+echo "    ✓ Host party_members.profile_id matches active profile ID exactly\n";
 
 // Cleanup
 $db->exec("DELETE FROM party_messages WHERE room_id LIKE 'KURA-KIDS-%'");

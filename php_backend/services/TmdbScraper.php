@@ -399,8 +399,13 @@ class TmdbScraper {
 
         // Atomic rename to destination
         if (!@rename($tmpFile, $destPath)) {
-            @copy($tmpFile, $destPath);
-            @unlink($tmpFile);
+            if (@copy($tmpFile, $destPath)) {
+                @unlink($tmpFile);
+            } else {
+                @unlink($tmpFile);
+                @unlink($destPath);
+                return false;
+            }
         }
 
         return file_exists($destPath) && filesize($destPath) > 0;
