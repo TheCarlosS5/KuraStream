@@ -4,6 +4,10 @@ require_once __DIR__ . '/config.php';
 class Database {
     private static ?PDO $pdo = null;
 
+    public static function setConnection(?PDO $customPdo): void {
+        self::$pdo = $customPdo;
+    }
+
     public static function getConnection(): PDO {
         if (self::$pdo === null) {
             try {
@@ -28,168 +32,10 @@ class Database {
         return self::$pdo;
     }
 
-    public static function initializeSchema(?PDO $customPdo = null) {
+    public static function initializeSchema(?PDO $customPdo = null): array {
         $db = $customPdo ?: self::getConnection();
-
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS shows (
-                id VARCHAR(255) PRIMARY KEY,
-                title VARCHAR(255) NOT NULL,
-                synopsis TEXT,
-                rating DOUBLE DEFAULT 0.0,
-                year INT NULL,
-                studio VARCHAR(255) DEFAULT '',
-                director VARCHAR(255) DEFAULT '',
-                writer VARCHAR(255) DEFAULT '',
-                cast_members LONGTEXT,
-                poster_path VARCHAR(500) DEFAULT '',
-                backdrop_path VARCHAR(500) DEFAULT '',
-                media_type VARCHAR(50) NOT NULL DEFAULT 'anime',
-                backdrop_loops LONGTEXT,
-                genres VARCHAR(500) DEFAULT '',
-                trailer_key VARCHAR(255) NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                age_rating VARCHAR(50) DEFAULT 'TV-14',
-                status VARCHAR(50) DEFAULT 'finished'
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS episodes (
-                id VARCHAR(255) PRIMARY KEY,
-                show_id VARCHAR(255) NOT NULL,
-                season_number INT NOT NULL,
-                episode_number INT NOT NULL,
-                title VARCHAR(255) DEFAULT '',
-                synopsis TEXT,
-                filepath VARCHAR(500) NOT NULL,
-                duration DOUBLE DEFAULT 0,
-                size BIGINT DEFAULT 0,
-                video_codec VARCHAR(100) DEFAULT '',
-                resolution VARCHAR(100) DEFAULT '',
-                fps DOUBLE DEFAULT 0,
-                audio_tracks LONGTEXT,
-                subtitle_tracks LONGTEXT,
-                thumbnail_path VARCHAR(500) DEFAULT '',
-                intro_start INT NULL,
-                intro_end INT NULL,
-                outro_start INT NULL,
-                chapters LONGTEXT NULL,
-                INDEX idx_episodes_show (show_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS user_preferences (
-                username VARCHAR(255) NOT NULL,
-                profile_name VARCHAR(255) NOT NULL DEFAULT 'Principal',
-                auto_skip_intro TINYINT(1) DEFAULT 0,
-                auto_play_next TINYINT(1) DEFAULT 1,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (username, profile_name)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS watch_history (
-                username VARCHAR(255) NOT NULL,
-                profile_name VARCHAR(255) NOT NULL DEFAULT 'Principal',
-                episode_id VARCHAR(255) NOT NULL,
-                progress_seconds DOUBLE NOT NULL DEFAULT 0,
-                duration DOUBLE NOT NULL DEFAULT 0,
-                completed TINYINT(1) DEFAULT 0,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (username, profile_name, episode_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS favorites (
-                username VARCHAR(255) NOT NULL,
-                profile_name VARCHAR(255) NOT NULL DEFAULT 'Principal',
-                show_id VARCHAR(255) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (username, profile_name, show_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS staged_imports (
-                id VARCHAR(255) PRIMARY KEY,
-                original_filename VARCHAR(500) NOT NULL,
-                filepath VARCHAR(500) NOT NULL,
-                media_type VARCHAR(50) DEFAULT 'anime',
-                clean_title VARCHAR(255) DEFAULT '',
-                season INT DEFAULT 1,
-                episode INT DEFAULT 1,
-                filesize BIGINT DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS users (
-                username VARCHAR(255) PRIMARY KEY,
-                password_hash VARCHAR(255) NOT NULL,
-                role VARCHAR(50) NOT NULL DEFAULT 'user',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS user_profiles (
-                id VARCHAR(255) PRIMARY KEY,
-                username VARCHAR(255) NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                avatar VARCHAR(500) DEFAULT '',
-                color VARCHAR(50) DEFAULT '#a855f7',
-                is_kids TINYINT(1) DEFAULT 0,
-                pin VARCHAR(255) DEFAULT '',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_user_profiles (username)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS comments (
-                id VARCHAR(255) PRIMARY KEY,
-                show_id VARCHAR(255) NOT NULL,
-                episode_id VARCHAR(255) DEFAULT '',
-                username VARCHAR(255) NOT NULL,
-                profile_name VARCHAR(255) NOT NULL DEFAULT 'Principal',
-                content TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_comments_show (show_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS party_rooms (
-                id VARCHAR(64) PRIMARY KEY,
-                name VARCHAR(255) DEFAULT '',
-                host_user VARCHAR(64) NOT NULL,
-                episode_id VARCHAR(255) NOT NULL,
-                is_playing TINYINT(1) DEFAULT 0,
-                `current_time` DOUBLE DEFAULT 0,
-                last_sync_timestamp BIGINT NOT NULL DEFAULT 0,
-                is_public TINYINT(1) DEFAULT 0,
-                allow_guest_controls TINYINT(1) DEFAULT 0,
-                participants_count INT DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_party_rooms_public (is_public),
-                INDEX idx_party_rooms_updated (updated_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-            CREATE TABLE IF NOT EXISTS party_messages (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                room_id VARCHAR(64) NOT NULL,
-                username VARCHAR(64) NOT NULL,
-                message TEXT NOT NULL,
-                type VARCHAR(32) DEFAULT 'chat',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_party_messages_room (room_id, id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ");
-
-        try {
-            $checkCol = $db->query("SHOW COLUMNS FROM episodes LIKE 'chapters'");
-            if ($checkCol && $checkCol->rowCount() === 0) {
-                $db->exec("ALTER TABLE episodes ADD COLUMN chapters LONGTEXT NULL");
-            }
-            $checkComp = $db->query("SHOW COLUMNS FROM watch_history LIKE 'completed'");
-            if ($checkComp && $checkComp->rowCount() === 0) {
-                $db->exec("ALTER TABLE watch_history ADD COLUMN completed TINYINT(1) DEFAULT 0");
-            }
-            // Existing installations predate the longer, high-entropy Watch Party IDs.
-            $db->exec("ALTER TABLE party_rooms MODIFY id VARCHAR(64) NOT NULL");
-            $db->exec("ALTER TABLE party_messages MODIFY room_id VARCHAR(64) NOT NULL");
-            $db->exec("ALTER TABLE user_profiles MODIFY pin VARCHAR(255) DEFAULT ''");
-        } catch (Throwable $e) {
-            // Ignore if check or alter column fails
-        }
+        require_once __DIR__ . '/services/MigrationManager.php';
+        return MigrationManager::runPending($db);
     }
 }
 
@@ -280,8 +126,14 @@ class DbHelper {
             }
         }
 
-        if ($completed === null) {
-            $completed = ($duration > 0 && $progress >= ($duration * 0.85));
+        if ($duration > 0) {
+            $progress = max(0.0, min($progress, $duration));
+            if ($completed === null || $progress < ($duration * 0.9)) {
+                $completed = ($progress >= ($duration * 0.9));
+            }
+        } else {
+            $progress = max(0.0, min($progress, 86400.0));
+            $completed = (bool)$completed;
         }
 
         $stmt = $db->prepare("
@@ -320,9 +172,11 @@ class DbHelper {
             $loops = json_decode($existing['backdrop_loops'], true);
         }
 
+        $tmdbId = !empty($show['tmdb_id']) ? (int)$show['tmdb_id'] : ($existing['tmdb_id'] ?? null);
+
         $stmt = $db->prepare("
-            INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating, status)
-            VALUES (:id, :title, :synopsis, :rating, :year, :studio, :director, :writer, :cast_members, :poster_path, :backdrop_path, :media_type, :backdrop_loops, :genres, :trailer_key, :age_rating, :status)
+            INSERT INTO shows (id, title, synopsis, rating, year, studio, director, writer, cast_members, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating, status, tmdb_id)
+            VALUES (:id, :title, :synopsis, :rating, :year, :studio, :director, :writer, :cast_members, :poster_path, :backdrop_path, :media_type, :backdrop_loops, :genres, :trailer_key, :age_rating, :status, :tmdb_id)
             ON DUPLICATE KEY UPDATE
                 title = VALUES(title),
                 synopsis = VALUES(synopsis),
@@ -339,7 +193,8 @@ class DbHelper {
                 genres = VALUES(genres),
                 trailer_key = VALUES(trailer_key),
                 age_rating = VALUES(age_rating),
-                status = VALUES(status)
+                status = VALUES(status),
+                tmdb_id = COALESCE(VALUES(tmdb_id), tmdb_id)
         ");
 
         $stmt->execute([
@@ -359,7 +214,8 @@ class DbHelper {
             'genres' => $show['genres'] ?? '',
             'trailer_key' => $show['trailer_key'] ?? null,
             'age_rating' => $show['age_rating'] ?? 'TV-14',
-            'status' => $show['status'] ?? 'finished'
+            'status' => $show['status'] ?? 'finished',
+            'tmdb_id' => $tmdbId
         ]);
     }
 
@@ -375,6 +231,12 @@ class DbHelper {
         $db = Database::getConnection();
         $stmt = $db->prepare("UPDATE shows SET status = :status WHERE id = :id");
         return $stmt->execute(['status' => $status, 'id' => $showId]);
+    }
+
+    public static function updateShowTmdbId(string $showId, string $tmdbId): bool {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("UPDATE shows SET tmdb_id = :tmdb_id WHERE id = :id");
+        return $stmt->execute(['tmdb_id' => $tmdbId, 'id' => $showId]);
     }
 
     public static function getUserPreferences(string $username, string $profile = 'Principal'): array {
@@ -498,30 +360,91 @@ class DbHelper {
         }, $episodes);
     }
 
+    public static function serializeEpisodeForClient(array $ep): array {
+        $ext = !empty($ep['filepath']) ? strtolower(pathinfo($ep['filepath'], PATHINFO_EXTENSION)) : '';
+        $isDirect = ($ext === 'mp4' || $ext === 'webm');
+        $container = !empty($ext) ? $ext : 'unknown';
+
+        $audioTracks = !empty($ep['audio_tracks']) 
+            ? (is_array($ep['audio_tracks']) ? $ep['audio_tracks'] : json_decode($ep['audio_tracks'], true)) 
+            : [];
+        $subtitleTracks = !empty($ep['subtitle_tracks']) 
+            ? (is_array($ep['subtitle_tracks']) ? $ep['subtitle_tracks'] : json_decode($ep['subtitle_tracks'], true)) 
+            : [];
+        $chapters = !empty($ep['chapters']) 
+            ? (is_array($ep['chapters']) ? $ep['chapters'] : json_decode($ep['chapters'], true)) 
+            : [];
+
+        return [
+            'id' => $ep['id'],
+            'show_id' => $ep['show_id'] ?? '',
+            'season_number' => (int)($ep['season_number'] ?? 1),
+            'episode_number' => (int)($ep['episode_number'] ?? 1),
+            'title' => $ep['title'] ?? '',
+            'synopsis' => $ep['synopsis'] ?? '',
+            'duration' => (float)($ep['duration'] ?? 0.0),
+            'size' => (int)($ep['size'] ?? 0),
+            'video_codec' => $ep['video_codec'] ?? '',
+            'audio_codec' => $ep['audio_codec'] ?? '',
+            'resolution' => $ep['resolution'] ?? '',
+            'fps' => (float)($ep['fps'] ?? 0.0),
+            'audio_tracks' => $audioTracks ?: [],
+            'subtitle_tracks' => $subtitleTracks ?: [],
+            'thumbnail_path' => $ep['thumbnail_path'] ?? '',
+            'intro_start' => isset($ep['intro_start']) && $ep['intro_start'] !== null ? (float)$ep['intro_start'] : null,
+            'intro_end' => isset($ep['intro_end']) && $ep['intro_end'] !== null ? (float)$ep['intro_end'] : null,
+            'outro_start' => isset($ep['outro_start']) && $ep['outro_start'] !== null ? (float)$ep['outro_start'] : null,
+            'chapters' => $chapters ?: [],
+            'created_at' => $ep['created_at'] ?? null,
+            'stream_url' => "/api/stream/" . urlencode($ep['id']),
+            'direct_playable' => $isDirect,
+            'container' => $container
+        ];
+    }
+
     public static function saveEpisode(array $ep): void {
         $db = Database::getConnection();
-        $stmt = $db->prepare("
-            INSERT INTO episodes (id, show_id, season_number, episode_number, title, synopsis, filepath, duration, size, video_codec, resolution, fps, audio_tracks, subtitle_tracks, thumbnail_path, intro_start, intro_end, outro_start, chapters)
-            VALUES (:id, :show_id, :season_number, :episode_number, :title, :synopsis, :filepath, :duration, :size, :video_codec, :resolution, :fps, :audio_tracks, :subtitle_tracks, :thumbnail_path, :intro_start, :intro_end, :outro_start, :chapters)
-            ON DUPLICATE KEY UPDATE
-                title = VALUES(title),
-                synopsis = VALUES(synopsis),
-                filepath = VALUES(filepath),
-                duration = VALUES(duration),
-                size = VALUES(size),
-                video_codec = VALUES(video_codec),
-                resolution = VALUES(resolution),
-                fps = VALUES(fps),
-                audio_tracks = VALUES(audio_tracks),
-                subtitle_tracks = VALUES(subtitle_tracks),
-                thumbnail_path = VALUES(thumbnail_path),
-                intro_start = VALUES(intro_start),
-                intro_end = VALUES(intro_end),
-                outro_start = VALUES(outro_start),
-                chapters = VALUES(chapters)
-        ");
+        
+        $hasCreatedAt = !empty($ep['created_at']);
+        $hasFileMtime = isset($ep['file_mtime']);
 
-        $stmt->execute([
+        $cols = "id, show_id, season_number, episode_number, title, synopsis, filepath, duration, size, video_codec, resolution, fps, audio_tracks, subtitle_tracks, thumbnail_path, intro_start, intro_end, outro_start, chapters, availability_status, missing_scan_count, missing_since";
+        $vals = ":id, :show_id, :season_number, :episode_number, :title, :synopsis, :filepath, :duration, :size, :video_codec, :resolution, :fps, :audio_tracks, :subtitle_tracks, :thumbnail_path, :intro_start, :intro_end, :outro_start, :chapters, 'available', 0, NULL";
+        
+        if ($hasCreatedAt) {
+            $cols .= ", created_at";
+            $vals .= ", :created_at";
+        }
+        if ($hasFileMtime) {
+            $cols .= ", file_mtime";
+            $vals .= ", :file_mtime";
+        }
+
+        $updatePart = "
+            title = VALUES(title),
+            synopsis = VALUES(synopsis),
+            filepath = VALUES(filepath),
+            duration = VALUES(duration),
+            size = VALUES(size),
+            video_codec = VALUES(video_codec),
+            resolution = VALUES(resolution),
+            fps = VALUES(fps),
+            audio_tracks = VALUES(audio_tracks),
+            subtitle_tracks = VALUES(subtitle_tracks),
+            thumbnail_path = VALUES(thumbnail_path),
+            intro_start = VALUES(intro_start),
+            intro_end = VALUES(intro_end),
+            outro_start = VALUES(outro_start),
+            chapters = VALUES(chapters),
+            availability_status = 'available',
+            missing_scan_count = 0,
+            missing_since = NULL
+        ";
+        if ($hasFileMtime) {
+            $updatePart .= ", file_mtime = VALUES(file_mtime)";
+        }
+
+        $params = [
             'id' => $ep['id'],
             'show_id' => $ep['show_id'],
             'season_number' => $ep['season_number'],
@@ -541,14 +464,41 @@ class DbHelper {
             'intro_end' => $ep['intro_end'] ?? null,
             'outro_start' => $ep['outro_start'] ?? null,
             'chapters' => json_encode($ep['chapters'] ?? [])
-        ]);
+        ];
+        if ($hasCreatedAt) {
+            $params['created_at'] = $ep['created_at'];
+        }
+        if ($hasFileMtime) {
+            $params['file_mtime'] = (int)$ep['file_mtime'];
+        }
+
+        try {
+            $updateWithAvail = $updatePart . ", availability_status = 'available', missing_scan_count = 0, missing_since = NULL";
+            $stmt = $db->prepare("INSERT INTO episodes ({$cols}) VALUES ({$vals}) ON DUPLICATE KEY UPDATE {$updateWithAvail}");
+            $stmt->execute($params);
+        } catch (Throwable $e) {
+            $stmt = $db->prepare("INSERT INTO episodes ({$cols}) VALUES ({$vals}) ON DUPLICATE KEY UPDATE {$updatePart}");
+            $stmt->execute($params);
+        }
     }
 
-    public static function getRandomShow(): ?array {
+    public static function getRandomShow(bool $isKids = false): ?array {
         $db = Database::getConnection();
-        $stmt = $db->query("SELECT * FROM shows ORDER BY RAND() LIMIT 1");
-        $show = $stmt->fetch();
-        if (!$show) return null;
+        $shows = $db->query("SELECT * FROM shows")->fetchAll();
+        if (empty($shows)) return null;
+
+        if ($isKids) {
+            $shows = array_values(array_filter($shows, function($s) {
+                $rating = strtoupper(trim((string)($s['age_rating'] ?? '')));
+                if (in_array($rating, ['R', 'TV-MA', '18+', 'NC-17', 'RX', 'R18'])) return false;
+                $genres = strtolower((string)($s['genres'] ?? ''));
+                if (str_contains($genres, 'ecchi') || str_contains($genres, 'hentai') || str_contains($genres, 'erotica')) return false;
+                return true;
+            }));
+            if (empty($shows)) return null;
+        }
+
+        $show = $shows[array_rand($shows)];
         $show['rating'] = (float)$show['rating'];
         $show['year'] = $show['year'] !== null ? (int)$show['year'] : null;
         return $show;
@@ -628,20 +578,48 @@ class DbHelper {
 
     public static function getNotifications(string $username, string $profile = 'Principal'): array {
         $db = Database::getConnection();
+
+        $lastSeenAt = null;
+        try {
+            $prefStmt = $db->prepare("SELECT notifications_last_seen_at FROM user_preferences WHERE username = :u AND profile_name = :p");
+            $prefStmt->execute(['u' => $username, 'p' => $profile]);
+            $prefRow = $prefStmt->fetch();
+            $lastSeenAt = $prefRow['notifications_last_seen_at'] ?? null;
+        } catch (Throwable $e) {
+            $lastSeenAt = null;
+        }
+
         $stmt = $db->prepare("
-            SELECT e.id as episode_id, e.season_number, e.episode_number, e.title as episode_title, s.id as show_id, s.title as show_title, s.poster_path
+            SELECT e.id as episode_id, e.season_number, e.episode_number, e.title as episode_title, 
+                   e.created_at as episode_created_at,
+                   s.id as show_id, s.title as show_title, s.poster_path, s.created_at as show_created_at
             FROM favorites f
             JOIN shows s ON f.show_id = s.id
             JOIN episodes e ON e.show_id = s.id
             WHERE f.username = :u AND f.profile_name = :p
-            ORDER BY e.season_number DESC, e.episode_number DESC
+            ORDER BY COALESCE(e.created_at, s.created_at) DESC, e.season_number DESC, e.episode_number DESC
             LIMIT 20
         ");
         $stmt->execute(['u' => $username, 'p' => $profile]);
         $rows = $stmt->fetchAll();
 
-        return array_map(function($r) {
-            return [
+        $unreadCount = 0;
+        $notifications = [];
+
+        foreach ($rows as $r) {
+            $createdAt = !empty($r['episode_created_at']) ? $r['episode_created_at'] : (!empty($r['show_created_at']) ? $r['show_created_at'] : '2026-01-01 00:00:00');
+            $isUnread = false;
+            if ($lastSeenAt === null) {
+                $isUnread = true;
+                $unreadCount++;
+            } else {
+                $isUnread = (strtotime($createdAt) > strtotime($lastSeenAt));
+                if ($isUnread) {
+                    $unreadCount++;
+                }
+            }
+
+            $notifications[] = [
                 'id' => 'notif_' . $r['episode_id'],
                 'show_id' => $r['show_id'],
                 'show_title' => $r['show_title'],
@@ -651,9 +629,41 @@ class DbHelper {
                 'episode_number' => (int)$r['episode_number'],
                 'title' => $r['episode_title'] ?? '',
                 'message' => "¡Nuevo episodio disponible! S{$r['season_number']} E{$r['episode_number']}: {$r['show_title']}",
-                'created_at' => date('Y-m-d H:i:s')
+                'created_at' => $createdAt,
+                'is_unread' => $isUnread
             ];
-        }, $rows);
+        }
+
+        return [
+            'notifications' => $notifications,
+            'unread_count' => $unreadCount,
+            'last_seen_at' => $lastSeenAt
+        ];
+    }
+
+    public static function markNotificationsSeen(string $username, string $profile = 'Principal'): void {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            INSERT INTO user_preferences (username, profile_name, notifications_last_seen_at)
+            VALUES (:u, :p, CURRENT_TIMESTAMP)
+            ON DUPLICATE KEY UPDATE notifications_last_seen_at = CURRENT_TIMESTAMP
+        ");
+        $stmt->execute(['u' => $username, 'p' => $profile]);
+    }
+
+    public static function toggleFavorite(string $username, string $profile = 'Principal', string $showId = ''): bool {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT 1 FROM favorites WHERE username = :u AND profile_name = :p AND show_id = :s");
+        $stmt->execute(['u' => $username, 'p' => $profile, 's' => $showId]);
+        if ($stmt->fetch()) {
+            $del = $db->prepare("DELETE FROM favorites WHERE username = :u AND profile_name = :p AND show_id = :s");
+            $del->execute(['u' => $username, 'p' => $profile, 's' => $showId]);
+            return false;
+        } else {
+            $ins = $db->prepare("INSERT INTO favorites (username, profile_name, show_id) VALUES (:u, :p, :s)");
+            $ins->execute(['u' => $username, 'p' => $profile, 's' => $showId]);
+            return true;
+        }
     }
 
     public static function registerUser(string $username, string $password, string $role = 'user'): ?array {
@@ -670,7 +680,7 @@ class DbHelper {
 
         // Create default profile
         self::saveUserProfile($username, [
-            'id' => 'profile_' . uniqid(),
+            'id' => 'profile_' . bin2hex(random_bytes(16)),
             'name' => 'Principal',
             'avatar' => '',
             'color' => '#a855f7'
@@ -714,18 +724,73 @@ class DbHelper {
         }, $rows);
     }
 
+    public static function getUserProfileById(string $username, string $profileId): ?array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT * FROM user_profiles WHERE username = :u AND id = :id");
+        $stmt->execute(['u' => $username, 'id' => $profileId]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            return null;
+        }
+        $name = $row['name'] ?? 'Principal';
+        $color = $row['color'] ?? '#a855f7';
+        $row['profile_name'] = $name;
+        $row['name'] = $name;
+        $row['avatar_color'] = $color;
+        $row['color'] = $color;
+        $row['is_kids'] = (bool)($row['is_kids'] ?? 0);
+        return $row;
+    }
+
     public static function saveUserProfile(string $username, array $data): array {
         $db = Database::getConnection();
-        $id = $data['id'] ?? ('prof_' . uniqid());
+        $id = !empty($data['id']) ? trim((string)$data['id']) : null;
+        $existing = null;
+
+        if ($id) {
+            $checkStmt = $db->prepare("SELECT * FROM user_profiles WHERE id = :id");
+            $checkStmt->execute(['id' => $id]);
+            $existing = $checkStmt->fetch();
+            if ($existing) {
+                if ($existing['username'] !== $username) {
+                    jsonError('Acceso denegado: El perfil no pertenece a este usuario', 403);
+                }
+                if (!empty($existing['pin'])) {
+                    $currentPin = trim((string)($data['current_pin'] ?? ''));
+                    if (empty($currentPin) || !password_verify($currentPin, $existing['pin'])) {
+                        jsonError('PIN actual requerido o incorrecto para modificar este perfil', 403);
+                    }
+                }
+            } else {
+                // Client supplied an id that doesn't exist: ignore it and generate a secure random ID
+                $id = 'prof_' . bin2hex(random_bytes(16));
+            }
+        } else {
+            $id = 'prof_' . bin2hex(random_bytes(16));
+        }
+
         $name = trim($data['profile_name'] ?? $data['name'] ?? 'Perfil');
+        if (empty($name)) {
+            $name = 'Perfil';
+        }
+
+        // Enforce uniqueness of profile name per user
+        $dupCheck = $db->prepare("SELECT id FROM user_profiles WHERE username = :u AND name = :n AND id != :id");
+        $dupCheck->execute(['u' => $username, 'n' => $name, 'id' => $id]);
+        if ($dupCheck->fetch()) {
+            jsonError('Ya existe un perfil con ese nombre para este usuario', 409);
+        }
+
         $avatar = $data['avatar'] ?? ($data['avatar_image'] ?? '');
         $color = $data['avatar_color'] ?? $data['color'] ?? '#a855f7';
         $isKids = !empty($data['is_kids']) ? 1 : 0;
         $rawPin = trim((string)($data['pin'] ?? ''));
-        $pinHash = '';
-        if (!empty($rawPin)) {
-            // Si ya viene hasheado (comienza con $2y$), mantenerlo; de lo contrario, hashear con bcrypt
-            $pinHash = str_starts_with($rawPin, '$2y$') ? $rawPin : password_hash($rawPin, PASSWORD_BCRYPT);
+        $pinHash = $existing ? ($existing['pin'] ?? '') : '';
+        if ($rawPin !== '') {
+            // Always hash with bcrypt - never accept raw unverified hash prefixes
+            $pinHash = password_hash($rawPin, PASSWORD_BCRYPT);
+        } elseif (!empty($data['remove_pin'])) {
+            $pinHash = '';
         }
 
         $stmt = $db->prepare("
@@ -763,6 +828,20 @@ class DbHelper {
 
     public static function deleteUserProfile(string $username, string $id): bool {
         $db = Database::getConnection();
+        $checkStmt = $db->prepare("SELECT * FROM user_profiles WHERE id = :id");
+        $checkStmt->execute(['id' => $id]);
+        $existing = $checkStmt->fetch();
+
+        if (!$existing) {
+            jsonError('Perfil no encontrado', 404);
+        }
+        if ($existing['username'] !== $username) {
+            jsonError('Acceso denegado: No tienes permisos para eliminar este perfil', 403);
+        }
+        if (($existing['name'] ?? '') === 'Principal') {
+            jsonError('No se puede eliminar el perfil principal', 400);
+        }
+
         $stmt = $db->prepare("DELETE FROM user_profiles WHERE username = :u AND id = :id");
         return $stmt->execute(['u' => $username, 'id' => $id]);
     }
@@ -776,7 +855,7 @@ class DbHelper {
 
     public static function addComment(string $showId, string $username, string $profile, string $content, string $episodeId = ''): array {
         $db = Database::getConnection();
-        $id = 'comm_' . uniqid();
+        $id = 'comm_' . bin2hex(random_bytes(16));
         $stmt = $db->prepare("
             INSERT INTO comments (id, show_id, episode_id, username, profile_name, content)
             VALUES (:id, :s, :e, :u, :p, :c)
@@ -957,8 +1036,17 @@ class DbHelper {
         $stmt->bindValue(':after', $afterId, PDO::PARAM_INT);
         $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
         $stmt->execute();
-
-        return $stmt->fetchAll();
+        $rows = $stmt->fetchAll();
+        foreach ($rows as &$row) {
+            if (isset($row['type']) && str_ends_with($row['type'], ':host')) {
+                $row['role'] = 'host';
+                $row['type'] = substr($row['type'], 0, -5);
+            } else {
+                $row['role'] = ($row['type'] === 'system') ? 'system' : 'guest';
+            }
+        }
+        unset($row);
+        return $rows;
     }
 
     public static function getPublicPartyRooms(int $limit = 20): array {
@@ -1003,5 +1091,133 @@ class DbHelper {
         }
 
         return $deleted;
+    }
+
+    public static function recordPartyMember(
+        string $roomId,
+        string $username,
+        ?string $memberId = null,
+        ?string $tokenHash = null,
+        string $role = 'guest',
+        bool $isKids = false,
+        ?string $accountUsername = null,
+        ?string $profileId = null
+    ): void {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            INSERT INTO party_members (room_id, username, member_id, token_hash, role, is_kids, account_username, profile_id, joined_at, last_ping)
+            VALUES (:r, :u, :m, :t, :role, :kids, :acc_user, :prof_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON DUPLICATE KEY UPDATE 
+                username = VALUES(username),
+                token_hash = COALESCE(VALUES(token_hash), token_hash),
+                role = VALUES(role),
+                is_kids = VALUES(is_kids),
+                account_username = VALUES(account_username),
+                profile_id = VALUES(profile_id),
+                last_ping = CURRENT_TIMESTAMP
+        ");
+        $stmt->execute([
+            'r' => $roomId,
+            'u' => $username,
+            'm' => $memberId,
+            't' => $tokenHash,
+            'role' => $role,
+            'kids' => $isKids ? 1 : 0,
+            'acc_user' => $accountUsername,
+            'prof_id' => $profileId
+        ]);
+    }
+
+    public static function updatePartyMemberPing(string $roomId, string $memberId): void {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("UPDATE party_members SET last_ping = CURRENT_TIMESTAMP WHERE room_id = :r AND member_id = :m");
+        $stmt->execute(['r' => $roomId, 'm' => $memberId]);
+    }
+
+    public static function validatePartyMemberToken(string $roomId, string $memberId, string $memberToken): ?array {
+        $db = Database::getConnection();
+        $tokenHash = hash('sha256', $memberToken);
+        $stmt = $db->prepare("
+            SELECT * FROM party_members 
+            WHERE room_id = :r AND member_id = :m AND token_hash = :h
+        ");
+        $stmt->execute(['r' => $roomId, 'm' => $memberId, 'h' => $tokenHash]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public static function getPartyMemberById(string $roomId, string $memberId): ?array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            SELECT * FROM party_members 
+            WHERE room_id = :r AND member_id = :m
+        ");
+        $stmt->execute(['r' => $roomId, 'm' => $memberId]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public static function getPartyHostMember(string $roomId): ?array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            SELECT * FROM party_members 
+            WHERE room_id = :r AND role = 'host'
+            ORDER BY joined_at ASC LIMIT 1
+        ");
+        $stmt->execute(['r' => $roomId]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public static function removePartyMemberById(string $roomId, string $memberId): void {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("DELETE FROM party_members WHERE room_id = :r AND member_id = :m");
+        $stmt->execute(['r' => $roomId, 'm' => $memberId]);
+    }
+
+    public static function isPartyMemberActive(string $roomId, string $memberId, int $timeoutSeconds = 60): bool {
+        $db = Database::getConnection();
+        $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'sqlite') {
+            $stmt = $db->prepare("
+                SELECT 1 FROM party_members 
+                WHERE room_id = :r AND member_id = :m 
+                  AND datetime(last_ping) >= datetime('now', :modifier)
+            ");
+            $sec = max(30, $timeoutSeconds * 2);
+            $stmt->execute(['r' => $roomId, 'm' => $memberId, 'modifier' => "-{$sec} seconds"]);
+            return (bool)$stmt->fetchColumn();
+        }
+
+        $stmt = $db->prepare("
+            SELECT 1 FROM party_members 
+            WHERE room_id = :r AND member_id = :m 
+              AND last_ping >= DATE_SUB(NOW(), INTERVAL :sec SECOND)
+        ");
+        $stmt->bindValue(':r', $roomId);
+        $stmt->bindValue(':m', $memberId);
+        $stmt->bindValue(':sec', max(30, $timeoutSeconds * 2), PDO::PARAM_INT);
+        $stmt->execute();
+        return (bool)$stmt->fetchColumn();
+    }
+
+    public static function getActivePartyMembers(string $roomId, int $timeoutSeconds = 60): array {
+        $db = Database::getConnection();
+        $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'sqlite') {
+            $cleanup = $db->prepare("DELETE FROM party_members WHERE datetime(last_ping) < datetime('now', :mod)");
+            $sec = max(30, $timeoutSeconds * 2);
+            $cleanup->execute(['mod' => "-{$sec} seconds"]);
+        } else {
+            $cleanup = $db->prepare("DELETE FROM party_members WHERE last_ping < DATE_SUB(NOW(), INTERVAL :sec SECOND)");
+            $cleanup->bindValue(':sec', max(30, $timeoutSeconds * 2), PDO::PARAM_INT);
+            $cleanup->execute();
+        }
+
+        $stmt = $db->prepare("SELECT username, member_id, role, joined_at, last_ping FROM party_members WHERE room_id = :r ORDER BY joined_at ASC");
+        $stmt->execute(['r' => $roomId]);
+        return $stmt->fetchAll();
+    }
+
+    public static function getPartyMembersCount(string $roomId): int {
+        $members = self::getActivePartyMembers($roomId);
+        return max(1, count($members));
     }
 }

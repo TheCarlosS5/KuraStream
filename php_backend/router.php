@@ -13,6 +13,7 @@ require_once __DIR__ . '/controllers/PartyController.php';
 
 $uri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+setSecurityHeaders();
 
 $appStartTime = microtime(true);
 register_shutdown_function(function() use ($appStartTime, $uri) {
@@ -181,7 +182,7 @@ if (preg_match('#^/api/shows/([^/]+)$#', $uri, $m) && $method === 'DELETE') {
     ShowController::deleteShow(urldecode($m[1]));
 }
 
-if ($uri === '/api/calendar/schedule' && $method === 'GET') {
+if (($uri === '/api/calendar' || $uri === '/api/calendar/schedule') && $method === 'GET') {
     CalendarController::getSchedule();
 }
 
@@ -258,6 +259,10 @@ if ($uri === '/api/notifications' && $method === 'GET') {
     HistoryController::getNotifications();
 }
 
+if ($uri === '/api/notifications/seen' && $method === 'POST') {
+    HistoryController::markNotificationsSeen();
+}
+
 if ($uri === '/api/admin/staged' && $method === 'GET') {
     AdminController::getStaged();
 }
@@ -318,58 +323,6 @@ if (($uri === '/api/admin/scrape-show-cover' || $uri === '/api/admin/scrape-cove
     AdminController::scrapeShowCover();
 }
 
-if ($uri === '/api/admin/autodownload/status' && $method === 'GET') {
-    AdminController::getTorrentStatus();
-}
-
-if ($uri === '/api/admin/autodownload/toggle' && $method === 'POST') {
-    AdminController::toggleTorrentManager();
-}
-
-if ($uri === '/api/admin/autodownload/scan' && $method === 'POST') {
-    AdminController::scanAutoDownloadNow();
-}
-
-if ($uri === '/api/admin/torrents/search' && $method === 'GET') {
-    AdminController::searchTorrents();
-}
-
-if (($uri === '/api/admin/torrents/search-episodes' || $uri === '/api/admin/torrents/search-all-episodes') && $method === 'GET') {
-    AdminController::searchAnimeAllEpisodes();
-}
-
-if (($uri === '/api/admin/torrents/add' || $uri === '/api/admin/autodownload/add') && $method === 'POST') {
-    AdminController::addTorrent();
-}
-
-if ($uri === '/api/admin/autodownload/queue/pause' && $method === 'POST') {
-    AdminController::pauseTorrentQueueItem();
-}
-
-if ($uri === '/api/admin/autodownload/queue/resume' && $method === 'POST') {
-    AdminController::resumeTorrentQueueItem();
-}
-
-if ($uri === '/api/admin/autodownload/queue/remove' && $method === 'POST') {
-    AdminController::removeTorrentFromQueue();
-}
-
-if ($uri === '/api/admin/autodownload/queue/clear' && $method === 'POST') {
-    AdminController::clearTorrentQueue();
-}
-
-if ($uri === '/api/admin/autodownload/queue/start' && $method === 'POST') {
-    AdminController::startTorrentQueue();
-}
-
-if ($uri === '/api/admin/autodownload/cancel-active' && $method === 'POST') {
-    AdminController::cancelActiveTorrent();
-}
-
-if ($uri === '/api/admin/autodownload/dismiss' && $method === 'POST') {
-    AdminController::dismissTorrent();
-}
-
 if ($uri === '/api/import' && $method === 'POST') {
     AdminController::handleImportUpload();
 }
@@ -423,7 +376,6 @@ if ($uri === '/api/comments' && $method === 'GET') {
 }
 
 if ($uri === '/api/comments' && $method === 'POST') {
-    RateLimiter::enforce('comment', 5, 60);
     ShowController::addComment();
 }
 
@@ -452,13 +404,6 @@ SVG;
     exit();
 }
 
-if ($uri === '/api/subtitles' && $method === 'GET') {
-    jsonResponse([]);
-}
-
-if ($uri === '/api/torrents' && $method === 'GET') {
-    jsonResponse([]);
-}
 
 // Watch Party Endpoints
 if ($uri === '/api/party/create' && $method === 'POST') {
@@ -489,12 +434,20 @@ if ($uri === '/api/party/public-rooms' && $method === 'GET') {
     PartyController::getPublicRooms();
 }
 
-if ($uri === '/api/party/poll' && $method === 'GET') {
+if ($uri === '/api/party/poll' && in_array($method, ['GET', 'POST'])) {
     PartyController::pollEvents();
 }
 
 if ($uri === '/api/party/stream' && $method === 'GET') {
     PartyController::streamEvents();
+}
+
+if ($uri === '/api/party/refresh-ticket' && $method === 'POST') {
+    PartyController::refreshStreamTicket();
+}
+
+if ($uri === '/api/party/sse-ticket' && $method === 'POST') {
+    PartyController::getSseTicket();
 }
 
 // Rescan / Repair trigger

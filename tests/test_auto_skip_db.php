@@ -4,6 +4,7 @@ require_once __DIR__ . '/../php_backend/db.php';
 
 try {
     $db = Database::getConnection();
+    Database::initializeSchema();
     echo "DB Connection OK\n";
 
     // Test 1: getUserPreferences default

@@ -38,26 +38,26 @@ const SPEED_RATES_DEFAULT = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const BOOST_LEVELS_DEFAULT = [100, 125, 150, 175, 200];
 
 const ICON_SYMBOL_MAP = {
-  play: '▶',
-  pause: '⏸',
-  rewind: '⏪',
-  'fast-forward': '⏩',
-  'volume-high': '🔊',
-  'volume-2': '🔊',
-  'volume-low': '🔉',
-  'volume-1': '🔉',
-  'volume-mute': '🔇',
-  'volume-x': '🔇',
-  volume: '🔊',
-  fullscreen: '⛶',
-  maximize: '⛶',
-  subtitles: '💬',
-  speed: '⚡',
-  zap: '⚡',
-  boost: '🚀',
-  rocket: '🚀',
-  help: '❓',
-  info: 'ℹ️'
+  play: 'PLAY',
+  pause: 'PAUSE',
+  rewind: 'REW',
+  'fast-forward': 'FF',
+  'volume-high': 'VOL',
+  'volume-2': 'VOL',
+  'volume-low': 'VOL',
+  'volume-1': 'VOL',
+  'volume-mute': 'MUTE',
+  'volume-x': 'MUTE',
+  volume: 'VOL',
+  fullscreen: 'FS',
+  maximize: 'FS',
+  subtitles: 'SUB',
+  speed: 'SPD',
+  zap: 'SPD',
+  boost: 'BST',
+  rocket: 'BST',
+  help: '?',
+  info: 'i'
 };
 
 /**
@@ -547,7 +547,7 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
     <div class="shortcuts-modal-dialog">
       <div class="shortcuts-modal-header">
         <h3 class="shortcuts-modal-title" id="kura-shortcuts-title">
-          <span>⌨️</span> Atajos de Teclado
+          <i data-lucide="keyboard"></i> Atajos de Teclado
         </h3>
         <button type="button" class="shortcuts-modal-close" aria-label="Cerrar">&times;</button>
       </div>
@@ -680,13 +680,13 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
           if (playPromise !== undefined && typeof playPromise.catch === 'function') {
             playPromise.catch(() => {});
           }
-          showHud('▶', 'Reproducir');
+          showHud('PLAY', 'Reproducir');
         } else {
           videoElement.pause();
-          showHud('⏸', 'Pausa');
+          showHud('PAUSE', 'Pausa');
         }
       } else {
-        showHud('▶', 'Reproducir');
+        showHud('PLAY', 'Reproducir');
       }
       return;
     }
@@ -726,7 +726,7 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
         const next = Math.min(1, Math.round((cur + 0.05) * 100) / 100);
         videoElement.volume = next;
         const pct = Math.round(next * 100);
-        showHud(pct > 0 ? '🔊' : '🔇', `${pct}%`);
+        showHud(pct > 0 ? 'volume-high' : 'volume-mute', `${pct}%`);
         if (typeof options.onVolumeChange === 'function') {
           options.onVolumeChange(next, false);
         }
@@ -744,9 +744,9 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
         const pct = Math.round(next * 100);
         if (pct === 0) {
           videoElement.muted = true;
-          showHud('🔇', '0%');
+          showHud('volume-mute', '0%');
         } else {
-          showHud(pct < 50 ? '🔉' : '🔊', `${pct}%`);
+          showHud(pct < 50 ? 'volume-low' : 'volume-high', `${pct}%`);
         }
         if (typeof options.onVolumeChange === 'function') {
           options.onVolumeChange(next, videoElement.muted);
@@ -761,7 +761,7 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
       if (videoElement) {
         videoElement.muted = !videoElement.muted;
         const isMuted = videoElement.muted || videoElement.volume === 0;
-        showHud(isMuted ? '🔇' : '🔊', isMuted ? 'Silenciado' : 'Audio activo');
+        showHud(isMuted ? 'volume-mute' : 'volume-high', isMuted ? 'Silenciado' : 'Audio activo');
         if (typeof options.onMuteToggle === 'function') {
           options.onMuteToggle(videoElement.muted);
         }
@@ -781,7 +781,7 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
         const reqFn = target.requestFullscreen || target.webkitRequestFullscreen || target.mozRequestFullScreen || target.msRequestFullscreen;
         if (reqFn) reqFn.call(target);
       }
-      showHud('⛶', 'Pantalla completa');
+      showHud('fullscreen', 'Pantalla completa');
       if (typeof options.onToggleFullscreen === 'function') {
         options.onToggleFullscreen();
       }
@@ -805,7 +805,7 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
           videoElement.textTracks[0].mode = 'showing';
         }
       }
-      showHud('💬', 'Subtítulos');
+      showHud('subtitles', 'Subtítulos');
       return;
     }
 
@@ -842,7 +842,7 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
       if (typeof options.onPlaybackRateChange === 'function') {
         options.onPlaybackRateChange(newRate);
       }
-      showHud('⚡', `${newRate}x`);
+      showHud('speed', `${newRate}x`);
       return;
     }
 
@@ -859,7 +859,7 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
       if (typeof options.onAudioBoostChange === 'function') {
         options.onAudioBoostChange(boostVal, multiplier);
       }
-      showHud('🚀', `Boost ${boostVal}%`);
+      showHud('boost', `Boost ${boostVal}%`);
       return;
     }
 

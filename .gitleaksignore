@@ -1,0 +1,7 @@
+# Gitleaks ignore file
+# Ignores known historical CI testing fixture in commit 6a3cd189b79675d79246d9f297518687a4d7c9d4
+# This was an ephemeral CI test variable (ci_test_secret_key_1234567890) committed to .github/workflows/ci.yml
+# and has since been removed in active files. Real secrets remain strictly protected.
+
+6a3cd189b79675d79246d9f297518687a4d7c9d4:.github/workflows/ci.yml:generic-api-key:60
+.github/workflows/ci.yml:generic-api-key:60

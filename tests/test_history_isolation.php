@@ -8,6 +8,7 @@ require_once __DIR__ . '/../php_backend/controllers/HistoryController.php';
 echo "Running Comprehensive Anti-Spoofing Tests (History, Progress, Favorites, Preferences)...\n";
 
 $db = Database::getConnection();
+Database::initializeSchema();
 
 // Clean up test data for users
 $alice = 'alice_anti_spoof_' . substr(uniqid(), -6);
@@ -73,6 +74,7 @@ echo "✓ All unauthenticated requests rejected with 401 (no guest spoofing)\n";
 $aliceToken = AuthMiddleware::createToken([
     'username' => $alice,
     'role' => 'user',
+    'profile_name' => 'Principal',
     'exp' => time() + 3600
 ]);
 $_COOKIE['kurastream_token'] = $aliceToken;

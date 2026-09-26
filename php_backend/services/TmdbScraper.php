@@ -9,17 +9,19 @@ class TmdbScraper {
 
     private static function initConfig(): void {
         if (self::$apiKey !== null) return;
-        self::$apiKey = '15d2ea6d0dc1d476efbca3eba2b9bbfb';
-        self::$readToken = '';
+        self::$apiKey = getenv('TMDB_API_KEY') ?: '';
+        self::$readToken = getenv('TMDB_READ_TOKEN') ?: '';
 
         $keyFile = ROOT_DIR . '/apikeys.txt';
-        if (file_exists($keyFile)) {
-            $content = file_get_contents($keyFile);
-            if (preg_match('/API Read Access Token\s+([A-Za-z0-9\-_.]+)/i', $content, $m)) {
-                self::$readToken = trim($m[1]);
-            }
-            if (preg_match('/API Key\s+([a-f0-9]{32})/i', $content, $m)) {
-                self::$apiKey = trim($m[1]);
+        if (empty(self::$apiKey) && empty(self::$readToken) && file_exists($keyFile)) {
+            $content = @file_get_contents($keyFile);
+            if ($content) {
+                if (preg_match('/API Read Access Token\s+([A-Za-z0-9\-_.]+)/i', $content, $m)) {
+                    self::$readToken = trim($m[1]);
+                }
+                if (preg_match('/API Key\s+([a-f0-9]{32})/i', $content, $m)) {
+                    self::$apiKey = trim($m[1]);
+                }
             }
         }
     }
@@ -38,22 +40,52 @@ class TmdbScraper {
             $headers[] = 'Authorization: Bearer ' . self::$readToken;
         } else if (!empty(self::$apiKey)) {
             $params['api_key'] = self::$apiKey;
+        } else {
+            // No credentials configured, return empty
+            return [];
         }
 
         $query = http_build_query($params);
         $url = self::$baseUrl . $endpoint . ($query ? '?' . $query : '');
 
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $url,
-            CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => false
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        $maxRetries = 2;
+        $attempt = 0;
+        $response = false;
+        $httpCode = 0;
+
+        while ($attempt < $maxRetries) {
+            $attempt++;
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $url,
+                CURLOPT_HTTPHEADER => $headers,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 8,
+                CURLOPT_CONNECTTIMEOUT => 4,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpCode === 200 && $response) {
+                break;
+            }
+
+            if ($httpCode === 429) {
+                // Rate limited by TMDB, pause before retry
+                usleep(500000); // 500ms
+                continue;
+            }
+
+            if ($httpCode >= 500) {
+                usleep(250000);
+                continue;
+            }
+
+            break;
+        }
 
         if ($httpCode !== 200 || !$response) {
             return [];
@@ -292,29 +324,90 @@ class TmdbScraper {
         return $result;
     }
 
-    public static function downloadFile(string $url, string $destPath): bool {
+    public static function downloadFile(string $url, string $destPath, int $maxBytes = 15728640): bool {
         if (empty($url)) return false;
-        $dir = dirname($destPath);
-        if (!is_dir($dir)) @mkdir($dir, 0755, true);
 
-        $ch = curl_init($url);
-        $fp = fopen($destPath, 'wb');
-        curl_setopt_array($ch, [
+        $parsed = parse_url($url);
+        if (!$parsed || empty($parsed['scheme']) || strtolower($parsed['scheme']) !== 'https') {
+            return false;
+        }
+
+        $host = strtolower($parsed['host'] ?? '');
+        if ($host !== 'image.tmdb.org') {
+            return false;
+        }
+
+        $dir = dirname($destPath);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+
+        $tmpFile = $destPath . '.tmp.' . bin2hex(random_bytes(8));
+        $fp = @fopen($tmpFile, 'wb');
+        if (!$fp) {
+            return false;
+        }
+
+        $curlOptions = [
             CURLOPT_FILE => $fp,
             CURLOPT_HEADER => 0,
             CURLOPT_TIMEOUT => 20,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_FOLLOWLOCATION => true
-        ]);
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 3
+        ];
+        if (defined('CURLPROTO_HTTPS')) {
+            $curlOptions[CURLOPT_PROTOCOLS] = CURLPROTO_HTTPS;
+            $curlOptions[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTPS;
+        }
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, $curlOptions);
         $success = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $contentType = (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $effectiveUrl = (string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
         curl_close($ch);
         fclose($fp);
 
-        if (!$success || $httpCode !== 200 || filesize($destPath) === 0) {
-            @unlink($destPath);
+        if (!$success || $httpCode !== 200 || !file_exists($tmpFile)) {
+            @unlink($tmpFile);
             return false;
         }
-        return true;
+
+        // Validate effective URL host after redirects
+        $effParsed = parse_url($effectiveUrl);
+        $effHost = strtolower($effParsed['host'] ?? '');
+        if ($effHost !== 'image.tmdb.org') {
+            @unlink($tmpFile);
+            return false;
+        }
+
+        // Validate Content-Type starts with image/
+        if (!str_starts_with(strtolower(trim($contentType)), 'image/')) {
+            @unlink($tmpFile);
+            return false;
+        }
+
+        // Enforce max size and non-empty
+        $fileSize = filesize($tmpFile);
+        if ($fileSize <= 0 || $fileSize > $maxBytes) {
+            @unlink($tmpFile);
+            return false;
+        }
+
+        // Atomic rename to destination
+        if (!@rename($tmpFile, $destPath)) {
+            if (@copy($tmpFile, $destPath)) {
+                @unlink($tmpFile);
+            } else {
+                @unlink($tmpFile);
+                @unlink($destPath);
+                return false;
+            }
+        }
+
+        return file_exists($destPath) && filesize($destPath) > 0;
     }
 }

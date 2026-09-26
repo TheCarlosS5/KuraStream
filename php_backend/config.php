@@ -50,6 +50,8 @@ define('JWT_SECRET', $jwtSecret);
 define('PASSWORD_SALT', getenv('PASSWORD_SALT') ?: 'kurasalt');
 
 define('ROOT_DIR', dirname(__DIR__));
+$trustedProxies = getenv('TRUSTED_PROXIES') ?: '';
+define('TRUSTED_PROXIES', array_filter(array_map('trim', explode(',', $trustedProxies))));
 
 $configuredMediaPath = getenv('MEDIA_LIBRARY_PATH');
 if (!empty($configuredMediaPath)) {
@@ -59,6 +61,15 @@ if (!empty($configuredMediaPath)) {
     define('LIBRARY_DIR', rtrim($configuredMediaPath, '/\\'));
 } else {
     define('LIBRARY_DIR', ROOT_DIR . '/library');
+}
+
+// Security and CSP headers
+function setSecurityHeaders(): void {
+    @header("X-Content-Type-Options: nosniff");
+    @header("X-Frame-Options: DENY");
+    @header("Referrer-Policy: strict-origin-when-cross-origin");
+    @header("Permissions-Policy: camera=(), microphone=(), geolocation=()");
+    @header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://image.tmdb.org https://s4.anilist.co; media-src 'self' blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-ancestors 'none';");
 }
 
 // Set JSON headers and CORS
@@ -100,6 +111,7 @@ function jsonResponse($data, $statusCode = 200) {
     exit();
 }
 
-function jsonError($message, $statusCode = 400) {
-    jsonResponse(['error' => $message], $statusCode);
+function jsonError($message, $statusCode = 400, array $extra = []) {
+    $payload = array_merge(['error' => $message], $extra);
+    jsonResponse($payload, $statusCode);
 }

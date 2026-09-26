@@ -21,7 +21,7 @@ export async function loadAdminPanel() {
     showsList.innerHTML = shows.map(show => {
       const st = show.status || 'finished';
       let stClass = 'finished';
-      let stLabel = '✔ Finalizado';
+      let stLabel = 'Finalizado';
       if (st === 'airing') {
         stClass = 'airing';
         stLabel = '● En Emisión';

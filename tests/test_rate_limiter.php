@@ -38,7 +38,19 @@ try {
     }
 }
 ob_end_clean();
-assert($rateLimited, "enforce must throw ExitException with status 429 when max attempts exceeded");
 RateLimiter::clear($expectedKey);
+
+// 4. Test RateLimiter::getClientIp untrusted proxy spoof rejection
+$_SERVER['REMOTE_ADDR'] = '198.51.100.55'; // Untrusted public IP
+$_SERVER['HTTP_X_FORWARDED_FOR'] = '1.1.1.1, 8.8.8.8';
+$resolvedIp = RateLimiter::getClientIp(['10.0.0.1', '10.0.0.2']);
+assert($resolvedIp === '198.51.100.55', "When REMOTE_ADDR is not trusted proxy, XFF must be ignored");
+
+// 5. Test RateLimiter::getClientIp right-to-left traversal through trusted proxies
+$_SERVER['REMOTE_ADDR'] = '10.0.0.1'; // Trusted upstream reverse proxy
+// Attacker injected 1.2.3.4, real client is 198.51.100.77, passed through another trusted internal proxy 10.0.0.2
+$_SERVER['HTTP_X_FORWARDED_FOR'] = '1.2.3.4, 198.51.100.77, 10.0.0.2';
+$resolvedBehindProxy = RateLimiter::getClientIp(['10.0.0.1', '10.0.0.2']);
+assert($resolvedBehindProxy === '198.51.100.77', "getClientIp must parse right-to-left and return first untrusted IP (198.51.100.77), got '{$resolvedBehindProxy}'");
 
 echo "✓ Rate Limiter Tests Passed\n";

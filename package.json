@@ -8,10 +8,11 @@
     "dev": "php -S 0.0.0.0:3000 php_backend/router.php",
     "test": "node scripts/run-php.mjs tests/run_all_tests.php",
     "test:php": "node scripts/run-php.mjs tests/run_all_tests.php",
-    "test:legacy": "node --test legacy_backend/tests/**/*.test.js",
+    "test:e2e": "playwright test",
     "lint": "eslint ."
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "eslint": "^9.0.0",
     "globals": "^17.12.0",
     "prettier": "^3.0.0"

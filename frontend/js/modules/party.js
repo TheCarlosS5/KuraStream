@@ -5,6 +5,7 @@
  */
 
 import { getAuthHeaders } from './auth.js';
+import { AuthManager } from '../core/auth.js';
 
 class PartyManager {
   constructor() {
@@ -14,8 +15,12 @@ class PartyManager {
       isHost: false,
       color: '#00e08f'
     };
+    this.memberId = null;
+    this.memberToken = null;
+    this.streamCapabilityToken = null;
     this.eventSource = null;
     this.pollInterval = null;
+    this.refreshTimer = null;
     this.lastMessageId = 0;
     this.isApplyingRemoteSync = false;
     this.syncDebounceTimer = null;
@@ -28,6 +33,10 @@ class PartyManager {
     };
     this.audioContext = null;
     this.soundsMuted = localStorage.getItem('party_sounds_muted') === 'true';
+    this.userBaseRate = 1.0;
+    this.sseReconnectTimer = null;
+    this.sseRotationTimer = null;
+    this.sseFailures = 0;
   }
 
   initAudioContext() {
@@ -125,11 +134,11 @@ class PartyManager {
 
   resolveUsername() {
     try {
-      const user = localStorage.getItem('kura_user');
-      if (user) {
-        const parsed = JSON.parse(user);
-        if (parsed && parsed.username) return parsed.username;
-      }
+      const user = AuthManager.getUser();
+      if (user && user.username) return user.username;
+
+      const profile = AuthManager.getActiveProfile();
+      if (profile && profile.name) return profile.name;
     } catch (e) {}
 
     let guestName = localStorage.getItem('kura_party_nickname');
@@ -170,7 +179,12 @@ class PartyManager {
       throw new Error(data.error || 'No se pudo crear la sala');
     }
 
+    this.memberId = data.member_id || null;
+    this.memberToken = data.member_token || null;
+    this.streamCapabilityToken = data.stream_capability_token || null;
+
     this.setupRoomState(data.room, username, true);
+    this.startCapabilityRefreshTimer();
     this.connectEventStream(data.room.id);
     return data.room;
   }
@@ -193,7 +207,12 @@ class PartyManager {
       throw new Error(data.error || 'No se pudo conectar a la sala');
     }
 
+    this.memberId = data.member_id || null;
+    this.memberToken = data.member_token || null;
+    this.streamCapabilityToken = data.stream_capability_token || null;
+
     this.setupRoomState(data.room, username, data.is_host);
+    this.startCapabilityRefreshTimer();
     if (data.messages && Array.isArray(data.messages)) {
       data.messages.forEach(msg => {
         this.emit('message', msg);
@@ -210,16 +229,31 @@ class PartyManager {
 
     const roomId = this.activeRoom.id;
     const username = this.currentUser.username;
+    const memberId = this.memberId;
+    const memberToken = this.memberToken;
+
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
 
     this.disconnectEventStream();
     this.activeRoom = null;
     this.currentUser.isHost = false;
+    this.memberId = null;
+    this.memberToken = null;
+    this.streamCapabilityToken = null;
 
     try {
       await fetch('/api/party/leave', {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room_id: roomId, username })
+        body: JSON.stringify({ 
+          room_id: roomId, 
+          username,
+          member_id: memberId,
+          member_token: memberToken
+        })
       });
     } catch (e) {}
 
@@ -242,16 +276,102 @@ class PartyManager {
     this.emit('sync', room);
   }
 
-  // --- REAL-TIME EVENT STREAM (SSE) ---
+  // --- REAL-TIME EVENT STREAM (SSE) & CAPABILITY REFRESH ---
 
-  connectEventStream(roomId) {
-    this.disconnectEventStream();
+  async getSseTicket(roomId) {
+    if (!this.memberId || !this.memberToken) return null;
+    try {
+      const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
+      headers['X-Party-Member-Id'] = this.memberId;
+      headers['X-Party-Member-Token'] = this.memberToken;
+      const res = await fetch('/api/party/sse-ticket', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          room_id: roomId,
+          member_id: this.memberId,
+          member_token: this.memberToken
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.sse_ticket || null;
+      }
+    } catch (e) {}
+    return null;
+  }
 
-    const streamUrl = `/api/party/stream?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
+  startCapabilityRefreshTimer() {
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    // Refresh capability token every 8 minutes (TTL is 15 minutes)
+    this.refreshTimer = setInterval(() => {
+      this.refreshCapabilityToken();
+    }, 480000);
+  }
+
+  async refreshCapabilityToken() {
+    if (!this.isInRoom() || !this.memberId || !this.memberToken) return;
+    try {
+      const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
+      headers['X-Party-Member-Id'] = this.memberId;
+      headers['X-Party-Member-Token'] = this.memberToken;
+      const res = await fetch('/api/party/refresh-ticket', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          room_id: this.activeRoom.id,
+          member_id: this.memberId,
+          member_token: this.memberToken
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.stream_capability_token) {
+          this.streamCapabilityToken = data.stream_capability_token;
+        }
+      }
+    } catch (e) {
+      console.warn('[WatchParty] Capability ticket refresh error:', e);
+    }
+  }
+
+  async connectEventStream(roomId) {
+    this.disconnectEventStream(false);
+
+    if (!this.isInRoom()) return;
+
+    let sseTicket = null;
+    if (this.memberId && this.memberToken) {
+      sseTicket = await this.getSseTicket(roomId);
+    }
+
+    if (!sseTicket && this.sseFailures >= 2) {
+      console.warn('[WatchParty] No se pudo obtener nuevo ticket SSE, pasando a polling de contingencia.');
+      this.startPollingFallback(roomId);
+      return;
+    }
+
+    let streamUrl = `/api/party/stream?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
+    if (sseTicket) {
+      streamUrl += `&sse_ticket=${encodeURIComponent(sseTicket)}`;
+    }
     try {
       this.eventSource = new EventSource(streamUrl);
 
+      this.eventSource.onopen = () => {
+        this.sseFailures = 0;
+        if (this.pollInterval) {
+          clearInterval(this.pollInterval);
+          this.pollInterval = null;
+        }
+      };
+
       this.eventSource.addEventListener('init', (e) => {
+        this.sseFailures = 0;
+        if (this.pollInterval) {
+          clearInterval(this.pollInterval);
+          this.pollInterval = null;
+        }
         const data = JSON.parse(e.data);
         if (data.room) {
           this.activeRoom = data.room;
@@ -305,9 +425,33 @@ class PartyManager {
       });
 
       this.eventSource.onerror = () => {
-        // Fallback to polling if SSE fails or disconnects
-        this.startPollingFallback(roomId);
+        // Immediately close dead connection to prevent browser auto-reconnect with stale ticket
+        if (this.eventSource) {
+          this.eventSource.close();
+          this.eventSource = null;
+        }
+
+        if (!this.isInRoom()) return;
+
+        this.sseFailures++;
+        if (this.sseFailures > 3) {
+          this.startPollingFallback(roomId);
+        } else {
+          if (this.sseReconnectTimer) clearTimeout(this.sseReconnectTimer);
+          this.sseReconnectTimer = setTimeout(() => {
+            this.connectEventStream(roomId);
+          }, 1500);
+        }
       };
+
+      // Proactive ticket rotation: SSE ticket has 60s TTL. Proactively renew connection at 45s
+      if (this.sseRotationTimer) clearTimeout(this.sseRotationTimer);
+      this.sseRotationTimer = setTimeout(() => {
+        if (this.isInRoom() && this.eventSource) {
+          this.connectEventStream(roomId);
+        }
+      }, 45000);
+
     } catch (err) {
       console.warn('[WatchParty] SSE connection failed, starting fallback polling:', err);
       this.startPollingFallback(roomId);
@@ -324,7 +468,12 @@ class PartyManager {
       }
 
       try {
-        const res = await fetch(`/api/party/poll?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`);
+        const headers = { ...getAuthHeaders() };
+        if (this.memberId) headers['X-Party-Member-Id'] = this.memberId;
+        if (this.memberToken) headers['X-Party-Member-Token'] = this.memberToken;
+
+        const pollUrl = `/api/party/poll?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
+        const res = await fetch(pollUrl, { headers });
         if (!res.ok) return;
         const data = await res.json();
 
@@ -361,7 +510,15 @@ class PartyManager {
     }, 1500);
   }
 
-  disconnectEventStream() {
+  disconnectEventStream(resetFailures = true) {
+    if (this.sseReconnectTimer) {
+      clearTimeout(this.sseReconnectTimer);
+      this.sseReconnectTimer = null;
+    }
+    if (this.sseRotationTimer) {
+      clearTimeout(this.sseRotationTimer);
+      this.sseRotationTimer = null;
+    }
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
@@ -370,31 +527,46 @@ class PartyManager {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
     }
+    if (resetFailures) {
+      this.sseFailures = 0;
+    }
   }
 
   renderAvatarStack() {
     const container = document.getElementById('party-avatar-stack-container');
     if (!container) return;
+    container.innerHTML = '';
     const list = Array.from(this.participantsMap ? this.participantsMap.entries() : []);
-    let html = '';
     const maxVisible = 3;
     for (let i = 0; i < Math.min(list.length, maxVisible); i++) {
-      const initial = (list[i][0] || 'U').charAt(0).toUpperCase();
-      html += `<div class="party-stack-avatar" style="background: ${list[i][1]}; z-index: ${100-i};" title="${list[i][0]}">${initial}</div>`;
+      const username = String(list[i][0] || 'U');
+      const color = String(list[i][1] || '#a855f7');
+      const initial = username.charAt(0).toUpperCase();
+
+      const avatar = document.createElement('div');
+      avatar.className = 'party-stack-avatar';
+      avatar.style.background = color;
+      avatar.style.zIndex = String(100 - i);
+      avatar.title = username;
+      avatar.textContent = initial;
+      container.appendChild(avatar);
     }
     if (list.length > maxVisible) {
-      html += `<div class="party-stack-count" style="z-index: 90;">+${list.length - maxVisible}</div>`;
+      const countEl = document.createElement('div');
+      countEl.className = 'party-stack-count';
+      countEl.style.zIndex = '90';
+      countEl.textContent = `+${list.length - maxVisible}`;
+      container.appendChild(countEl);
     }
-    container.innerHTML = html;
   }
 
   handleRemoteSync(newRoom) {
     if (!newRoom) return;
     if (this.activeRoom && this.activeRoom.is_playing !== newRoom.is_playing) {
       if (newRoom.is_playing) {
-        this.triggerToastNotification("▶ El anfitrión ha reanudado el video");
+        this.triggerToastNotification("El anfitrión ha reanudado el video");
       } else {
-        this.triggerToastNotification("⏸ El anfitrión ha pausado el video");
+        this.triggerToastNotification("El anfitrión ha pausado el video");
       }
     }
     this.activeRoom = newRoom;
@@ -416,6 +588,8 @@ class PartyManager {
           body: JSON.stringify({
             room_id: this.activeRoom.id,
             username: this.currentUser.username,
+            member_id: this.memberId,
+            member_token: this.memberToken,
             is_playing: isPlaying ? 1 : 0,
             current_time: currentTime,
             episode_id: episodeId || (this.activeRoom ? this.activeRoom.episode_id : ''),
@@ -438,6 +612,7 @@ class PartyManager {
     this.isApplyingRemoteSync = true;
 
     const syncPill = document.getElementById('party-sync-pill');
+    const baseRate = this.userBaseRate || 1.0;
     // Smooth drift correction algorithm
     if (timeDiff > 2.0) {
       // Major jump / seek by host
@@ -450,9 +625,9 @@ class PartyManager {
       }
       // Settle drift gently without audio glitch
       if (video.currentTime < targetTime) {
-        video.playbackRate = 1.06;
+        video.playbackRate = Math.min(4.0, Number((baseRate * 1.06).toFixed(3)));
       } else {
-        video.playbackRate = 0.94;
+        video.playbackRate = Math.max(0.25, Number((baseRate * 0.94).toFixed(3)));
       }
     } else {
       if (syncPill) {
@@ -460,7 +635,7 @@ class PartyManager {
         syncPill.style.color = 'var(--success-color)';
         syncPill.style.borderColor = 'var(--success-color)';
       }
-      video.playbackRate = 1.0;
+      video.playbackRate = baseRate;
     }
 
     if (shouldPlay && video.paused) {
@@ -486,6 +661,8 @@ class PartyManager {
       body: JSON.stringify({
         room_id: this.activeRoom.id,
         username: this.currentUser.username,
+        member_id: this.memberId,
+        member_token: this.memberToken,
         message,
         type: 'chat'
       })
@@ -510,6 +687,8 @@ class PartyManager {
         body: JSON.stringify({
           room_id: this.activeRoom.id,
           username: this.currentUser.username,
+          member_id: this.memberId,
+          member_token: this.memberToken,
           message: emoji,
           type: 'reaction'
         })

@@ -6,12 +6,43 @@ require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../middleware/RateLimiter.php';
 
 class ShowController {
+    public static function isKidsProfileActive(): bool {
+        $token = AuthMiddleware::getBearerToken();
+        $payload = AuthMiddleware::verifyToken($token);
+        if ($payload && !empty($payload['is_kids'])) {
+            return true;
+        }
+        if (isset($_SERVER['HTTP_X_KIDS_MODE']) && $_SERVER['HTTP_X_KIDS_MODE'] === '1') {
+            return true;
+        }
+        return false;
+    }
+
+    public static function isAdultOrMaturityRestricted(array $show): bool {
+        if (!empty($show['is_adult'])) {
+            return true;
+        }
+        $rating = strtoupper(trim((string)($show['rating_mpaa'] ?? ($show['age_rating'] ?? ''))));
+        if (in_array($rating, ['R', 'TV-MA', '18+', 'NC-17', 'RX', 'R18'])) {
+            return true;
+        }
+        $genres = strtolower(is_array($show['genres'] ?? null) ? implode(' ', $show['genres']) : (string)($show['genres'] ?? ''));
+        if (str_contains($genres, 'ecchi') || str_contains($genres, 'hentai') || str_contains($genres, 'erotica')) {
+            return true;
+        }
+        return false;
+    }
+
     public static function getShows(): void {
         $type = $_GET['type'] ?? 'all';
         $statusParam = $_GET['status'] ?? 'all';
         $sortParam = $_GET['sort'] ?? 'default';
 
         $shows = DbHelper::getShows($type);
+
+        if (self::isKidsProfileActive()) {
+            $shows = array_values(array_filter($shows, fn($s) => !self::isAdultOrMaturityRestricted($s)));
+        }
 
         if ($statusParam !== 'all') {
             $shows = array_values(array_filter($shows, fn($s) => ($s['status'] ?? 'finished') === $statusParam));
@@ -30,6 +61,30 @@ class ShowController {
         jsonResponse($shows);
     }
 
+    private static function getTmdbSearchCache(string $key): ?array {
+        $cacheDir = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'kura_tmdb_cache';
+        $file = $cacheDir . DIRECTORY_SEPARATOR . 'search_' . md5($key) . '.json';
+        if (file_exists($file)) {
+            $data = json_decode(file_get_contents($file), true);
+            if (is_array($data) && isset($data['exp']) && $data['exp'] > time()) {
+                return $data['results'];
+            }
+        }
+        return null;
+    }
+
+    private static function setTmdbSearchCache(string $key, array $results, int $ttl = 300): void {
+        $cacheDir = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'kura_tmdb_cache';
+        if (!is_dir($cacheDir)) {
+            @mkdir($cacheDir, 0777, true);
+        }
+        $file = $cacheDir . DIRECTORY_SEPARATOR . 'search_' . md5($key) . '.json';
+        @file_put_contents($file, json_encode([
+            'exp' => time() + $ttl,
+            'results' => $results
+        ]));
+    }
+
     public static function searchShows(): void {
         $query = trim($_GET['query'] ?? '');
         $type = $_GET['type'] ?? 'anime';
@@ -38,7 +93,20 @@ class ShowController {
             jsonError('Término de búsqueda requerido', 400);
         }
 
-        $results = TmdbScraper::search($query, $type);
+        RateLimiter::enforce('tmdb_search', 30, 60);
+
+        $cacheKey = strtolower($type) . '_' . strtolower($query);
+        $cached = self::getTmdbSearchCache($cacheKey);
+        if ($cached !== null) {
+            $results = $cached;
+        } else {
+            $results = TmdbScraper::search($query, $type);
+            self::setTmdbSearchCache($cacheKey, $results, 300);
+        }
+
+        if (self::isKidsProfileActive()) {
+            $results = array_values(array_filter($results, fn($s) => !self::isAdultOrMaturityRestricted($s)));
+        }
         jsonResponse($results);
     }
 
@@ -52,7 +120,12 @@ class ShowController {
                 jsonError('Show no encontrado', 404);
             }
 
-            $episodes = DbHelper::getEpisodesForShow($show['id']);
+            if (self::isKidsProfileActive() && self::isAdultOrMaturityRestricted($show)) {
+                jsonError('Contenido restringido por el perfil infantil activo', 403);
+            }
+
+            $rawEpisodes = DbHelper::getEpisodesForShow($show['id']);
+            $episodes = array_map([DbHelper::class, 'serializeEpisodeForClient'], $rawEpisodes);
             
             $seasons = [];
             foreach ($episodes as $ep) {
@@ -115,20 +188,20 @@ class ShowController {
     }
 
     public static function addComment(?array $inputData = null): void {
-        $authUser = AuthMiddleware::requireAuth();
+        $authProfile = AuthMiddleware::requireProfile();
         RateLimiter::enforce('comment', 5, 60); // Máx 5 comentarios por minuto
-        $username = $authUser['username'];
+        $username = $authProfile['username'];
+        $profile = trim((string)($authProfile['profile_name'] ?? ($authProfile['profile_id'] ?? '')));
 
         if ($inputData !== null) {
             $data = $inputData;
         } else {
             $raw = file_get_contents('php://input');
-            $data = json_decode($raw, true) ?: [];
+            $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
         }
 
         $showId = trim((string)($data['show_id'] ?? ($data['showId'] ?? '')));
         $content = trim((string)($data['content'] ?? ($data['comment'] ?? '')));
-        $profile = trim((string)($data['profile_name'] ?? ($authUser['profile_name'] ?? 'Principal')));
         $episodeId = trim((string)($data['episode_id'] ?? ''));
 
         if (empty($showId) || empty($content)) {
@@ -137,6 +210,18 @@ class ShowController {
 
         if (mb_strlen($content) > 1000) {
             jsonError('El comentario no puede superar 1000 caracteres', 400);
+        }
+
+        $show = DbHelper::getShow($showId);
+        if (!$show) {
+            jsonError('Show no encontrado', 404);
+        }
+
+        if (!empty($episodeId)) {
+            $ep = DbHelper::getEpisode($episodeId);
+            if (!$ep || $ep['show_id'] !== $showId) {
+                jsonError('Episodio no encontrado para este show', 404);
+            }
         }
 
         $comment = DbHelper::addComment($showId, $username, $profile, $content, $episodeId);
@@ -158,7 +243,8 @@ class ShowController {
     }
 
     public static function getRandomShow(): void {
-        $show = DbHelper::getRandomShow();
+        $isKids = self::isKidsProfileActive();
+        $show = DbHelper::getRandomShow($isKids);
         jsonResponse([
             'success' => true,
             'show' => $show

@@ -100,8 +100,12 @@ class AuthController {
             jsonError('Usuario y contraseña requeridos', 400);
         }
 
-        if (strlen($username) < 3) {
-            jsonError('El nombre de usuario debe tener al menos 3 caracteres', 400);
+        if (strlen($username) < 3 || strlen($username) > 64) {
+            jsonError('El nombre de usuario debe tener entre 3 y 64 caracteres', 400);
+        }
+
+        if (strlen($password) < 8 || strlen($password) > 128) {
+            jsonError('La contraseña debe tener entre 8 y 128 caracteres', 400);
         }
 
         $user = DbHelper::registerUser($username, $password, 'user');
@@ -139,9 +143,26 @@ class AuthController {
         ]);
         unset($_COOKIE['kurastream_token']);
 
+        @setcookie('kurastream_party_session', '', [
+            'expires' => time() - 3600,
+            'path' => '/api/party',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => $isSecure
+        ]);
+        unset($_COOKIE['kurastream_party_session']);
+
         jsonResponse(['success' => true, 'message' => 'Sesión cerrada']);
     }
 
+    /**
+     * Set HttpOnly session cookie for web streaming elements and browser navigation.
+     * 
+     * Note on Web JWT Dual Storage (Known Architecture Limitation):
+     * The token is returned in JSON payloads (persisted in client localStorage for Authorization: Bearer headers)
+     * AND simultaneously written to an HttpOnly cookie 'kurastream_token' (for native <video> streaming elements).
+     * A planned future refactor will decouple these or move fully to HttpOnly session tokens with CSRF protections.
+     */
     private static function setSessionCookie(string $token): void {
         $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
             || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
@@ -182,20 +203,26 @@ class AuthController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
+        $profileId = trim((string)($data['profile_id'] ?? ($data['id'] ?? '')));
         $profileName = trim((string)($data['profile_name'] ?? ''));
         $pin = trim((string)($data['pin'] ?? ''));
 
-        if (empty($profileName)) {
-            jsonError('profile_name requerido', 400);
+        if (empty($profileId) && empty($profileName)) {
+            jsonError('profile_id o profile_name requerido', 400);
         }
 
         $db = Database::getConnection();
-        $stmt = $db->prepare("SELECT * FROM user_profiles WHERE username = :u AND name = :p");
-        $stmt->execute(['u' => $username, 'p' => $profileName]);
+        if (!empty($profileId)) {
+            $stmt = $db->prepare("SELECT * FROM user_profiles WHERE id = :id AND username = :u");
+            $stmt->execute(['id' => $profileId, 'u' => $username]);
+        } else {
+            $stmt = $db->prepare("SELECT * FROM user_profiles WHERE name = :p AND username = :u");
+            $stmt->execute(['p' => $profileName, 'u' => $username]);
+        }
         $profile = $stmt->fetch();
 
         if (!$profile) {
-            jsonError('Perfil no encontrado', 404);
+            jsonError('Perfil no encontrado o no pertenece a este usuario', 404);
         }
 
         if (!empty($profile['pin'])) {
@@ -206,13 +233,26 @@ class AuthController {
 
         $tokenPayload = [
             'username' => $username,
-            'profile_name' => $profileName,
-            'is_kids' => (bool)$profile['is_kids'],
             'role' => $authUser['role'] ?? 'user',
+            'profile_id' => $profile['id'],
+            'profile_name' => $profile['name'],
+            'is_kids' => (bool)$profile['is_kids'],
             'exp' => time() + (30 * 24 * 3600)
         ];
         $token = AuthMiddleware::createToken($tokenPayload);
         self::setSessionCookie($token);
+
+        // Clear active party session on profile switch to avoid incompatible party session
+        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+        @setcookie('kurastream_party_session', '', [
+            'expires' => time() - 3600,
+            'path' => '/api/party',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => $isSecure
+        ]);
+        unset($_COOKIE['kurastream_party_session']);
 
         jsonResponse([
             'success' => true,

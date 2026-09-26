@@ -365,12 +365,14 @@ export function initTracksModal(options = {}) {
     containerParent.appendChild(containerEl);
   }
 
+  const CHECK_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+
   // Render Audio List
   function renderAudioList() {
     if (state.audioTracks.length === 0) {
       audioList.innerHTML = `
         <button type="button" class="track-item is-active" data-type="audio" data-index="0" data-track-id="0" role="radio" aria-checked="true">
-          <span class="track-check">✓</span>
+          <span class="track-check">${CHECK_SVG}</span>
           <span class="track-title">Audio por defecto</span>
         </button>
       `;
@@ -383,7 +385,7 @@ export function initTracksModal(options = {}) {
       const title = formatTrackTitle(track, idx, 'Audio');
       return `
         <button type="button" class="track-item${isActive ? ' is-active' : ''}" data-type="audio" data-index="${idx}" data-track-id="${trackId}" role="radio" aria-checked="${isActive ? 'true' : 'false'}">
-          <span class="track-check" style="${isActive ? '' : 'visibility: hidden; opacity: 0;'}">✓</span>
+          <span class="track-check" style="${isActive ? '' : 'visibility: hidden; opacity: 0;'}">${CHECK_SVG}</span>
           <span class="track-title">${escapeHtml(title)}</span>
         </button>
       `;
@@ -402,7 +404,7 @@ export function initTracksModal(options = {}) {
 
     const offItemHtml = `
       <button type="button" class="track-item${isOff ? ' is-active' : ''}" data-type="subtitle" data-index="-1" data-track-id="-1" role="radio" aria-checked="${isOff ? 'true' : 'false'}">
-        <span class="track-check" style="${isOff ? '' : 'visibility: hidden; opacity: 0;'}">✓</span>
+        <span class="track-check" style="${isOff ? '' : 'visibility: hidden; opacity: 0;'}">${CHECK_SVG}</span>
         <span class="track-title">Desactivado</span>
       </button>
     `;
@@ -413,7 +415,7 @@ export function initTracksModal(options = {}) {
       const title = formatTrackTitle(track, idx, 'Subtítulo');
       return `
         <button type="button" class="track-item${isActive ? ' is-active' : ''}" data-type="subtitle" data-index="${idx}" data-track-id="${trackId}" role="radio" aria-checked="${isActive ? 'true' : 'false'}">
-          <span class="track-check" style="${isActive ? '' : 'visibility: hidden; opacity: 0;'}">✓</span>
+          <span class="track-check" style="${isActive ? '' : 'visibility: hidden; opacity: 0;'}">${CHECK_SVG}</span>
           <span class="track-title">${escapeHtml(title)}</span>
         </button>
       `;

@@ -48,7 +48,7 @@ export async function loadStagedImports() {
       <div class="admin-card" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 16px; border-radius: 4px; margin-bottom: 10px;">
         <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; flex-wrap: wrap;">
           <div style="flex: 1; min-width: 280px;">
-            <span class="badge" style="background: rgba(249, 115, 22, 0.15); color: #FB923C; font-size: 0.75rem; margin-bottom: 6px; display: inline-block;">${item.source_info || 'Descarga Torrents'}</span>
+            <span class="badge" style="background: rgba(249, 115, 22, 0.15); color: #FB923C; font-size: 0.75rem; margin-bottom: 6px; display: inline-block;">${item.source_info || 'Importación Manual'}</span>
             <h4 style="margin: 4px 0 8px 0; font-size: 1rem; color: var(--text-main); word-break: break-all;">${item.raw_title}</h4>
             <small style="color: var(--text-muted); font-size: 0.78rem; display: block; word-break: break-all;">Ruta física: ${item.file_path}</small>
             

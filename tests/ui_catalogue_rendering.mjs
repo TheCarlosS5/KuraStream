@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 // Evaluate the real renderers without starting the app or making API requests.
-const source = fs.readFileSync(new URL('../frontend/app.js', import.meta.url), 'utf8');
+const source = fs.readFileSync(new URL('../frontend/js/main.js', import.meta.url), 'utf8');
 assert.ok(!/setProperty\('--accent-(?:color|hover|glow)'/.test(source), 'Artwork must not override semantic action colors');
 const names = ['escapeHtml', 'escapeHtmlAttribute', 'catalogueImageUrl', 'setupCatalogueActions', 'renderBillboardHero', 'renderContinueWatching', 'createShowCardHTML', 'renderEpisodeList', 'showEpisodeDetails', 'loadShowDetails', 'renderMyListView', 'renderHistoryView', 'loadPopularSidebar', 'renderCalendarDay', 'openRandomAnimeModal'];
 const context = vm.createContext({ URL, console });

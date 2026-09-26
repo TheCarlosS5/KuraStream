@@ -3,11 +3,13 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import test from 'node:test';
 
-const app = fs.readFileSync(new URL('../frontend/app.js', import.meta.url), 'utf8');
+const app = fs.readFileSync(new URL('../frontend/js/main.js', import.meta.url), 'utf8');
 const player = fs.readFileSync(new URL('../frontend/player.js', import.meta.url), 'utf8');
 const html = fs.readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('../frontend/style.css', import.meta.url), 'utf8');
 const sw = fs.readFileSync(new URL('../frontend/sw.js', import.meta.url), 'utf8');
+const nav = fs.readFileSync(new URL('../frontend/js/modules/navigation.js', import.meta.url), 'utf8');
+const catalogMod = fs.readFileSync(new URL('../frontend/js/modules/catalog.js', import.meta.url), 'utf8');
 function evaluate(source, name, context) {
   const fn = source.match(new RegExp(`(?:export )?(?:async )?function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, 'm'));
   assert.ok(fn, `Missing ${name}`);
@@ -112,8 +114,13 @@ test('new service worker installs exact versioned shell assets and retires old c
   await done;
   assert.notEqual(cacheName, 'kurastream-v2.0', 'Existing installations must get a fresh cache');
   assert.ok(cacheModes.every(mode => mode === 'reload'), 'Install must not copy stale HTTP-cached HTML or modules into the new cache');
-  for (const match of html.matchAll(/(?:src|href)="((?:app\.js|player\.js|style\.css)\?[^" ]+)"/g)) assert.ok(installed.includes('/' + match[1]), `Precache ${match[1]}`);
-  const playerImport = app.match(/from '\.\/(player\.js[^']+)'/)[1];
+  for (const match of html.matchAll(/(?:src|href)="((?:(?:js\/)?main\.js|player\.js|style\.css)\?[^" ]+)"/g)) {
+    const assetPath = match[1].startsWith('/') ? match[1] : '/' + match[1];
+    assert.ok(installed.includes(assetPath), `Precache ${match[1]}`);
+  }
+  const playerImportMatch = app.match(/from '(?:\.\/|\.\.\/)(player\.js[^']+)'/);
+  assert.ok(playerImportMatch, 'Missing player.js import in main.js');
+  const playerImport = playerImportMatch[1];
   assert.ok(html.includes(`src="${playerImport}"`), 'App and HTML must load the same player version');
   const visited = new Set();
   const checkModule = path => {
@@ -127,7 +134,8 @@ test('new service worker installs exact versioned shell assets and retires old c
       checkModule(dependency.pathname + dependency.search);
     }
   };
-  checkModule('/app.js?v=2026.09.20-catalogue-hardening');
+  const mainScriptMatch = html.match(/src="(\/js\/main\.js\?[^"]+)"/);
+  checkModule(mainScriptMatch ? mainScriptMatch[1] : '/js/main.js?v=2026.09.26-modern-streaming-rc2');
   handlers.activate({ waitUntil: promise => { done = promise; } });
   await done;
   assert.deepEqual(removed, ['kurastream-v2.0']);
@@ -142,3 +150,37 @@ test('active catalogue/calendar positive states use jade tokens', () => {
   assert.ok(!/#00e08f|rgba\(0,\s*224,\s*143/i.test(calendarBanner));
   assert.ok(/--success-color:\s*#2DD4BF/i.test(css));
 });
+
+test('single router architecture: navigation.js and main.js do not register duplicate hash routers', () => {
+  assert.ok(!nav.includes("window.addEventListener('hashchange'"), 'navigation.js must not register duplicate hashchange');
+  assert.ok(!nav.includes('export function initRouter'), 'navigation.js must not export duplicate initRouter');
+  assert.ok(!nav.includes("getElementById('view-catalog')"), 'navigation.js must not reference obsolete view-catalog');
+  assert.ok(!nav.includes("getElementById('view-show-detail')"), 'navigation.js must not reference obsolete view-show-detail');
+  assert.ok(!app.includes('import { appRouter }'), 'main.js must not import dead appRouter');
+  assert.ok(!app.includes("from './core/router.js'"), 'main.js must not import core/router.js');
+  assert.ok(!app.includes('router: appRouter'), 'main.js must not expose dead appRouter on window.KuraStream');
+
+  const coreRouter = fs.readFileSync(new URL('../frontend/js/core/router.js', import.meta.url), 'utf8');
+  assert.ok(!coreRouter.includes("constructor() {\n    this.routes = {};\n    this.currentRoute = null;\n    this.beforeHooks = [];\n\n    window.addEventListener('hashchange'"), 'core/router.js must not auto-register hashchange listener in constructor');
+});
+
+test('purge fabricated metadata: no 8.5 rating or 2026 year fallback in frontend modules', () => {
+  // Check main.js
+  assert.ok(!/['"]8\.5['"]/.test(app), 'main.js must not contain fabricated 8.5 rating');
+  // Check catalog.js
+  assert.ok(!/['"]8\.5['"]/.test(catalogMod), 'catalog.js must not contain fabricated 8.5 rating');
+  assert.ok(!/['"]2026['"]/.test(catalogMod), 'catalog.js must not contain fabricated 2026 year');
+  assert.ok(catalogMod.includes('escapeHtml'), 'catalog.js must sanitize HTML');
+
+  // Check billboard rendering with empty metadata
+  const context = vm.createContext({
+    escapeHtml: s => String(s || ''),
+    escapeHtmlAttribute: s => String(s || ''),
+    catalogueImageUrl: s => s
+  });
+  evaluate(app, 'renderBillboardHero', context);
+  const heroHtml = context.renderBillboardHero({ title: 'Test Anime' });
+  assert.ok(!heroHtml.includes('8.5'), 'renderBillboardHero must not fabricate 8.5 rating');
+  assert.ok(heroHtml.includes('N/A'), 'renderBillboardHero shows N/A for missing rating/year');
+});
+

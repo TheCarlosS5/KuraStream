@@ -5,9 +5,31 @@ require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../services/LibraryScanner.php';
 require_once __DIR__ . '/../services/FfmpegScanner.php';
 require_once __DIR__ . '/../services/TmdbScraper.php';
-require_once __DIR__ . '/../services/TorrentDownloader.php';
 
 class AdminController {
+    public static function isPathWithinAllowedRoots(string $path, array $allowedRoots = []): bool {
+        $real = realpath($path);
+        if (!$real) return false;
+
+        if (empty($allowedRoots)) {
+            $allowedRoots = array_filter([
+                defined('LIBRARY_DIR') ? realpath(LIBRARY_DIR) : null,
+                defined('ROOT_DIR') ? realpath(ROOT_DIR . '/downloads') : null,
+                defined('ROOT_DIR') ? realpath(ROOT_DIR . '/staging') : null,
+                realpath(sys_get_temp_dir())
+            ]);
+        }
+
+        foreach ($allowedRoots as $root) {
+            if (!$root) continue;
+            $rootPrefix = rtrim($root, '/\\') . DIRECTORY_SEPARATOR;
+            if ($real === $root || str_starts_with($real, $rootPrefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static function validateUpload(array $file, array $allowedExts, array $allowedMimes, int $maxBytes): void {
         if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
             jsonError('Error en la transferencia del archivo subido', 400);
@@ -236,10 +258,18 @@ class AdminController {
         $targetPath = $targetDir . '/' . $targetFilename;
 
         if (file_exists($item['filepath'])) {
-            if (!@rename($item['filepath'], $targetPath)) {
-                @copy($item['filepath'], $targetPath);
-                @unlink($item['filepath']);
+            if (!self::isPathWithinAllowedRoots($item['filepath'])) {
+                jsonError('Ruta de archivo staged no permitida', 403);
             }
+            $src = $item['filepath'];
+            $copied = @copy($src, $targetPath);
+            if (!$copied || !file_exists($targetPath) || filesize($targetPath) === 0 || (filesize($src) > 0 && filesize($targetPath) !== filesize($src))) {
+                if (file_exists($targetPath)) {
+                    @unlink($targetPath);
+                }
+                jsonError('Fallo al copiar y verificar integridad del archivo en destino', 500);
+            }
+            @unlink($src);
         }
 
         $del = $db->prepare("DELETE FROM staged_imports WHERE id = :id");
@@ -257,8 +287,10 @@ class AdminController {
         $stmt->execute(['id' => $id]);
         $item = $stmt->fetch();
 
-        if ($item && file_exists($item['filepath'])) {
-            @unlink($item['filepath']);
+        if ($item && !empty($item['filepath']) && file_exists($item['filepath'])) {
+            if (self::isPathWithinAllowedRoots($item['filepath'])) {
+                @unlink($item['filepath']);
+            }
         }
 
         $del = $db->prepare("DELETE FROM staged_imports WHERE id = :id");
@@ -312,7 +344,14 @@ class AdminController {
 
     public static function getActiveStreams(): void {
         AuthMiddleware::requireAdmin();
-        jsonResponse([]);
+        require_once __DIR__ . '/PlayerController.php';
+        $workerCount = TranscodeLimiter::getActiveWorkerCount();
+        jsonResponse([
+            'success' => true,
+            'active_workers' => $workerCount,
+            'max_workers' => TranscodeLimiter::$maxWorkers,
+            'active_streams' => $workerCount
+        ]);
     }
 
     public static function getLogs(): void {
@@ -338,7 +377,7 @@ class AdminController {
             if (!empty($journal)) {
                 $rawLogs = trim($journal);
             } else {
-                $rawLogs = "[" . date('Y-m-d H:i:s') . "] [INFO] Servidor PHP KuraStream activo y en ejecución.\n[" . date('Y-m-d H:i:s') . "] [INFO] Base de datos MariaDB conectada correctamente.";
+                $rawLogs = 'Sin registros disponibles';
             }
         }
 
@@ -560,6 +599,7 @@ class AdminController {
         }
 
         // Check if file was uploaded
+        $fileSaved = false;
         if (isset($_FILES['videoFile']) && (!empty($_FILES['videoFile']['name']) || $_FILES['videoFile']['error'] !== UPLOAD_ERR_NO_FILE)) {
             self::validateUpload($_FILES['videoFile'], ['mp4', 'mkv', 'webm'], ['video/mp4', 'video/x-matroska', 'video/webm', 'application/octet-stream'], 4294967296);
             $origName = $_FILES['videoFile']['name'];
@@ -569,15 +609,32 @@ class AdminController {
                 : "{$sanitizedDir} - S" . sprintf("%02d", $season) . "E" . sprintf("%02d", $episode) . ".{$ext}";
 
             $destPath = $targetDir . '/' . $filename;
-            move_uploaded_file($_FILES['videoFile']['tmp_name'], $destPath);
-        } else if (!empty($_POST['sourcePath']) && file_exists($_POST['sourcePath'])) {
-            $origName = basename($_POST['sourcePath']);
+            if (!@move_uploaded_file($_FILES['videoFile']['tmp_name'], $destPath) || !file_exists($destPath) || filesize($destPath) === 0) {
+                jsonError('Error al guardar el archivo de vídeo subido en el destino', 500);
+            }
+            $fileSaved = true;
+        } else if (!empty($_POST['sourcePath'])) {
+            $sourcePath = realpath($_POST['sourcePath']) ?: $_POST['sourcePath'];
+            if (!file_exists($sourcePath)) {
+                jsonError('Archivo fuente no encontrado', 404);
+            }
+            if (!self::isPathWithinAllowedRoots($sourcePath)) {
+                jsonError('Ruta de archivo fuente no permitida', 403);
+            }
+            $origName = basename($sourcePath);
             $ext = pathinfo($origName, PATHINFO_EXTENSION);
             $filename = ($mediaType === 'movie') 
                 ? "{$sanitizedDir}.{$ext}" 
                 : "{$sanitizedDir} - S" . sprintf("%02d", $season) . "E" . sprintf("%02d", $episode) . ".{$ext}";
             $destPath = $targetDir . '/' . $filename;
-            @copy($_POST['sourcePath'], $destPath);
+            if (!@copy($sourcePath, $destPath) || !file_exists($destPath) || filesize($destPath) === 0) {
+                jsonError('Error al copiar el archivo fuente en el destino', 500);
+            }
+            $fileSaved = true;
+        }
+
+        if (!$fileSaved) {
+            jsonError('No se proporcionó ningún archivo de vídeo válido', 400);
         }
 
         // Enrich show metadata via TMDB if show record does not exist
@@ -637,7 +694,9 @@ class AdminController {
         self::validateUpload($_FILES['file'], ['jpg', 'jpeg', 'png', 'webp'], ['image/jpeg', 'image/png', 'image/webp'], 15 * 1024 * 1024);
 
         $dest = LIBRARY_DIR . '/logo.png';
-        move_uploaded_file($_FILES['file']['tmp_name'], $dest);
+        if (!@move_uploaded_file($_FILES['file']['tmp_name'], $dest) || !file_exists($dest)) {
+            jsonError('Error al guardar el logo', 500);
+        }
         jsonResponse(['success' => true]);
     }
 
@@ -666,7 +725,9 @@ class AdminController {
         $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         $filename = 'avatar_' . uniqid() . '.' . $ext;
         $destPath = $avatarsDir . '/' . $filename;
-        move_uploaded_file($file['tmp_name'], $destPath);
+        if (!@move_uploaded_file($file['tmp_name'], $destPath) || !file_exists($destPath)) {
+            jsonError('Error al guardar el avatar', 500);
+        }
 
         jsonResponse(['success' => true, 'url' => "/library/avatars/{$filename}"]);
     }
@@ -687,12 +748,18 @@ class AdminController {
 
         if (isset($_FILES['poster'])) {
             self::validateUpload($_FILES['poster'], ['jpg', 'jpeg', 'png', 'webp'], ['image/jpeg', 'image/png', 'image/webp'], 15 * 1024 * 1024);
-            move_uploaded_file($_FILES['poster']['tmp_name'], $showDir . '/poster.jpg');
+            $dest = $showDir . '/poster.jpg';
+            if (!@move_uploaded_file($_FILES['poster']['tmp_name'], $dest) || !file_exists($dest)) {
+                jsonError('Error al guardar el póster', 500);
+            }
             $show['poster_path'] = "/library/{$catFolder}/{$realId}/poster.jpg";
             DbHelper::saveShow($show);
         } else if (isset($_FILES['backdrop'])) {
             self::validateUpload($_FILES['backdrop'], ['jpg', 'jpeg', 'png', 'webp'], ['image/jpeg', 'image/png', 'image/webp'], 15 * 1024 * 1024);
-            move_uploaded_file($_FILES['backdrop']['tmp_name'], $showDir . '/backdrop.jpg');
+            $dest = $showDir . '/backdrop.jpg';
+            if (!@move_uploaded_file($_FILES['backdrop']['tmp_name'], $dest) || !file_exists($dest)) {
+                jsonError('Error al guardar el backdrop', 500);
+            }
             $show['backdrop_path'] = "/library/{$catFolder}/{$realId}/backdrop.jpg";
             DbHelper::saveShow($show);
         } else if (isset($_FILES['avatar'])) {
@@ -701,7 +768,10 @@ class AdminController {
             if (!is_dir($avatarsDir)) @mkdir($avatarsDir, 0755, true);
             $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
             $filename = 'avatar_' . uniqid() . '.' . $ext;
-            move_uploaded_file($_FILES['avatar']['tmp_name'], $avatarsDir . '/' . $filename);
+            $destPath = $avatarsDir . '/' . $filename;
+            if (!@move_uploaded_file($_FILES['avatar']['tmp_name'], $destPath) || !file_exists($destPath)) {
+                jsonError('Error al guardar el avatar', 500);
+            }
             jsonResponse(['success' => true, 'url' => "/library/avatars/{$filename}"]);
         }
 
@@ -726,7 +796,9 @@ class AdminController {
         $ext = strtolower(pathinfo($_FILES['video']['name'], PATHINFO_EXTENSION)) ?: 'mp4';
         $loopFilename = 'loop_' . uniqid() . '.' . $ext;
         $destPath = $showDir . '/' . $loopFilename;
-        move_uploaded_file($_FILES['video']['tmp_name'], $destPath);
+        if (!@move_uploaded_file($_FILES['video']['tmp_name'], $destPath) || !file_exists($destPath) || filesize($destPath) === 0) {
+            jsonError('Error al guardar el vídeo de fondo', 500);
+        }
 
         $loops = !empty($show['backdrop_loops']) ? (is_array($show['backdrop_loops']) ? $show['backdrop_loops'] : json_decode($show['backdrop_loops'], true)) : [];
         $loops[] = "/library/{$catFolder}/{$realId}/{$loopFilename}";
@@ -779,7 +851,9 @@ class AdminController {
         $thumbName = "ep_{$ep['season_number']}_{$ep['episode_number']}_thumb.jpg";
         $dest = $showDir . '/' . $thumbName;
 
-        move_uploaded_file($_FILES['image']['tmp_name'], $dest);
+        if (!@move_uploaded_file($_FILES['image']['tmp_name'], $dest) || !file_exists($dest)) {
+            jsonError('Error al guardar la miniatura del episodio', 500);
+        }
 
         $ep['thumbnail_path'] = "/library/{$catFolder}/{$ep['show_id']}/{$thumbName}";
         DbHelper::saveEpisode($ep);
@@ -1056,113 +1130,5 @@ class AdminController {
             'total' => count($episodes),
             'tmdb_title' => $tmdbResults[0]['title'] ?? $show['title']
         ]);
-    }
-
-    // --- TORRENTS & AUTO-DOWNLOADER ENDPOINTS ---
-
-    public static function getTorrentStatus(): void {
-        AuthMiddleware::requireAdmin();
-        TorrentDownloader::checkActiveDownload();
-        $state = TorrentDownloader::getState();
-        jsonResponse($state);
-    }
-
-    public static function toggleTorrentManager(): void {
-        AuthMiddleware::requireAdmin();
-        $state = TorrentDownloader::getState();
-        $state['isEnabled'] = !($state['isEnabled'] ?? true);
-        TorrentDownloader::saveState($state);
-        jsonResponse(['success' => true, 'isEnabled' => $state['isEnabled'], 'status' => $state]);
-    }
-
-    public static function scanAutoDownloadNow(): void {
-        AuthMiddleware::requireAdmin();
-        $res = TorrentDownloader::runAutoScan();
-        jsonResponse(['success' => true, 'status' => $res['state'] ?? TorrentDownloader::getState(), 'enqueued' => $res['enqueuedCount'] ?? 0]);
-    }
-
-    public static function searchTorrents(): void {
-        AuthMiddleware::requireAdmin();
-        $q = $_GET['q'] ?? '';
-        $filterSpanish = isset($_GET['filterSpanish']) && ($_GET['filterSpanish'] === '1' || $_GET['filterSpanish'] === 'true');
-        $results = TorrentDownloader::searchNyaa($q, $filterSpanish);
-        jsonResponse(['success' => true, 'results' => $results]);
-    }
-
-    public static function searchAnimeAllEpisodes(): void {
-        AuthMiddleware::requireAdmin();
-        $title = $_GET['title'] ?? ($_GET['q'] ?? '');
-        $results = TorrentDownloader::searchAllAnimeEpisodes($title);
-        jsonResponse(['success' => true, 'episodes' => $results]);
-    }
-
-    public static function addTorrent(): void {
-        AuthMiddleware::requireAdmin();
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $url = $body['torrentUrl'] ?? ($body['url'] ?? ($body['link'] ?? ''));
-        $title = $body['title'] ?? '';
-        $guid = $body['guid'] ?? '';
-        $size = $body['size'] ?? 'N/A';
-        $seeders = (int)($body['seeders'] ?? 0);
-
-        if (empty($url) && empty($title)) {
-            jsonError('URL o título de torrent requerido', 400);
-        }
-
-        $res = TorrentDownloader::addToQueue($url, $title, $guid, $size, $seeders, true);
-        jsonResponse($res);
-    }
-
-    public static function pauseTorrentQueueItem(): void {
-        AuthMiddleware::requireAdmin();
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $id = $body['id'] ?? '';
-        $res = TorrentDownloader::pauseDownload($id);
-        jsonResponse($res);
-    }
-
-    public static function resumeTorrentQueueItem(): void {
-        AuthMiddleware::requireAdmin();
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $id = $body['id'] ?? '';
-        $res = TorrentDownloader::resumeDownload($id);
-        jsonResponse($res);
-    }
-
-    public static function removeTorrentFromQueue(): void {
-        AuthMiddleware::requireAdmin();
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $idOrIndex = $body['id'] ?? ($body['index'] ?? '');
-        $res = TorrentDownloader::removeFromQueue(strval($idOrIndex));
-        jsonResponse($res);
-    }
-
-    public static function clearTorrentQueue(): void {
-        AuthMiddleware::requireAdmin();
-        $res = TorrentDownloader::clearQueue();
-        jsonResponse($res);
-    }
-
-    public static function startTorrentQueue(): void {
-        AuthMiddleware::requireAdmin();
-        TorrentDownloader::processQueue();
-        jsonResponse(['success' => true, 'message' => 'Cola de descargas iniciada', 'status' => TorrentDownloader::getState()]);
-    }
-
-    public static function cancelActiveTorrent(): void {
-        AuthMiddleware::requireAdmin();
-        $res = TorrentDownloader::cancelActiveDownload();
-        jsonResponse($res);
-    }
-
-    public static function dismissTorrent(): void {
-        AuthMiddleware::requireAdmin();
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $guidOrTitle = $body['guid'] ?? ($body['title'] ?? '');
-        if (empty($guidOrTitle)) {
-            jsonError('GUID o título requerido', 400);
-        }
-        $res = TorrentDownloader::dismissTorrent($guidOrTitle);
-        jsonResponse($res);
     }
 }

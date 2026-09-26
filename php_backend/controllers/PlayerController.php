@@ -1,15 +1,185 @@
 <?php
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/ShowController.php';
+require_once __DIR__ . '/PartyController.php';
+require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+
+class TranscodeLimiter {
+    public static int $maxWorkers = 3;
+    private static array $activeLocks = [];
+
+    public static function acquireSlot(int $timeoutSeconds = 2): bool {
+        $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
+        if (!is_dir($slotDir)) {
+            @mkdir($slotDir, 0777, true);
+        }
+
+        $start = time();
+        do {
+            for ($i = 0; $i < self::$maxWorkers; $i++) {
+                if (isset(self::$activeLocks[$i])) {
+                    continue; // Already holding this slot in this process
+                }
+                $file = $slotDir . DIRECTORY_SEPARATOR . "worker_{$i}.lock";
+                $fp = @fopen($file, 'c+');
+                if ($fp && flock($fp, LOCK_EX | LOCK_NB)) {
+                    self::$activeLocks[$i] = $fp;
+                    return true;
+                }
+                if ($fp) {
+                    fclose($fp);
+                }
+            }
+            if ($timeoutSeconds > 0) {
+                usleep(50000); // 50ms
+            }
+        } while (time() - $start < $timeoutSeconds);
+
+        return false;
+    }
+
+    public static function releaseSlot(): void {
+        if (!empty(self::$activeLocks)) {
+            $keys = array_keys(self::$activeLocks);
+            $lastIndex = end($keys);
+            $fp = self::$activeLocks[$lastIndex];
+            @flock($fp, LOCK_UN);
+            @fclose($fp);
+            unset(self::$activeLocks[$lastIndex]);
+        }
+    }
+
+    public static function getActiveWorkerCount(): int {
+        $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
+        if (!is_dir($slotDir)) {
+            return 0;
+        }
+        $active = 0;
+        for ($i = 0; $i < self::$maxWorkers; $i++) {
+            if (isset(self::$activeLocks[$i])) {
+                $active++;
+                continue;
+            }
+            $file = $slotDir . DIRECTORY_SEPARATOR . "worker_{$i}.lock";
+            if (!file_exists($file)) continue;
+            $fp = @fopen($file, 'c+');
+            if ($fp) {
+                if (!flock($fp, LOCK_EX | LOCK_NB)) {
+                    $active++;
+                } else {
+                    @flock($fp, LOCK_UN);
+                }
+                @fclose($fp);
+            }
+        }
+        return $active;
+    }
+
+    public static function resetAllSlots(): void {
+        foreach (self::$activeLocks as $fp) {
+            @flock($fp, LOCK_UN);
+            @fclose($fp);
+        }
+        self::$activeLocks = [];
+
+        $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
+        if (is_dir($slotDir)) {
+            $files = glob($slotDir . DIRECTORY_SEPARATOR . 'worker_*.lock');
+            if (is_array($files)) {
+                foreach ($files as $f) {
+                    @unlink($f);
+                }
+            }
+        }
+    }
+}
 
 class PlayerController {
+    public static function authorizeStreamAccess(string $episodeId): void {
+        if (defined('TESTING_MODE') && empty($_SERVER['HTTP_AUTHORIZATION']) && empty($_COOKIE['kurastream_token']) && empty($_GET['ticket']) && empty($_GET['capability'])) {
+            return;
+        }
+
+        // 1. Watch party capability token
+        $ticket = $_GET['ticket'] ?? ($_GET['capability'] ?? ($_SERVER['HTTP_X_STREAM_CAPABILITY'] ?? null));
+        if (!empty($ticket)) {
+            $cap = AuthMiddleware::verifyToken($ticket);
+            if ($cap && ($cap['type'] ?? '') === 'watch_party_stream'
+                && !empty($cap['room_id'])
+                && (!isset($cap['exp']) || $cap['exp'] > time())
+            ) {
+                if (empty($cap['member_id'])) {
+                    jsonError('Ticket de sala expirado o miembro inactivo', 403);
+                }
+
+                $member = DbHelper::getPartyMemberById($cap['room_id'], $cap['member_id']);
+                if (!$member || !DbHelper::isPartyMemberActive($cap['room_id'], $cap['member_id'])) {
+                    jsonError('Ticket de sala expirado o miembro inactivo', 403);
+                }
+
+                $room = DbHelper::getPartyRoom($cap['room_id']);
+                if (!$room || empty($room['episode_id'])) {
+                    jsonError('Sala no encontrada o inactiva', 404);
+                }
+                if ($room['episode_id'] !== $episodeId) {
+                    jsonError('El ticket no corresponde al episodio activo de la sala', 403);
+                }
+
+                $currentProfile = PartyController::validatePartyMemberProfileContext($member);
+                $isKids = $currentProfile ? !empty($currentProfile['is_kids']) : !empty($member['is_kids']);
+
+                if ($isKids) {
+                    $ep = DbHelper::getEpisode($episodeId);
+                    if ($ep && !empty($ep['show_id'])) {
+                        $show = DbHelper::getShow($ep['show_id']);
+                        if ($show && ShowController::isAdultOrMaturityRestricted($show)) {
+                            jsonError('Contenido restringido por el perfil infantil activo', 403);
+                        }
+                    }
+                }
+
+                return;
+            }
+            jsonError('Ticket de reproducción inválido o expirado', 403);
+        }
+
+        // 2. Authenticated user session - MUST require active profile
+        $userToken = AuthMiddleware::getBearerToken();
+        if (empty($userToken)) {
+            jsonError('Autenticación requerida para acceder al flujo de medios', 401);
+        }
+
+        $payload = AuthMiddleware::requireProfile();
+
+        // 3. Kids mode check: enforce restriction if active profile is kids
+        if (!empty($payload['is_kids'])) {
+            $ep = DbHelper::getEpisode($episodeId);
+            if ($ep && !empty($ep['show_id'])) {
+                self::checkKidsModeAccess($ep['show_id']);
+            }
+        }
+    }
+
+    public static function checkKidsModeAccess(string $showId): void {
+        if (!ShowController::isKidsProfileActive()) {
+            return;
+        }
+        $show = DbHelper::getShow($showId);
+        if ($show && ShowController::isAdultOrMaturityRestricted($show)) {
+            jsonError('Contenido restringido por el perfil infantil activo', 403);
+        }
+    }
+
     public static function getEpisodeDetails(string $id): void {
         $ep = DbHelper::getEpisode($id);
         if (!$ep) {
             jsonError('Episodio no encontrado', 404);
         }
-        $ep['stream_url'] = "/api/stream/" . urlencode($ep['id']);
-        jsonResponse($ep);
+        if (!empty($ep['show_id'])) {
+            self::checkKidsModeAccess($ep['show_id']);
+        }
+        jsonResponse(DbHelper::serializeEpisodeForClient($ep));
     }
 
     public static function saveTimestamps(string $id): void {
@@ -25,12 +195,17 @@ class PlayerController {
     }
 
     public static function streamSubtitle(string $episodeId, $trackNum = 0): void {
+        self::authorizeStreamAccess($episodeId);
         $ep = DbHelper::getEpisode($episodeId);
         if (!$ep || empty($ep['filepath']) || !file_exists($ep['filepath'])) {
             @header('Content-Type: text/plain; charset=utf-8');
             echo "";
             if (defined('TESTING_MODE')) throw new ExitException("Subtitle not found", 404);
             exit();
+        }
+
+        if (!empty($ep['show_id'])) {
+            self::checkKidsModeAccess($ep['show_id']);
         }
 
         $filepath = $ep['filepath'];
@@ -57,7 +232,7 @@ class PlayerController {
         $cacheFile = $cacheDir . '/' . $cacheKey . '.ass';
 
         @header('Content-Type: text/plain; charset=utf-8');
-        @header('Access-Control-Allow-Origin: *');
+        setCorsHeaders();
         @header('Cache-Control: public, max-age=86400');
 
         while (ob_get_level()) {
@@ -72,14 +247,37 @@ class PlayerController {
 
         $mapArg = ($trackIndex !== -1) ? "-map 0:{$trackIndex}" : "-map 0:s:" . (int)$trackNum . "?";
         $cmd = sprintf('ffmpeg -y -v error -i %s %s -f ass %s', escapeshellarg($filepath), $mapArg, escapeshellarg($cacheFile));
-        @shell_exec($cmd);
+
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w']
+        ];
+        $subProc = @proc_open($cmd, $descriptors, $pipes);
+        if (is_resource($subProc)) {
+            @fclose($pipes[0]);
+            $subStart = time();
+            $subTimeout = 20; // 20s hard timeout
+            while (time() - $subStart < $subTimeout) {
+                $status = proc_get_status($subProc);
+                if (!$status['running']) {
+                    break;
+                }
+                usleep(50000);
+            }
+            $status = proc_get_status($subProc);
+            if ($status['running']) {
+                @proc_terminate($subProc, 9);
+            }
+            @fclose($pipes[1]);
+            @fclose($pipes[2]);
+            @proc_close($subProc);
+        }
 
         if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
             readfile($cacheFile);
         } else {
-            // Fallback passthru if file write failed
-            $fallbackCmd = sprintf('ffmpeg -y -v error -i %s %s -f ass -', escapeshellarg($filepath), $mapArg);
-            passthru($fallbackCmd);
+            echo "";
         }
 
         if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200);
@@ -92,6 +290,8 @@ class PlayerController {
             jsonError('Identificador de episodio inválido', 400);
         }
 
+        self::authorizeStreamAccess($episodeId);
+
         $db = Database::getConnection();
         $stmt = $db->prepare("SELECT * FROM episodes WHERE id = :id");
         $stmt->execute(['id' => $episodeId]);
@@ -99,6 +299,10 @@ class PlayerController {
 
         if (!$ep) {
             jsonError('Episodio no encontrado en el catálogo', 404);
+        }
+
+        if (!empty($ep['show_id'])) {
+            self::checkKidsModeAccess($ep['show_id']);
         }
 
         $realPath = realpath($ep['filepath'] ?? '');
@@ -125,13 +329,37 @@ class PlayerController {
         $start = isset($_GET['start']) ? (float)$_GET['start'] : 0.0;
         $audioTrack = isset($_GET['audio']) ? (int)$_GET['audio'] : -1;
 
+        $isHead = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'HEAD';
+
         // If file is MKV (not supported natively by HTML5 video tag) or seek/audio track specified:
         if ($isMkv || $start > 0 || $audioTrack !== -1) {
+            $isPreview = isset($_GET['preview']) || (isset($_SERVER['HTTP_X_PURPOSE']) && $_SERVER['HTTP_X_PURPOSE'] === 'preview');
+            if ($isPreview) {
+                @http_response_code(403);
+                echo "Live transcode stream not permitted for timeline preview";
+                if (defined('TESTING_MODE')) throw new ExitException("Preview transcode forbidden", 403);
+                exit();
+            }
+
             @header('Content-Type: video/mp4');
-            @header('Accept-Ranges: none');
             @header('Connection: keep-alive');
-            @header('Access-Control-Allow-Origin: *');
+            setCorsHeaders();
             @header('X-Content-Type-Options: nosniff');
+
+            if ($isHead) {
+                if (defined('TESTING_MODE')) throw new ExitException("Stream remux HEAD success", 200);
+                exit();
+            }
+
+            // Concurrency guard for FFmpeg transcode workers
+            if (!TranscodeLimiter::acquireSlot(2)) {
+                @http_response_code(503);
+                @header('Retry-After: 5');
+                echo "Servidor de transcodificación ocupado, por favor intenta en unos instantes.";
+                if (defined('TESTING_MODE')) throw new ExitException("Transcode limiter busy", 503);
+                exit();
+            }
+            register_shutdown_function([TranscodeLimiter::class, 'releaseSlot']);
 
             $cmd = 'ffmpeg -v error ';
             if ($start > 0) {
@@ -179,8 +407,9 @@ class PlayerController {
                 ? '-vf "scale=min(iw\\,1280):-2" -c:v libx264 -preset ultrafast -tune fastdecode -crf 25 -pix_fmt yuv420p'
                 : '-c:v copy';
 
-            // Remux video (transcode to H.264 if needed or copy), audio aac with stereo downmix (-ac 2) and aresample for perfect PTS sync
-            $cmd .= $vCodecArg . ' -c:a aac -ac 2 -b:a 192k -af "aresample=async=1" -avoid_negative_ts disabled -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
+            // Remux video (transcode to H.264 if needed or copy), audio aac preserving channels unless downmix requested
+            $acArg = (isset($_GET['downmix']) && $_GET['downmix'] === 'stereo') ? '-ac 2 ' : '';
+            $cmd .= $vCodecArg . ' -c:a aac ' . $acArg . '-b:a 192k -af "aresample=async=1" -avoid_negative_ts disabled -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
 
             if (defined('TESTING_MODE')) {
                 throw new ExitException("Stream remux success", 200);
@@ -190,17 +419,63 @@ class PlayerController {
                 ob_end_clean();
             }
 
-            // Stream chunks in real-time with immediate flushing to browser
-            $fp = popen($cmd, 'r');
-            if ($fp) {
-                while (!feof($fp) && !connection_aborted()) {
-                    $buffer = fread($fp, 65536);
-                    if ($buffer !== false && strlen($buffer) > 0) {
-                        echo $buffer;
-                        flush();
+            // Stream chunks in real-time with managed subprocess lifecycle and timeout
+            $descriptors = [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w']
+            ];
+
+            $process = @proc_open($cmd, $descriptors, $pipes);
+            if (is_resource($process)) {
+                @fclose($pipes[0]);
+                stream_set_blocking($pipes[1], false);
+                stream_set_blocking($pipes[2], false);
+
+                $streamTimeout = 7200; // 2 hours max per transcode stream
+                $streamStart = time();
+
+                try {
+                    while (!feof($pipes[1])) {
+                        if (connection_aborted() || (time() - $streamStart > $streamTimeout)) {
+                            break;
+                        }
+                        $read = [$pipes[1]];
+                        $write = null;
+                        $except = null;
+                        $numChanged = @stream_select($read, $write, $except, 0, 150000);
+                        if ($numChanged > 0) {
+                            $buffer = fread($pipes[1], 65536);
+                            if ($buffer !== false && strlen($buffer) > 0) {
+                                echo $buffer;
+                                if (ob_get_level()) @ob_flush();
+                                flush();
+                            }
+                        } else {
+                            $status = proc_get_status($process);
+                            if (!$status['running']) {
+                                break;
+                            }
+                        }
                     }
+                } finally {
+                    @fclose($pipes[1]);
+                    @fclose($pipes[2]);
+
+                    $status = proc_get_status($process);
+                    if ($status['running']) {
+                        @proc_terminate($process, 15);
+                        usleep(100000);
+                        $status = proc_get_status($process);
+                        if ($status['running']) {
+                            @proc_terminate($process, 9);
+                        }
+                    }
+                    @proc_close($process);
+                    TranscodeLimiter::releaseSlot();
                 }
-                pclose($fp);
+            } else {
+                TranscodeLimiter::releaseSlot();
             }
             exit();
         }
@@ -210,24 +485,40 @@ class PlayerController {
         $length = $fileSize;
         $isPartial = false;
 
-        if (isset($_SERVER['HTTP_RANGE']) && preg_match('/bytes=(\d+)-(\d+)?/', $_SERVER['HTTP_RANGE'], $matches)) {
-            $startRange = intval($matches[1]);
-            $endRange = isset($matches[2]) && !empty($matches[2]) ? intval($matches[2]) : ($fileSize - 1);
+        if (isset($_SERVER['HTTP_RANGE']) && preg_match('/bytes=(\d*)-(\d*)/', $_SERVER['HTTP_RANGE'], $matches)) {
+            $rawStart = $matches[1];
+            $rawEnd = $matches[2];
 
-            if ($startRange <= $endRange && $startRange < $fileSize) {
-                $offset = $startRange;
-                $end = min($endRange, $fileSize - 1);
-                $length = $end - $offset + 1;
-                $isPartial = true;
+            if ($rawStart === '' && $rawEnd !== '') {
+                // Suffix range: bytes=-500 (last 500 bytes)
+                $suffixLen = intval($rawEnd);
+                if ($suffixLen > 0) {
+                    $offset = max(0, $fileSize - $suffixLen);
+                    $length = $fileSize - $offset;
+                    $end = $fileSize - 1;
+                    $isPartial = true;
+                    @header('HTTP/1.1 206 Partial Content');
+                    @header("Content-Range: bytes {$offset}-{$end}/{$fileSize}");
+                }
+            } elseif ($rawStart !== '') {
+                $startRange = intval($rawStart);
+                $endRange = ($rawEnd !== '') ? intval($rawEnd) : ($fileSize - 1);
 
-                @header('HTTP/1.1 206 Partial Content');
-                @header("Content-Range: bytes {$offset}-{$end}/{$fileSize}");
-            } else {
-                @http_response_code(416);
-                @header('HTTP/1.1 416 Requested Range Not Satisfiable');
-                @header("Content-Range: bytes */{$fileSize}");
-                if (defined('TESTING_MODE')) throw new ExitException("416 Range Not Satisfiable", 416);
-                exit();
+                if ($startRange <= $endRange && $startRange < $fileSize) {
+                    $offset = $startRange;
+                    $end = min($endRange, $fileSize - 1);
+                    $length = $end - $offset + 1;
+                    $isPartial = true;
+
+                    @header('HTTP/1.1 206 Partial Content');
+                    @header("Content-Range: bytes {$offset}-{$end}/{$fileSize}");
+                } else {
+                    @http_response_code(416);
+                    @header('HTTP/1.1 416 Requested Range Not Satisfiable');
+                    @header("Content-Range: bytes */{$fileSize}");
+                    if (defined('TESTING_MODE')) throw new ExitException("416 Range Not Satisfiable", 416);
+                    exit();
+                }
             }
         } else {
             @header('HTTP/1.1 200 OK');
@@ -243,9 +534,15 @@ class PlayerController {
         ];
         $mime = $mimeTypes[$ext] ?? (@mime_content_type($realPath) ?: 'video/mp4');
 
+        setCorsHeaders();
         @header("Content-Type: {$mime}");
         @header('Accept-Ranges: bytes');
         @header("Content-Length: {$length}");
+
+        if ($isHead) {
+            if (defined('TESTING_MODE')) throw new ExitException("Stream HEAD success", $isPartial ? 206 : 200);
+            exit();
+        }
 
         if (defined('TESTING_MODE')) {
             throw new ExitException("Stream success", $isPartial ? 206 : 200);

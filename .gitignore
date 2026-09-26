@@ -47,4 +47,6 @@ diff.patch
 .tools/
 *.tar.gz
 *.zip
+test-results/
+playwright-report/
 

@@ -4,14 +4,11 @@ require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
 class HistoryController {
-    private static function resolveUserAndProfile(array $body = []): array {
-        $authUser = AuthMiddleware::requireAuth();
-        $username = $authUser['username'];
-        $profile = trim((string)($_GET['profile_name'] ?? ($body['profile_name'] ?? 'Principal')));
-        if (empty($profile)) {
-            $profile = 'Principal';
-        }
-        return [$username, $profile];
+    private static function resolveUserAndProfile(): array {
+        $profilePayload = AuthMiddleware::requireProfile();
+        $username = $profilePayload['username'];
+        $profileName = $profilePayload['profile_name'] ?? ($profilePayload['profile_id'] ?? '');
+        return [$username, trim((string)$profileName)];
     }
 
     public static function getHistory(): void {
@@ -23,8 +20,8 @@ class HistoryController {
                    e.show_id, e.season_number, e.episode_number, e.thumbnail_path, e.duration as ep_duration,
                    s.title as show_title, s.poster_path, s.backdrop_path
             FROM watch_history w
-            JOIN episodes e ON w.episode_id = e.id
-            JOIN shows s ON e.show_id = s.id
+            LEFT JOIN episodes e ON w.episode_id = e.id
+            LEFT JOIN shows s ON e.show_id = s.id
             WHERE w.username = :user AND w.profile_name = :prof
             ORDER BY w.updated_at DESC
         ");
@@ -58,20 +55,54 @@ class HistoryController {
 
     public static function saveProgress(?string $episodeId = null): void {
         $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+        $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
 
-        list($username, $profile) = self::resolveUserAndProfile($data);
+        list($username, $profile) = self::resolveUserAndProfile();
 
         $epId = $episodeId ?: ($data['episode_id'] ?? ($_GET['episode_id'] ?? ''));
-        $progress = (float)($data['progress'] ?? ($data['progress_seconds'] ?? 0));
-        $duration = (float)($data['duration'] ?? 0);
-        $completed = isset($data['completed']) ? (bool)$data['completed'] : null;
-
-        if (empty($epId)) {
+        if (empty($epId) || !is_string($epId)) {
             jsonError('episode_id requerido', 400);
         }
 
-        DbHelper::saveProgress($username, $profile, $epId, $progress, $duration, $completed);
+        $canonicalEp = DbHelper::getEpisode($epId);
+        if (!$canonicalEp) {
+            jsonError('Episodio no encontrado', 404);
+        }
+
+        $rawProgress = $data['progress'] ?? ($data['progress_seconds'] ?? null);
+        if ($rawProgress === null || !is_numeric($rawProgress)) {
+            jsonError('Progreso inválido', 400);
+        }
+        $progress = (float)$rawProgress;
+
+        $rawDuration = $data['duration'] ?? null;
+        $duration = 0.0;
+        if ($rawDuration !== null) {
+            if (!is_numeric($rawDuration)) {
+                jsonError('Duración inválida', 400);
+            }
+            $duration = (float)$rawDuration;
+        }
+
+        if (!is_finite($progress) || $progress < 0) {
+            jsonError('El progreso debe ser un número positivo finito', 400);
+        }
+        if (!is_finite($duration) || $duration < 0) {
+            jsonError('La duración debe ser un número positivo finito', 400);
+        }
+
+        $serverDuration = !empty($canonicalEp['duration']) ? (float)$canonicalEp['duration'] : $duration;
+        if ($serverDuration > 0) {
+            $progress = min($progress, $serverDuration);
+            $effectiveDuration = $serverDuration;
+        } else {
+            $progress = min($progress, 86400.0);
+            $effectiveDuration = 0.0;
+        }
+
+        $completed = ($effectiveDuration > 0 && $progress >= ($effectiveDuration * 0.9));
+
+        DbHelper::saveProgress($username, $profile, $epId, $progress, $effectiveDuration, $completed);
         jsonResponse(['success' => true]);
     }
 
@@ -116,12 +147,17 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        list($username, $profile) = self::resolveUserAndProfile($data);
+        list($username, $profile) = self::resolveUserAndProfile();
 
         $showId = $data['show_id'] ?? ($data['showId'] ?? '');
 
         if (empty($showId)) {
             jsonError('show_id requerido', 400);
+        }
+
+        $show = DbHelper::getShow($showId);
+        if (!$show) {
+            jsonError('Show no encontrado', 404);
         }
 
         $db = Database::getConnection();
@@ -154,7 +190,7 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        list($username, $profile) = self::resolveUserAndProfile($data);
+        list($username, $profile) = self::resolveUserAndProfile();
 
         DbHelper::saveUserPreferences($username, $profile, $data);
         jsonResponse(['success' => true]);
@@ -174,7 +210,7 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        list($username, $profile) = self::resolveUserAndProfile($data);
+        list($username, $profile) = self::resolveUserAndProfile();
 
         $episodeId = $_GET['episode_id'] ?? ($data['episode_id'] ?? null);
         $clear = $_GET['clear'] ?? ($data['clear'] ?? null);
@@ -193,11 +229,23 @@ class HistoryController {
     public static function getNotifications(): void {
         list($username, $profile) = self::resolveUserAndProfile();
 
-        $notifications = DbHelper::getNotifications($username, $profile);
+        $result = DbHelper::getNotifications($username, $profile);
         jsonResponse([
             'success' => true,
-            'notifications' => $notifications
+            'notifications' => $result['notifications'],
+            'unread_count' => $result['unread_count'],
+            'last_seen_at' => $result['last_seen_at']
         ]);
+    }
+
+    public static function markNotificationsSeen(): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        try {
+            DbHelper::markNotificationsSeen($username, $profile);
+            jsonResponse(['success' => true]);
+        } catch (Throwable $e) {
+            jsonError('Error persistiendo estado de notificaciones: ' . $e->getMessage(), 500);
+        }
     }
 }
 

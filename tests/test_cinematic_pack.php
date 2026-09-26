@@ -66,13 +66,13 @@ if (!file_exists($playerJsPath)) {
 }
 
 // 5. Verify App Integration for Hover Popovers
-$appJsPath = __DIR__ . '/../frontend/app.js';
+$appJsPath = __DIR__ . '/../frontend/js/main.js';
 if (!file_exists($appJsPath)) {
-    $errors[] = "frontend/app.js does not exist";
+    $errors[] = "Application entry point does not exist";
 } else {
     $appJs = file_get_contents($appJsPath);
     if (!str_contains($appJs, 'card_popover_preview') && !str_contains($appJs, 'initCardPopovers')) {
-        $errors[] = "app.js must integrate card popover preview engine";
+        $errors[] = "Application must integrate card popover preview engine";
     }
 }
 

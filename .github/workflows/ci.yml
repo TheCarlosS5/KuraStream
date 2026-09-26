@@ -1,0 +1,149 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main, refactor/*, feature/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_DATABASE: kurastream
+          MYSQL_USER: kurastream
+          MYSQL_PASSWORD: testpassword
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_mysql, curl, mbstring, fileinfo
+          coverage: none
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci || npm install
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run JavaScript UI Tests
+        run: |
+          node tests/ui_catalogue_rendering.mjs
+          node tests/ui_review_regressions.mjs
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Initialize Database Migrations
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: kurastream
+          DB_USER: kurastream
+          DB_PASS: testpassword
+        run: |
+          export JWT_SECRET=$(openssl rand -hex 32)
+          php -r 'require_once "php_backend/db.php"; Database::initializeSchema();'
+
+      - name: Run Playwright E2E Tests
+        id: e2e
+        continue-on-error: true
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: kurastream
+          DB_USER: kurastream
+          DB_PASS: testpassword
+        run: |
+          export JWT_SECRET=$(openssl rand -hex 32)
+          npm run test:e2e
+
+      - name: Run PHP Test Suite
+        id: php_tests
+        continue-on-error: true
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: kurastream
+          DB_USER: kurastream
+          DB_PASS: testpassword
+        run: |
+          export JWT_SECRET=$(openssl rand -hex 32)
+          php tests/run_all_tests.php 2>&1 | tee /tmp/php_tests.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Docker Build and Smoke Test
+        id: docker_smoke
+        continue-on-error: true
+        run: |
+          docker build -t kurastream:test .
+          USER_ID=$(docker run --rm kurastream:test id -u)
+          if [ "$USER_ID" = "0" ]; then
+            echo "::error::Container runs as root (UID 0), must be non-root"
+            exit 1
+          fi
+          echo "Verified non-root container (UID $USER_ID)"
+
+          RANDOM_SECRET=$(openssl rand -hex 32)
+          docker run -d --name kurastream_smoke --network host \
+            -e JWT_SECRET="$RANDOM_SECRET" \
+            -e DB_HOST=127.0.0.1 \
+            -e DB_PORT=3306 \
+            -e DB_NAME=kurastream \
+            -e DB_USER=kurastream \
+            -e DB_PASS=testpassword \
+            -e PORT=3001 \
+            kurastream:test
+
+          READY=0
+          for i in $(seq 1 15); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/api/health || true)
+            if [ "$STATUS" = "200" ]; then
+              READY=1
+              echo "Container health check passed (HTTP 200) on attempt $i"
+              break
+            fi
+            sleep 1
+          done
+
+          docker logs kurastream_smoke || true
+          docker stop kurastream_smoke || true
+          docker rm kurastream_smoke || true
+
+          if [ "$READY" -ne 1 ]; then
+            echo "::error::Docker smoke health check failed"
+            exit 1
+          fi
+
+      - name: Verify All Test Suites Passed
+        run: |
+          if [ "${{ steps.e2e.outcome }}" != "success" ] || [ "${{ steps.php_tests.outcome }}" != "success" ] || [ "${{ steps.docker_smoke.outcome }}" != "success" ]; then
+            FAIL_MSG="E2E: ${{ steps.e2e.outcome }}, PHP: ${{ steps.php_tests.outcome }}, Docker: ${{ steps.docker_smoke.outcome }}"
+            if [ -f /tmp/php_tests.log ]; then
+              FAIL_DETAILS=$(grep -A 15 "FAIL ✗" /tmp/php_tests.log | tr '\n' ' ' || true)
+              if [ -n "$FAIL_DETAILS" ]; then
+                FAIL_MSG="${FAIL_MSG} - ${FAIL_DETAILS}"
+              fi
+            fi
+            echo "::error::${FAIL_MSG}"
+            exit 1
+          fi

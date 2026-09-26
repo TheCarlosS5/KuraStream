@@ -3,33 +3,80 @@ require_once __DIR__ . '/../config.php';
 
 class RateLimiter {
     public static function check(string $key, int $maxAttempts, int $windowSeconds, &$retryAfter = null): bool {
-        $tempDir = rtrim(sys_get_temp_dir(), '/\\') . '/kura_ratelimits';
+        $tempDir = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'kura_ratelimits';
         if (!is_dir($tempDir)) {
             @mkdir($tempDir, 0777, true);
         }
 
-        $file = $tempDir . '/rl_' . md5($key) . '.json';
+        $file = $tempDir . DIRECTORY_SEPARATOR . 'rl_' . md5($key) . '.json';
         $now = time();
-        $records = [];
 
-        if (file_exists($file)) {
-            $data = json_decode(@file_get_contents($file), true) ?: [];
-            // Filtrar timestamps fuera de la ventana
-            $records = array_values(array_filter($data, fn($ts) => ($now - $ts) < $windowSeconds));
+        $fp = @fopen($file, 'c+');
+        if (!$fp) {
+            return true; // Fallback gracefully if filesystem fails
         }
+
+        if (!flock($fp, LOCK_EX)) {
+            fclose($fp);
+            return true;
+        }
+
+        $content = '';
+        while (!feof($fp)) {
+            $content .= fread($fp, 8192);
+        }
+
+        $data = json_decode($content, true) ?: [];
+        // Filter timestamps within the rolling window
+        $records = array_values(array_filter($data, fn($ts) => ($now - $ts) < $windowSeconds));
 
         if (count($records) >= $maxAttempts) {
             $retryAfter = max(1, ($records[0] + $windowSeconds) - $now);
+            flock($fp, LOCK_UN);
+            fclose($fp);
             return false;
         }
 
         $records[] = $now;
-        @file_put_contents($file, json_encode(array_values($records)));
+        ftruncate($fp, 0);
+        rewind($fp);
+        fwrite($fp, json_encode($records));
+        fflush($fp);
+        flock($fp, LOCK_UN);
+        fclose($fp);
+
         return true;
     }
 
+    public static function getClientIp(?array $trusted = null): string {
+        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        if ($trusted === null) {
+            $trusted = defined('TRUSTED_PROXIES') ? TRUSTED_PROXIES : [];
+        }
+
+        if (empty($trusted) || !in_array($remoteAddr, $trusted, true)) {
+            return $remoteAddr;
+        }
+
+        $forwarded = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? ($_SERVER['HTTP_X_REAL_IP'] ?? '');
+        if (!empty($forwarded)) {
+            $ips = array_map('trim', explode(',', $forwarded));
+            for ($i = count($ips) - 1; $i >= 0; $i--) {
+                $candidate = $ips[$i];
+                if (!filter_var($candidate, FILTER_VALIDATE_IP)) {
+                    continue;
+                }
+                if (!in_array($candidate, $trusted, true)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        return $remoteAddr;
+    }
+
     public static function enforce(string $action, int $maxAttempts, int $windowSeconds): void {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $ip = self::getClientIp();
         $key = "{$action}_{$ip}";
         $retryAfter = 0;
         if (!self::check($key, $maxAttempts, $windowSeconds, $retryAfter)) {

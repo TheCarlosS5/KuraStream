@@ -35,18 +35,18 @@
   <meta name="theme-color" content="#08090b">
   <title>KuraStream - Entretenimiento Offline</title>
   <link rel="manifest" href="/manifest.json">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍁</text></svg>">
+  <link rel="icon" type="image/png" href="/assets/branding/KuraStreamLogoBlack.png">
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2026.09.20-catalogue-hardening">
+  <link rel="stylesheet" href="style.css?v=2026.09.26-modern-streaming-rc2">
 </head>
 <body>
   <!-- Offline Status Banner -->
   <div id="offline-status-banner" class="offline-status-banner">
     <i data-lucide="wifi-off" id="offline-banner-icon" style="width: 16px; height: 16px;"></i>
-    <span id="offline-banner-text">📡 Modo sin conexión — Mostrando contenido disponible</span>
+    <span id="offline-banner-text">Modo sin conexión — Mostrando contenido disponible</span>
   </div>
 
   <!-- App Header -->
@@ -127,7 +127,7 @@
       <div class="profile-switcher-container">
         <h1 class="switcher-title">¿Quién está viendo?</h1>
         <div class="profile-grid" id="profile-grid">
-          <!-- Profile cards injected dynamically by app.js -->
+          <!-- Profile cards injected dynamically by main.js -->
         </div>
         <div style="margin-top: 40px; display: flex; justify-content: center;">
           <button type="button" class="btn btn-secondary" id="btn-manage-profiles">
@@ -182,7 +182,7 @@
         <div class="carousel-indicators" id="carousel-indicators"></div>
       </div>
 
-      <!-- Sections container (loaded dynamically via app.js) -->
+      <!-- Sections container (loaded dynamically via main.js) -->
       <div id="dashboard-sections">
         <!-- populated dynamically -->
       </div>
@@ -215,7 +215,7 @@
 
       <!-- Calendar Grid Container -->
       <div class="calendar-grid-container" id="calendar-grid-content">
-        <!-- Dynamic calendar cards injected by app.js -->
+        <!-- Dynamic calendar cards injected by main.js -->
       </div>
     </section>
 
@@ -224,7 +224,7 @@
       <div class="view-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 25px; backdrop-filter: blur(10px);">
         <div>
           <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
-            <span>💖 Mi Lista</span>
+            <span>Mi Lista</span>
           </h1>
           <p style="color: var(--text-muted); font-size: 0.95rem;">Tus animes y películas guardadas en favoritos.</p>
         </div>
@@ -246,12 +246,12 @@
       <div class="view-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 25px; backdrop-filter: blur(10px);">
         <div>
           <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
-            <span>📜 Historial de Reproducción</span>
+            <span>Historial de Reproducción</span>
           </h1>
           <p style="color: var(--text-muted); font-size: 0.95rem;">Revisa y continúa viendo tus episodios recientes.</p>
         </div>
         <button id="btn-clear-history" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; color: var(--danger-color); border-color: rgba(255, 51, 102, 0.3); background: rgba(255, 51, 102, 0.1);">
-          <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i> 🗑️ Limpiar Historial
+          <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i> Limpiar Historial
         </button>
       </div>
       <div id="history-list" class="history-list-container"></div>
@@ -261,7 +261,7 @@
     <section id="genres-view" class="view-section app-view" style="display: none;">
       <div class="view-header" style="margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 25px; backdrop-filter: blur(10px);">
         <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
-          <span>🎭 Explorar por Géneros</span>
+          <span>Explorar por Géneros</span>
         </h1>
         <p style="color: var(--text-muted); font-size: 0.95rem;">Selecciona una categoría para explorar el catálogo disponible.</p>
       </div>
@@ -276,7 +276,7 @@
     <section id="stats-view" class="view-section app-view" style="display: none;">
       <div class="view-header" style="margin-bottom: 25px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 25px; backdrop-filter: blur(10px);">
         <h1 style="font-family: var(--font-title); font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
-          <span>📊 Mis Estadísticas</span>
+          <span>Mis Estadísticas</span>
         </h1>
         <p style="color: var(--text-muted); font-size: 0.95rem;">Resumen de tu actividad y hábitos de reproducción.</p>
       </div>
@@ -289,7 +289,7 @@
 
     <!-- SHOW DETAIL VIEW -->
     <section id="detail-view" class="app-view">
-      <!-- Static backdrop: the show image is applied by app.js. -->
+      <!-- Static backdrop: the show image is applied by main.js. -->
       <div class="detail-ambient-bg">
         <div class="ambient-overlay"></div>
       </div>
@@ -421,9 +421,6 @@
           </div>
         </div>
 
-        <!-- Sakura Pause Canvas -->
-        <canvas id="player-pause-canvas"></canvas>
-
         <!-- Custom Video Player Controls Overlay -->
         <div class="player-controls-overlay" id="player-controls-overlay">
           
@@ -487,51 +484,47 @@
                   </div>
                 </div>
 
-                <!-- Speed Toggle -->
-                <div class="player-dropdown" id="speed-dropdown">
-                  <button class="player-btn dropdown-trigger player-speed-btn" id="player-speed-btn">1.0x</button>
-                  <div class="dropdown-menu">
-                    <button class="speed-opt" data-speed="0.5">0.5x</button>
-                    <button class="speed-opt" data-speed="0.75">0.75x</button>
-                    <button class="speed-opt active" data-speed="1">1.0x (Normal)</button>
-                    <button class="speed-opt" data-speed="1.25">1.25x</button>
-                    <button class="speed-opt" data-speed="1.5">1.5x</button>
-                    <button class="speed-opt" data-speed="2">2.0x</button>
-                  </div>
-                </div>
-
-                <!-- Audio Tracks -->
-                <div class="player-dropdown" id="audio-dropdown">
+                <!-- Legacy Separate Audio/Subtitle Dropdowns (Hidden, consolidated into Tracks Modal) -->
+                <div class="player-dropdown" id="audio-dropdown" style="display: none;">
                   <button class="player-btn dropdown-trigger" id="audio-btn" title="Audio"><i data-lucide="headphones"></i></button>
-                  <div class="dropdown-menu" id="audio-menu-list">
-                    <!-- Audio tracks injected here -->
-                  </div>
+                  <div class="dropdown-menu" id="audio-menu-list"></div>
                 </div>
-
-                <!-- Subtitle Tracks -->
-                <div class="player-dropdown" id="subtitle-dropdown">
+                <div class="player-dropdown" id="subtitle-dropdown" style="display: none;">
                   <button class="player-btn dropdown-trigger" id="subtitle-btn" title="Subtítulos"><i data-lucide="captions"></i></button>
-                  <div class="dropdown-menu" id="subtitle-menu-list">
-                    <!-- Subtitles injected here -->
-                  </div>
+                  <div class="dropdown-menu" id="subtitle-menu-list"></div>
                 </div>
 
-                <!-- Ambilight Toggle -->
-                <button class="player-btn" id="ambilight-toggle-btn" title="Activar/Desactivar Ambilight"><i data-lucide="sparkles"></i></button>
+                <!-- Ambilight & PiP Standalone (Consolidated into More Options menu) -->
+                <button class="player-btn" id="ambilight-toggle-btn" title="Activar/Desactivar Ambilight" style="display: none;"><i data-lucide="sparkles"></i></button>
+                <button class="player-btn player-pip-btn" id="player-pip-btn" title="Picture in Picture" style="display: none;"><i data-lucide="picture-in-picture-2"></i></button>
 
                 <!-- Audio & Subtitles 2-Column Modal Trigger -->
                 <button class="player-btn" id="player-tracks-btn" title="Audio y Subtítulos"><i data-lucide="subtitles"></i></button>
-
-                <!-- Picture-in-Picture Trigger -->
-                <button class="player-btn player-pip-btn" id="player-pip-btn" title="Picture in Picture"><i data-lucide="picture-in-picture-2"></i></button>
 
                 <!-- More Options Dropdown (...) -->
                 <div class="player-dropdown" id="more-options-dropdown">
                   <button class="player-btn dropdown-trigger" id="more-options-btn" title="Más opciones"><i data-lucide="more-vertical"></i></button>
                   <div class="dropdown-menu player-more-menu" id="more-options-menu">
+                    <div class="more-menu-section-header">
+                      <i data-lucide="gauge"></i>
+                      <span>Velocidad</span>
+                    </div>
+                    <div class="more-menu-speed-grid" id="speed-options-group">
+                      <button class="speed-opt" data-speed="0.5">0.5x</button>
+                      <button class="speed-opt" data-speed="0.75">0.75x</button>
+                      <button class="speed-opt active" data-speed="1">1.0x</button>
+                      <button class="speed-opt" data-speed="1.25">1.25x</button>
+                      <button class="speed-opt" data-speed="1.5">1.5x</button>
+                      <button class="speed-opt" data-speed="2">2.0x</button>
+                    </div>
+                    <div class="more-menu-divider"></div>
                     <button class="more-menu-item" id="menu-pip-btn">
                       <i data-lucide="picture-in-picture"></i>
                       <span>Ventana en ventana</span>
+                    </button>
+                    <button class="more-menu-item" id="menu-ambilight-btn">
+                      <i data-lucide="sparkles"></i>
+                      <span>Efecto Ambilight</span>
                     </button>
                     <button class="more-menu-item" id="menu-qr-btn">
                       <i data-lucide="qr-code"></i>
@@ -577,7 +570,7 @@
               <span id="party-room-code-display" class="party-code-pill" title="Clic para copiar código">KURA-XXXX</span>
               <button id="party-btn-copy-cta" class="party-icon-btn" title="Copiar código de sala" style="font-size: 0.75rem; font-weight: 700; color: var(--accent-color); background: rgba(var(--accent-rgb), 0.1); border-radius: 4px; padding: 2px 6px;">Copiar código</button>
               <div id="party-avatar-stack-container" class="party-avatar-stack"></div>
-              <span id="party-host-badge" class="party-host-pill">👑 Anfitrión</span>
+              <span id="party-host-badge" class="party-host-pill"><i data-lucide="crown" style="width:13px;height:13px;vertical-align:middle;margin-right:3px;"></i>Anfitrión</span>
             </div>
           </div>
 
@@ -587,14 +580,7 @@
           </div>
 
           <!-- Floating Flying Reactions Bar -->
-          <div class="party-reactions-bar">
-            <button class="party-reaction-btn" data-emoji="🔥" title="Fuego">🔥</button>
-            <button class="party-reaction-btn" data-emoji="😭" title="Llorar">😭</button>
-            <button class="party-reaction-btn" data-emoji="😱" title="Sorpresa">😱</button>
-            <button class="party-reaction-btn" data-emoji="❤️" title="Amor">❤️</button>
-            <button class="party-reaction-btn" data-emoji="🎉" title="Fiesta">🎉</button>
-            <button class="party-reaction-btn" data-emoji="👏" title="Aplausos">👏</button>
-          </div>
+          <div class="party-reactions-bar"><button class="party-reaction-btn" data-reaction="flame" title="Fuego" aria-label="Fuego"><i data-lucide="flame"></i></button><button class="party-reaction-btn" data-reaction="heart" title="Me encanta" aria-label="Me encanta"><i data-lucide="heart"></i></button><button class="party-reaction-btn" data-reaction="smile" title="Risa" aria-label="Risa"><i data-lucide="smile"></i></button><button class="party-reaction-btn" data-reaction="sparkles" title="Fiesta" aria-label="Fiesta"><i data-lucide="sparkles"></i></button><button class="party-reaction-btn" data-reaction="thumbs-up" title="Me gusta" aria-label="Me gusta"><i data-lucide="thumbs-up"></i></button></div>
 
           <!-- Chat input -->
           <form class="party-input-form" id="party-input-form" onsubmit="return false;">
@@ -677,10 +663,6 @@
             <button class="admin-nav-item" data-target="admin-sub-library" onclick="switchAdminSubView('admin-sub-library')">
               <i data-lucide="tv"></i>
               <span>Biblioteca</span>
-            </button>
-            <button class="admin-nav-item" data-target="admin-sub-torrents" onclick="switchAdminSubView('admin-sub-torrents')">
-              <i data-lucide="download-cloud"></i>
-              <span>Descargas Torrent</span>
             </button>
             <button class="admin-nav-item" data-target="admin-sub-staging" onclick="switchAdminSubView('admin-sub-staging')">
               <i data-lucide="inbox"></i>
@@ -830,118 +812,6 @@
             </div>
           </div>
 
-          <!-- SUB-VIEW: TORRENT DOWNLOAD MANAGER -->
-          <div id="admin-sub-torrents" class="admin-sub-view">
-            <div class="admin-sub-title-bar" style="margin-bottom: 20px;">
-              <div>
-                <h2 class="admin-sub-title" style="margin: 0; padding: 0; border: none;">Gestor de Descargas Torrent (Latino / Sub ESP)</h2>
-                <small style="color: var(--text-muted); font-size: 0.82rem;">Monitoreo en tiempo real, cola secuencial 1 por 1 e ingesta automática por serie y temporada.</small>
-              </div>
-              <div class="admin-btn-group">
-                <span id="torrent-manager-status-badge" class="badge" style="background: rgba(255,255,255,0.1); color: var(--text-muted);">Inactivo</span>
-                <button type="button" class="btn btn-secondary" id="btn-toggle-torrent-manager" style="height: 36px; padding: 0 14px; font-size: 0.8rem;">
-                  <i data-lucide="power" style="width: 14px; height: 14px;"></i> Activar Auto-Scan
-                </button>
-                <button type="button" class="btn btn-primary" id="btn-scan-torrent-manager-now" style="height: 36px; padding: 0 14px; font-size: 0.8rem; gap: 6px;">
-                  <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Escanear Ahora
-                </button>
-              </div>
-            </div>
-            <!-- Buscador de Torrents Nyaa.si -->
-            <div class="admin-card" style="margin-bottom: 25px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <i data-lucide="search" style="color: var(--accent-color); width: 22px; height: 22px;"></i>
-                  <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.1rem; color: var(--text-main);">Buscador de Anime en Nyaa.si</h3>
-                </div>
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-muted); cursor: pointer; user-select: none;">
-                  <input type="checkbox" id="torrent-filter-spanish-check" style="cursor: pointer;">
-                  <span>Filtrar solo Español / Latino / Multisub</span>
-                </label>
-              </div>
-
-              <div style="display: flex; gap: 10px; margin-bottom: 12px;">
-                <input type="text" id="torrent-search-input" class="form-control" placeholder="Escribe el nombre del anime (ej. Demon Slayer 1080p, One Piece, Jujutsu Kaisen)..." style="flex: 1; font-size: 0.9rem; padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: #fff;">
-                <button type="button" class="btn btn-primary" id="btn-search-torrents" style="padding: 0 20px; font-size: 0.85rem; display: flex; align-items: center; gap: 8px; font-weight: 600;">
-                  <i data-lucide="search" style="width: 16px; height: 16px;"></i> Buscar Torrents
-                </button>
-              </div>
-
-              <!-- Live Search Results Grid / Table -->
-              <div id="torrent-search-results-container" style="display: none; border-top: 1px solid var(--border-color); padding-top: 15px; margin-top: 10px;">
-                <h4 style="font-size: 0.9rem; margin-bottom: 12px; color: var(--text-muted); font-weight: 600;">Resultados de Búsqueda (<span id="torrent-results-count" style="color: var(--accent-color);">0</span> torrents encontrados):</h4>
-                <div id="torrent-search-results-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 380px; overflow-y: auto; padding-right: 5px;">
-                  <!-- Results injected here -->
-                </div>
-              </div>
-            </div>
-
-            <!-- Active Live Download Card -->
-            <div class="admin-card" style="margin-bottom: 25px; background: rgba(0,224,143,0.04); border: 1px solid rgba(0,224,143,0.25);">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <i data-lucide="download-cloud" style="color: #00e08f; width: 24px; height: 24px;"></i>
-                  <div>
-                    <h3 id="tm-active-title" style="margin: 0; font-family: var(--font-title); font-size: 1.1rem; color: var(--text-main);">Sin descargas activas en este momento</h3>
-                    <small id="tm-active-subtitle" style="color: var(--text-muted); font-size: 0.8rem;">El servidor está a la espera de nuevos capítulos o inicio de escaneo.</small>
-                  </div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                  <button type="button" class="btn btn-secondary" id="btn-pause-active-download" style="padding: 5px 12px; font-size: 0.78rem; color: #ffab00; background: rgba(255, 171, 0, 0.12); border: 1px solid rgba(255, 171, 0, 0.3); cursor: pointer; border-radius: 4px; display: none; align-items: center; gap: 6px;">
-                    <i data-lucide="pause" style="width: 14px; height: 14px;"></i> <span>Pausar</span>
-                  </button>
-                  <button type="button" class="btn btn-secondary" id="btn-cancel-active-download" style="padding: 5px 12px; font-size: 0.78rem; color: #ff5555; background: rgba(255, 85, 85, 0.12); border: 1px solid rgba(255, 85, 85, 0.3); cursor: pointer; border-radius: 4px; display: none; align-items: center; gap: 6px;">
-                    <i data-lucide="square" style="width: 14px; height: 14px;"></i> Detener Descarga
-                  </button>
-                  <span id="tm-active-percent" style="font-size: 1.4rem; font-weight: 900; color: #00e08f; min-width: 50px; text-align: right;">0%</span>
-                </div>
-              </div>
-
-              <!-- Animated Progress Bar -->
-              <div style="width: 100%; height: 12px; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
-                <div id="tm-active-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-color), #00e08f); transition: width 0.3s ease;"></div>
-              </div>
-
-              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: var(--text-muted);">
-                <span id="tm-active-status">Estado: En espera</span>
-                <strong id="tm-active-metrics" style="color: var(--text-main);">0.0 MB / 0.0 MB (0.0 MB/s)</strong>
-              </div>
-            </div>
-
-            <!-- Sequential Queue (1-by-1) Card -->
-            <div class="admin-card" style="margin-bottom: 25px;">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <i data-lucide="list-ordered" style="color: var(--accent-color); width: 20px; height: 20px;"></i>
-                  <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.05rem;">Cola de Descargas Secuenciales (1 por 1)</h3>
-                </div>
-                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                  <button type="button" class="btn btn-primary" id="btn-start-download-queue" style="padding: 6px 14px; font-size: 0.78rem; background: var(--accent-color); border: none; cursor: pointer; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; font-weight: 700;">
-                    <i data-lucide="play" style="width: 14px; height: 14px;"></i> Iniciar Descargas
-                  </button>
-                  <button type="button" class="btn btn-secondary" id="btn-clear-download-queue" style="padding: 4px 12px; font-size: 0.78rem; color: #ffab00; background: rgba(255, 171, 0, 0.12); border: 1px solid rgba(255, 171, 0, 0.3); cursor: pointer; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;">
-                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Vaciar Toda la Cola
-                  </button>
-                  <span id="tm-queue-count" class="badge" style="background: rgba(255,255,255,0.08); color: var(--text-muted);">0 en cola</span>
-                </div>
-              </div>
-              <div id="tm-queue-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto;">
-                <p style="color: var(--text-muted); font-size: 0.85rem; padding: 10px 0;">No hay capítulos pendientes en la cola de descarga.</p>
-              </div>
-            </div>
-
-            <!-- Completed History Card -->
-            <div class="admin-card">
-              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
-                <i data-lucide="check-circle" style="color: #00e08f; width: 20px; height: 20px;"></i>
-                <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.05rem;">Historial de Torrents Importados al Catálogo</h3>
-              </div>
-              <div id="tm-history-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto;">
-                <p style="color: var(--text-muted); font-size: 0.85rem; padding: 10px 0;">No hay descargas recientes registradas en el historial.</p>
-              </div>
-            </div>
-          </div>
-
           <!-- SUB-VIEW: STAGING AREA (Por Organizar) -->
           <div id="admin-sub-staging" class="admin-sub-view">
             <div class="admin-sub-title-bar">
@@ -964,55 +834,6 @@
           <!-- SUB-VIEW: IMPORT -->
           <div id="admin-sub-import" class="admin-sub-view">
             <h2 class="admin-sub-title">Importar & Crear Contenido</h2>
-
-            <!-- Auto-Downloader Torrent Card -->
-            <div class="admin-card" style="margin-bottom: 25px;">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <i data-lucide="rss" style="color: var(--accent-color); width: 22px; height: 22px;"></i>
-                  <div>
-                    <h3 style="margin: 0; font-family: var(--font-title); font-size: 1.15rem;">Auto-Downloader Anime (Latino / Sub ESP)</h3>
-                    <small style="color: var(--text-muted); font-size: 0.8rem;">Descarga e ingesta automática por torrent desde Nyaa/Animetosho</small>
-                  </div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <span id="autodownload-status-badge" class="badge" style="background: rgba(255,255,255,0.1); color: var(--text-muted);">Inactivo</span>
-                  <button type="button" class="btn btn-secondary" id="btn-toggle-autodownload" style="height: 36px; padding: 0 14px; font-size: 0.8rem;">
-                    <i data-lucide="power" style="width: 14px; height: 14px;"></i> Activar Auto-Scan
-                  </button>
-                </div>
-              </div>
-
-              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 10px 14px; border-radius: 6px; font-size: 0.82rem; margin-bottom: 12px; border: 1px solid var(--border-color);">
-                <span style="color: var(--text-muted);">Última búsqueda: <strong id="autodownload-last-scan" style="color: var(--text-main);">Nunca</strong></span>
-                <button type="button" class="btn btn-primary" id="btn-scan-autodownload-now" style="height: 32px; padding: 0 12px; font-size: 0.78rem; gap: 6px;">
-                  <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Escanear Ahora
-                </button>
-              </div>
-
-              <!-- Live Download Progress Monitor -->
-              <div id="autodownload-active-container" style="display: none; margin-bottom: 15px; padding: 12px; background: rgba(0,224,143,0.05); border: 1px solid rgba(0,224,143,0.2); border-radius: 4px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                  <span id="autodownload-current-title" style="font-weight: 700; font-size: 0.88rem; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
-                    <i data-lucide="download-cloud" style="width: 16px; height: 16px; color: #00e08f;"></i> Descargando capítulo...
-                  </span>
-                  <span id="autodownload-current-percent" style="font-weight: 800; font-size: 0.95rem; color: #00e08f;">0%</span>
-                </div>
-                <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; margin-bottom: 6px;">
-                  <div id="autodownload-progress-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-color), #00e08f); transition: width 0.2s ease;"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-muted);">
-                  <span id="autodownload-current-status">Descargando torrent en servidor...</span>
-                  <span id="autodownload-current-stats">0 MB / 0 MB (0 MB/s)</span>
-                </div>
-              </div>
-
-              <!-- History List -->
-              <h4 style="font-size: 0.85rem; margin-bottom: 8px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Últimos Torrents Registrados</h4>
-              <div id="autodownload-history-list" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem;">
-                <p style="color: var(--text-muted); padding: 6px 0;">No se han registrado descargas automatizadas aún.</p>
-              </div>
-            </div>
 
             <!-- Buscador y Creador TMDB 1-Clic -->
             <div class="admin-card" style="margin-bottom: 25px;">
@@ -1315,9 +1136,9 @@
           <div>
             <label style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; display: block; color: var(--text-main);">Estado:</label>
             <select id="edit-show-status-select" class="form-control" style="width: 100%; font-size: 0.88rem; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: #181824; color: #fff;">
-              <option value="airing">🟢 En Emisión</option>
-              <option value="upcoming">⏳ En Espera</option>
-              <option value="finished">🔴 Finalizado</option>
+              <option value="airing">En Emisión</option>
+              <option value="upcoming">En Espera</option>
+              <option value="finished">Finalizado</option>
             </select>
           </div>
         </div>
@@ -1659,8 +1480,8 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="app.js?v=2026.09.20-catalogue-hardening" type="module"></script>
-  <script src="player.js?v=2026.09.20-catalogue-hardening" type="module"></script>
+  <script src="/js/main.js?v=2026.09.26-modern-streaming-rc2" type="module"></script>
+  <script src="player.js?v=2026.09.26-modern-streaming-rc2" type="module"></script>
   <!-- Service Worker Registration for PWA -->
   <script>
     if ('serviceWorker' in navigator) {

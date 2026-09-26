@@ -172,9 +172,9 @@ function ensurePopoverStyles() {
       color: #000000;
     }
 
-    .popover-btn-play i:empty::before { content: "▶ "; font-style: normal; font-size: 0.8rem; }
+    .popover-btn-play i:empty::before { content: ""; display: inline-block; width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid currentColor; margin-right: 2px; }
     .popover-btn-list i:empty::before { content: "+"; font-style: normal; font-size: 1.1rem; line-height: 1; }
-    .popover-btn-info i:empty::before { content: "ℹ"; font-style: normal; font-size: 1rem; line-height: 1; }
+    .popover-btn-info i:empty::before { content: "i"; font-style: normal; font-weight: bold; font-family: sans-serif; font-size: 0.9rem; line-height: 1; }
 
     .popover-btn-play svg,
     .popover-btn-list svg,
@@ -314,10 +314,8 @@ export function extractCardMetadata(card) {
       rating = ratingEl.textContent.replace(/[^\d.]/g, '').trim();
     }
   }
-  if (!rating) rating = '8.5';
-  const formattedRating = rating.startsWith('★')
-    ? rating
-    : `★ ${parseFloat(rating) ? parseFloat(rating).toFixed(1) : rating}`;
+  if (!rating) rating = 'N/A';
+  const formattedRating = (parseFloat(rating) && parseFloat(rating) > 0) ? parseFloat(rating).toFixed(1) : 'N/A';
 
   // Extract Year
   let year = ds.year || '';
@@ -328,7 +326,7 @@ export function extractCardMetadata(card) {
       if (match) year = match[1];
     }
   }
-  if (!year) year = '2024';
+  if (!year) year = 'N/A';
 
   // Extract Episodes / Duration
   let episodes = ds.episodes || '';
@@ -494,7 +492,7 @@ export function initCardPopovers(containerSelector = document.body, options = {}
           <button class="popover-btn-info" type="button" title="Más información" aria-label="Más información"><i data-lucide="info"></i></button>
         </div>
         <div class="popover-preview-meta">
-          <span class="popover-badge-rating-tabular"><i data-lucide="star" style="width:10px;height:10px;fill:var(--rating-color);stroke:var(--rating-color);"></i> ${escapeHtml(meta.rating.replace('★', '').trim())}</span>
+          <span class="popover-badge-rating-tabular"><i data-lucide="star" style="width:10px;height:10px;fill:var(--rating-color);stroke:var(--rating-color);"></i> ${escapeHtml(meta.rating)}</span>
           <span class="popover-badge-year">${escapeHtml(meta.year)}</span>
           <span class="popover-badge-episodes">${escapeHtml(meta.episodes)}</span>
         </div>

@@ -10,8 +10,17 @@ RUN docker-php-ext-install pdo_mysql mbstring curl
 # Set working directory
 WORKDIR /app
 
+# Create unprivileged application user
+RUN groupadd -r kurastream && useradd -r -g kurastream -d /app -s /sbin/nologin kurastream
+
 # Copy application files
-COPY . .
+COPY --chown=kurastream:kurastream . .
+
+# Ensure storage directories exist with correct permissions
+RUN mkdir -p /app/library /tmp/kura_ratelimits /tmp/kura_subs_cache /tmp/kura_transcode_slots \
+    && chown -R kurastream:kurastream /app /tmp/kura_* 2>/dev/null || true
+
+USER kurastream
 
 # Expose server port
 EXPOSE 3000

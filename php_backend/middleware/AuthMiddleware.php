@@ -52,10 +52,6 @@ class AuthMiddleware {
      * Extract token from cookie or HTTP Authorization header
      */
     public static function getBearerToken(): ?string {
-        if (!empty($_COOKIE['kurastream_token'])) {
-            return trim($_COOKIE['kurastream_token']);
-        }
-
         $headers = null;
         if (isset($_SERVER['Authorization'])) {
             $headers = trim($_SERVER['Authorization']);
@@ -68,6 +64,10 @@ class AuthMiddleware {
 
         if ($headers && preg_match('/Bearer\s+(.*)$/i', $headers, $matches)) {
             return $matches[1];
+        }
+
+        if (!empty($_COOKIE['kurastream_token'])) {
+            return trim($_COOKIE['kurastream_token']);
         }
 
         return null;
@@ -100,6 +100,19 @@ class AuthMiddleware {
 
         if (!$payload) {
             jsonError('Acceso denegado: Se requiere iniciar sesión', 401);
+        }
+
+        return $payload;
+    }
+
+    /**
+     * Enforce User Authentication AND Active Profile Check
+     */
+    public static function requireProfile(): array {
+        $payload = self::requireAuth();
+
+        if (empty($payload['profile_id']) && empty($payload['profile_name'])) {
+            jsonError('Selección de perfil requerida', 403, ['code' => 'PROFILE_REQUIRED']);
         }
 
         return $payload;
