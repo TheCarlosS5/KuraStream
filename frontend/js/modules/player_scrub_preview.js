@@ -62,6 +62,7 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
   const throttleMs = typeof options.throttleMs === 'number' ? options.throttleMs : 50;
   const clampPadding = typeof options.clampPadding === 'number' ? options.clampPadding : 8;
 
+  const canDirectPlay = options.canDirectPlay !== false;
   let manualDuration = (typeof options.duration === 'number' && options.duration > 0)
     ? options.duration
     : null;
@@ -74,27 +75,31 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
   let lastMoveTime = 0;
   let lastMoveEvent = null;
 
-  // 1. Offscreen Video Clone (detached from DOM)
-  const offscreenVideo = document.createElement('video');
-  offscreenVideo.muted = true;
-  offscreenVideo.defaultMuted = true;
-  offscreenVideo.preload = 'auto';
-  offscreenVideo.playsInline = true;
-  offscreenVideo.style.display = 'none';
+  // 1. Offscreen Video Clone (only when canDirectPlay is true)
+  let offscreenVideo = null;
+  if (canDirectPlay) {
+    offscreenVideo = document.createElement('video');
+    offscreenVideo.muted = true;
+    offscreenVideo.defaultMuted = true;
+    offscreenVideo.preload = 'auto';
+    offscreenVideo.playsInline = true;
+    offscreenVideo.style.display = 'none';
 
-  if (mainVideoEl && mainVideoEl.crossOrigin) {
-    offscreenVideo.crossOrigin = mainVideoEl.crossOrigin;
-  } else if (options.crossOrigin) {
-    offscreenVideo.crossOrigin = options.crossOrigin;
-  }
+    if (mainVideoEl && mainVideoEl.crossOrigin) {
+      offscreenVideo.crossOrigin = mainVideoEl.crossOrigin;
+    } else if (options.crossOrigin) {
+      offscreenVideo.crossOrigin = options.crossOrigin;
+    }
 
-  const initialSrc = options.src || (mainVideoEl ? (mainVideoEl.currentSrc || mainVideoEl.src) : '') || '';
-  if (initialSrc) {
-    offscreenVideo.src = initialSrc;
-    try {
-      offscreenVideo.load();
-    } catch {
-      // Ignore load errors during init
+    const rawSrc = options.src || (mainVideoEl ? (mainVideoEl.currentSrc || mainVideoEl.src) : '') || '';
+    if (rawSrc) {
+      const initialSrc = rawSrc.includes('?') ? `${rawSrc}&preview=1` : `${rawSrc}?preview=1`;
+      offscreenVideo.src = initialSrc;
+      try {
+        offscreenVideo.load();
+      } catch {
+        // Ignore load errors during init
+      }
     }
   }
 
@@ -118,9 +123,12 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
     canvas.width = previewWidth;
     canvas.height = previewHeight;
     tooltip.appendChild(canvas);
-  } else {
     if (!canvas.width) canvas.width = previewWidth;
     if (!canvas.height) canvas.height = previewHeight;
+  }
+
+  if (!canDirectPlay && canvas) {
+    canvas.style.display = 'none';
   }
 
   let timeBadge = tooltip.querySelector('.scrub-preview-time');
@@ -336,8 +344,10 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
   progressBarEl.addEventListener('mousemove', onMouseMove);
   progressBarEl.addEventListener('mouseleave', onMouseLeave);
 
-  offscreenVideo.addEventListener('seeked', handleSeeked);
-  offscreenVideo.addEventListener('error', handleVideoError);
+  if (offscreenVideo) {
+    offscreenVideo.addEventListener('seeked', handleSeeked);
+    offscreenVideo.addEventListener('error', handleVideoError);
+  }
 
   if (mainVideoEl) {
     mainVideoEl.addEventListener('loadedmetadata', onMainVideoUpdate);
@@ -346,7 +356,8 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
   // 6. Public API Functions
   function updateSource(newSrc) {
     if (isDestroyed || !offscreenVideo) return;
-    const src = newSrc || (mainVideoEl ? (mainVideoEl.currentSrc || mainVideoEl.src) : '') || '';
+    const rawSrc = newSrc || (mainVideoEl ? (mainVideoEl.currentSrc || mainVideoEl.src) : '') || '';
+    const src = rawSrc ? (rawSrc.includes('?') ? `${rawSrc}&preview=1` : `${rawSrc}?preview=1`) : '';
     if (src && offscreenVideo.src !== src) {
       offscreenVideo.src = src;
       try {
@@ -382,20 +393,21 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
     progressBarEl.removeEventListener('mousemove', onMouseMove);
     progressBarEl.removeEventListener('mouseleave', onMouseLeave);
 
-    offscreenVideo.removeEventListener('seeked', handleSeeked);
-    offscreenVideo.removeEventListener('error', handleVideoError);
+    if (offscreenVideo) {
+      offscreenVideo.removeEventListener('seeked', handleSeeked);
+      offscreenVideo.removeEventListener('error', handleVideoError);
+      try {
+        offscreenVideo.pause();
+        offscreenVideo.removeAttribute('src');
+        offscreenVideo.src = '';
+        offscreenVideo.load();
+      } catch {
+        // Ignore teardown errors
+      }
+    }
 
     if (mainVideoEl) {
       mainVideoEl.removeEventListener('loadedmetadata', onMainVideoUpdate);
-    }
-
-    try {
-      offscreenVideo.pause();
-      offscreenVideo.removeAttribute('src');
-      offscreenVideo.src = '';
-      offscreenVideo.load();
-    } catch {
-      // Ignore teardown errors
     }
 
     if (ctx && canvas) {

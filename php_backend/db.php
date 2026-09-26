@@ -486,8 +486,20 @@ class DbHelper {
 
     public static function getNotifications(string $username, string $profile = 'Principal'): array {
         $db = Database::getConnection();
+
+        $lastSeenAt = null;
+        try {
+            $prefStmt = $db->prepare("SELECT notifications_last_seen_at FROM user_preferences WHERE username = :u AND profile_name = :p");
+            $prefStmt->execute(['u' => $username, 'p' => $profile]);
+            $prefRow = $prefStmt->fetch();
+            $lastSeenAt = $prefRow['notifications_last_seen_at'] ?? null;
+        } catch (Throwable $e) {
+            $lastSeenAt = null;
+        }
+
         $stmt = $db->prepare("
-            SELECT e.id as episode_id, e.season_number, e.episode_number, e.title as episode_title, s.id as show_id, s.title as show_title, s.poster_path
+            SELECT e.id as episode_id, e.season_number, e.episode_number, e.title as episode_title, 
+                   s.id as show_id, s.title as show_title, s.poster_path, s.created_at as show_created_at
             FROM favorites f
             JOIN shows s ON f.show_id = s.id
             JOIN episodes e ON e.show_id = s.id
@@ -498,8 +510,23 @@ class DbHelper {
         $stmt->execute(['u' => $username, 'p' => $profile]);
         $rows = $stmt->fetchAll();
 
-        return array_map(function($r) {
-            return [
+        $unreadCount = 0;
+        $notifications = [];
+
+        foreach ($rows as $r) {
+            $createdAt = !empty($r['show_created_at']) ? $r['show_created_at'] : '2026-01-01 00:00:00';
+            $isUnread = false;
+            if ($lastSeenAt === null) {
+                $isUnread = true;
+                $unreadCount++;
+            } else {
+                $isUnread = (strtotime($createdAt) > strtotime($lastSeenAt));
+                if ($isUnread) {
+                    $unreadCount++;
+                }
+            }
+
+            $notifications[] = [
                 'id' => 'notif_' . $r['episode_id'],
                 'show_id' => $r['show_id'],
                 'show_title' => $r['show_title'],
@@ -509,9 +536,28 @@ class DbHelper {
                 'episode_number' => (int)$r['episode_number'],
                 'title' => $r['episode_title'] ?? '',
                 'message' => "¡Nuevo episodio disponible! S{$r['season_number']} E{$r['episode_number']}: {$r['show_title']}",
-                'created_at' => date('Y-m-d H:i:s')
+                'created_at' => $createdAt,
+                'is_unread' => $isUnread
             ];
-        }, $rows);
+        }
+
+        return [
+            'notifications' => $notifications,
+            'unread_count' => $unreadCount,
+            'last_seen_at' => $lastSeenAt
+        ];
+    }
+
+    public static function markNotificationsSeen(string $username, string $profile = 'Principal'): void {
+        $db = Database::getConnection();
+        try {
+            $stmt = $db->prepare("
+                INSERT INTO user_preferences (username, profile_name, notifications_last_seen_at)
+                VALUES (:u, :p, CURRENT_TIMESTAMP)
+                ON DUPLICATE KEY UPDATE notifications_last_seen_at = CURRENT_TIMESTAMP
+            ");
+            $stmt->execute(['u' => $username, 'p' => $profile]);
+        } catch (Throwable $e) {}
     }
 
     public static function registerUser(string $username, string $password, string $role = 'user'): ?array {
@@ -948,6 +994,16 @@ class DbHelper {
             WHERE room_id = :r AND member_id = :m AND token_hash = :h
         ");
         $stmt->execute(['r' => $roomId, 'm' => $memberId, 'h' => $tokenHash]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public static function getPartyMemberById(string $roomId, string $memberId): ?array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            SELECT * FROM party_members 
+            WHERE room_id = :r AND member_id = :m
+        ");
+        $stmt->execute(['r' => $roomId, 'm' => $memberId]);
         return $stmt->fetch() ?: null;
     }
 

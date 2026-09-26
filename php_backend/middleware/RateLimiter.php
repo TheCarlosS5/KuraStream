@@ -48,8 +48,29 @@ class RateLimiter {
         return true;
     }
 
+    public static function getClientIp(): string {
+        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $trusted = defined('TRUSTED_PROXIES') ? TRUSTED_PROXIES : [];
+
+        if (empty($trusted) || !in_array($remoteAddr, $trusted, true)) {
+            return $remoteAddr;
+        }
+
+        $forwarded = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? ($_SERVER['HTTP_X_REAL_IP'] ?? '');
+        if (!empty($forwarded)) {
+            $ips = array_map('trim', explode(',', $forwarded));
+            foreach ($ips as $candidate) {
+                if (filter_var($candidate, FILTER_VALIDATE_IP)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        return $remoteAddr;
+    }
+
     public static function enforce(string $action, int $maxAttempts, int $windowSeconds): void {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $ip = self::getClientIp();
         $key = "{$action}_{$ip}";
         $retryAfter = 0;
         if (!self::check($key, $maxAttempts, $windowSeconds, $retryAfter)) {

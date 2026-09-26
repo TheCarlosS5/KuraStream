@@ -96,7 +96,7 @@ class TranscodeLimiter {
 
 class PlayerController {
     public static function authorizeStreamAccess(string $episodeId): void {
-        if (defined('TESTING_MODE') && empty($_SERVER['HTTP_AUTHORIZATION']) && empty($_COOKIE['kurastream_token']) && empty($_GET['token']) && empty($_GET['ticket']) && empty($_GET['capability'])) {
+        if (defined('TESTING_MODE') && empty($_SERVER['HTTP_AUTHORIZATION']) && empty($_COOKIE['kurastream_token']) && empty($_GET['ticket']) && empty($_GET['capability'])) {
             return;
         }
 
@@ -106,13 +106,19 @@ class PlayerController {
             $cap = AuthMiddleware::verifyToken($ticket);
             if ($cap && ($cap['type'] ?? '') === 'watch_party_stream'
                 && !empty($cap['room_id'])
-                && ($cap['episode_id'] ?? '') === $episodeId
                 && (!isset($cap['exp']) || $cap['exp'] > time())
             ) {
                 if (!empty($cap['member_id'])) {
                     if (!DbHelper::isPartyMemberActive($cap['room_id'], $cap['member_id'])) {
                         jsonError('Ticket de sala expirado o miembro inactivo', 403);
                     }
+                }
+                $room = DbHelper::getPartyRoom($cap['room_id']);
+                if (!$room || empty($room['episode_id'])) {
+                    jsonError('Sala no encontrada o inactiva', 404);
+                }
+                if ($room['episode_id'] !== $episodeId) {
+                    jsonError('El ticket no corresponde al episodio activo de la sala', 403);
                 }
                 return;
             }
@@ -224,14 +230,37 @@ class PlayerController {
 
         $mapArg = ($trackIndex !== -1) ? "-map 0:{$trackIndex}" : "-map 0:s:" . (int)$trackNum . "?";
         $cmd = sprintf('ffmpeg -y -v error -i %s %s -f ass %s', escapeshellarg($filepath), $mapArg, escapeshellarg($cacheFile));
-        @shell_exec($cmd);
+
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w']
+        ];
+        $subProc = @proc_open($cmd, $descriptors, $pipes);
+        if (is_resource($subProc)) {
+            @fclose($pipes[0]);
+            $subStart = time();
+            $subTimeout = 20; // 20s hard timeout
+            while (time() - $subStart < $subTimeout) {
+                $status = proc_get_status($subProc);
+                if (!$status['running']) {
+                    break;
+                }
+                usleep(50000);
+            }
+            $status = proc_get_status($subProc);
+            if ($status['running']) {
+                @proc_terminate($subProc, 9);
+            }
+            @fclose($pipes[1]);
+            @fclose($pipes[2]);
+            @proc_close($subProc);
+        }
 
         if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
             readfile($cacheFile);
         } else {
-            // Fallback passthru if file write failed
-            $fallbackCmd = sprintf('ffmpeg -y -v error -i %s %s -f ass -', escapeshellarg($filepath), $mapArg);
-            passthru($fallbackCmd);
+            echo "";
         }
 
         if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200);
@@ -287,6 +316,14 @@ class PlayerController {
 
         // If file is MKV (not supported natively by HTML5 video tag) or seek/audio track specified:
         if ($isMkv || $start > 0 || $audioTrack !== -1) {
+            $isPreview = isset($_GET['preview']) || (isset($_SERVER['HTTP_X_PURPOSE']) && $_SERVER['HTTP_X_PURPOSE'] === 'preview');
+            if ($isPreview) {
+                @http_response_code(403);
+                echo "Live transcode stream not permitted for timeline preview";
+                if (defined('TESTING_MODE')) throw new ExitException("Preview transcode forbidden", 403);
+                exit();
+            }
+
             @header('Content-Type: video/mp4');
             @header('Connection: keep-alive');
             @header('Access-Control-Allow-Origin: *');
@@ -365,19 +402,64 @@ class PlayerController {
                 ob_end_clean();
             }
 
-            // Stream chunks in real-time with immediate flushing to browser
-            $fp = popen($cmd, 'r');
-            if ($fp) {
-                while (!feof($fp) && !connection_aborted()) {
-                    $buffer = fread($fp, 65536);
-                    if ($buffer !== false && strlen($buffer) > 0) {
-                        echo $buffer;
-                        flush();
+            // Stream chunks in real-time with managed subprocess lifecycle and timeout
+            $descriptors = [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w']
+            ];
+
+            $process = @proc_open($cmd, $descriptors, $pipes);
+            if (is_resource($process)) {
+                @fclose($pipes[0]);
+                stream_set_blocking($pipes[1], false);
+                stream_set_blocking($pipes[2], false);
+
+                $streamTimeout = 7200; // 2 hours max per transcode stream
+                $streamStart = time();
+
+                try {
+                    while (!feof($pipes[1])) {
+                        if (connection_aborted() || (time() - $streamStart > $streamTimeout)) {
+                            break;
+                        }
+                        $read = [$pipes[1]];
+                        $write = null;
+                        $except = null;
+                        $numChanged = @stream_select($read, $write, $except, 0, 150000);
+                        if ($numChanged > 0) {
+                            $buffer = fread($pipes[1], 65536);
+                            if ($buffer !== false && strlen($buffer) > 0) {
+                                echo $buffer;
+                                if (ob_get_level()) @ob_flush();
+                                flush();
+                            }
+                        } else {
+                            $status = proc_get_status($process);
+                            if (!$status['running']) {
+                                break;
+                            }
+                        }
                     }
+                } finally {
+                    @fclose($pipes[1]);
+                    @fclose($pipes[2]);
+
+                    $status = proc_get_status($process);
+                    if ($status['running']) {
+                        @proc_terminate($process, 15);
+                        usleep(100000);
+                        $status = proc_get_status($process);
+                        if ($status['running']) {
+                            @proc_terminate($process, 9);
+                        }
+                    }
+                    @proc_close($process);
+                    TranscodeLimiter::releaseSlot();
                 }
-                pclose($fp);
+            } else {
+                TranscodeLimiter::releaseSlot();
             }
-            TranscodeLimiter::releaseSlot();
             exit();
         }
 

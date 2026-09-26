@@ -29,3 +29,7 @@ ALTER TABLE party_members
 ALTER TABLE party_members
     ADD UNIQUE KEY uniq_room_member (room_id, member_id),
     ADD INDEX idx_party_members_token (token_hash);
+
+-- 6. Add notifications read state timestamp to user_preferences
+ALTER TABLE user_preferences
+    ADD COLUMN notifications_last_seen_at TIMESTAMP NULL DEFAULT NULL;

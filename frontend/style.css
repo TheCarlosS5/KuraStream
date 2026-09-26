@@ -2247,9 +2247,65 @@ button, input, select {
 
 /* Player More Options Menu (...) */
 .player-more-menu {
-  min-width: 200px;
-  padding: 6px;
+  min-width: 220px;
+  padding: 8px;
   gap: 4px;
+}
+
+.more-menu-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 4px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.more-menu-section-header svg {
+  width: 14px;
+  height: 14px;
+  stroke: var(--text-muted);
+}
+
+.more-menu-speed-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px 6px;
+}
+
+.more-menu-speed-grid .speed-opt {
+  padding: 6px 4px;
+  font-size: 0.8rem;
+  text-align: center;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.more-menu-speed-grid .speed-opt:hover {
+  background: rgba(var(--accent-rgb), 0.2);
+  border-color: var(--accent-color);
+  color: #fff;
+}
+
+.more-menu-speed-grid .speed-opt.active {
+  background: var(--accent-color);
+  color: #fff;
+  border-color: var(--accent-color);
+  font-weight: 600;
+}
+
+.more-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 6px 4px;
 }
 
 .more-menu-item {

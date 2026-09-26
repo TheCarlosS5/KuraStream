@@ -745,18 +745,22 @@ export async function loadNotifications() {
 
   const { activeUser, profileName } = getUserAndProfile();
   let notifications = [];
+  let unreadCount = 0;
 
   try {
-    const res = await fetch(`/api/notifications?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`);
+    const token = (typeof AuthManager !== 'undefined' && typeof AuthManager.getToken === 'function') ? AuthManager.getToken() : null;
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    const res = await fetch(`/api/notifications?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
     if (res.ok) {
       const data = await res.json();
       notifications = Array.isArray(data) ? data : (data.notifications || []);
+      unreadCount = (typeof data.unread_count === 'number') ? data.unread_count : notifications.length;
     }
   } catch (err) {
     console.error("Error loading notifications:", err);
   }
 
-  const unreadCount = notifications.length;
   if (badge) {
     if (unreadCount > 0) {
       badge.textContent = unreadCount;
@@ -1241,11 +1245,26 @@ document.addEventListener('DOMContentLoaded', () => {
   const notifTrigger = document.getElementById('btn-notifications-trigger');
   const notifDropdown = document.getElementById('notifications-dropdown');
   if (notifTrigger && notifDropdown) {
-    notifTrigger.onclick = (e) => {
+    notifTrigger.onclick = async (e) => {
       e.stopPropagation();
       const isVisible = notifDropdown.style.display !== 'none';
       notifDropdown.style.display = isVisible ? 'none' : 'block';
-      if (!isVisible) loadNotifications();
+      if (!isVisible) {
+        await loadNotifications();
+        try {
+          const { activeUser, profileName } = getUserAndProfile();
+          const token = (typeof AuthManager !== 'undefined' && typeof AuthManager.getToken === 'function') ? AuthManager.getToken() : null;
+          const headers = { 'Content-Type': 'application/json' };
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          await fetch('/api/notifications/seen', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ username: activeUser, profile_name: profileName })
+          });
+          const badge = document.getElementById('notification-badge');
+          if (badge) badge.style.display = 'none';
+        } catch (e) {}
+      }
     };
   }
 

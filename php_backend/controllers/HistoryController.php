@@ -190,11 +190,19 @@ class HistoryController {
     public static function getNotifications(): void {
         list($username, $profile) = self::resolveUserAndProfile();
 
-        $notifications = DbHelper::getNotifications($username, $profile);
+        $result = DbHelper::getNotifications($username, $profile);
         jsonResponse([
             'success' => true,
-            'notifications' => $notifications
+            'notifications' => $result['notifications'],
+            'unread_count' => $result['unread_count'],
+            'last_seen_at' => $result['last_seen_at']
         ]);
+    }
+
+    public static function markNotificationsSeen(): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        DbHelper::markNotificationsSeen($username, $profile);
+        jsonResponse(['success' => true]);
     }
 }
 

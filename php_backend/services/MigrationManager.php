@@ -94,6 +94,38 @@ class MigrationManager {
         }
     }
 
+    public static function preflightMigration004(PDO $db): void {
+        $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'sqlite') {
+            $check = $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name='user_profiles'")->fetch();
+        } else {
+            $check = $db->query("SHOW TABLES LIKE 'user_profiles'")->fetch();
+        }
+        if (!$check) {
+            return;
+        }
+
+        $dupStmt = $db->query("
+            SELECT username, name, COUNT(*) as cnt 
+            FROM user_profiles 
+            GROUP BY username, name 
+            HAVING cnt > 1
+        ");
+        $duplicates = $dupStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!empty($duplicates)) {
+            $details = [];
+            foreach ($duplicates as $dup) {
+                $details[] = "- Usuario: '{$dup['username']}', Perfil: '{$dup['name']}' ({$dup['cnt']} registros)";
+            }
+            $errorMsg = "Preflight Migration 004 Error:\n"
+                . "Se detectaron perfiles duplicados en la base de datos previa a la aplicación de UNIQUE(username, name):\n"
+                . implode("\n", $details) . "\n"
+                . "Resolución: Debe fusionar o renombrar manualmente los perfiles duplicados en la tabla 'user_profiles' antes de continuar con la migración para evitar corrupción o pérdida silenciosa de datos.";
+            throw new RuntimeException($errorMsg);
+        }
+    }
+
     public static function runPending(?PDO $customDb = null): array {
         $db = $customDb ?: Database::getConnection();
         self::initMigrationTable($db);
@@ -105,6 +137,10 @@ class MigrationManager {
         foreach ($files as $version => $filePath) {
             if (in_array($version, $applied, true)) {
                 continue;
+            }
+
+            if ($version === '004_security_profile_party_hardening.sql') {
+                self::preflightMigration004($db);
             }
 
             $sql = file_get_contents($filePath);

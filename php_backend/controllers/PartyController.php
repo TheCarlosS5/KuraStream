@@ -42,8 +42,40 @@ class PartyController {
     }
 
     private static function resolvePartyParticipant(array $data, array $room): ?array {
-        $memberId = trim((string)($data['member_id'] ?? ($_GET['member_id'] ?? '')));
-        $memberToken = trim((string)($data['member_token'] ?? ($_GET['member_token'] ?? '')));
+        // 1. Check ephemeral SSE ticket if provided
+        $sseTicket = trim((string)($data['sse_ticket'] ?? ($_SERVER['HTTP_X_SSE_TICKET'] ?? ($_GET['sse_ticket'] ?? ''))));
+        if (!empty($sseTicket)) {
+            $ticketPayload = AuthMiddleware::verifyToken($sseTicket);
+            if ($ticketPayload && ($ticketPayload['type'] ?? '') === 'party_sse'
+                && ($ticketPayload['room_id'] ?? '') === $room['id']
+                && !empty($ticketPayload['member_id'])
+            ) {
+                $member = DbHelper::getPartyMemberById($room['id'], $ticketPayload['member_id']);
+                if ($member) {
+                    $isHost = ($member['role'] === 'host' || $room['host_user'] === $member['username']);
+                    return [
+                        'username' => $member['username'],
+                        'is_host' => $isHost,
+                        'authenticated' => ($member['role'] === 'host'),
+                        'member_id' => $member['member_id'],
+                        'role' => $member['role']
+                    ];
+                }
+            }
+        }
+
+        // 2. Check headers or explicit body/get params
+        $memberId = trim((string)($data['member_id'] ?? ($_SERVER['HTTP_X_PARTY_MEMBER_ID'] ?? ($_GET['member_id'] ?? ''))));
+        $memberToken = trim((string)($data['member_token'] ?? ($_SERVER['HTTP_X_PARTY_MEMBER_TOKEN'] ?? ($_GET['member_token'] ?? ''))));
+
+        // 3. Check HttpOnly cookie for party session
+        if ((empty($memberId) || empty($memberToken)) && !empty($_COOKIE['kurastream_party_session'])) {
+            $cookieData = json_decode($_COOKIE['kurastream_party_session'], true);
+            if ($cookieData && ($cookieData['room_id'] ?? '') === $room['id']) {
+                $memberId = $cookieData['member_id'] ?? $memberId;
+                $memberToken = $cookieData['member_token'] ?? $memberToken;
+            }
+        }
 
         if (!empty($memberId) && !empty($memberToken)) {
             $member = DbHelper::validatePartyMemberToken($room['id'], $memberId, $memberToken);
@@ -59,6 +91,7 @@ class PartyController {
             }
         }
 
+        // 4. Authenticated Host session fallback
         $userToken = AuthMiddleware::getBearerToken();
         if (!empty($userToken)) {
             $payload = AuthMiddleware::verifyToken($userToken);
@@ -74,6 +107,23 @@ class PartyController {
         }
 
         return null;
+    }
+
+    private static function setPartySessionCookie(string $roomId, string $memberId, string $memberToken): void {
+        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+        $payload = json_encode([
+            'room_id' => $roomId,
+            'member_id' => $memberId,
+            'member_token' => $memberToken
+        ]);
+        @setcookie('kurastream_party_session', $payload, [
+            'expires' => time() + (24 * 3600),
+            'path' => '/api/party',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => $isSecure
+        ]);
     }
 
     public static function createRoom(): void {
@@ -106,17 +156,24 @@ class PartyController {
         $tokenHash = hash('sha256', $memberToken);
 
         DbHelper::recordPartyMember($roomId, $user, $memberId, $tokenHash, 'host');
+        self::setPartySessionCookie($roomId, $memberId, $memberToken);
 
-        // Welcome system message
-        DbHelper::addPartyMessage($roomId, 'Sistema', "¡Sala de Watch Party creada por {$user}! 🎉", 'system');
+        // Welcome system message (semantic, zero hardcoded icon emojis)
+        DbHelper::addPartyMessage($roomId, 'Sistema', "¡Sala de Watch Party creada por {$user}!", 'system');
 
         $room = DbHelper::getPartyRoom($roomId);
         $capabilityToken = AuthMiddleware::createToken([
             'type' => 'watch_party_stream',
             'room_id' => $roomId,
             'member_id' => $memberId,
-            'episode_id' => $episodeId,
             'exp' => time() + 900
+        ]);
+
+        $sseTicket = AuthMiddleware::createToken([
+            'type' => 'party_sse',
+            'room_id' => $roomId,
+            'member_id' => $memberId,
+            'exp' => time() + 60
         ]);
 
         jsonResponse([
@@ -126,6 +183,7 @@ class PartyController {
             'member_id' => $memberId,
             'member_token' => $memberToken,
             'stream_capability_token' => $capabilityToken,
+            'sse_ticket' => $sseTicket,
             'is_host' => true
         ]);
     }
@@ -160,10 +218,12 @@ class PartyController {
 
         // Add system message if not host joining initial room
         if ($room['host_user'] !== $user) {
-            DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} se unió al Watch Party 👋", 'system');
+            DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} se unió al Watch Party", 'system');
             DbHelper::updatePartyPlayback($roomId, (bool)$room['is_playing'], (float)$room['current_time'], null, $memberCount);
             $room = DbHelper::getPartyRoom($roomId);
         }
+
+        self::setPartySessionCookie($roomId, $memberId, $memberToken);
 
         $recentMessages = DbHelper::getPartyMessages($roomId, 0, 40);
         $activeMembers = DbHelper::getActivePartyMembers($roomId);
@@ -172,8 +232,14 @@ class PartyController {
             'type' => 'watch_party_stream',
             'room_id' => $roomId,
             'member_id' => $memberId,
-            'episode_id' => $room['episode_id'],
             'exp' => time() + 900
+        ]);
+
+        $sseTicket = AuthMiddleware::createToken([
+            'type' => 'party_sse',
+            'room_id' => $roomId,
+            'member_id' => $memberId,
+            'exp' => time() + 60
         ]);
 
         jsonResponse([
@@ -185,6 +251,7 @@ class PartyController {
             'member_id' => $memberId,
             'member_token' => $memberToken,
             'stream_capability_token' => $capabilityToken,
+            'sse_ticket' => $sseTicket,
             'is_host' => $isHost
         ]);
     }
@@ -222,6 +289,17 @@ class PartyController {
         $newCount = DbHelper::getPartyMembersCount($roomId);
         DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} salió de la sala", 'system');
         DbHelper::updatePartyPlayback($roomId, (bool)$room['is_playing'], (float)$room['current_time'], null, $newCount);
+
+        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+        @setcookie('kurastream_party_session', '', [
+            'expires' => time() - 3600,
+            'path' => '/api/party',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => $isSecure
+        ]);
+        unset($_COOKIE['kurastream_party_session']);
 
         jsonResponse(['success' => true]);
     }
@@ -270,9 +348,9 @@ class PartyController {
         if ($action === 'seek') {
             $min = floor($currentTime / 60);
             $sec = str_pad((int)($currentTime % 60), 2, '0', STR_PAD_LEFT);
-            DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} saltó a {$min}:{$sec} ⏱️", 'system');
+            DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} saltó a {$min}:{$sec}", 'system');
         } elseif ($action === 'episode_change') {
-            DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} cambió de episodio 📺", 'system');
+            DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} cambió de episodio", 'system');
         }
 
         $updatedRoom = DbHelper::getPartyRoom($roomId);
@@ -525,5 +603,81 @@ class PartyController {
         }
 
         exit();
+    }
+
+    public static function refreshStreamTicket(): void {
+        RateLimiter::enforce('party_ticket', 60, 60);
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+
+        $roomId = strtoupper(trim($data['room_id'] ?? ($_GET['room_id'] ?? '')));
+        if (empty($roomId)) {
+            jsonError('room_id requerido', 400);
+        }
+
+        $room = DbHelper::getPartyRoom($roomId);
+        if (!$room) {
+            jsonError('Sala no encontrada', 404);
+        }
+
+        $participant = self::resolvePartyParticipant($data, $room);
+        if (!$participant) {
+            jsonError('Credenciales de miembro inválidas o expiradas', 401);
+        }
+
+        $memberId = $participant['member_id'];
+        if ($memberId) {
+            DbHelper::updatePartyMemberPing($roomId, $memberId);
+        }
+
+        $newToken = AuthMiddleware::createToken([
+            'type' => 'watch_party_stream',
+            'room_id' => $roomId,
+            'member_id' => $memberId,
+            'exp' => time() + 900
+        ]);
+
+        jsonResponse([
+            'success' => true,
+            'stream_capability_token' => $newToken
+        ]);
+    }
+
+    public static function getSseTicket(): void {
+        RateLimiter::enforce('party_ticket', 60, 60);
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+
+        $roomId = strtoupper(trim($data['room_id'] ?? ($_GET['room_id'] ?? '')));
+        if (empty($roomId)) {
+            jsonError('room_id requerido', 400);
+        }
+
+        $room = DbHelper::getPartyRoom($roomId);
+        if (!$room) {
+            jsonError('Sala no encontrada', 404);
+        }
+
+        $participant = self::resolvePartyParticipant($data, $room);
+        if (!$participant) {
+            jsonError('Credenciales de miembro inválidas o expiradas', 401);
+        }
+
+        $memberId = $participant['member_id'];
+        if ($memberId) {
+            DbHelper::updatePartyMemberPing($roomId, $memberId);
+        }
+
+        $sseTicket = AuthMiddleware::createToken([
+            'type' => 'party_sse',
+            'room_id' => $roomId,
+            'member_id' => $memberId,
+            'exp' => time() + 60
+        ]);
+
+        jsonResponse([
+            'success' => true,
+            'sse_ticket' => $sseTicket
+        ]);
     }
 }

@@ -50,6 +50,8 @@ define('JWT_SECRET', $jwtSecret);
 define('PASSWORD_SALT', getenv('PASSWORD_SALT') ?: 'kurasalt');
 
 define('ROOT_DIR', dirname(__DIR__));
+$trustedProxies = getenv('TRUSTED_PROXIES') ?: '';
+define('TRUSTED_PROXIES', array_filter(array_map('trim', explode(',', $trustedProxies))));
 
 $configuredMediaPath = getenv('MEDIA_LIBRARY_PATH');
 if (!empty($configuredMediaPath)) {

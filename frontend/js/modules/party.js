@@ -20,6 +20,7 @@ class PartyManager {
     this.streamCapabilityToken = null;
     this.eventSource = null;
     this.pollInterval = null;
+    this.refreshTimer = null;
     this.lastMessageId = 0;
     this.isApplyingRemoteSync = false;
     this.syncDebounceTimer = null;
@@ -180,6 +181,7 @@ class PartyManager {
     this.streamCapabilityToken = data.stream_capability_token || null;
 
     this.setupRoomState(data.room, username, true);
+    this.startCapabilityRefreshTimer();
     this.connectEventStream(data.room.id);
     return data.room;
   }
@@ -207,6 +209,7 @@ class PartyManager {
     this.streamCapabilityToken = data.stream_capability_token || null;
 
     this.setupRoomState(data.room, username, data.is_host);
+    this.startCapabilityRefreshTimer();
     if (data.messages && Array.isArray(data.messages)) {
       data.messages.forEach(msg => {
         this.emit('message', msg);
@@ -225,6 +228,11 @@ class PartyManager {
     const username = this.currentUser.username;
     const memberId = this.memberId;
     const memberToken = this.memberToken;
+
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
 
     this.disconnectEventStream();
     this.activeRoom = null;
@@ -265,14 +273,76 @@ class PartyManager {
     this.emit('sync', room);
   }
 
-  // --- REAL-TIME EVENT STREAM (SSE) ---
+  // --- REAL-TIME EVENT STREAM (SSE) & CAPABILITY REFRESH ---
 
-  connectEventStream(roomId) {
+  async getSseTicket(roomId) {
+    if (!this.memberId || !this.memberToken) return null;
+    try {
+      const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
+      headers['X-Party-Member-Id'] = this.memberId;
+      headers['X-Party-Member-Token'] = this.memberToken;
+      const res = await fetch('/api/party/sse-ticket', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          room_id: roomId,
+          member_id: this.memberId,
+          member_token: this.memberToken
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.sse_ticket || null;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  startCapabilityRefreshTimer() {
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    // Refresh capability token every 8 minutes (TTL is 15 minutes)
+    this.refreshTimer = setInterval(() => {
+      this.refreshCapabilityToken();
+    }, 480000);
+  }
+
+  async refreshCapabilityToken() {
+    if (!this.isInRoom() || !this.memberId || !this.memberToken) return;
+    try {
+      const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
+      headers['X-Party-Member-Id'] = this.memberId;
+      headers['X-Party-Member-Token'] = this.memberToken;
+      const res = await fetch('/api/party/refresh-ticket', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          room_id: this.activeRoom.id,
+          member_id: this.memberId,
+          member_token: this.memberToken
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.stream_capability_token) {
+          this.streamCapabilityToken = data.stream_capability_token;
+        }
+      }
+    } catch (e) {
+      console.warn('[WatchParty] Capability ticket refresh error:', e);
+    }
+  }
+
+  async connectEventStream(roomId) {
     this.disconnectEventStream();
 
-    let streamUrl = `/api/party/stream?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
+    let sseTicket = null;
     if (this.memberId && this.memberToken) {
-      streamUrl += `&member_id=${encodeURIComponent(this.memberId)}&member_token=${encodeURIComponent(this.memberToken)}`;
+      sseTicket = await this.getSseTicket(roomId);
+    }
+
+    let streamUrl = `/api/party/stream?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
+    if (sseTicket) {
+      streamUrl += `&sse_ticket=${encodeURIComponent(sseTicket)}`;
     }
     try {
       this.eventSource = new EventSource(streamUrl);
@@ -350,13 +420,12 @@ class PartyManager {
       }
 
       try {
-        let pollUrl = `/api/party/poll?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
-        if (this.memberId && this.memberToken) {
-          pollUrl += `&member_id=${encodeURIComponent(this.memberId)}&member_token=${encodeURIComponent(this.memberToken)}`;
-        }
-        const res = await fetch(pollUrl, {
-          headers: getAuthHeaders()
-        });
+        const headers = { ...getAuthHeaders() };
+        if (this.memberId) headers['X-Party-Member-Id'] = this.memberId;
+        if (this.memberToken) headers['X-Party-Member-Token'] = this.memberToken;
+
+        const pollUrl = `/api/party/poll?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
+        const res = await fetch(pollUrl, { headers });
         if (!res.ok) return;
         const data = await res.json();
 

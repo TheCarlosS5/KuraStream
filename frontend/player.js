@@ -402,7 +402,12 @@ export async function initPlayer(rawEpisodeId) {
   // Initialize Timeline Seek Scrub Preview
   if (progressBar && video) {
     if (scrubPreviewInstance) scrubPreviewInstance.destroy();
-    scrubPreviewInstance = initScrubPreview(progressBar, video);
+    const filePath = (currentEpisodeData && currentEpisodeData.filepath) ? currentEpisodeData.filepath.toLowerCase() : '';
+    const isDirectPlayable = filePath.endsWith('.mp4') || filePath.endsWith('.webm');
+    scrubPreviewInstance = initScrubPreview(progressBar, video, {
+      canDirectPlay: isDirectPlayable,
+      duration: currentEpisodeData ? currentEpisodeData.duration : null
+    });
   }
 
   // Initialize Ultra-Cinematic Pro Modules
@@ -482,11 +487,8 @@ function loadVideoStream(startTime = 0) {
   if (startTime > 0) {
     streamUrl += `&start=${startTime}`;
   }
-  const authToken = AuthManager.getToken();
   if (partyManager && partyManager.streamCapabilityToken) {
     streamUrl += `&ticket=${encodeURIComponent(partyManager.streamCapabilityToken)}`;
-  } else if (authToken) {
-    streamUrl += `&token=${encodeURIComponent(authToken)}`;
   }
   
   video.src = streamUrl;

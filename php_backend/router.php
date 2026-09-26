@@ -259,6 +259,10 @@ if ($uri === '/api/notifications' && $method === 'GET') {
     HistoryController::getNotifications();
 }
 
+if ($uri === '/api/notifications/seen' && $method === 'POST') {
+    HistoryController::markNotificationsSeen();
+}
+
 if ($uri === '/api/admin/staged' && $method === 'GET') {
     AdminController::getStaged();
 }
@@ -435,12 +439,20 @@ if ($uri === '/api/party/public-rooms' && $method === 'GET') {
     PartyController::getPublicRooms();
 }
 
-if ($uri === '/api/party/poll' && $method === 'GET') {
+if ($uri === '/api/party/poll' && in_array($method, ['GET', 'POST'])) {
     PartyController::pollEvents();
 }
 
 if ($uri === '/api/party/stream' && $method === 'GET') {
     PartyController::streamEvents();
+}
+
+if ($uri === '/api/party/refresh-ticket' && $method === 'POST') {
+    PartyController::refreshStreamTicket();
+}
+
+if ($uri === '/api/party/sse-ticket' && $method === 'POST') {
+    PartyController::getSseTicket();
 }
 
 // Rescan / Repair trigger

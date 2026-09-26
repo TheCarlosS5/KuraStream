@@ -91,10 +91,53 @@ jobs:
           php tests/run_all_tests.php 2>&1 | tee /tmp/php_tests.log
           exit ${PIPESTATUS[0]}
 
+      - name: Docker Build and Smoke Test
+        id: docker_smoke
+        continue-on-error: true
+        run: |
+          docker build -t kurastream:test .
+          USER_ID=$(docker run --rm kurastream:test id -u)
+          if [ "$USER_ID" = "0" ]; then
+            echo "::error::Container runs as root (UID 0), must be non-root"
+            exit 1
+          fi
+          echo "Verified non-root container (UID $USER_ID)"
+
+          RANDOM_SECRET=$(openssl rand -hex 32)
+          docker run -d --name kurastream_smoke --network host \
+            -e JWT_SECRET="$RANDOM_SECRET" \
+            -e DB_HOST=127.0.0.1 \
+            -e DB_PORT=3306 \
+            -e DB_NAME=kurastream \
+            -e DB_USER=kurastream \
+            -e DB_PASS=testpassword \
+            -e PORT=3001 \
+            kurastream:test
+
+          READY=0
+          for i in $(seq 1 15); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/api/health || true)
+            if [ "$STATUS" = "200" ]; then
+              READY=1
+              echo "Container health check passed (HTTP 200) on attempt $i"
+              break
+            fi
+            sleep 1
+          done
+
+          docker logs kurastream_smoke || true
+          docker stop kurastream_smoke || true
+          docker rm kurastream_smoke || true
+
+          if [ "$READY" -ne 1 ]; then
+            echo "::error::Docker smoke health check failed"
+            exit 1
+          fi
+
       - name: Verify All Test Suites Passed
         run: |
-          if [ "${{ steps.e2e.outcome }}" != "success" ] || [ "${{ steps.php_tests.outcome }}" != "success" ]; then
-            FAIL_MSG="E2E: ${{ steps.e2e.outcome }}, PHP: ${{ steps.php_tests.outcome }}"
+          if [ "${{ steps.e2e.outcome }}" != "success" ] || [ "${{ steps.php_tests.outcome }}" != "success" ] || [ "${{ steps.docker_smoke.outcome }}" != "success" ]; then
+            FAIL_MSG="E2E: ${{ steps.e2e.outcome }}, PHP: ${{ steps.php_tests.outcome }}, Docker: ${{ steps.docker_smoke.outcome }}"
             if [ -f /tmp/php_tests.log ]; then
               FAIL_DETAILS=$(grep -A 15 "FAIL ✗" /tmp/php_tests.log | tr '\n' ' ' || true)
               if [ -n "$FAIL_DETAILS" ]; then

@@ -70,10 +70,6 @@ class AuthMiddleware {
             return trim($_COOKIE['kurastream_token']);
         }
 
-        if (!empty($_GET['token'])) {
-            return trim((string)$_GET['token']);
-        }
-
         return null;
     }
 

@@ -37,4 +37,32 @@ test.describe('KuraStream PWA and Service Worker Suite', () => {
       expect(swRegistration.scope).toBeDefined();
     }
   });
+
+  test('PWA Offline mode serves cached shell or offline fallback', async ({ page, context }) => {
+    // 1. Visit homepage to allow service worker installation
+    await page.goto('/');
+
+    // Wait for Service Worker to be active if supported
+    await page.evaluate(async () => {
+      if (!('serviceWorker' in navigator)) return null;
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        return reg ? true : null;
+      } catch {
+        return null;
+      }
+    });
+
+    // 2. Simulate complete network disconnection
+    await context.setOffline(true);
+
+    try {
+      // 3. Navigate while completely offline
+      await page.goto('/', { waitUntil: 'domcontentloaded' });
+      const content = await page.content();
+      expect(content).toContain('KuraStream');
+    } finally {
+      await context.setOffline(false);
+    }
+  });
 });

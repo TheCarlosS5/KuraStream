@@ -32,7 +32,7 @@ graph TD
 ## Core Capabilities
 
 ### 1. High-Performance Video Player
-- **On-the-Fly Remuxing and Transcoding**: Instant fragmented MP4 streaming (`/api/stream/{id}`) with AAC audio downmix, hardware-assisted encoding options, and strict worker concurrency limits to prevent host saturation.
+- **On-the-Fly Remuxing and Transcoding**: Instant fragmented MP4 streaming (`/api/stream/{id}`) with AAC audio downmix, managed software transcoding, and strict worker concurrency limits to prevent host saturation.
 - **WebAssembly Subtitle Rendering**: Pixel-perfect canvas rendering for advanced `.ass` and `.ssa` subtitle styles, karaoke effects, and custom fonts using WebAssembly libass.
 - **Multi-Track Audio and Subtitle Management**: Instant switching between original audio, localized dubs, and multiple subtitle streams with persistent user preferences.
 - **Chapters and Smart Skip**: Support for opening/ending timestamps with automated skip prompts and progress tracking.
@@ -61,7 +61,7 @@ graph TD
 
 ## Technology Stack
 
-- **Backend**: PHP 8.4 (CLI & FPM)
+- **Backend**: PHP 8.4 (CLI)
 - **Database**: MySQL 8.0+ / MariaDB 10.11+
 - **Media Engine**: FFmpeg / FFprobe
 - **Frontend**: Vanilla JavaScript (ES Modules), CSS Custom Properties
@@ -141,6 +141,7 @@ graph TD
 | `MEDIA_LIBRARY_PATH` | Absolute path to media storage directory | `./library` |
 | `TMDB_API_KEY` | Optional TMDB v3 API Key for metadata scraping | None |
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowed origins | `localhost, LAN` |
+| `TRUSTED_PROXIES` | Comma-separated list of trusted reverse proxy IPs | None |
 
 ---
 
@@ -215,4 +216,4 @@ php tests/run_all_tests.php
 
 ## License
 
-This project is open-source software licensed under the MIT License.
+Personal and home server use only. All rights reserved.

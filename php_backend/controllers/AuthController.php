@@ -100,8 +100,12 @@ class AuthController {
             jsonError('Usuario y contraseña requeridos', 400);
         }
 
-        if (strlen($username) < 3) {
-            jsonError('El nombre de usuario debe tener al menos 3 caracteres', 400);
+        if (strlen($username) < 3 || strlen($username) > 64) {
+            jsonError('El nombre de usuario debe tener entre 3 y 64 caracteres', 400);
+        }
+
+        if (strlen($password) < 8 || strlen($password) > 128) {
+            jsonError('La contraseña debe tener entre 8 y 128 caracteres', 400);
         }
 
         $user = DbHelper::registerUser($username, $password, 'user');

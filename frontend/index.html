@@ -484,19 +484,6 @@
                   </div>
                 </div>
 
-                <!-- Speed Toggle -->
-                <div class="player-dropdown" id="speed-dropdown">
-                  <button class="player-btn dropdown-trigger player-speed-btn" id="player-speed-btn">1.0x</button>
-                  <div class="dropdown-menu">
-                    <button class="speed-opt" data-speed="0.5">0.5x</button>
-                    <button class="speed-opt" data-speed="0.75">0.75x</button>
-                    <button class="speed-opt active" data-speed="1">1.0x (Normal)</button>
-                    <button class="speed-opt" data-speed="1.25">1.25x</button>
-                    <button class="speed-opt" data-speed="1.5">1.5x</button>
-                    <button class="speed-opt" data-speed="2">2.0x</button>
-                  </div>
-                </div>
-
                 <!-- Legacy Separate Audio/Subtitle Dropdowns (Hidden, consolidated into Tracks Modal) -->
                 <div class="player-dropdown" id="audio-dropdown" style="display: none;">
                   <button class="player-btn dropdown-trigger" id="audio-btn" title="Audio"><i data-lucide="headphones"></i></button>
@@ -518,6 +505,19 @@
                 <div class="player-dropdown" id="more-options-dropdown">
                   <button class="player-btn dropdown-trigger" id="more-options-btn" title="Más opciones"><i data-lucide="more-vertical"></i></button>
                   <div class="dropdown-menu player-more-menu" id="more-options-menu">
+                    <div class="more-menu-section-header">
+                      <i data-lucide="gauge"></i>
+                      <span>Velocidad</span>
+                    </div>
+                    <div class="more-menu-speed-grid" id="speed-options-group">
+                      <button class="speed-opt" data-speed="0.5">0.5x</button>
+                      <button class="speed-opt" data-speed="0.75">0.75x</button>
+                      <button class="speed-opt active" data-speed="1">1.0x</button>
+                      <button class="speed-opt" data-speed="1.25">1.25x</button>
+                      <button class="speed-opt" data-speed="1.5">1.5x</button>
+                      <button class="speed-opt" data-speed="2">2.0x</button>
+                    </div>
+                    <div class="more-menu-divider"></div>
                     <button class="more-menu-item" id="menu-pip-btn">
                       <i data-lucide="picture-in-picture"></i>
                       <span>Ventana en ventana</span>
