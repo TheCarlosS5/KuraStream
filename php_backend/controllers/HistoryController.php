@@ -20,8 +20,8 @@ class HistoryController {
                    e.show_id, e.season_number, e.episode_number, e.thumbnail_path, e.duration as ep_duration,
                    s.title as show_title, s.poster_path, s.backdrop_path
             FROM watch_history w
-            JOIN episodes e ON w.episode_id = e.id
-            JOIN shows s ON e.show_id = s.id
+            LEFT JOIN episodes e ON w.episode_id = e.id
+            LEFT JOIN shows s ON e.show_id = s.id
             WHERE w.username = :user AND w.profile_name = :prof
             ORDER BY w.updated_at DESC
         ");

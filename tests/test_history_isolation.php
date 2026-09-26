@@ -74,6 +74,7 @@ echo "✓ All unauthenticated requests rejected with 401 (no guest spoofing)\n";
 $aliceToken = AuthMiddleware::createToken([
     'username' => $alice,
     'role' => 'user',
+    'profile_name' => 'Principal',
     'exp' => time() + 3600
 ]);
 $_COOKIE['kurastream_token'] = $aliceToken;

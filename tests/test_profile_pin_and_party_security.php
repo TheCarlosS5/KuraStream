@@ -114,8 +114,8 @@ echo "    -> All profile-scoped endpoints strictly enforce PROFILE_REQUIRED (403
 echo "  [2/3] Testing Kids Mode streaming maturity restriction...\n";
 
 // Seed Adult / TV-MA show and episode
-$pdo->exec("INSERT INTO shows (id, title, media_type, age_rating, is_adult) VALUES ('mature_anime_1', 'Berserk 18+', 'anime', 'TV-MA', 1)");
-$pdo->exec("INSERT INTO episodes (id, show_id, episode_number, duration, filepath) VALUES ('mature_ep_1', 'mature_anime_1', 1, 1400.0, '/tmp/fake.mp4')");
+$db->exec("INSERT INTO shows (id, title, media_type, age_rating, is_adult) VALUES ('mature_anime_1', 'Berserk 18+', 'anime', 'TV-MA', 1)");
+$db->exec("INSERT INTO episodes (id, show_id, episode_number, duration, filepath) VALUES ('mature_ep_1', 'mature_anime_1', 1, 1400.0, '/tmp/fake.mp4')");
 
 // Token with active kids profile claim
 $kidsToken = AuthMiddleware::createToken([
@@ -150,7 +150,7 @@ echo "  [3/3] Testing Watch Party token auth, duplicate nicknames, and member is
 $hostToken = AuthMiddleware::createToken(['username' => 'alice', 'role' => 'user', 'exp' => time() + 3600]);
 $_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$hostToken}";
 $roomId = 'KURA-TESTROOM1';
-$pdo->exec("INSERT INTO party_rooms (id, name, host_user, episode_id) VALUES ('{$roomId}', 'Sala de Alice', 'alice', 'ep1')");
+$db->exec("INSERT INTO party_rooms (id, name, host_user, episode_id) VALUES ('{$roomId}', 'Sala de Alice', 'alice', 'ep1')");
 
 // Host joins as member
 $hostMemId = 'mem_host_123';
