@@ -4,6 +4,10 @@ require_once __DIR__ . '/config.php';
 class Database {
     private static ?PDO $pdo = null;
 
+    public static function setConnection(?PDO $customPdo): void {
+        self::$pdo = $customPdo;
+    }
+
     public static function getConnection(): PDO {
         if (self::$pdo === null) {
             try {
@@ -916,7 +920,7 @@ class DbHelper {
             INSERT INTO party_members (room_id, username, member_id, token_hash, role, joined_at, last_ping)
             VALUES (:r, :u, :m, :t, :role, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON DUPLICATE KEY UPDATE 
-                member_id = COALESCE(VALUES(member_id), member_id),
+                username = VALUES(username),
                 token_hash = COALESCE(VALUES(token_hash), token_hash),
                 role = VALUES(role),
                 last_ping = CURRENT_TIMESTAMP
@@ -928,6 +932,12 @@ class DbHelper {
             't' => $tokenHash,
             'role' => $role
         ]);
+    }
+
+    public static function updatePartyMemberPing(string $roomId, string $memberId): void {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("UPDATE party_members SET last_ping = CURRENT_TIMESTAMP WHERE room_id = :r AND member_id = :m");
+        $stmt->execute(['r' => $roomId, 'm' => $memberId]);
     }
 
     public static function validatePartyMemberToken(string $roomId, string $memberId, string $memberToken): ?array {
@@ -947,13 +957,52 @@ class DbHelper {
         $stmt->execute(['r' => $roomId, 'u' => $username]);
     }
 
+    public static function removePartyMemberById(string $roomId, string $memberId): void {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("DELETE FROM party_members WHERE room_id = :r AND member_id = :m");
+        $stmt->execute(['r' => $roomId, 'm' => $memberId]);
+    }
+
+    public static function isPartyMemberActive(string $roomId, string $memberId, int $timeoutSeconds = 60): bool {
+        $db = Database::getConnection();
+        $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'sqlite') {
+            $stmt = $db->prepare("
+                SELECT 1 FROM party_members 
+                WHERE room_id = :r AND member_id = :m 
+                  AND datetime(last_ping) >= datetime('now', :modifier)
+            ");
+            $sec = max(30, $timeoutSeconds * 2);
+            $stmt->execute(['r' => $roomId, 'm' => $memberId, 'modifier' => "-{$sec} seconds"]);
+            return (bool)$stmt->fetchColumn();
+        }
+
+        $stmt = $db->prepare("
+            SELECT 1 FROM party_members 
+            WHERE room_id = :r AND member_id = :m 
+              AND last_ping >= DATE_SUB(NOW(), INTERVAL :sec SECOND)
+        ");
+        $stmt->bindValue(':r', $roomId);
+        $stmt->bindValue(':m', $memberId);
+        $stmt->bindValue(':sec', max(30, $timeoutSeconds * 2), PDO::PARAM_INT);
+        $stmt->execute();
+        return (bool)$stmt->fetchColumn();
+    }
+
     public static function getActivePartyMembers(string $roomId, int $timeoutSeconds = 60): array {
         $db = Database::getConnection();
-        $cleanup = $db->prepare("DELETE FROM party_members WHERE last_ping < DATE_SUB(NOW(), INTERVAL :sec SECOND)");
-        $cleanup->bindValue(':sec', max(30, $timeoutSeconds * 2), PDO::PARAM_INT);
-        $cleanup->execute();
+        $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'sqlite') {
+            $cleanup = $db->prepare("DELETE FROM party_members WHERE datetime(last_ping) < datetime('now', :mod)");
+            $sec = max(30, $timeoutSeconds * 2);
+            $cleanup->execute(['mod' => "-{$sec} seconds"]);
+        } else {
+            $cleanup = $db->prepare("DELETE FROM party_members WHERE last_ping < DATE_SUB(NOW(), INTERVAL :sec SECOND)");
+            $cleanup->bindValue(':sec', max(30, $timeoutSeconds * 2), PDO::PARAM_INT);
+            $cleanup->execute();
+        }
 
-        $stmt = $db->prepare("SELECT username, joined_at, last_ping FROM party_members WHERE room_id = :r ORDER BY joined_at ASC");
+        $stmt = $db->prepare("SELECT username, member_id, role, joined_at, last_ping FROM party_members WHERE room_id = :r ORDER BY joined_at ASC");
         $stmt->execute(['r' => $roomId]);
         return $stmt->fetchAll();
     }

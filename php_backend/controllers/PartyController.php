@@ -41,22 +41,7 @@ class PartyController {
         return $payload['username'];
     }
 
-    private static function resolvePartyParticipant(array $data, array $room): array {
-        $userToken = AuthMiddleware::getBearerToken();
-        if (!empty($userToken)) {
-            $payload = AuthMiddleware::verifyToken($userToken);
-            if ($payload && !empty($payload['username'])) {
-                $username = $payload['username'];
-                $isHost = ($room['host_user'] === $username);
-                return [
-                    'username' => $username,
-                    'is_host' => $isHost,
-                    'authenticated' => true,
-                    'member_id' => null
-                ];
-            }
-        }
-
+    private static function resolvePartyParticipant(array $data, array $room): ?array {
         $memberId = trim((string)($data['member_id'] ?? ($_GET['member_id'] ?? '')));
         $memberToken = trim((string)($data['member_token'] ?? ($_GET['member_token'] ?? '')));
 
@@ -67,19 +52,28 @@ class PartyController {
                 return [
                     'username' => $member['username'],
                     'is_host' => $isHost,
-                    'authenticated' => false,
-                    'member_id' => $member['member_id']
+                    'authenticated' => ($member['role'] === 'host'),
+                    'member_id' => $member['member_id'],
+                    'role' => $member['role']
                 ];
             }
         }
 
-        $user = self::resolveUser($data);
-        return [
-            'username' => $user,
-            'is_host' => false,
-            'authenticated' => false,
-            'member_id' => null
-        ];
+        $userToken = AuthMiddleware::getBearerToken();
+        if (!empty($userToken)) {
+            $payload = AuthMiddleware::verifyToken($userToken);
+            if ($payload && !empty($payload['username']) && $room['host_user'] === $payload['username']) {
+                return [
+                    'username' => $payload['username'],
+                    'is_host' => true,
+                    'authenticated' => true,
+                    'member_id' => null,
+                    'role' => 'host'
+                ];
+            }
+        }
+
+        return null;
     }
 
     public static function createRoom(): void {
@@ -122,7 +116,7 @@ class PartyController {
             'room_id' => $roomId,
             'member_id' => $memberId,
             'episode_id' => $episodeId,
-            'exp' => time() + 86400
+            'exp' => time() + 900
         ]);
 
         jsonResponse([
@@ -179,7 +173,7 @@ class PartyController {
             'room_id' => $roomId,
             'member_id' => $memberId,
             'episode_id' => $room['episode_id'],
-            'exp' => time() + 86400
+            'exp' => time() + 900
         ]);
 
         jsonResponse([
@@ -200,17 +194,34 @@ class PartyController {
         $data = json_decode($raw, true) ?: [];
 
         $roomId = strtoupper(trim($data['room_id'] ?? ($_GET['room_id'] ?? '')));
-        $user = self::resolveUser($data);
-
-        if (!empty($roomId)) {
-            $room = DbHelper::getPartyRoom($roomId);
-            if ($room) {
-                DbHelper::removePartyMember($roomId, $user);
-                $newCount = DbHelper::getPartyMembersCount($roomId);
-                DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} salió de la sala", 'system');
-                DbHelper::updatePartyPlayback($roomId, (bool)$room['is_playing'], (float)$room['current_time'], null, $newCount);
-            }
+        if (empty($roomId)) {
+            jsonError('room_id requerido', 400);
         }
+
+        $room = DbHelper::getPartyRoom($roomId);
+        if (!$room) {
+            jsonResponse(['success' => true]);
+            return;
+        }
+
+        $participant = self::resolvePartyParticipant($data, $room);
+        if (!$participant) {
+            jsonError('Credenciales de miembro inválidas', 401);
+            return;
+        }
+
+        $user = $participant['username'];
+        $memberId = $participant['member_id'];
+
+        if ($memberId) {
+            DbHelper::removePartyMemberById($roomId, $memberId);
+        } else {
+            DbHelper::removePartyMember($roomId, $user);
+        }
+
+        $newCount = DbHelper::getPartyMembersCount($roomId);
+        DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} salió de la sala", 'system');
+        DbHelper::updatePartyPlayback($roomId, (bool)$room['is_playing'], (float)$room['current_time'], null, $newCount);
 
         jsonResponse(['success' => true]);
     }
@@ -231,6 +242,10 @@ class PartyController {
         }
 
         $participant = self::resolvePartyParticipant($data, $room);
+        if (!$participant) {
+            jsonError('Credenciales de miembro requeridas', 401);
+        }
+
         $user = $participant['username'];
         $isHost = $participant['is_host'];
         $allowGuests = (bool)$room['allow_guest_controls'];
@@ -284,6 +299,10 @@ class PartyController {
         }
 
         $participant = self::resolvePartyParticipant($data, $room);
+        if (!$participant) {
+            jsonError('Credenciales de miembro requeridas', 401);
+        }
+
         $user = $participant['username'];
         $message = trim($data['message'] ?? '');
         $message = strip_tags($message);
@@ -358,6 +377,15 @@ class PartyController {
             jsonError('Sala no encontrada', 404);
         }
 
+        $participant = self::resolvePartyParticipant($_GET, $room);
+        if (!$participant) {
+            jsonError('Credenciales de miembro requeridas', 401);
+        }
+
+        if (!empty($participant['member_id'])) {
+            DbHelper::updatePartyMemberPing($roomId, $participant['member_id']);
+        }
+
         $messages = DbHelper::getPartyMessages($roomId, $lastMsgId, 30);
 
         jsonResponse([
@@ -384,8 +412,18 @@ class PartyController {
             exit();
         }
 
-        $user = self::resolveUser();
-        DbHelper::recordPartyMember($roomId, $user);
+        $participant = self::resolvePartyParticipant($_GET, $room);
+        if (!$participant) {
+            @http_response_code(401);
+            echo "event: error\ndata: " . json_encode(['error' => 'Credenciales de miembro requeridas']) . "\n\n";
+            exit();
+        }
+
+        $user = $participant['username'];
+        $memberId = $participant['member_id'];
+        if ($memberId) {
+            DbHelper::updatePartyMemberPing($roomId, $memberId);
+        }
 
         // Setup SSE response headers
         @header('Content-Type: text/event-stream; charset=utf-8');
@@ -428,7 +466,9 @@ class PartyController {
 
             // Periodic presence heartbeat every 5s
             if (time() - $lastMemberPing >= 5) {
-                DbHelper::recordPartyMember($roomId, $user);
+                if ($memberId) {
+                    DbHelper::updatePartyMemberPing($roomId, $memberId);
+                }
                 $lastMemberPing = time();
             }
 
@@ -472,7 +512,11 @@ class PartyController {
         }
 
         if (connection_aborted()) {
-            DbHelper::removePartyMember($roomId, $user);
+            if ($memberId) {
+                DbHelper::removePartyMemberById($roomId, $memberId);
+            } else {
+                DbHelper::removePartyMember($roomId, $user);
+            }
             $roomNow = DbHelper::getPartyRoom($roomId);
             if ($roomNow) {
                 $newCount = DbHelper::getPartyMembersCount($roomId);

@@ -22,7 +22,8 @@ $migrationFiles = MigrationManager::getMigrationFiles();
 $expectedMigrations = [
     '001_initial_schema.sql',
     '002_foreign_keys_and_indexes.sql',
-    '003_party_participants.sql'
+    '003_party_participants.sql',
+    '004_security_profile_party_hardening.sql'
 ];
 
 foreach ($expectedMigrations as $exp) {
@@ -33,8 +34,8 @@ foreach ($expectedMigrations as $exp) {
         if (empty(trim($sql))) {
             $errors[] = "Migration file {$exp} is empty";
         }
-        if (!str_contains($sql, 'CREATE TABLE')) {
-            $errors[] = "Migration file {$exp} does not contain CREATE TABLE";
+        if (!str_contains($sql, 'CREATE TABLE') && !str_contains($sql, 'ALTER TABLE')) {
+            $errors[] = "Migration file {$exp} does not contain CREATE TABLE or ALTER TABLE";
         }
     }
 }

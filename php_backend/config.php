@@ -109,6 +109,7 @@ function jsonResponse($data, $statusCode = 200) {
     exit();
 }
 
-function jsonError($message, $statusCode = 400) {
-    jsonResponse(['error' => $message], $statusCode);
+function jsonError($message, $statusCode = 400, array $extra = []) {
+    $payload = array_merge(['error' => $message], $extra);
+    jsonResponse($payload, $statusCode);
 }

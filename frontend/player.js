@@ -6,6 +6,7 @@ import { initAudioEnhancer } from './js/modules/player_audio_enhancer.js';
 import { initShortcutsHud } from './js/modules/player_shortcuts_hud.js';
 import { initSmartSkip } from './js/modules/player_smart_skip.js';
 import { renderQRCodeToElement } from './js/features/player/qr_generator.js';
+import { AuthManager } from './js/core/auth.js';
 
 function escapeHtml(str) {
   if (typeof str !== 'string') return '';
@@ -355,14 +356,10 @@ export async function initPlayer(rawEpisodeId) {
   } else {
     try {
       let activeUser = 'guest';
-      let token = null;
-      const sessionStr = localStorage.getItem('kura_user_session');
-      if (sessionStr) {
-        try {
-          const parsed = JSON.parse(sessionStr);
-          activeUser = parsed.username || 'guest';
-          token = parsed.token;
-        } catch(e) {}
+      let token = AuthManager.getToken();
+      const user = AuthManager.getUser();
+      if (user && user.username) {
+        activeUser = user.username;
       }
 
       const isGuest = !token || activeUser === 'guest';
@@ -375,11 +372,12 @@ export async function initPlayer(rawEpisodeId) {
           }
         } catch(e) {}
       } else {
-        const activeProfile = localStorage.getItem('kura_active_profile') || 'Principal';
+        const activeProfile = AuthManager.getActiveProfile();
+        const profileName = (activeProfile && activeProfile.name) ? activeProfile.name : 'Principal';
         const headers = {};
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
-        const progressRes = await fetch(`/api/progress/${encodeURIComponent(episodeId)}?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(activeProfile)}`, { headers });
+        const progressRes = await fetch(`/api/progress/${encodeURIComponent(episodeId)}?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
         if (progressRes.ok) {
           const progressData = await progressRes.json();
           if (progressData && progressData.progress && !progressData.completed) {
@@ -484,8 +482,11 @@ function loadVideoStream(startTime = 0) {
   if (startTime > 0) {
     streamUrl += `&start=${startTime}`;
   }
+  const authToken = AuthManager.getToken();
   if (partyManager && partyManager.streamCapabilityToken) {
     streamUrl += `&ticket=${encodeURIComponent(partyManager.streamCapabilityToken)}`;
+  } else if (authToken) {
+    streamUrl += `&token=${encodeURIComponent(authToken)}`;
   }
   
   video.src = streamUrl;
@@ -533,14 +534,10 @@ function saveWatchProgress(force = false) {
   if (force || Math.abs(totalWatched - lastSavedTime) >= 3 || (duration > 0 && totalWatched >= duration - 5)) {
     lastSavedTime = totalWatched;
     let activeUser = 'guest';
-    let token = null;
-    const sessionStr = localStorage.getItem('kura_user_session');
-    if (sessionStr) {
-      try {
-        const parsed = JSON.parse(sessionStr);
-        activeUser = parsed.username || 'guest';
-        token = parsed.token;
-      } catch(e) {}
+    let token = AuthManager.getToken();
+    const user = AuthManager.getUser();
+    if (user && user.username) {
+      activeUser = user.username;
     }
 
     const isGuest = !token || activeUser === 'guest';
@@ -558,7 +555,8 @@ function saveWatchProgress(force = false) {
       return;
     }
 
-    const activeProfile = localStorage.getItem('kura_active_profile') || 'Principal';
+    const activeProfile = AuthManager.getActiveProfile();
+    const profileName = (activeProfile && activeProfile.name) ? activeProfile.name : 'Principal';
     
     const headers = { 'Content-Type': 'application/json' };
     if (token) {
@@ -573,7 +571,7 @@ function saveWatchProgress(force = false) {
         progress_seconds: totalWatched,
         duration: duration,
         username: activeUser,
-        profile_name: activeProfile
+        profile_name: profileName
       })
     }).catch(err => console.warn('Failed to save watch progress:', err));
   }
@@ -1462,6 +1460,15 @@ function setupPlayerEventListeners() {
   const menuPipBtn = document.getElementById('menu-pip-btn');
   if (menuPipBtn) menuPipBtn.onclick = handlePipToggle;
   if (pipBtn) pipBtn.onclick = handlePipToggle;
+
+  const menuAmbilightBtn = document.getElementById('menu-ambilight-btn');
+  if (menuAmbilightBtn && ambilightToggleBtn) {
+    menuAmbilightBtn.onclick = (e) => {
+      if (e) e.stopPropagation();
+      ambilightToggleBtn.click();
+      document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+    };
+  }
 
   // Technical file info overlay modal toggles
   const handleFileInfoToggle = (e) => {
@@ -2601,7 +2608,7 @@ function initScreenLock(signal) {
   if (container && !document.querySelector('.player-lock-pill')) {
     const pill = document.createElement('div');
     pill.className = 'player-lock-pill hide';
-    pill.innerHTML = '🔒 Pantalla bloqueada - Toca para desbloquear';
+    pill.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> Pantalla bloqueada - Toca para desbloquear';
     container.appendChild(pill);
     pill.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2619,7 +2626,7 @@ function showSpeedPill() {
     pill = document.createElement('div');
     pill.id = 'speed-accelerator-pill';
     pill.className = 'speed-accelerator-pill hide';
-    pill.innerHTML = '▶▶ 2x Rápido';
+    pill.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><polygon points="13 19 22 12 13 5 13 19"></polygon><polygon points="2 19 11 12 2 5 2 19"></polygon></svg> 2x Rápido';
     const container = document.getElementById('player-container') || document.body;
     container.appendChild(pill);
   }
@@ -2715,10 +2722,10 @@ function initSpeedMenu(signal) {
     document.querySelectorAll('.speed-menu-opt').forEach(btn => {
       if (parseFloat(btn.dataset.speed) === rate) {
         btn.classList.add('active');
-        btn.querySelector('.check-icon').textContent = '✓';
+        btn.querySelector('.check-icon').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
       } else {
         btn.classList.remove('active');
-        btn.querySelector('.check-icon').textContent = '';
+        btn.querySelector('.check-icon').innerHTML = '';
       }
     });
   }

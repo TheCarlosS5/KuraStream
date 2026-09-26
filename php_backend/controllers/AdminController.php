@@ -261,10 +261,15 @@ class AdminController {
             if (!self::isPathWithinAllowedRoots($item['filepath'])) {
                 jsonError('Ruta de archivo staged no permitida', 403);
             }
-            if (!@rename($item['filepath'], $targetPath)) {
-                @copy($item['filepath'], $targetPath);
-                @unlink($item['filepath']);
+            $src = $item['filepath'];
+            $copied = @copy($src, $targetPath);
+            if (!$copied || !file_exists($targetPath) || filesize($targetPath) === 0 || (filesize($src) > 0 && filesize($targetPath) !== filesize($src))) {
+                if (file_exists($targetPath)) {
+                    @unlink($targetPath);
+                }
+                jsonError('Fallo al copiar y verificar integridad del archivo en destino', 500);
             }
+            @unlink($src);
         }
 
         $del = $db->prepare("DELETE FROM staged_imports WHERE id = :id");
@@ -339,7 +344,14 @@ class AdminController {
 
     public static function getActiveStreams(): void {
         AuthMiddleware::requireAdmin();
-        jsonResponse([]);
+        require_once __DIR__ . '/PlayerController.php';
+        $workerCount = TranscodeLimiter::getActiveWorkerCount();
+        jsonResponse([
+            'success' => true,
+            'active_workers' => $workerCount,
+            'max_workers' => TranscodeLimiter::$maxWorkers,
+            'active_streams' => $workerCount
+        ]);
     }
 
     public static function getLogs(): void {
@@ -365,7 +377,7 @@ class AdminController {
             if (!empty($journal)) {
                 $rawLogs = trim($journal);
             } else {
-                $rawLogs = "[" . date('Y-m-d H:i:s') . "] [INFO] Servidor PHP KuraStream activo y en ejecución.\n[" . date('Y-m-d H:i:s') . "] [INFO] Base de datos MariaDB conectada correctamente.";
+                $rawLogs = 'Sin registros disponibles';
             }
         }
 
@@ -597,14 +609,21 @@ class AdminController {
 
             $destPath = $targetDir . '/' . $filename;
             move_uploaded_file($_FILES['videoFile']['tmp_name'], $destPath);
-        } else if (!empty($_POST['sourcePath']) && file_exists($_POST['sourcePath'])) {
-            $origName = basename($_POST['sourcePath']);
+        } else if (!empty($_POST['sourcePath'])) {
+            $sourcePath = realpath($_POST['sourcePath']) ?: $_POST['sourcePath'];
+            if (!file_exists($sourcePath)) {
+                jsonError('Archivo fuente no encontrado', 404);
+            }
+            if (!self::isPathWithinAllowedRoots($sourcePath)) {
+                jsonError('Ruta de archivo fuente no permitida', 403);
+            }
+            $origName = basename($sourcePath);
             $ext = pathinfo($origName, PATHINFO_EXTENSION);
             $filename = ($mediaType === 'movie') 
                 ? "{$sanitizedDir}.{$ext}" 
                 : "{$sanitizedDir} - S" . sprintf("%02d", $season) . "E" . sprintf("%02d", $episode) . ".{$ext}";
             $destPath = $targetDir . '/' . $filename;
-            @copy($_POST['sourcePath'], $destPath);
+            @copy($sourcePath, $destPath);
         }
 
         // Enrich show metadata via TMDB if show record does not exist

@@ -419,6 +419,9 @@ export async function loadShowDetails(id) {
 
   try {
     const res = await fetch(`/api/shows/${encodeURIComponent(id)}`);
+    if (res.ok !== undefined && !res.ok) {
+      throw new Error(`Error ${res.status}: no se pudo cargar el show`);
+    }
     const data = await res.json();
     const show = data.show || data;
     const episodes = Array.isArray(data.episodes) ? data.episodes : (show.episodes || []);
@@ -630,8 +633,8 @@ export function renderCalendarDay(dayName) {
       ${showsList.map(item => {
         const cover = item.cover_image || '';
         const inLibBadge = item.in_library ? `
-          <div style="position: absolute; top: 10px; right: 10px; background: #2DD4BF; color: #000; font-family: var(--font-title); font-size: 0.7rem; font-weight: 800; padding: 4px 10px; border-radius: 4px; box-shadow: 0 0 10px rgba(45,212,191,0.5); z-index: 3;">
-            ✓ EN TU BIBLIOTECA
+          <div style="position: absolute; top: 10px; right: 10px; background: #2DD4BF; color: #000; font-family: var(--font-title); font-size: 0.7rem; font-weight: 800; padding: 4px 10px; border-radius: 4px; box-shadow: 0 0 10px rgba(45,212,191,0.5); z-index: 3; display: flex; align-items: center; gap: 4px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> EN TU BIBLIOTECA
           </div>
         ` : '';
 

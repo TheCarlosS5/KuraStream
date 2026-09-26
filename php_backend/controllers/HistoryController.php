@@ -4,32 +4,11 @@ require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
 class HistoryController {
-    private static function resolveUserAndProfile(array $body = []): array {
-        $authUser = AuthMiddleware::requireAuth();
-        $username = $authUser['username'];
-
-        // Strict priority: active verified profile from token claims
-        if (!empty($authUser['profile_name'])) {
-            return [$username, trim((string)$authUser['profile_name'])];
-        }
-
-        // If authenticated without active profile in token, resolve from user's verified profiles in DB
-        $profiles = DbHelper::getUserProfiles($username);
-        if (!empty($profiles)) {
-            $requestedId = trim((string)($body['profile_id'] ?? ($_GET['profile_id'] ?? '')));
-            if (!empty($requestedId)) {
-                foreach ($profiles as $p) {
-                    if ($p['id'] === $requestedId) {
-                        return [$username, $p['name']];
-                    }
-                }
-            }
-            return [$username, $profiles[0]['name']];
-        }
-
-        // If no profiles exist, ensure default Principal profile
-        $defaultProf = DbHelper::saveUserProfile($username, ['name' => 'Principal']);
-        return [$username, $defaultProf['name']];
+    private static function resolveUserAndProfile(): array {
+        $profilePayload = AuthMiddleware::requireProfile();
+        $username = $profilePayload['username'];
+        $profileName = $profilePayload['profile_name'] ?? ($profilePayload['profile_id'] ?? '');
+        return [$username, trim((string)$profileName)];
     }
 
     public static function getHistory(): void {
@@ -78,7 +57,7 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        list($username, $profile) = self::resolveUserAndProfile($data);
+        list($username, $profile) = self::resolveUserAndProfile();
 
         $epId = $episodeId ?: ($data['episode_id'] ?? ($_GET['episode_id'] ?? ''));
         $progress = (float)($data['progress'] ?? ($data['progress_seconds'] ?? 0));
@@ -134,7 +113,7 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        list($username, $profile) = self::resolveUserAndProfile($data);
+        list($username, $profile) = self::resolveUserAndProfile();
 
         $showId = $data['show_id'] ?? ($data['showId'] ?? '');
 
@@ -172,7 +151,7 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        list($username, $profile) = self::resolveUserAndProfile($data);
+        list($username, $profile) = self::resolveUserAndProfile();
 
         DbHelper::saveUserPreferences($username, $profile, $data);
         jsonResponse(['success' => true]);
@@ -192,7 +171,7 @@ class HistoryController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        list($username, $profile) = self::resolveUserAndProfile($data);
+        list($username, $profile) = self::resolveUserAndProfile();
 
         $episodeId = $_GET['episode_id'] ?? ($data['episode_id'] ?? null);
         $clear = $_GET['clear'] ?? ($data['clear'] ?? null);

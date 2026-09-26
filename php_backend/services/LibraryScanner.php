@@ -28,7 +28,7 @@ class LibraryScanner {
                 if (!is_dir($showPath)) continue;
 
                 // Discover all video files recursively inside show folder (root and Season subdirectories)
-                $videoFiles = self::findVideoFiles($showPath);
+                $videoFiles = self::findVideoFiles($showPath, $mediaType);
                 if (empty($videoFiles)) {
                     continue; // Skip folders that contain no video files
                 }
@@ -170,6 +170,13 @@ class LibraryScanner {
                         }
                     }
 
+                    try {
+                        $probe = FfmpegScanner::probeVideo($fullPath);
+                    } catch (Throwable $e) {
+                        error_log("[LibraryScanner] No se pudo leer el archivo multimedia {$fullPath}: " . $e->getMessage());
+                        continue;
+                    }
+
                     $thumbFilename = "ep_{$season}_{$episode}_thumb.jpg";
                     $thumbLocalPath = $showPath . '/' . $thumbFilename;
                     $thumbUrl = '';
@@ -177,20 +184,15 @@ class LibraryScanner {
                     if (file_exists($thumbLocalPath) && filesize($thumbLocalPath) > 0) {
                         $thumbUrl = "/library/{$dirName}/{$showFolder}/{$thumbFilename}";
                     } else {
-                        // Extract thumbnail frame at 120s
-                        $extracted = FfmpegScanner::extractThumbnail($fullPath, $thumbLocalPath, 120.0);
+                        // Extract percentage-based thumbnail frame (15% of duration, bounded between 5s and 180s)
+                        $duration = (float)($probe['duration'] ?? 0.0);
+                        $seekSeconds = ($duration > 10.0) ? min(max($duration * 0.15, 5.0), 180.0) : max($duration * 0.2, 1.0);
+                        $extracted = FfmpegScanner::extractThumbnail($fullPath, $thumbLocalPath, $seekSeconds);
                         if ($extracted) {
                             $thumbUrl = "/library/{$dirName}/{$showFolder}/{$thumbFilename}";
                         } else if (!empty($tmdbStill)) {
                             $thumbUrl = $tmdbStill;
                         }
-                    }
-
-                    try {
-                        $probe = FfmpegScanner::probeVideo($fullPath);
-                    } catch (Throwable $e) {
-                        error_log("[LibraryScanner] No se pudo leer el archivo multimedia {$fullPath}: " . $e->getMessage());
-                        continue;
                     }
 
                     DbHelper::saveEpisode([
@@ -222,7 +224,7 @@ class LibraryScanner {
         ];
     }
 
-    private static function findVideoFiles(string $showPath): array {
+    private static function findVideoFiles(string $showPath, string $mediaType = 'anime'): array {
         $results = [];
         $validExts = ['mkv', 'mp4', 'avi', 'webm', 'mov'];
 
@@ -243,6 +245,15 @@ class LibraryScanner {
                     $effectiveSeason = ($fileSeason !== null) ? $fileSeason : $seasonNum;
                     $epNum = self::parseEpisodeNumber($subFile);
 
+                    if ($epNum === null) {
+                        if ($mediaType === 'movie') {
+                            $epNum = 1;
+                        } else {
+                            error_log("[LibraryScanner] Archivo ignorado: no se pudo detectar el número de episodio para '{$subFile}'");
+                            continue;
+                        }
+                    }
+
                     $results[] = [
                         'filepath' => $subFilePath,
                         'season' => $effectiveSeason,
@@ -256,6 +267,15 @@ class LibraryScanner {
                 $fileSeason = self::parseSeasonFromFilename($entry);
                 $seasonNum = ($fileSeason !== null) ? $fileSeason : 1;
                 $epNum = self::parseEpisodeNumber($entry);
+
+                if ($epNum === null) {
+                    if ($mediaType === 'movie') {
+                        $epNum = 1;
+                    } else {
+                        error_log("[LibraryScanner] Archivo ignorado: no se pudo detectar el número de episodio para '{$entry}'");
+                        continue;
+                    }
+                }
 
                 $results[] = [
                     'filepath' => $itemPath,
@@ -294,19 +314,25 @@ class LibraryScanner {
         return null;
     }
 
-    private static function parseEpisodeNumber(string $filename): int {
-        if (preg_match('/(?:S\d+)?E(\d+)/i', $filename, $m)) {
+    private static function parseEpisodeNumber(string $filename): ?int {
+        // Strip out resolution, year, codec tokens first so numbers like 1080p, 720p, 2024 don't get matched as episode numbers
+        $clean = preg_replace('/(\b\d{4}p\b|\b\d{3,4}p\b|\b(19|20)\d{2}\b|x264|x265|hevc|h264|h265|10bit|8bit|aac|ac3|dts)/i', ' ', $filename);
+
+        if (preg_match('/(?:S\d+)?E(\d+)/i', $clean, $m)) {
             return (int)$m[1];
         }
-        if (preg_match('/(?:\d+x)(\d+)/i', $filename, $m)) {
+        if (preg_match('/(?:\d+x)(\d+)/i', $clean, $m)) {
             return (int)$m[1];
         }
-        if (preg_match('/(?:Cap[ıí]tulo|Cap\.?|Episodio|Ep\.?)\s*(\d+)/i', $filename, $m)) {
+        if (preg_match('/(?:Cap[ıí]tulo|Cap\.?|Episodio|Ep\.?)\s*(\d+)/i', $clean, $m)) {
             return (int)$m[1];
         }
-        if (preg_match('/(?:-\s*|\s+#)(\d+)(?:\s|\.|\[|\(|$)/i', $filename, $m)) {
+        if (preg_match('/(?:-\s*|\s+#)(\d+)(?:\s|\.|\[|\(|$)/i', $clean, $m)) {
             return (int)$m[1];
         }
-        return 1;
+        if (preg_match('/(?:\b|_|-)(\d{1,3})(?:\b|_|\.|\))/i', $clean, $m)) {
+            return (int)$m[1];
+        }
+        return null;
     }
 }

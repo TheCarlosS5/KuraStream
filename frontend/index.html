@@ -497,30 +497,22 @@
                   </div>
                 </div>
 
-                <!-- Audio Tracks -->
-                <div class="player-dropdown" id="audio-dropdown">
+                <!-- Legacy Separate Audio/Subtitle Dropdowns (Hidden, consolidated into Tracks Modal) -->
+                <div class="player-dropdown" id="audio-dropdown" style="display: none;">
                   <button class="player-btn dropdown-trigger" id="audio-btn" title="Audio"><i data-lucide="headphones"></i></button>
-                  <div class="dropdown-menu" id="audio-menu-list">
-                    <!-- Audio tracks injected here -->
-                  </div>
+                  <div class="dropdown-menu" id="audio-menu-list"></div>
                 </div>
-
-                <!-- Subtitle Tracks -->
-                <div class="player-dropdown" id="subtitle-dropdown">
+                <div class="player-dropdown" id="subtitle-dropdown" style="display: none;">
                   <button class="player-btn dropdown-trigger" id="subtitle-btn" title="Subtítulos"><i data-lucide="captions"></i></button>
-                  <div class="dropdown-menu" id="subtitle-menu-list">
-                    <!-- Subtitles injected here -->
-                  </div>
+                  <div class="dropdown-menu" id="subtitle-menu-list"></div>
                 </div>
 
-                <!-- Ambilight Toggle -->
-                <button class="player-btn" id="ambilight-toggle-btn" title="Activar/Desactivar Ambilight"><i data-lucide="sparkles"></i></button>
+                <!-- Ambilight & PiP Standalone (Consolidated into More Options menu) -->
+                <button class="player-btn" id="ambilight-toggle-btn" title="Activar/Desactivar Ambilight" style="display: none;"><i data-lucide="sparkles"></i></button>
+                <button class="player-btn player-pip-btn" id="player-pip-btn" title="Picture in Picture" style="display: none;"><i data-lucide="picture-in-picture-2"></i></button>
 
                 <!-- Audio & Subtitles 2-Column Modal Trigger -->
                 <button class="player-btn" id="player-tracks-btn" title="Audio y Subtítulos"><i data-lucide="subtitles"></i></button>
-
-                <!-- Picture-in-Picture Trigger -->
-                <button class="player-btn player-pip-btn" id="player-pip-btn" title="Picture in Picture"><i data-lucide="picture-in-picture-2"></i></button>
 
                 <!-- More Options Dropdown (...) -->
                 <div class="player-dropdown" id="more-options-dropdown">
@@ -529,6 +521,10 @@
                     <button class="more-menu-item" id="menu-pip-btn">
                       <i data-lucide="picture-in-picture"></i>
                       <span>Ventana en ventana</span>
+                    </button>
+                    <button class="more-menu-item" id="menu-ambilight-btn">
+                      <i data-lucide="sparkles"></i>
+                      <span>Efecto Ambilight</span>
                     </button>
                     <button class="more-menu-item" id="menu-qr-btn">
                       <i data-lucide="qr-code"></i>

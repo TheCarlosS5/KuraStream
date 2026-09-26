@@ -5,6 +5,7 @@
  */
 
 import { getAuthHeaders } from './auth.js';
+import { AuthManager } from '../core/auth.js';
 
 class PartyManager {
   constructor() {
@@ -129,11 +130,11 @@ class PartyManager {
 
   resolveUsername() {
     try {
-      const user = localStorage.getItem('kura_user');
-      if (user) {
-        const parsed = JSON.parse(user);
-        if (parsed && parsed.username) return parsed.username;
-      }
+      const user = AuthManager.getUser();
+      if (user && user.username) return user.username;
+
+      const profile = AuthManager.getActiveProfile();
+      if (profile && profile.name) return profile.name;
     } catch (e) {}
 
     let guestName = localStorage.getItem('kura_party_nickname');
@@ -222,6 +223,8 @@ class PartyManager {
 
     const roomId = this.activeRoom.id;
     const username = this.currentUser.username;
+    const memberId = this.memberId;
+    const memberToken = this.memberToken;
 
     this.disconnectEventStream();
     this.activeRoom = null;
@@ -234,7 +237,12 @@ class PartyManager {
       await fetch('/api/party/leave', {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room_id: roomId, username })
+        body: JSON.stringify({ 
+          room_id: roomId, 
+          username,
+          member_id: memberId,
+          member_token: memberToken
+        })
       });
     } catch (e) {}
 
@@ -262,7 +270,10 @@ class PartyManager {
   connectEventStream(roomId) {
     this.disconnectEventStream();
 
-    const streamUrl = `/api/party/stream?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
+    let streamUrl = `/api/party/stream?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
+    if (this.memberId && this.memberToken) {
+      streamUrl += `&member_id=${encodeURIComponent(this.memberId)}&member_token=${encodeURIComponent(this.memberToken)}`;
+    }
     try {
       this.eventSource = new EventSource(streamUrl);
 
@@ -339,7 +350,13 @@ class PartyManager {
       }
 
       try {
-        const res = await fetch(`/api/party/poll?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`);
+        let pollUrl = `/api/party/poll?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
+        if (this.memberId && this.memberToken) {
+          pollUrl += `&member_id=${encodeURIComponent(this.memberId)}&member_token=${encodeURIComponent(this.memberToken)}`;
+        }
+        const res = await fetch(pollUrl, {
+          headers: getAuthHeaders()
+        });
         if (!res.ok) return;
         const data = await res.json();
 

@@ -49,6 +49,32 @@ class TranscodeLimiter {
         }
     }
 
+    public static function getActiveWorkerCount(): int {
+        $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
+        if (!is_dir($slotDir)) {
+            return 0;
+        }
+        $active = 0;
+        for ($i = 0; $i < self::$maxWorkers; $i++) {
+            if (isset(self::$activeLocks[$i])) {
+                $active++;
+                continue;
+            }
+            $file = $slotDir . DIRECTORY_SEPARATOR . "worker_{$i}.lock";
+            if (!file_exists($file)) continue;
+            $fp = @fopen($file, 'c+');
+            if ($fp) {
+                if (!flock($fp, LOCK_EX | LOCK_NB)) {
+                    $active++;
+                } else {
+                    @flock($fp, LOCK_UN);
+                }
+                @fclose($fp);
+            }
+        }
+        return $active;
+    }
+
     public static function resetAllSlots(): void {
         foreach (self::$activeLocks as $fp) {
             @flock($fp, LOCK_UN);
@@ -70,20 +96,11 @@ class TranscodeLimiter {
 
 class PlayerController {
     public static function authorizeStreamAccess(string $episodeId): void {
-        if (defined('TESTING_MODE') && empty($_SERVER['HTTP_AUTHORIZATION']) && empty($_COOKIE['kurastream_token']) && empty($_GET['ticket']) && empty($_GET['capability'])) {
+        if (defined('TESTING_MODE') && empty($_SERVER['HTTP_AUTHORIZATION']) && empty($_COOKIE['kurastream_token']) && empty($_GET['token']) && empty($_GET['ticket']) && empty($_GET['capability'])) {
             return;
         }
 
-        // 1. Authenticated session
-        $userToken = AuthMiddleware::getBearerToken();
-        if (!empty($userToken)) {
-            $payload = AuthMiddleware::verifyToken($userToken);
-            if ($payload && !empty($payload['username'])) {
-                return;
-            }
-        }
-
-        // 2. Watch party capability token
+        // 1. Watch party capability token
         $ticket = $_GET['ticket'] ?? ($_GET['capability'] ?? ($_SERVER['HTTP_X_STREAM_CAPABILITY'] ?? null));
         if (!empty($ticket)) {
             $cap = AuthMiddleware::verifyToken($ticket);
@@ -92,11 +109,31 @@ class PlayerController {
                 && ($cap['episode_id'] ?? '') === $episodeId
                 && (!isset($cap['exp']) || $cap['exp'] > time())
             ) {
+                if (!empty($cap['member_id'])) {
+                    if (!DbHelper::isPartyMemberActive($cap['room_id'], $cap['member_id'])) {
+                        jsonError('Ticket de sala expirado o miembro inactivo', 403);
+                    }
+                }
                 return;
             }
+            jsonError('Ticket de reproducción inválido o expirado', 403);
         }
 
-        jsonError('Autenticación requerida para acceder al flujo de medios', 401);
+        // 2. Authenticated user session - MUST require active profile
+        $userToken = AuthMiddleware::getBearerToken();
+        if (empty($userToken)) {
+            jsonError('Autenticación requerida para acceder al flujo de medios', 401);
+        }
+
+        $payload = AuthMiddleware::requireProfile();
+
+        // 3. Kids mode check: enforce restriction if active profile is kids
+        if (!empty($payload['is_kids'])) {
+            $ep = DbHelper::getEpisode($episodeId);
+            if ($ep && !empty($ep['show_id'])) {
+                self::checkKidsModeAccess($ep['show_id']);
+            }
+        }
     }
 
     public static function checkKidsModeAccess(string $showId): void {

@@ -182,7 +182,7 @@ if (preg_match('#^/api/shows/([^/]+)$#', $uri, $m) && $method === 'DELETE') {
     ShowController::deleteShow(urldecode($m[1]));
 }
 
-if ($uri === '/api/calendar/schedule' && $method === 'GET') {
+if (($uri === '/api/calendar' || $uri === '/api/calendar/schedule') && $method === 'GET') {
     CalendarController::getSchedule();
 }
 

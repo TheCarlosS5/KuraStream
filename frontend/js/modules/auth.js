@@ -3,27 +3,21 @@
  * Handles session tokens, admin auth headers, and login state.
  */
 
+import { AuthManager } from '../core/auth.js';
+
 export function getAuthToken() {
-  const sessionStr = localStorage.getItem('kura_user_session');
-  if (sessionStr) {
-    try {
-      const session = JSON.parse(sessionStr);
-      if (session && session.token) return session.token;
-    } catch(e) {}
-  }
-  return localStorage.getItem('adminToken') || localStorage.getItem('kura_admin_token') || localStorage.getItem('kurastream_token') || localStorage.getItem('token') || '';
+  return AuthManager.getToken() || localStorage.getItem('kurastream_jwt') || localStorage.getItem('kurastream_token') || '';
 }
 
 export function setAuthToken(token) {
   if (token) {
-    localStorage.setItem('kurastream_token', token);
-    localStorage.setItem('token', token);
+    localStorage.setItem('kurastream_jwt', token);
   }
 }
 
 export function removeAuthToken() {
+  localStorage.removeItem('kurastream_jwt');
   localStorage.removeItem('kurastream_token');
-  localStorage.removeItem('token');
 }
 
 export function getAuthHeaders() {

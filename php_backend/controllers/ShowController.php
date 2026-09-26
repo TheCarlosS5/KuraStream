@@ -153,9 +153,10 @@ class ShowController {
     }
 
     public static function addComment(?array $inputData = null): void {
-        $authUser = AuthMiddleware::requireAuth();
+        $authProfile = AuthMiddleware::requireProfile();
         RateLimiter::enforce('comment', 5, 60); // Máx 5 comentarios por minuto
-        $username = $authUser['username'];
+        $username = $authProfile['username'];
+        $profile = trim((string)($authProfile['profile_name'] ?? ($authProfile['profile_id'] ?? '')));
 
         if ($inputData !== null) {
             $data = $inputData;
@@ -166,11 +167,6 @@ class ShowController {
 
         $showId = trim((string)($data['show_id'] ?? ($data['showId'] ?? '')));
         $content = trim((string)($data['content'] ?? ($data['comment'] ?? '')));
-        $profile = !empty($authUser['profile_name']) ? trim((string)$authUser['profile_name']) : '';
-        if (empty($profile)) {
-            $userProfiles = DbHelper::getUserProfiles($username);
-            $profile = !empty($userProfiles) ? ($userProfiles[0]['name'] ?? 'Principal') : 'Principal';
-        }
         $episodeId = trim((string)($data['episode_id'] ?? ''));
 
         if (empty($showId) || empty($content)) {

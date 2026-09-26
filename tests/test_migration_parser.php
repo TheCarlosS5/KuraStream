@@ -39,6 +39,7 @@ assert(!empty($files), "MigrationManager::getMigrationFiles() must find migratio
 assert(isset($files['001_initial_schema.sql']), "001_initial_schema.sql must be present");
 assert(isset($files['002_foreign_keys_and_indexes.sql']), "002_foreign_keys_and_indexes.sql must be present");
 assert(isset($files['003_party_participants.sql']), "003_party_participants.sql must be present");
+assert(isset($files['004_security_profile_party_hardening.sql']), "004_security_profile_party_hardening.sql must be present");
 
 // 3. Test That All Migration Files Parse Without Empty Statements
 foreach ($files as $name => $path) {

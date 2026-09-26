@@ -50,7 +50,7 @@ assert($unauth, "addComment must reject unauthenticated requests with 401");
 $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
 RateLimiter::clear("comment_{$ip}");
 
-$token = AuthMiddleware::createToken(['username' => 'testuser', 'role' => 'user', 'exp' => time() + 3600]);
+$token = AuthMiddleware::createToken(['username' => 'testuser', 'role' => 'user', 'profile_name' => 'Principal', 'exp' => time() + 3600]);
 $_COOKIE['kurastream_token'] = $token;
 
 $rateLimited = false;
