@@ -94,4 +94,9 @@ try {
 }
 assert(!$missingParamsCaught, "addComment must accept 'showId' and 'comment' parameter aliases");
 
+// 7. Probar verificación referencial de show y episodio
+$showControllerCode = file_get_contents(__DIR__ . '/../php_backend/controllers/ShowController.php');
+assert(str_contains($showControllerCode, "DbHelper::getShow(\$showId)"), "addComment must verify show exists in DB");
+assert(str_contains($showControllerCode, "\$ep['show_id'] !== \$showId"), "addComment must verify episode belongs to show");
+
 echo "✓ Comments Alignment Tests Passed\n";

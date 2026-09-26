@@ -8,8 +8,6 @@ export class Router {
     this.routes = {};
     this.currentRoute = null;
     this.beforeHooks = [];
-
-    window.addEventListener('hashchange', () => this.handleRouting());
   }
 
   on(path, handler) {
@@ -103,6 +101,9 @@ export class Router {
   }
 
   start() {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('hashchange', () => this.handleRouting());
+    }
     this.handleRouting();
   }
 }

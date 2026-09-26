@@ -24,6 +24,7 @@ echo "Running Progress Data Integrity Tests...\n";
 $historyCode = file_get_contents(__DIR__ . '/../php_backend/controllers/HistoryController.php');
 assert(str_contains($historyCode, 'is_finite'), "HistoryController MUST validate finite numbers using is_finite!");
 assert(str_contains($historyCode, '0.9'), "HistoryController or DbHelper MUST use 0.9 threshold for completed derivation!");
+assert(str_contains($historyCode, "jsonError('Episodio no encontrado', 404)"), "HistoryController MUST return 404 for nonexistent episode!");
 
 try {
     $db = Database::getConnection();
@@ -93,12 +94,20 @@ function sendProgressRequest(array $body, ?string $episodeIdParam = null): array
 }
 
 // 1. Missing episode_id (400)
-echo "  [1/6] Test missing episode_id (expects 400)...\n";
+echo "  [1/7] Test missing episode_id (expects 400)...\n";
 $res = sendProgressRequest(['progress' => 100]);
 assert($res['status'] === 400, "Missing episode_id must return 400, got {$res['status']}");
 
+// 1b. Non-existent episode_id returns 404 and inserts zero rows
+echo "  [1b/7] Test non-existent episode_id (expects 404, 0 rows in DB)...\n";
+$resNonExistent = sendProgressRequest(['episode_id' => 'ep_does_not_exist_xyz', 'progress' => 120]);
+assert($resNonExistent['status'] === 404, "Non-existent episode must return 404, got {$resNonExistent['status']}");
+$checkStmt = $db->prepare("SELECT COUNT(*) FROM watch_history WHERE episode_id = 'ep_does_not_exist_xyz'");
+$checkStmt->execute();
+assert((int)$checkStmt->fetchColumn() === 0, "No rows must be inserted for non-existent episode!");
+
 // 2. Non-numeric progress (400)
-echo "  [2/6] Test non-numeric progress (expects 400)...\n";
+echo "  [2/7] Test non-numeric progress (expects 400)...\n";
 $res = sendProgressRequest(['episode_id' => 'ep_prog_01', 'progress' => 'not_a_number']);
 assert($res['status'] === 400, "Non-numeric progress must return 400, got {$res['status']}");
 

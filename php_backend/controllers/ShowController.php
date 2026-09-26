@@ -212,6 +212,18 @@ class ShowController {
             jsonError('El comentario no puede superar 1000 caracteres', 400);
         }
 
+        $show = DbHelper::getShow($showId);
+        if (!$show) {
+            jsonError('Show no encontrado', 404);
+        }
+
+        if (!empty($episodeId)) {
+            $ep = DbHelper::getEpisode($episodeId);
+            if (!$ep || $ep['show_id'] !== $showId) {
+                jsonError('Episodio no encontrado para este show', 404);
+            }
+        }
+
         $comment = DbHelper::addComment($showId, $username, $profile, $content, $episodeId);
         jsonResponse(['success' => true, 'comment' => $comment]);
     }

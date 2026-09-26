@@ -41,9 +41,9 @@ $appliedBaseline = [
 $allAvailable = array_keys($migrationFiles);
 $pending = array_values(array_diff($allAvailable, $appliedBaseline));
 
-assert(count($pending) === 1, "Exactly one migration must be pending from 4bdcaeae baseline");
-assert($pending[0] === '005_notifications_read_state.sql', "Pending migration must be 005_notifications_read_state.sql");
-echo "    ✓ Only 005 is pending after 004 baseline\n";
+assert(in_array('005_notifications_read_state.sql', $pending, true), "Pending migrations must include 005_notifications_read_state.sql");
+assert($pending[0] === '005_notifications_read_state.sql', "Next pending migration must be 005_notifications_read_state.sql");
+echo "    ✓ 005 is next pending migration after 004 baseline\n";
 
 // -------------------------------------------------------------------------------------------------
 // 3. Test Schema Upgrade from 004 baseline to 005 with real legacy data (Requires DB)

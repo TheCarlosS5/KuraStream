@@ -1,5 +1,12 @@
 /**
  * KuraStream v2.0 - Core Authentication & Profile Session Manager
+ * 
+ * Note on Web JWT Dual Storage (Known Architecture Limitation):
+ * The active session JWT is currently stored in two distinct client locations:
+ * 1. Web localStorage ('kurastream_jwt') for client-initiated API requests with Bearer headers.
+ * 2. HttpOnly Cookie ('kurastream_token') for native video/audio streaming elements and direct navigations.
+ * In a future major release, this dual-storage model will be refined into pure HttpOnly cookies
+ * coupled with CSRF protection to eliminate token replication and localStorage exposure.
  */
 
 import { api, setApiAuthToken } from './api.js';

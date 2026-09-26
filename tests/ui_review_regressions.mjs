@@ -151,11 +151,17 @@ test('active catalogue/calendar positive states use jade tokens', () => {
   assert.ok(/--success-color:\s*#2DD4BF/i.test(css));
 });
 
-test('single router architecture: navigation.js does not register duplicate hash router', () => {
+test('single router architecture: navigation.js and main.js do not register duplicate hash routers', () => {
   assert.ok(!nav.includes("window.addEventListener('hashchange'"), 'navigation.js must not register duplicate hashchange');
   assert.ok(!nav.includes('export function initRouter'), 'navigation.js must not export duplicate initRouter');
   assert.ok(!nav.includes("getElementById('view-catalog')"), 'navigation.js must not reference obsolete view-catalog');
   assert.ok(!nav.includes("getElementById('view-show-detail')"), 'navigation.js must not reference obsolete view-show-detail');
+  assert.ok(!app.includes('import { appRouter }'), 'main.js must not import dead appRouter');
+  assert.ok(!app.includes("from './core/router.js'"), 'main.js must not import core/router.js');
+  assert.ok(!app.includes('router: appRouter'), 'main.js must not expose dead appRouter on window.KuraStream');
+
+  const coreRouter = fs.readFileSync(new URL('../frontend/js/core/router.js', import.meta.url), 'utf8');
+  assert.ok(!coreRouter.includes("constructor() {\n    this.routes = {};\n    this.currentRoute = null;\n    this.beforeHooks = [];\n\n    window.addEventListener('hashchange'"), 'core/router.js must not auto-register hashchange listener in constructor');
 });
 
 test('purge fabricated metadata: no 8.5 rating or 2026 year fallback in frontend modules', () => {

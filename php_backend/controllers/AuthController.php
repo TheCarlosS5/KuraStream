@@ -146,6 +146,14 @@ class AuthController {
         jsonResponse(['success' => true, 'message' => 'Sesión cerrada']);
     }
 
+    /**
+     * Set HttpOnly session cookie for web streaming elements and browser navigation.
+     * 
+     * Note on Web JWT Dual Storage (Known Architecture Limitation):
+     * The token is returned in JSON payloads (persisted in client localStorage for Authorization: Bearer headers)
+     * AND simultaneously written to an HttpOnly cookie 'kurastream_token' (for native <video> streaming elements).
+     * A planned future refactor will decouple these or move fully to HttpOnly session tokens with CSRF protections.
+     */
     private static function setSessionCookie(string $token): void {
         $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
             || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')

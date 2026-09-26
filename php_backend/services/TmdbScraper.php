@@ -324,30 +324,85 @@ class TmdbScraper {
         return $result;
     }
 
-    public static function downloadFile(string $url, string $destPath): bool {
+    public static function downloadFile(string $url, string $destPath, int $maxBytes = 15728640): bool {
         if (empty($url)) return false;
-        $dir = dirname($destPath);
-        if (!is_dir($dir)) @mkdir($dir, 0755, true);
 
-        $ch = curl_init($url);
-        $fp = fopen($destPath, 'wb');
-        curl_setopt_array($ch, [
+        $parsed = parse_url($url);
+        if (!$parsed || empty($parsed['scheme']) || strtolower($parsed['scheme']) !== 'https') {
+            return false;
+        }
+
+        $host = strtolower($parsed['host'] ?? '');
+        if ($host !== 'image.tmdb.org') {
+            return false;
+        }
+
+        $dir = dirname($destPath);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+
+        $tmpFile = $destPath . '.tmp.' . bin2hex(random_bytes(8));
+        $fp = @fopen($tmpFile, 'wb');
+        if (!$fp) {
+            return false;
+        }
+
+        $curlOptions = [
             CURLOPT_FILE => $fp,
             CURLOPT_HEADER => 0,
             CURLOPT_TIMEOUT => 20,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_FOLLOWLOCATION => true
-        ]);
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 3
+        ];
+        if (defined('CURLPROTO_HTTPS')) {
+            $curlOptions[CURLOPT_PROTOCOLS] = CURLPROTO_HTTPS;
+            $curlOptions[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTPS;
+        }
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, $curlOptions);
         $success = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $contentType = (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $effectiveUrl = (string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
         curl_close($ch);
         fclose($fp);
 
-        if (!$success || $httpCode !== 200 || filesize($destPath) === 0) {
-            @unlink($destPath);
+        if (!$success || $httpCode !== 200 || !file_exists($tmpFile)) {
+            @unlink($tmpFile);
             return false;
         }
-        return true;
+
+        // Validate effective URL host after redirects
+        $effParsed = parse_url($effectiveUrl);
+        $effHost = strtolower($effParsed['host'] ?? '');
+        if ($effHost !== 'image.tmdb.org') {
+            @unlink($tmpFile);
+            return false;
+        }
+
+        // Validate Content-Type starts with image/
+        if (!str_starts_with(strtolower(trim($contentType)), 'image/')) {
+            @unlink($tmpFile);
+            return false;
+        }
+
+        // Enforce max size and non-empty
+        $fileSize = filesize($tmpFile);
+        if ($fileSize <= 0 || $fileSize > $maxBytes) {
+            @unlink($tmpFile);
+            return false;
+        }
+
+        // Atomic rename to destination
+        if (!@rename($tmpFile, $destPath)) {
+            @copy($tmpFile, $destPath);
+            @unlink($tmpFile);
+        }
+
+        return file_exists($destPath) && filesize($destPath) > 0;
     }
 }

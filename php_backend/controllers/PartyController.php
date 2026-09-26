@@ -177,7 +177,7 @@ class PartyController {
         $memberToken = 'mptk_' . bin2hex(random_bytes(32));
         $tokenHash = hash('sha256', $memberToken);
 
-        DbHelper::recordPartyMember($roomId, $user, $memberId, $tokenHash, 'host');
+        DbHelper::recordPartyMember($roomId, $user, $memberId, $tokenHash, 'host', $isKids, $user, $profileId);
         self::setPartySessionCookie($roomId, $memberId, $memberToken);
 
         // Welcome system message (semantic, zero hardcoded icon emojis)
@@ -235,7 +235,26 @@ class PartyController {
         $isHost = ($authPayload !== null && !empty($authPayload['username']) && $room['host_user'] === $authPayload['username']);
         $role = $isHost ? 'host' : 'guest';
 
-        DbHelper::recordPartyMember($roomId, $user, $memberId, $tokenHash, $role);
+        $isKids = false;
+        $accountUsername = null;
+        $profileId = null;
+        if ($authPayload !== null) {
+            $isKids = !empty($authPayload['is_kids']);
+            $accountUsername = $authPayload['username'] ?? null;
+            $profileId = $authPayload['profile_id'] ?? null;
+        }
+
+        if ($isKids && !empty($room['episode_id'])) {
+            $ep = DbHelper::getEpisode($room['episode_id']);
+            if ($ep && !empty($ep['show_id'])) {
+                $show = DbHelper::getShow($ep['show_id']);
+                if ($show && ShowController::isAdultOrMaturityRestricted($show)) {
+                    jsonError('Contenido restringido por el perfil infantil activo', 403);
+                }
+            }
+        }
+
+        DbHelper::recordPartyMember($roomId, $user, $memberId, $tokenHash, $role, $isKids, $accountUsername, $profileId);
         $memberCount = DbHelper::getPartyMembersCount($roomId);
 
         // Add system message if not host joining initial room

@@ -108,11 +108,15 @@ class PlayerController {
                 && !empty($cap['room_id'])
                 && (!isset($cap['exp']) || $cap['exp'] > time())
             ) {
-                if (!empty($cap['member_id'])) {
-                    if (!DbHelper::isPartyMemberActive($cap['room_id'], $cap['member_id'])) {
-                        jsonError('Ticket de sala expirado o miembro inactivo', 403);
-                    }
+                if (empty($cap['member_id'])) {
+                    jsonError('Ticket de sala expirado o miembro inactivo', 403);
                 }
+
+                $member = DbHelper::getPartyMemberById($cap['room_id'], $cap['member_id']);
+                if (!$member || !DbHelper::isPartyMemberActive($cap['room_id'], $cap['member_id'])) {
+                    jsonError('Ticket de sala expirado o miembro inactivo', 403);
+                }
+
                 $room = DbHelper::getPartyRoom($cap['room_id']);
                 if (!$room || empty($room['episode_id'])) {
                     jsonError('Sala no encontrada o inactiva', 404);
@@ -120,6 +124,17 @@ class PlayerController {
                 if ($room['episode_id'] !== $episodeId) {
                     jsonError('El ticket no corresponde al episodio activo de la sala', 403);
                 }
+
+                if (!empty($member['is_kids'])) {
+                    $ep = DbHelper::getEpisode($episodeId);
+                    if ($ep && !empty($ep['show_id'])) {
+                        $show = DbHelper::getShow($ep['show_id']);
+                        if ($show && ShowController::isAdultOrMaturityRestricted($show)) {
+                            jsonError('Contenido restringido por el perfil infantil activo', 403);
+                        }
+                    }
+                }
+
                 return;
             }
             jsonError('Ticket de reproducción inválido o expirado', 403);
@@ -515,6 +530,7 @@ class PlayerController {
         ];
         $mime = $mimeTypes[$ext] ?? (@mime_content_type($realPath) ?: 'video/mp4');
 
+        setCorsHeaders();
         @header("Content-Type: {$mime}");
         @header('Accept-Ranges: bytes');
         @header("Content-Length: {$length}");

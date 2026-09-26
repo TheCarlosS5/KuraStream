@@ -3,7 +3,6 @@
  * Orchestrates modular architecture, client routing, catalog rendering, and player lifecycle.
  */
 
-import { appRouter } from './core/router.js';
 import { AuthManager } from './core/auth.js';
 import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
@@ -1030,8 +1029,12 @@ export function setupRouter() {
       }
       if (typeof playerController !== 'undefined' && playerController.mount) {
         playerController.mount(playView);
-      }
-      if (typeof initPlayer === 'function') {
+        if (typeof playerController.loadEpisode === 'function') {
+          await playerController.loadEpisode(id);
+        } else if (typeof initPlayer === 'function') {
+          await initPlayer(id);
+        }
+      } else if (typeof initPlayer === 'function') {
         await initPlayer(id);
       }
     } else if (path.startsWith('/party/')) {
@@ -1228,7 +1231,6 @@ if (typeof window !== 'undefined') {
   window.KuraStream = {
     auth: AuthManager,
     state: appState,
-    router: appRouter,
     showToast,
     selectProfile: async (id) => {
       await AuthManager.selectProfile(id);

@@ -405,10 +405,6 @@ SVG;
     exit();
 }
 
-if ($uri === '/api/subtitles' && $method === 'GET') {
-    jsonResponse([]);
-}
-
 
 // Watch Party Endpoints
 if ($uri === '/api/party/create' && $method === 'POST') {

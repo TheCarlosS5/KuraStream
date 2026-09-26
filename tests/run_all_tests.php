@@ -27,6 +27,8 @@ $tests = [
     'test_ui_assets.php',
     'test_upload_validation.php',
     'test_watch_party_host_impersonation.php',
+    'test_migration_005_to_006.php',
+    'test_party_kids_restriction.php',
 ];
 
 $testFiles = !empty($tests)

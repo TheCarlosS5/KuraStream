@@ -333,6 +333,13 @@ class LibraryScanner {
         }
     }
 
+    /**
+     * Library Scan Depth Specification:
+     * The scanner inspects media files across two distinct directory depth tiers:
+     * Tier 1 (Show Root): Files directly inside the show directory (e.g. /library/anime/ShowName/Episode 01.mp4).
+     * Tier 2 (Season Subfolder): Exactly one subfolder level deep for season organization (e.g. /library/anime/ShowName/Season 1/Episode 01.mp4).
+     * Deeper nested directory trees (>1 subfolder) are intentionally ignored to prevent infinite loops, performance bottlenecks, and non-canonical episode naming.
+     */
     private static function findVideoFiles(string $showPath, string $mediaType = 'anime'): array {
         $results = [];
         $validExts = ['mkv', 'mp4', 'avi', 'webm', 'mov'];

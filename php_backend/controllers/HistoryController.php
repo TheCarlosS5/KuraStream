@@ -65,6 +65,9 @@ class HistoryController {
         }
 
         $canonicalEp = DbHelper::getEpisode($epId);
+        if (!$canonicalEp) {
+            jsonError('Episodio no encontrado', 404);
+        }
 
         $rawProgress = $data['progress'] ?? ($data['progress_seconds'] ?? null);
         if ($rawProgress === null || !is_numeric($rawProgress)) {
@@ -150,6 +153,11 @@ class HistoryController {
 
         if (empty($showId)) {
             jsonError('show_id requerido', 400);
+        }
+
+        $show = DbHelper::getShow($showId);
+        if (!$show) {
+            jsonError('Show no encontrado', 404);
         }
 
         $db = Database::getConnection();

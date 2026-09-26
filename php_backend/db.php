@@ -1075,15 +1075,27 @@ class DbHelper {
         return $deleted;
     }
 
-    public static function recordPartyMember(string $roomId, string $username, ?string $memberId = null, ?string $tokenHash = null, string $role = 'guest'): void {
+    public static function recordPartyMember(
+        string $roomId,
+        string $username,
+        ?string $memberId = null,
+        ?string $tokenHash = null,
+        string $role = 'guest',
+        bool $isKids = false,
+        ?string $accountUsername = null,
+        ?string $profileId = null
+    ): void {
         $db = Database::getConnection();
         $stmt = $db->prepare("
-            INSERT INTO party_members (room_id, username, member_id, token_hash, role, joined_at, last_ping)
-            VALUES (:r, :u, :m, :t, :role, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            INSERT INTO party_members (room_id, username, member_id, token_hash, role, is_kids, account_username, profile_id, joined_at, last_ping)
+            VALUES (:r, :u, :m, :t, :role, :kids, :acc_user, :prof_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON DUPLICATE KEY UPDATE 
                 username = VALUES(username),
                 token_hash = COALESCE(VALUES(token_hash), token_hash),
                 role = VALUES(role),
+                is_kids = VALUES(is_kids),
+                account_username = VALUES(account_username),
+                profile_id = VALUES(profile_id),
                 last_ping = CURRENT_TIMESTAMP
         ");
         $stmt->execute([
@@ -1091,7 +1103,10 @@ class DbHelper {
             'u' => $username,
             'm' => $memberId,
             't' => $tokenHash,
-            'role' => $role
+            'role' => $role,
+            'kids' => $isKids ? 1 : 0,
+            'acc_user' => $accountUsername,
+            'prof_id' => $profileId
         ]);
     }
 

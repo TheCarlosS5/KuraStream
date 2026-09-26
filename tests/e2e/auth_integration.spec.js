@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { execSync } from 'child_process';
 
 test.describe('KuraStream Auth & Profile PIN Security Integration Suite', () => {
   test.beforeEach(async ({ request }) => {
@@ -124,6 +125,15 @@ test.describe('KuraStream Auth & Profile PIN Security Integration Suite', () => 
     expect(Array.isArray(histBData)).toBe(true);
 
     // 10. Record watch progress under Profile B
+    // Seed canonical show and episode in DB to preserve referential integrity
+    try {
+      const phpCode = `require_once 'php_backend/db.php'; DbHelper::saveShow(['id'=>'show_pin_test_${timestamp}','title'=>'Pin Test Show','media_type'=>'anime']); DbHelper::saveEpisode(['id'=>'ep_pin_test_${timestamp}','show_id'=>'show_pin_test_${timestamp}','season_number'=>1,'episode_number'=>1,'title'=>'Pin Test Ep','filepath'=>'/media/ep_pin_test.mp4','duration'=>1400.0]);`;
+      const b64 = Buffer.from(phpCode).toString('base64');
+      execSync(`php -r "eval(base64_decode('${b64}'));"`, { stdio: 'ignore' });
+    } catch {
+      // In environment without CLI PHP, ignore
+    }
+
     const saveProgressRes = await request.post('/api/progress', {
       headers: { Authorization: `Bearer ${tokenProfileB}` },
       data: {
