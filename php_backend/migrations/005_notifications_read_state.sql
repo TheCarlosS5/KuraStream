@@ -5,13 +5,12 @@ ALTER TABLE user_preferences
 
 -- 2. Add episode creation timestamp for accurate notification calculation
 ALTER TABLE episodes
-    ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- 3. Backfill created_at for existing episodes from show's created_at
-UPDATE episodes e
-    INNER JOIN shows s ON e.show_id = s.id
-    SET e.created_at = s.created_at
-    WHERE e.created_at IS NULL OR e.created_at = '0000-00-00 00:00:00';
+UPDATE episodes
+    JOIN shows ON episodes.show_id = shows.id
+    SET episodes.created_at = shows.created_at;
 
 -- 4. Add storage resilience columns to episodes (prevent deletion during storage disconnects)
 ALTER TABLE episodes

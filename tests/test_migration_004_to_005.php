@@ -13,21 +13,14 @@ require_once __DIR__ . '/../php_backend/services/MigrationManager.php';
 
 echo "Running Migration 004 -> 005 Upgrade Pathway Tests...\n";
 
-try {
-    $db = Database::getConnection();
-} catch (Throwable $e) {
-    echo "SKIPPED ⚠ (MySQL offline)\n";
-    exit(0);
-}
-
 // -------------------------------------------------------------------------------------------------
 // 1. Verify Migration File List and Invariant
 // -------------------------------------------------------------------------------------------------
 echo "  [1/3] Verifying migration list and immutability of 001-004...\n";
 $migrationFiles = MigrationManager::getMigrationFiles();
 assert(isset($migrationFiles['001_initial_schema.sql']), "Migration 001 must exist");
-assert(isset($migrationFiles['002_fix_age_rating.sql']), "Migration 002 must exist");
-assert(isset($migrationFiles['003_watch_party_and_security.sql']), "Migration 003 must exist");
+assert(isset($migrationFiles['002_foreign_keys_and_indexes.sql']), "Migration 002 must exist");
+assert(isset($migrationFiles['003_party_participants.sql']), "Migration 003 must exist");
 assert(isset($migrationFiles['004_security_profile_party_hardening.sql']), "Migration 004 must exist");
 assert(isset($migrationFiles['005_notifications_read_state.sql']), "Migration 005 must exist");
 
@@ -41,8 +34,8 @@ assert(!str_contains($sql004Content, 'notifications_last_seen_at'), "Migration 0
 echo "  [2/3] Testing pending detection when 001-004 are applied...\n";
 $appliedBaseline = [
     '001_initial_schema.sql',
-    '002_fix_age_rating.sql',
-    '003_watch_party_and_security.sql',
+    '002_foreign_keys_and_indexes.sql',
+    '003_party_participants.sql',
     '004_security_profile_party_hardening.sql'
 ];
 $allAvailable = array_keys($migrationFiles);
@@ -53,8 +46,15 @@ assert($pending[0] === '005_notifications_read_state.sql', "Pending migration mu
 echo "    ✓ Only 005 is pending after 004 baseline\n";
 
 // -------------------------------------------------------------------------------------------------
-// 3. Test Schema Upgrade from 004 baseline to 005 with real legacy data
+// 3. Test Schema Upgrade from 004 baseline to 005 with real legacy data (Requires DB)
 // -------------------------------------------------------------------------------------------------
+try {
+    $db = Database::getConnection();
+} catch (Throwable $e) {
+    echo "  [3/3] Upgrade execution skipped ⚠ (MySQL offline on host)\n";
+    exit(0);
+}
+
 echo "  [3/3] Executing 005 SQL statements on isolated 004 schema tables...\n";
 $db->exec("DROP TABLE IF EXISTS test_upgrade_episodes");
 $db->exec("DROP TABLE IF EXISTS test_upgrade_shows");
