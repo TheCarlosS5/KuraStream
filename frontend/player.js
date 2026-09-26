@@ -92,6 +92,7 @@ let qrImage = null;
 let qrUrlText = null;
 let handleKeyboard = null;
 let handleFullscreenChange = null;
+let currentEpisodeId = null;
 let currentEpisodeData = null;
 let currentShowData = null;
 let nextEpisodeId = null;
@@ -127,11 +128,13 @@ const subtitleContentCache = new Map();
 // Progress Save Interval
 let progressSaveInterval = null;
 let lastSavedTime = 0;
+let isDraggingProgress = false;
 
 // Active state tracker for keyboard inputs
 let isPlayerActive = false;
 let playerAbortController = null;
 let isControlsLocked = false;
+let isControlsVisible = false;
 let lockPillTimeout = null;
 let speedHoldTimer = null;
 let isSpeedHoldActive = false;
@@ -1010,7 +1013,7 @@ function setupPlayerEventListeners() {
 
   video.onerror = () => {
     hideLoader();
-    console.error("Video element error occurred:", video.error);
+    console.warn("Video element error occurred:", video.error);
     showPlayerErrorOverlay("Error de reproducción. ¿Reintentar?");
   };
 
@@ -1355,6 +1358,13 @@ function setupPlayerEventListeners() {
       }
     };
   };
+
+  const handleGlobalMouseMove = (e) => {
+    if (isDraggingProgress) {
+      updateProgressOnDrag(e);
+    }
+  };
+
   window.addEventListener('mousemove', handleGlobalMouseMove, playerAbortController ? { signal: playerAbortController.signal } : undefined);
   window.addEventListener('touchmove', (e) => {
     if (isDraggingProgress) e.preventDefault();

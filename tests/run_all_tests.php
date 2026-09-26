@@ -5,6 +5,7 @@
 
 // Registered test suites list
 $tests = [
+    'test_admin_auth_contract.php',
     'test_audit_release_hardening.php',
     'test_auto_skip_db.php',
     'test_cinematic_pack.php',

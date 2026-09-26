@@ -46,6 +46,22 @@ if (!file_exists($dockerignorePath)) {
 }
 echo "    -> .dockerignore exclusions OK\n";
 
+// 3b. Test Docker Compose Environment Forwarding
+echo "  [3b/5] Testing docker-compose.yml environment forwarding...\n";
+$composePath = __DIR__ . '/../docker-compose.yml';
+if (!file_exists($composePath)) {
+    $errors[] = "docker-compose.yml does not exist";
+} else {
+    $composeContent = file_get_contents($composePath);
+    $requiredForwards = ['ADMIN_USER', 'ADMIN_PASS', 'ADMIN_PASS_HASH', 'TMDB_API_KEY', 'ALLOWED_ORIGINS', 'TRUSTED_PROXIES'];
+    foreach ($requiredForwards as $envVar) {
+        if (!preg_match("/-\s+{$envVar}=\\\$\{{$envVar}[:-]/", $composeContent)) {
+            $errors[] = "docker-compose.yml does not forward {$envVar} to kurastream container";
+        }
+    }
+}
+echo "    -> Docker Compose environment forwarding OK\n";
+
 // 4. Test PWA Manifest and Offline page
 echo "  [4/4] Testing PWA manifest.json and offline.html tokens...\n";
 $manifest = json_decode(file_get_contents(__DIR__ . '/../frontend/manifest.json'), true);

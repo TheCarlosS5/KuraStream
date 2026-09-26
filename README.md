@@ -137,11 +137,26 @@ graph TD
 | `DB_NAME` | Database schema name | `kurastream` |
 | `DB_USER` | Database username | `kurastream` |
 | `DB_PASS` | Database password | None |
+| `MYSQL_ROOT_PASSWORD` | Root password for MySQL Docker container | None |
+| `ADMIN_USER` | Initial administrative username | `admin` |
+| `ADMIN_PASS` | Administrative password (plaintext, local development) | None |
+| `ADMIN_PASS_HASH` | Administrative password hash (bcrypt, production) | None |
 | `JWT_SECRET` | Secret key for signing authentication tokens | Required |
 | `MEDIA_LIBRARY_PATH` | Absolute path to media storage directory | `./library` |
 | `TMDB_API_KEY` | Optional TMDB v3 API Key for metadata scraping | None |
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowed origins | `localhost, LAN` |
 | `TRUSTED_PROXIES` | Comma-separated list of trusted reverse proxy IPs | None |
+
+### Administrator Authentication & Docker Behavior
+
+KuraStream supports environment-configured administrator credentials for initial setup and automated administration:
+
+- **`ADMIN_PASS`**: Intended for simple plaintext local configuration.
+- **`ADMIN_PASS_HASH`**: Recommended for production deployments. Provide a standard bcrypt hash (`password_hash('your_pass', PASSWORD_BCRYPT)`).
+- **Precedence Rule**: If both `ADMIN_PASS_HASH` and `ADMIN_PASS` are defined, `ADMIN_PASS_HASH` takes precedence and is verified first.
+- **Credential Protection**: Administrator passwords are never logged, echoed in API responses, or stored in frontend scripts.
+- **Docker Compose Forwarding**: Because `.dockerignore` excludes `.env` files from being copied into the container image, `docker-compose.yml` explicitly passes `ADMIN_USER`, `ADMIN_PASS`, `ADMIN_PASS_HASH`, `TMDB_API_KEY`, `ALLOWED_ORIGINS`, and `TRUSTED_PROXIES` from the host `.env` into the container's environment. Without explicit forwarding in `docker-compose.yml`, containerized PHP processes cannot access environment variables defined in `.env`.
+
 
 ---
 

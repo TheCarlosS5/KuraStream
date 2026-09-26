@@ -1,23 +1,22 @@
 /**
- * KuraStream - Auth Module
- * Handles session tokens, admin auth headers, and login state.
+ * KuraStream - Auth Module (Delegation Layer)
+ * Delegates all auth and session management directly to core AuthManager.
  */
 
 import { AuthManager } from '../core/auth.js';
 
 export function getAuthToken() {
-  return AuthManager.getToken() || localStorage.getItem('kurastream_jwt') || localStorage.getItem('kurastream_token') || '';
+  return AuthManager.getToken() || '';
 }
 
 export function setAuthToken(token) {
   if (token) {
-    localStorage.setItem('kurastream_jwt', token);
+    AuthManager.setSession(token, AuthManager.getUser(), AuthManager.getActiveProfile());
   }
 }
 
 export function removeAuthToken() {
-  localStorage.removeItem('kurastream_jwt');
-  localStorage.removeItem('kurastream_token');
+  AuthManager.clearSession();
 }
 
 export function getAuthHeaders() {
@@ -30,53 +29,45 @@ export function getAuthHeaders() {
 }
 
 export function getCurrentUser() {
-  try {
-    const raw = localStorage.getItem('kurastream_user');
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) {
-    return null;
-  }
+  return AuthManager.getUser();
 }
 
 export function setCurrentUser(user) {
   if (user) {
-    localStorage.setItem('kurastream_user', JSON.stringify(user));
+    AuthManager.setSession(AuthManager.getToken(), user, AuthManager.getActiveProfile());
   } else {
-    localStorage.removeItem('kurastream_user');
+    AuthManager.clearSession();
   }
 }
 
 export function openAdminLoginModal() {
-  const modal = document.getElementById('login-modal') || document.getElementById('admin-login-modal-overlay');
-  if (modal) {
-    modal.style.display = 'flex';
-    const input = document.getElementById('login-username-input') || document.getElementById('admin-login-password');
-    if (input) input.focus();
+  if (typeof window.openAuthModal === 'function') {
+    window.openAuthModal('admin');
+  } else {
+    const modal = document.getElementById('login-modal');
+    if (modal) {
+      modal.style.display = 'flex';
+      const title = document.getElementById('login-modal-title');
+      if (title) title.textContent = 'Acceso de Administrador';
+      const submit = document.getElementById('login-modal-submit');
+      if (submit) submit.textContent = 'Acceder al Panel';
+      const input = document.getElementById('login-username-input');
+      if (input) input.focus();
+    }
   }
 }
 
 export function closeAdminLoginModal() {
-  const modal = document.getElementById('login-modal') || document.getElementById('admin-login-modal-overlay');
+  const modal = document.getElementById('login-modal');
   if (modal) modal.style.display = 'none';
 }
 
 export async function loginAdmin(username, password) {
   try {
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    const data = await res.json();
-    if (res.ok && data.success) {
-      setAuthToken(data.token);
-      setCurrentUser({ username: data.username, role: data.role });
-      closeAdminLoginModal();
-      return { success: true, data };
-    } else {
-      return { success: false, error: data.message || data.error || 'Credenciales incorrectas' };
-    }
+    const data = await AuthManager.login(username, password);
+    closeAdminLoginModal();
+    return { success: true, data };
   } catch (err) {
-    return { success: false, error: 'Error de conexión: ' + err.message };
+    return { success: false, error: err.message || 'Credenciales incorrectas' };
   }
 }

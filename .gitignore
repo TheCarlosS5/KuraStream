@@ -49,4 +49,5 @@ diff.patch
 *.zip
 test-results/
 playwright-report/
+.artifacts/
 

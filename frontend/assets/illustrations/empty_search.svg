@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" width="100%" height="100%">
+  <defs>
+    <radialGradient id="searchGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#818CF8" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#818CF8" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="320" height="240" fill="none" />
+  <circle cx="160" cy="110" r="70" fill="url(#searchGlow)" />
+  
+  <circle cx="160" cy="110" r="54" fill="#111824" stroke="#263447" stroke-width="1.5" />
+  <circle cx="160" cy="110" r="42" fill="#172131" stroke="#34465E" stroke-width="1" />
+  
+  <!-- Search Radar & Compass Elements -->
+  <circle cx="154" cy="104" r="16" fill="none" stroke="#818CF8" stroke-width="2" />
+  <path d="M 166 116 L 178 128" stroke="#818CF8" stroke-width="2.5" stroke-linecap="round" />
+  <circle cx="154" cy="104" r="6" fill="#5ED8C6" opacity="0.6" />
+</svg>
