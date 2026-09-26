@@ -88,11 +88,19 @@ jobs:
           DB_PASS: testpassword
         run: |
           export JWT_SECRET=$(openssl rand -hex 32)
-          php tests/run_all_tests.php
+          php tests/run_all_tests.php 2>&1 | tee /tmp/php_tests.log
+          exit ${PIPESTATUS[0]}
 
       - name: Verify All Test Suites Passed
         run: |
           if [ "${{ steps.e2e.outcome }}" != "success" ] || [ "${{ steps.php_tests.outcome }}" != "success" ]; then
-            echo "::error::One or more test suites failed. E2E outcome: ${{ steps.e2e.outcome }}, PHP tests outcome: ${{ steps.php_tests.outcome }}"
+            FAIL_MSG="E2E: ${{ steps.e2e.outcome }}, PHP: ${{ steps.php_tests.outcome }}"
+            if [ -f /tmp/php_tests.log ]; then
+              FAIL_DETAILS=$(grep -A 15 "FAIL ✗" /tmp/php_tests.log | tr '\n' ' ' || true)
+              if [ -n "$FAIL_DETAILS" ]; then
+                FAIL_MSG="${FAIL_MSG} - ${FAIL_DETAILS}"
+              fi
+            fi
+            echo "::error::${FAIL_MSG}"
             exit 1
           fi
