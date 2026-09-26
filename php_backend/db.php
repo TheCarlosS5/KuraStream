@@ -724,6 +724,24 @@ class DbHelper {
         }, $rows);
     }
 
+    public static function getUserProfileById(string $username, string $profileId): ?array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT * FROM user_profiles WHERE username = :u AND id = :id");
+        $stmt->execute(['u' => $username, 'id' => $profileId]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            return null;
+        }
+        $name = $row['name'] ?? 'Principal';
+        $color = $row['color'] ?? '#a855f7';
+        $row['profile_name'] = $name;
+        $row['name'] = $name;
+        $row['avatar_color'] = $color;
+        $row['color'] = $color;
+        $row['is_kids'] = (bool)($row['is_kids'] ?? 0);
+        return $row;
+    }
+
     public static function saveUserProfile(string $username, array $data): array {
         $db = Database::getConnection();
         $id = !empty($data['id']) ? trim((string)$data['id']) : null;

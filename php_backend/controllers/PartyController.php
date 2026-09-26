@@ -42,7 +42,43 @@ class PartyController {
         return $payload['username'];
     }
 
-    private static function resolvePartyParticipant(array $data, array $room): ?array {
+    public static function validatePartyMemberProfileContext(?array $member): ?array {
+        if (!$member || empty($member['account_username'])) {
+            // Anonymous guest: no account/profile binding enforced
+            return null;
+        }
+
+        // 1. If Web JWT is available, enforce strict match with account_username and profile_id
+        $userToken = AuthMiddleware::getBearerToken();
+        if (!empty($userToken)) {
+            $jwt = AuthMiddleware::verifyToken($userToken);
+            if ($jwt && !empty($jwt['username'])) {
+                $jwtUsername = $jwt['username'];
+                $jwtProfileId = $jwt['profile_id'] ?? null;
+                if ($jwtUsername !== $member['account_username'] || (string)$jwtProfileId !== (string)$member['profile_id']) {
+                    jsonError('El perfil activo cambió. Vuelve a entrar a la sala.', 403, ['code' => 'PARTY_PROFILE_CHANGED']);
+                }
+            }
+        }
+
+        // 2. Fetch live profile state from database to ensure it still exists and obtain real-time is_kids
+        try {
+            $profile = DbHelper::getUserProfileById($member['account_username'], (string)$member['profile_id']);
+            if ($profile) {
+                return $profile;
+            }
+            // If user exists in DB but profile is missing (deleted): reject with 403
+            if (DbHelper::getUser($member['account_username']) !== null) {
+                jsonError('El perfil activo cambió. Vuelve a entrar a la sala.', 403, ['code' => 'PARTY_PROFILE_CHANGED']);
+            }
+        } catch (PDOException $e) {
+            // Offline test fallback
+        }
+
+        return null;
+    }
+
+    private static function resolvePartyParticipant(array $data, array $room, bool $enforceProfileContext = true): ?array {
         // 1. Check ephemeral SSE ticket if provided
         $sseTicket = trim((string)($data['sse_ticket'] ?? ($_SERVER['HTTP_X_SSE_TICKET'] ?? ($_GET['sse_ticket'] ?? ''))));
         if (!empty($sseTicket)) {
@@ -53,13 +89,17 @@ class PartyController {
             ) {
                 $member = DbHelper::getPartyMemberById($room['id'], $ticketPayload['member_id']);
                 if ($member) {
+                    if ($enforceProfileContext) {
+                        self::validatePartyMemberProfileContext($member);
+                    }
                     $isHost = ($member['role'] === 'host');
                     return [
                         'username' => $member['username'],
                         'is_host' => $isHost,
                         'authenticated' => $isHost,
                         'member_id' => $member['member_id'],
-                        'role' => $member['role']
+                        'role' => $member['role'],
+                        'member' => $member
                     ];
                 }
             }
@@ -81,13 +121,17 @@ class PartyController {
         if (!empty($memberId) && !empty($memberToken)) {
             $member = DbHelper::validatePartyMemberToken($room['id'], $memberId, $memberToken);
             if ($member) {
+                if ($enforceProfileContext) {
+                    self::validatePartyMemberProfileContext($member);
+                }
                 $isHost = ($member['role'] === 'host');
                 return [
                     'username' => $member['username'],
                     'is_host' => $isHost,
                     'authenticated' => $isHost,
                     'member_id' => $member['member_id'],
-                    'role' => $member['role']
+                    'role' => $member['role'],
+                    'member' => $member
                 ];
             }
         }
@@ -97,12 +141,17 @@ class PartyController {
         if (!empty($userToken)) {
             $payload = AuthMiddleware::verifyToken($userToken);
             if ($payload && !empty($payload['username']) && $room['host_user'] === $payload['username']) {
+                $hostMember = DbHelper::getPartyHostMember($room['id']);
+                if ($enforceProfileContext && $hostMember) {
+                    self::validatePartyMemberProfileContext($hostMember);
+                }
                 return [
                     'username' => $payload['username'],
                     'is_host' => true,
                     'authenticated' => true,
-                    'member_id' => null,
-                    'role' => 'host'
+                    'member_id' => $hostMember['member_id'] ?? null,
+                    'role' => 'host',
+                    'member' => $hostMember
                 ];
             }
         }
@@ -313,7 +362,7 @@ class PartyController {
             return;
         }
 
-        $participant = self::resolvePartyParticipant($data, $room);
+        $participant = self::resolvePartyParticipant($data, $room, false);
         if (!$participant) {
             jsonError('Credenciales de miembro inválidas', 401);
             return;

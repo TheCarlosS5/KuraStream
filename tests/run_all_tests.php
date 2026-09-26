@@ -29,6 +29,7 @@ $tests = [
     'test_watch_party_host_impersonation.php',
     'test_migration_005_to_006.php',
     'test_party_kids_restriction.php',
+    'test_party_profile_switch_security.php',
 ];
 
 $testFiles = !empty($tests)

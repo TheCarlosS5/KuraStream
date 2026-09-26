@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/ShowController.php';
+require_once __DIR__ . '/PartyController.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
 class TranscodeLimiter {
@@ -125,7 +126,10 @@ class PlayerController {
                     jsonError('El ticket no corresponde al episodio activo de la sala', 403);
                 }
 
-                if (!empty($member['is_kids'])) {
+                $currentProfile = PartyController::validatePartyMemberProfileContext($member);
+                $isKids = $currentProfile ? !empty($currentProfile['is_kids']) : !empty($member['is_kids']);
+
+                if ($isKids) {
                     $ep = DbHelper::getEpisode($episodeId);
                     if ($ep && !empty($ep['show_id'])) {
                         $show = DbHelper::getShow($ep['show_id']);

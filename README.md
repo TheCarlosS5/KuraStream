@@ -191,6 +191,10 @@ KuraStream/
 - **Secret Scanning**: Automated CI scanning via Gitleaks verifies no credentials, API keys, or private keys are committed.
 - **Notice**: Any credentials or access keys committed prior to version 2.0 must be rotated immediately in external systems.
 
+### Known Post-Release Limitations
+
+- **Stateless Profile JWTs**: Currently, profile-scoped JWTs are stateless and remain cryptographically valid until their expiry timestamp. Previously issued profile JWTs are not centrally revoked in the database upon switching profiles. Active watch party memberships enforce real-time profile binding and active profile context validation server-side (preventing capability reuse across adult/kids profiles). Future architectural iterations may incorporate `session_version`, active-profile session IDs, or central token revocation.
+
 ---
 
 ## Quality & Testing

@@ -233,6 +233,18 @@ class AuthController {
         $token = AuthMiddleware::createToken($tokenPayload);
         self::setSessionCookie($token);
 
+        // Clear active party session on profile switch to avoid incompatible party session
+        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+        @setcookie('kurastream_party_session', '', [
+            'expires' => time() - 3600,
+            'path' => '/api/party',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => $isSecure
+        ]);
+        unset($_COOKIE['kurastream_party_session']);
+
         jsonResponse([
             'success' => true,
             'token' => $token,
