@@ -29,6 +29,8 @@ try {
 }
 
 // Clean and seed test user and PIN-protected profile
+$db->exec("DELETE FROM episodes WHERE id = 'mature_ep_1'");
+$db->exec("DELETE FROM shows WHERE id = 'mature_anime_1'");
 $db->exec("DELETE FROM comments WHERE username = 'alice'");
 $db->exec("DELETE FROM party_members WHERE username IN ('alice', 'Nakama')");
 $db->exec("DELETE FROM party_rooms WHERE host_user = 'alice'");
@@ -115,7 +117,7 @@ echo "  [2/3] Testing Kids Mode streaming maturity restriction...\n";
 
 // Seed Adult / TV-MA show and episode
 $db->exec("INSERT INTO shows (id, title, media_type, age_rating) VALUES ('mature_anime_1', 'Berserk 18+', 'anime', 'TV-MA')");
-$db->exec("INSERT INTO episodes (id, show_id, episode_number, duration, filepath) VALUES ('mature_ep_1', 'mature_anime_1', 1, 1400.0, '/tmp/fake.mp4')");
+$db->exec("INSERT INTO episodes (id, show_id, season_number, episode_number, duration, filepath) VALUES ('mature_ep_1', 'mature_anime_1', 1, 1, 1400.0, '/tmp/fake.mp4')");
 
 // Token with active kids profile claim
 $kidsToken = AuthMiddleware::createToken([
@@ -220,5 +222,13 @@ assert(!in_array($guest1MemId, $remainingIds), "Guest 1 must be removed");
 assert(in_array($guest2MemId, $remainingIds), "Guest 2 must remain in room");
 
 echo "    -> Watch Party member isolation and token authentication verified\n";
+
+// Cleanup test artifacts
+$db->exec("DELETE FROM episodes WHERE id = 'mature_ep_1'");
+$db->exec("DELETE FROM shows WHERE id = 'mature_anime_1'");
+$db->exec("DELETE FROM party_members WHERE room_id = '{$roomId}'");
+$db->exec("DELETE FROM party_rooms WHERE id = '{$roomId}'");
+$db->exec("DELETE FROM user_profiles WHERE username = 'alice'");
+$db->exec("DELETE FROM users WHERE username = 'alice'");
 
 echo "\nAll Profile PIN, Kids Filtering & Watch Party Security Tests Passed Successfully!\n";
