@@ -48,9 +48,11 @@ class RateLimiter {
         return true;
     }
 
-    public static function getClientIp(): string {
+    public static function getClientIp(?array $trusted = null): string {
         $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-        $trusted = defined('TRUSTED_PROXIES') ? TRUSTED_PROXIES : [];
+        if ($trusted === null) {
+            $trusted = defined('TRUSTED_PROXIES') ? TRUSTED_PROXIES : [];
+        }
 
         if (empty($trusted) || !in_array($remoteAddr, $trusted, true)) {
             return $remoteAddr;
@@ -59,8 +61,12 @@ class RateLimiter {
         $forwarded = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? ($_SERVER['HTTP_X_REAL_IP'] ?? '');
         if (!empty($forwarded)) {
             $ips = array_map('trim', explode(',', $forwarded));
-            foreach ($ips as $candidate) {
-                if (filter_var($candidate, FILTER_VALIDATE_IP)) {
+            for ($i = count($ips) - 1; $i >= 0; $i--) {
+                $candidate = $ips[$i];
+                if (!filter_var($candidate, FILTER_VALIDATE_IP)) {
+                    continue;
+                }
+                if (!in_array($candidate, $trusted, true)) {
                     return $candidate;
                 }
             }

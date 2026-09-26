@@ -123,8 +123,8 @@ export function setupCatalogueActions() {
 export function renderBillboardHero(featuredShow) {
   if (!featuredShow) return '';
   const bg = featuredShow.backdrop_path || featuredShow.poster_path || '';
-  const rating = featuredShow.rating ? Number(featuredShow.rating).toFixed(1) : '8.5';
-  const year = featuredShow.year || new Date().getFullYear();
+  const rating = (featuredShow.rating && Number(featuredShow.rating) > 0) ? Number(featuredShow.rating).toFixed(1) : 'N/A';
+  const year = featuredShow.year ? String(featuredShow.year) : 'N/A';
   const genres = featuredShow.genres
     ? String(featuredShow.genres).split(',').slice(0, 3).map(g => `<span class="billboard-genre-tag">${escapeHtml(g.trim())}</span>`).join('')
     : '<span class="billboard-genre-tag">Anime</span>';
@@ -602,7 +602,7 @@ export async function loadPopularSidebar(currentShowId) {
           <img src="${escapeHtmlAttribute(catalogueImageUrl(s.poster_path || ''))}" alt="${escapeHtmlAttribute(s.title)}" style="width: 50px; height: 70px; object-fit: cover; border-radius: 4px;">
           <div>
             <h4 style="font-size: 0.85rem; margin: 0 0 4px 0;">${escapeHtml(s.title)}</h4>
-            <span style="font-size: 0.75rem; color: var(--accent-color); display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="star" style="width: 12px; height: 12px;"></i> ${s.rating ? Number(s.rating).toFixed(1) : '8.5'}</span>
+            <span style="font-size: 0.75rem; color: var(--accent-color); display: inline-flex; align-items: center; gap: 3px;">${(s.rating && Number(s.rating) > 0) ? `<i data-lucide="star" style="width: 12px; height: 12px;"></i> ${Number(s.rating).toFixed(1)}` : '<span style="color: var(--text-muted);">N/A</span>'}</span>
           </div>
         </a>
       `).join('')}

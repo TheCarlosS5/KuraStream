@@ -159,6 +159,7 @@ class LibraryScanner {
                                 similar_text(mb_strtolower($cleanTitle), mb_strtolower($candTitle), $similarityPercent);
                                 if (!(count($tmdbResults) > 1 && $similarityPercent < 65.0)) {
                                     $tmdbId = (int)$first['id'];
+                                    DbHelper::updateShowTmdbId($showId, (string)$tmdbId);
                                 }
                             }
                         } catch (Throwable $e) {}
@@ -187,10 +188,7 @@ class LibraryScanner {
                             $existingVf = $uniqueVideoFiles[$epKey];
                             $size1 = @filesize($existingVf['filepath']) ?: 0;
                             $size2 = @filesize($vf['filepath']) ?: 0;
-                            error_log("[LibraryScanner] COLISIÓN DETECTADA: Dos archivos mapean al mismo episodio ({$showId} {$epKey}): '{$existingVf['filepath']}' ({$size1} bytes) y '{$vf['filepath']}' ({$size2} bytes). Se prioriza el de mayor tamaño para prevenir sobrescritura silenciosa.");
-                            if ($size2 > $size1) {
-                                $uniqueVideoFiles[$epKey] = $vf;
-                            }
+                            error_log("[LibraryScanner] COLISIÓN DETECTADA: Dos archivos mapean al mismo episodio ({$showId} {$epKey}): '{$existingVf['filepath']}' ({$size1} bytes) y '{$vf['filepath']}' ({$size2} bytes). Se conserva el archivo inicial sin sobrescritura destructiva basada en heurísticas de tamaño.");
                         } else {
                             $uniqueVideoFiles[$epKey] = $vf;
                         }
@@ -339,9 +337,20 @@ class LibraryScanner {
         $results = [];
         $validExts = ['mkv', 'mp4', 'avi', 'webm', 'mov'];
 
+        $realShowRoot = realpath($showPath);
+        if (!$realShowRoot || !is_dir($realShowRoot)) {
+            return $results;
+        }
+
         $entries = array_diff(scandir($showPath), ['.', '..']);
         foreach ($entries as $entry) {
             $itemPath = $showPath . '/' . $entry;
+            $realItemPath = realpath($itemPath);
+            if (!$realItemPath || !str_starts_with($realItemPath, $realShowRoot)) {
+                error_log("[LibraryScanner] Enlace simbólico o ruta externa ignorada por seguridad: '{$itemPath}'");
+                continue;
+            }
+
             if (is_dir($itemPath)) {
                 $seasonNum = self::parseSeasonNumber($entry);
 
@@ -351,6 +360,12 @@ class LibraryScanner {
                     if (!in_array($ext, $validExts)) continue;
 
                     $subFilePath = $itemPath . '/' . $subFile;
+                    $realSubFilePath = realpath($subFilePath);
+                    if (!$realSubFilePath || !str_starts_with($realSubFilePath, $realShowRoot)) {
+                        error_log("[LibraryScanner] Enlace simbólico o ruta externa ignorada por seguridad: '{$subFilePath}'");
+                        continue;
+                    }
+
                     // If episode filename contains an explicit season (e.g. S02E05), use it
                     $fileSeason = self::parseSeasonFromFilename($subFile);
                     $effectiveSeason = ($fileSeason !== null) ? $fileSeason : $seasonNum;

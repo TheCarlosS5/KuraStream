@@ -8,6 +8,8 @@ const player = fs.readFileSync(new URL('../frontend/player.js', import.meta.url)
 const html = fs.readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('../frontend/style.css', import.meta.url), 'utf8');
 const sw = fs.readFileSync(new URL('../frontend/sw.js', import.meta.url), 'utf8');
+const nav = fs.readFileSync(new URL('../frontend/js/modules/navigation.js', import.meta.url), 'utf8');
+const catalogMod = fs.readFileSync(new URL('../frontend/js/modules/catalog.js', import.meta.url), 'utf8');
 function evaluate(source, name, context) {
   const fn = source.match(new RegExp(`(?:export )?(?:async )?function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, 'm'));
   assert.ok(fn, `Missing ${name}`);
@@ -148,3 +150,31 @@ test('active catalogue/calendar positive states use jade tokens', () => {
   assert.ok(!/#00e08f|rgba\(0,\s*224,\s*143/i.test(calendarBanner));
   assert.ok(/--success-color:\s*#2DD4BF/i.test(css));
 });
+
+test('single router architecture: navigation.js does not register duplicate hash router', () => {
+  assert.ok(!nav.includes("window.addEventListener('hashchange'"), 'navigation.js must not register duplicate hashchange');
+  assert.ok(!nav.includes('export function initRouter'), 'navigation.js must not export duplicate initRouter');
+  assert.ok(!nav.includes("getElementById('view-catalog')"), 'navigation.js must not reference obsolete view-catalog');
+  assert.ok(!nav.includes("getElementById('view-show-detail')"), 'navigation.js must not reference obsolete view-show-detail');
+});
+
+test('purge fabricated metadata: no 8.5 rating or 2026 year fallback in frontend modules', () => {
+  // Check main.js
+  assert.ok(!/['"]8\.5['"]/.test(app), 'main.js must not contain fabricated 8.5 rating');
+  // Check catalog.js
+  assert.ok(!/['"]8\.5['"]/.test(catalogMod), 'catalog.js must not contain fabricated 8.5 rating');
+  assert.ok(!/['"]2026['"]/.test(catalogMod), 'catalog.js must not contain fabricated 2026 year');
+  assert.ok(catalogMod.includes('escapeHtml'), 'catalog.js must sanitize HTML');
+
+  // Check billboard rendering with empty metadata
+  const context = vm.createContext({
+    escapeHtml: s => String(s || ''),
+    escapeHtmlAttribute: s => String(s || ''),
+    catalogueImageUrl: s => s
+  });
+  evaluate(app, 'renderBillboardHero', context);
+  const heroHtml = context.renderBillboardHero({ title: 'Test Anime' });
+  assert.ok(!heroHtml.includes('8.5'), 'renderBillboardHero must not fabricate 8.5 rating');
+  assert.ok(heroHtml.includes('N/A'), 'renderBillboardHero shows N/A for missing rating/year');
+});
+

@@ -314,8 +314,8 @@ export function extractCardMetadata(card) {
       rating = ratingEl.textContent.replace(/[^\d.]/g, '').trim();
     }
   }
-  if (!rating) rating = '8.5';
-  const formattedRating = parseFloat(rating) ? parseFloat(rating).toFixed(1) : String(rating).replace(/[^\d.]/g, '');
+  if (!rating) rating = 'N/A';
+  const formattedRating = (parseFloat(rating) && parseFloat(rating) > 0) ? parseFloat(rating).toFixed(1) : 'N/A';
 
   // Extract Year
   let year = ds.year || '';
@@ -326,7 +326,7 @@ export function extractCardMetadata(card) {
       if (match) year = match[1];
     }
   }
-  if (!year) year = '2024';
+  if (!year) year = 'N/A';
 
   // Extract Episodes / Duration
   let episodes = ds.episodes || '';

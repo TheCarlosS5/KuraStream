@@ -213,7 +213,7 @@ class PlayerController {
         $cacheFile = $cacheDir . '/' . $cacheKey . '.ass';
 
         @header('Content-Type: text/plain; charset=utf-8');
-        @header('Access-Control-Allow-Origin: *');
+        setCorsHeaders();
         @header('Cache-Control: public, max-age=86400');
 
         while (ob_get_level()) {
@@ -324,7 +324,7 @@ class PlayerController {
 
             @header('Content-Type: video/mp4');
             @header('Connection: keep-alive');
-            @header('Access-Control-Allow-Origin: *');
+            setCorsHeaders();
             @header('X-Content-Type-Options: nosniff');
 
             if ($isHead) {

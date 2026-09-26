@@ -21,10 +21,12 @@ $tests = [
     'test_new_features_db.php',
     'test_party_security.php',
     'test_profile_pin_security.php',
+    'test_progress_integrity.php',
     'test_rate_limiter.php',
     'test_security_and_api_fixes.php',
     'test_ui_assets.php',
     'test_upload_validation.php',
+    'test_watch_party_host_impersonation.php',
 ];
 
 $testFiles = !empty($tests)

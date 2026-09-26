@@ -61,6 +61,30 @@ class ShowController {
         jsonResponse($shows);
     }
 
+    private static function getTmdbSearchCache(string $key): ?array {
+        $cacheDir = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'kura_tmdb_cache';
+        $file = $cacheDir . DIRECTORY_SEPARATOR . 'search_' . md5($key) . '.json';
+        if (file_exists($file)) {
+            $data = json_decode(file_get_contents($file), true);
+            if (is_array($data) && isset($data['exp']) && $data['exp'] > time()) {
+                return $data['results'];
+            }
+        }
+        return null;
+    }
+
+    private static function setTmdbSearchCache(string $key, array $results, int $ttl = 300): void {
+        $cacheDir = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'kura_tmdb_cache';
+        if (!is_dir($cacheDir)) {
+            @mkdir($cacheDir, 0777, true);
+        }
+        $file = $cacheDir . DIRECTORY_SEPARATOR . 'search_' . md5($key) . '.json';
+        @file_put_contents($file, json_encode([
+            'exp' => time() + $ttl,
+            'results' => $results
+        ]));
+    }
+
     public static function searchShows(): void {
         $query = trim($_GET['query'] ?? '');
         $type = $_GET['type'] ?? 'anime';
@@ -69,7 +93,17 @@ class ShowController {
             jsonError('Término de búsqueda requerido', 400);
         }
 
-        $results = TmdbScraper::search($query, $type);
+        RateLimiter::enforce('tmdb_search', 30, 60);
+
+        $cacheKey = strtolower($type) . '_' . strtolower($query);
+        $cached = self::getTmdbSearchCache($cacheKey);
+        if ($cached !== null) {
+            $results = $cached;
+        } else {
+            $results = TmdbScraper::search($query, $type);
+            self::setTmdbSearchCache($cacheKey, $results, 300);
+        }
+
         if (self::isKidsProfileActive()) {
             $results = array_values(array_filter($results, fn($s) => !self::isAdultOrMaturityRestricted($s)));
         }

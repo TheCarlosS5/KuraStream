@@ -3,18 +3,10 @@
  * Handles hash routing (#/, #/show/:id, #/admin) and Admin sidebar sub-view switching.
  */
 
-import { startAdminStatsPolling, stopAdminStatsPolling, toggleLaptopDisplayPower } from './admin_status.js';
+import { toggleLaptopDisplayPower } from './admin_status.js';
 import { loadStagedImports } from './admin_staging.js';
-import { loadAdminPanel, updateShowTitle, scrapeShowCover } from './admin_library.js';
-import { initImportForm } from './admin_import.js';
-import { startAdminLogsPolling, stopAdminLogsPolling, clearConsoleLogs } from './admin_console.js';
-import { loadShowsCatalog, loadShowDetail } from './catalog.js';
-
-export function initRouter() {
-  window.addEventListener('hashchange', handleRoute);
-  handleRoute();
-  initHeaderDropdowns();
-}
+import { updateShowTitle, scrapeShowCover } from './admin_library.js';
+import { clearConsoleLogs } from './admin_console.js';
 
 export function updateActiveNavHighlight(hash = location.hash || '#/') {
   const allNavLinks = document.querySelectorAll(
@@ -172,47 +164,6 @@ export function initHeaderDropdowns() {
   }
 }
 
-function handleRoute() {
-  const hash = location.hash || '#/';
-  const appView = document.getElementById('view-catalog');
-  const detailView = document.getElementById('view-show-detail');
-  const adminView = document.getElementById('view-admin');
-
-  // Update active navbar route highlights
-  updateActiveNavHighlight(hash);
-
-  // Stop background polling routines when leaving admin
-  if (!hash.startsWith('#/admin')) {
-    stopAdminStatsPolling();
-    stopAdminLogsPolling();
-  }
-
-  if (hash.startsWith('#/show/')) {
-    const showId = hash.replace('#/show/', '');
-    if (appView) appView.style.display = 'none';
-    if (adminView) adminView.style.display = 'none';
-    if (detailView) {
-      detailView.style.display = 'block';
-      loadShowDetail(showId);
-    }
-  } else if (hash.startsWith('#/admin')) {
-    if (appView) appView.style.display = 'none';
-    if (detailView) detailView.style.display = 'none';
-    if (adminView) {
-      adminView.style.display = 'flex';
-      initAdminSidebar();
-    }
-  } else {
-    // Default Home Catalog view
-    if (detailView) detailView.style.display = 'none';
-    if (adminView) adminView.style.display = 'none';
-    if (appView) {
-      appView.style.display = 'block';
-      loadShowsCatalog();
-    }
-  }
-}
-
 export function initAdminSidebar() {
   const navItems = document.querySelectorAll('.admin-nav-item');
 
@@ -242,6 +193,7 @@ function setupAdminActionButtons() {
   const btnOff = document.getElementById('btn-display-off');
   const btnOn = document.getElementById('btn-display-on');
   if (btnOff) btnOff.onclick = () => toggleLaptopDisplayPower('off');
+  if (btnOn) btnOn.onclick = () => toggleLaptopDisplayPower('on');
   // Staging Refresh Button
   const btnRefreshStaging = document.getElementById('btn-refresh-staging');
   if (btnRefreshStaging) btnRefreshStaging.onclick = loadStagedImports;

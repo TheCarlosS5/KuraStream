@@ -53,11 +53,11 @@ class PartyController {
             ) {
                 $member = DbHelper::getPartyMemberById($room['id'], $ticketPayload['member_id']);
                 if ($member) {
-                    $isHost = ($member['role'] === 'host' || $room['host_user'] === $member['username']);
+                    $isHost = ($member['role'] === 'host');
                     return [
                         'username' => $member['username'],
                         'is_host' => $isHost,
-                        'authenticated' => ($member['role'] === 'host'),
+                        'authenticated' => $isHost,
                         'member_id' => $member['member_id'],
                         'role' => $member['role']
                     ];
@@ -81,11 +81,11 @@ class PartyController {
         if (!empty($memberId) && !empty($memberToken)) {
             $member = DbHelper::validatePartyMemberToken($room['id'], $memberId, $memberToken);
             if ($member) {
-                $isHost = ($member['role'] === 'host' || $room['host_user'] === $member['username']);
+                $isHost = ($member['role'] === 'host');
                 return [
                     'username' => $member['username'],
                     'is_host' => $isHost,
-                    'authenticated' => ($member['role'] === 'host'),
+                    'authenticated' => $isHost,
                     'member_id' => $member['member_id'],
                     'role' => $member['role']
                 ];
@@ -239,7 +239,7 @@ class PartyController {
         $memberCount = DbHelper::getPartyMembersCount($roomId);
 
         // Add system message if not host joining initial room
-        if ($room['host_user'] !== $user) {
+        if (!$isHost) {
             DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} se unió al Watch Party", 'system');
             DbHelper::updatePartyPlayback($roomId, (bool)$room['is_playing'], (float)$room['current_time'], null, $memberCount);
             $room = DbHelper::getPartyRoom($roomId);
@@ -441,7 +441,10 @@ class PartyController {
             jsonError('El mensaje no puede superar 500 caracteres', 400);
         }
 
-        $msgId = DbHelper::addPartyMessage($roomId, $user, $message, $type);
+        $role = $participant['role'] ?? 'guest';
+        $memberId = $participant['member_id'] ?? null;
+        $storedType = ($role === 'host') ? ($type . ':host') : $type;
+        $msgId = DbHelper::addPartyMessage($roomId, $user, $message, $storedType);
 
         jsonResponse([
             'success' => true,
@@ -452,6 +455,8 @@ class PartyController {
                 'username' => $user,
                 'message' => $message,
                 'type' => $type,
+                'role' => $role,
+                'member_id' => $memberId,
                 'created_at' => date('Y-m-d H:i:s')
             ]
         ]);
@@ -459,18 +464,24 @@ class PartyController {
 
     public static function updateSettings(): void {
         $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+        $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
 
         $roomId = strtoupper(trim($data['room_id'] ?? ''));
-        $user = self::requireAuthenticatedUser();
-
         $room = DbHelper::getPartyRoom($roomId);
         if (!$room) {
             jsonError('Sala no encontrada', 404);
         }
 
-        if ($room['host_user'] !== $user) {
-            jsonError('Solo el anfitrión puede modificar los ajustes de la sala', 403);
+        $participant = self::resolvePartyParticipant($data, $room);
+        if ($participant) {
+            if (!$participant['is_host']) {
+                jsonError('Solo el anfitrión puede modificar los ajustes de la sala', 403);
+            }
+        } else {
+            $user = self::requireAuthenticatedUser();
+            if ($room['host_user'] !== $user) {
+                jsonError('Solo el anfitrión puede modificar los ajustes de la sala', 403);
+            }
         }
 
         DbHelper::updatePartySettings($roomId, $data);
@@ -556,7 +567,7 @@ class PartyController {
         @header('Cache-Control: no-cache, no-transform');
         @header('Connection: keep-alive');
         @header('X-Accel-Buffering: no');
-        @header('Access-Control-Allow-Origin: *');
+        setCorsHeaders();
 
         while (ob_get_level()) {
             ob_end_clean();

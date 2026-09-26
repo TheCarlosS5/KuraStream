@@ -55,20 +55,54 @@ class HistoryController {
 
     public static function saveProgress(?string $episodeId = null): void {
         $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+        $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
 
         list($username, $profile) = self::resolveUserAndProfile();
 
         $epId = $episodeId ?: ($data['episode_id'] ?? ($_GET['episode_id'] ?? ''));
-        $progress = (float)($data['progress'] ?? ($data['progress_seconds'] ?? 0));
-        $duration = (float)($data['duration'] ?? 0);
-        $completed = isset($data['completed']) ? (bool)$data['completed'] : null;
-
-        if (empty($epId)) {
+        if (empty($epId) || !is_string($epId)) {
             jsonError('episode_id requerido', 400);
         }
 
-        DbHelper::saveProgress($username, $profile, $epId, $progress, $duration, $completed);
+        $canonicalEp = DbHelper::getEpisode($epId);
+        if (!$canonicalEp) {
+            jsonError('Episodio no encontrado', 404);
+        }
+
+        $rawProgress = $data['progress'] ?? ($data['progress_seconds'] ?? null);
+        if ($rawProgress === null || !is_numeric($rawProgress)) {
+            jsonError('Progreso inválido', 400);
+        }
+        $progress = (float)$rawProgress;
+
+        $rawDuration = $data['duration'] ?? null;
+        $duration = 0.0;
+        if ($rawDuration !== null) {
+            if (!is_numeric($rawDuration)) {
+                jsonError('Duración inválida', 400);
+            }
+            $duration = (float)$rawDuration;
+        }
+
+        if (!is_finite($progress) || $progress < 0) {
+            jsonError('El progreso debe ser un número positivo finito', 400);
+        }
+        if (!is_finite($duration) || $duration < 0) {
+            jsonError('La duración debe ser un número positivo finito', 400);
+        }
+
+        $serverDuration = !empty($canonicalEp['duration']) ? (float)$canonicalEp['duration'] : $duration;
+        if ($serverDuration > 0) {
+            $progress = min($progress, $serverDuration);
+            $effectiveDuration = $serverDuration;
+        } else {
+            $progress = min($progress, 86400.0);
+            $effectiveDuration = 0.0;
+        }
+
+        $completed = ($effectiveDuration > 0 && $progress >= ($effectiveDuration * 0.9));
+
+        DbHelper::saveProgress($username, $profile, $epId, $progress, $effectiveDuration, $completed);
         jsonResponse(['success' => true]);
     }
 

@@ -1796,7 +1796,7 @@ function setupWatchPartyIntegration() {
     } else {
       const initial = (msg.username || 'U').charAt(0).toUpperCase();
       const color = partyManager.getRandomColor(msg.username || 'User');
-      const isHost = partyManager.activeRoom && partyManager.activeRoom.host_user === msg.username;
+      const isHost = (msg.role === 'host');
       const bubbleClass = isHost ? 'party-msg-bubble is-host' : 'party-msg-bubble';
       const hostCrown = isHost ? '<i data-lucide="crown" class="party-host-crown"></i>' : '';
       const timeStr = msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});

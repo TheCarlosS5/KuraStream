@@ -126,8 +126,14 @@ class DbHelper {
             }
         }
 
-        if ($completed === null) {
-            $completed = ($duration > 0 && $progress >= ($duration * 0.85));
+        if ($duration > 0) {
+            $progress = max(0.0, min($progress, $duration));
+            if ($completed === null || $progress < ($duration * 0.9)) {
+                $completed = ($progress >= ($duration * 0.9));
+            }
+        } else {
+            $progress = max(0.0, min($progress, 86400.0));
+            $completed = (bool)$completed;
         }
 
         $stmt = $db->prepare("
@@ -225,6 +231,12 @@ class DbHelper {
         $db = Database::getConnection();
         $stmt = $db->prepare("UPDATE shows SET status = :status WHERE id = :id");
         return $stmt->execute(['status' => $status, 'id' => $showId]);
+    }
+
+    public static function updateShowTmdbId(string $showId, string $tmdbId): bool {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("UPDATE shows SET tmdb_id = :tmdb_id WHERE id = :id");
+        return $stmt->execute(['tmdb_id' => $tmdbId, 'id' => $showId]);
     }
 
     public static function getUserPreferences(string $username, string $profile = 'Principal'): array {
@@ -1006,8 +1018,17 @@ class DbHelper {
         $stmt->bindValue(':after', $afterId, PDO::PARAM_INT);
         $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
         $stmt->execute();
-
-        return $stmt->fetchAll();
+        $rows = $stmt->fetchAll();
+        foreach ($rows as &$row) {
+            if (isset($row['type']) && str_ends_with($row['type'], ':host')) {
+                $row['role'] = 'host';
+                $row['type'] = substr($row['type'], 0, -5);
+            } else {
+                $row['role'] = ($row['type'] === 'system') ? 'system' : 'guest';
+            }
+        }
+        unset($row);
+        return $rows;
     }
 
     public static function getPublicPartyRooms(int $limit = 20): array {
