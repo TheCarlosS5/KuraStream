@@ -330,8 +330,17 @@ class DbHelper {
 
         if (!$ep) return null;
         $ep['audio_tracks'] = !empty($ep['audio_tracks']) ? (is_array($ep['audio_tracks']) ? $ep['audio_tracks'] : json_decode($ep['audio_tracks'], true)) : [];
+        if (is_string($ep['audio_tracks'])) {
+            $ep['audio_tracks'] = json_decode($ep['audio_tracks'], true) ?: [];
+        }
         $ep['subtitle_tracks'] = !empty($ep['subtitle_tracks']) ? (is_array($ep['subtitle_tracks']) ? $ep['subtitle_tracks'] : json_decode($ep['subtitle_tracks'], true)) : [];
+        if (is_string($ep['subtitle_tracks'])) {
+            $ep['subtitle_tracks'] = json_decode($ep['subtitle_tracks'], true) ?: [];
+        }
         $ep['chapters'] = !empty($ep['chapters']) ? (is_array($ep['chapters']) ? $ep['chapters'] : json_decode($ep['chapters'], true)) : [];
+        if (is_string($ep['chapters'])) {
+            $ep['chapters'] = json_decode($ep['chapters'], true) ?: [];
+        }
         return $ep;
     }
 
@@ -488,8 +497,8 @@ class DbHelper {
             'video_codec' => $ep['video_codec'] ?? '',
             'resolution' => $ep['resolution'] ?? '',
             'fps' => $ep['fps'] ?? 0,
-            'audio_tracks' => json_encode($ep['audio_tracks'] ?? []),
-            'subtitle_tracks' => json_encode($ep['subtitle_tracks'] ?? []),
+            'audio_tracks' => is_string($ep['audio_tracks'] ?? null) ? $ep['audio_tracks'] : json_encode($ep['audio_tracks'] ?? []),
+            'subtitle_tracks' => is_string($ep['subtitle_tracks'] ?? null) ? $ep['subtitle_tracks'] : json_encode($ep['subtitle_tracks'] ?? []),
             'thumbnail_path' => $ep['thumbnail_path'] ?? '',
             'intro_start' => array_key_exists('intro_start', $ep) ? $ep['intro_start'] : null,
             'intro_end' => array_key_exists('intro_end', $ep) ? $ep['intro_end'] : null,

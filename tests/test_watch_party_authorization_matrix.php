@@ -331,7 +331,7 @@ $hostKidsToken = AuthMiddleware::createToken([
     'exp' => time() + 3600
 ]);
 $_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$hostKidsToken}";
-$_COOKIE['kurastream_token'] = $hostKidsToken;
+$db->prepare("UPDATE party_members SET profile_id = 30 WHERE room_id = ? AND role = 'host'")->execute([$roomId]);
 
 $GLOBALS['_MOCKED_JSON_INPUT'] = [
     'room_id' => $roomId,
@@ -353,6 +353,7 @@ assert($hostKidsAdultBlocked, "Host with Kids profile switching to adult content
 // C. Host with normal profile changes to ep_safe_02 -> 200
 $_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$hostToken}";
 $_COOKIE['kurastream_token'] = $hostToken;
+$db->prepare("UPDATE party_members SET profile_id = 20 WHERE room_id = ? AND role = 'host'")->execute([$roomId]);
 
 $GLOBALS['_MOCKED_JSON_INPUT'] = [
     'room_id' => $roomId,

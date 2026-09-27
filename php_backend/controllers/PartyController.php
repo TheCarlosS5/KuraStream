@@ -366,7 +366,7 @@ class PartyController {
 
     public static function leaveRoom(): void {
         $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true) ?: [];
+        $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
 
         $roomId = strtoupper(trim($data['room_id'] ?? ($_GET['room_id'] ?? '')));
         if (empty($roomId)) {

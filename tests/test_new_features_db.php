@@ -82,7 +82,8 @@ try {
     $favStmt = $db->prepare("INSERT INTO favorites (username, profile_name, show_id) VALUES (:u, :p, :s)");
     $favStmt->execute(['u' => $testUser, 'p' => $testProfile, 's' => $testShowId]);
 
-    $notifs = DbHelper::getNotifications($testUser, $testProfile);
+    $notifsRaw = DbHelper::getNotifications($testUser, $testProfile);
+    $notifs = isset($notifsRaw['notifications']) ? $notifsRaw['notifications'] : $notifsRaw;
     assert(is_array($notifs), "getNotifications should return array");
     assert(count($notifs) >= 1, "getNotifications should return at least 1 notification for favorited show");
     assert($notifs[0]['show_id'] === $testShowId, "Notification show_id should match favorited show");

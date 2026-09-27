@@ -228,7 +228,7 @@ $adultGuestCapToken = $resJoinAdultGuest['data']['stream_capability_token'];
 // -------------------------------------------------------------------------------------------------
 echo "  [3/6] Kids member streams safe episode 1 with room capability (expects authorized)...\n";
 $_GET['ticket'] = $kidCapabilityToken;
-unset($_SERVER['HTTP_AUTHORIZATION']);
+$_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$kidToken}";
 $authorized = false;
 try {
     PlayerController::authorizeStreamAccess('ep_safe_01');
@@ -279,6 +279,7 @@ assert($subBlocked && $subStatusCode === 403, "Kids member streaming subtitles f
 // -------------------------------------------------------------------------------------------------
 echo "  [6/6] Adult member streams adult episode 2 with room capability (expects authorized)...\n";
 $_GET['ticket'] = $adultGuestCapToken;
+$_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$adultGuestToken}";
 $adultAllowed = false;
 try {
     PlayerController::authorizeStreamAccess('ep_adult_02');

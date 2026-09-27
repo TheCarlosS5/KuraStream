@@ -391,7 +391,9 @@ class PlayerController {
         $isDownmixRequested = (isset($_GET['downmix']) && $_GET['downmix'] === 'stereo');
         $isForceTranscode = isset($_GET['transcode']) && $_GET['transcode'] == '1';
 
-        // Check if selected audio track is first or default
+        if (!is_array($tracks)) {
+            $tracks = [];
+        }
         $isDefaultAudio = ($audioTrack <= 0 || count($tracks) <= 1);
 
         // Can we Direct Play using HTTP Range?
