@@ -374,7 +374,7 @@ export function renderBillboardHero(featuredShow) {
       <div class="billboard-hero-content">
         <div class="billboard-hero-badges">
           <span class="badge-hd">HD</span>
-          <span class="badge-rating"><i data-lucide="star" style="width:14px;height:14px;fill:var(--rating-color);stroke:var(--rating-color);display:inline-block;vertical-align:-2px;margin-right:2px;"></i>${rating}</span>
+          <span class="badge-rating"><i data-lucide="star"></i>${rating}</span>
           <span class="badge-year">${escapeHtml(year)}</span>
           <div class="billboard-genres">${genres}</div>
         </div>
@@ -382,10 +382,10 @@ export function renderBillboardHero(featuredShow) {
         <p class="billboard-hero-synopsis">${escapeHtml(synopsis)}</p>
         <div class="billboard-hero-actions">
           <button class="btn-billboard-play" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(featuredShow.id))}">
-            <i data-lucide="play" style="width:20px;height:20px;fill:currentColor;stroke:currentColor;vertical-align:middle;margin-right:8px;"></i> Reproducir
+            <i data-lucide="play"></i> Reproducir
           </button>
           <button class="btn-billboard-info" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(featuredShow.id))}">
-            <i data-lucide="info" style="width:20px;height:20px;vertical-align:middle;margin-right:8px;"></i> Más información
+            <i data-lucide="info"></i> Más información
           </button>
         </div>
       </div>
@@ -418,11 +418,11 @@ export function renderContinueWatching(historyItems) {
     const subtext = `${epLabel} • ${remainingText}`;
 
     return `
-      <div class="continue-watching-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" title="${escapeHtmlAttribute(`${item.show_title || ''} - ${item.episode_title || epLabel}`)}" style="cursor: pointer;">
-        <div class="continue-watching-thumb-wrapper" style="overflow: hidden; border-radius: var(--radius-sm);">
-          <img class="continue-watching-thumb" src="${escapeHtmlAttribute(imgUrl)}" alt="${escapeHtmlAttribute(item.show_title || '')}" loading="lazy" style="transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
+      <div class="continue-watching-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" title="${escapeHtmlAttribute(`${item.show_title || ''} - ${item.episode_title || epLabel}`)}">
+        <div class="continue-watching-thumb-wrapper">
+          <img class="continue-watching-thumb" src="${escapeHtmlAttribute(imgUrl)}" alt="${escapeHtmlAttribute(item.show_title || '')}" loading="lazy">
           <div class="continue-watching-play-btn" aria-label="Reproducir">
-            <i data-lucide="play" style="width: 20px; height: 20px; fill: #ffffff; stroke: #ffffff;"></i>
+            <i data-lucide="play"></i>
           </div>
           <div class="continue-watching-progress-bar">
             <div class="continue-watching-progress-fill" style="width: ${progressPercent}%;"></div>
@@ -430,17 +430,17 @@ export function renderContinueWatching(historyItems) {
         </div>
         <div class="continue-watching-info">
           <h4 class="continue-watching-title">${escapeHtml(item.show_title || '')}</h4>
-          <span class="continue-watching-subtext" style="font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums;">${escapeHtml(subtext)}</span>
-          <div class="continue-watching-action" style="margin-top: 4px; color: var(--accent-color); font-size: 0.8rem; font-weight: 700;">Continuar <i data-lucide="chevron-right" style="width: 12px; height: 12px; vertical-align: middle;"></i></div>
+          <span class="continue-watching-subtext">${escapeHtml(subtext)}</span>
+          <div class="continue-watching-action">Continuar <i data-lucide="chevron-right"></i></div>
         </div>
       </div>
     `;
   }).join('');
 
   return `
-    <section class="dashboard-section continue-watching-section" style="margin-bottom: 30px;">
-      <h2 class="section-title" style="font-family: var(--font-title); font-size: 1.3rem; margin-bottom: 16px; font-weight: 700;">Continuar Viendo</h2>
-      <div class="continue-watching-rail" style="display: flex; gap: 16px; overflow-x: auto; padding-bottom: 8px;">
+    <section class="dashboard-section continue-watching-section">
+      <h2 class="section-title">Continuar Viendo</h2>
+      <div class="continue-watching-rail">
         ${cardsHTML}
       </div>
     </section>
@@ -457,11 +457,11 @@ export function createShowCardHTML(show, historyMap = new Map()) {
   if (historyItem && historyItem.duration) {
     const progressPercent = Math.min(100, Math.max(0, ((historyItem.progress_seconds || 0) / historyItem.duration) * 100));
     progressHTML = `
-      <div class="card-progress-bar-container" style="position: absolute; bottom: 0; left: 0; right: 0; height: 5px; background: rgba(255,255,255,0.2); z-index: 2;">
-        <div class="card-progress-bar" style="width: ${progressPercent}%; height: 100%; background: var(--accent-color);"></div>
+      <div class="card-progress-bar-container">
+        <div class="card-progress-bar" style="width: ${progressPercent}%;"></div>
       </div>
-      <div class="card-continue-watching-indicator" style="position: absolute; top: 10px; left: 10px; background: rgba(var(--accent-rgb), 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; padding: 2px 6px; font-size: 0.65rem; font-family: var(--font-title); font-weight: 700; color: white; display: flex; align-items: center; gap: 3px; z-index: 2; box-shadow: 0 2px 8px rgba(0,0,0,0.5);">
-        <i data-lucide="play" style="width: 8px; height: 8px; fill: white; stroke: white;"></i>
+      <div class="card-continue-watching-indicator">
+        <i data-lucide="play"></i>
         ${Math.round(progressPercent)}% visto
       </div>
     `;
@@ -470,25 +470,25 @@ export function createShowCardHTML(show, historyMap = new Map()) {
   const isAiring = show.status === 'airing';
   const airingBadgeHTML = isAiring ? `
     <div class="badge-airing-neon">
-      <span class="airing-pulse-dot" style="width:6px;height:6px;background:var(--success-color);border-radius:50%;display:inline-block;animation:pulseGlow 1.8s infinite;"></span> EMISIÓN
+      <span class="airing-pulse-dot"></span> EMISIÓN
     </div>
   ` : '';
 
   return `
-    <div class="show-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" style="flex: 0 0 auto; width: 180px; height: 320px; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); will-change: transform; cursor: pointer;">
-      <div class="card-img-wrapper" style="height: 250px; position: relative; background-color: var(--surface-muted); border-radius: var(--radius-sm); overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-        <img src="${escapeHtmlAttribute(posterSrc)}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.4s ease;" onload="this.style.opacity=1">
-        <div class="card-rating-badge" style="position: absolute; top: 8px; right: 8px; background: rgba(9, 13, 14, 0.85); backdrop-filter: blur(4px); padding: 4px 6px; border-radius: var(--radius-xs); border: 1px solid rgba(255,255,255,0.08); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; gap: 4px;">
-          <i data-lucide="star" style="width:12px;height:12px;fill:var(--rating-color);stroke:var(--rating-color);"></i>${rating}
+    <div class="show-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}">
+      <div class="card-img-wrapper">
+        <img src="${escapeHtmlAttribute(posterSrc)}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy" onload="this.style.opacity=1">
+        <div class="card-rating-badge">
+          <i data-lucide="star"></i>${rating}
         </div>
         ${airingBadgeHTML}
         ${progressHTML}
       </div>
-      <div class="card-info" style="padding-top: 10px;">
-        <h3 class="card-title" style="font-size: 0.9rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em;">${escapeHtml(show.title)}</h3>
-        <div class="card-meta" style="font-size: 0.75rem; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; margin-top: 4px;">
+      <div class="card-info">
+        <h3 class="card-title">${escapeHtml(show.title)}</h3>
+        <div class="card-meta">
           <span>${show.media_type === 'movie' ? 'PELÍCULA' : 'ANIME'}</span>
-          <span style="margin: 0 4px; opacity: 0.5;">•</span>
+          <span>•</span>
           <span>${escapeHtml(show.year || '')}</span>
         </div>
       </div>
@@ -499,7 +499,7 @@ export function createShowCardHTML(show, historyMap = new Map()) {
 export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', showProgressMap = {}) {
   if (!targetContainer) return;
   if (!epList || epList.length === 0) {
-    targetContainer.innerHTML = '<div class="empty-state" style="padding: 20px; color: var(--text-muted);">No hay capítulos importados en esta temporada.</div>';
+    targetContainer.innerHTML = '<div class="empty-state">No hay capítulos importados en esta temporada.</div>';
     return;
   }
 
@@ -517,7 +517,7 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
 
     const completedBadgeHTML = isCompleted ? `
       <div class="badge-visto">
-        <i data-lucide="check" style="width: 12px; height: 12px; stroke-width: 3;"></i> VISTO
+        <i data-lucide="check"></i> VISTO
       </div>
     ` : '';
 
@@ -529,15 +529,13 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
 
     return `
       <div class="episode-item" role="button" tabindex="0" data-episode-id="${escapeHtmlAttribute(ep.id)}">
-        <div class="episode-thumbnail-container" style="aspect-ratio: 16 / 9; width: 160px; background-color: var(--surface-muted); border-radius: var(--radius-sm); overflow: hidden; position: relative; flex-shrink: 0;">
-          <img class="episode-thumb" src="${escapeHtmlAttribute(thumbSrc)}" alt="${escapeHtmlAttribute(ep.title || 'Episodio')}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;">
-          <div style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.8); border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; font-weight: 700; color: white; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums;">
-             ${durationMin > 0 ? `${durationMin}m` : ''}
-          </div>
+        <div class="episode-thumbnail-container">
+          <img class="episode-thumb" src="${escapeHtmlAttribute(thumbSrc)}" alt="${escapeHtmlAttribute(ep.title || 'Episodio')}" loading="lazy">
+          ${durationMin > 0 ? `<div class="episode-duration-pill">${durationMin}m</div>` : ''}
           ${completedBadgeHTML}
           ${progressBarHTML}
           <div class="episode-play-overlay">
-            <span class="play-icon-small"><i data-lucide="play" style="width:20px;height:20px;fill:currentColor;"></i></span>
+            <span class="play-icon-small"><i data-lucide="play"></i></span>
           </div>
         </div>
         <div class="episode-info">
@@ -692,9 +690,9 @@ export async function loadShowDetails(id) {
     }
     if (metaBadgesEl) {
       metaBadgesEl.innerHTML = `
-        <span class="detail-badge-pill"><i data-lucide="star" style="width:13px;height:13px;fill:currentColor;"></i> ${show.rating ? Number(show.rating).toFixed(1) : 'N/A'}</span>
+        <span class="detail-badge-pill"><i data-lucide="star" class="icon-star-badge"></i> ${show.rating ? Number(show.rating).toFixed(1) : 'N/A'}</span>
         <span class="detail-badge-pill">${escapeHtml(show.year || 'N/A')}</span>
-        <span class="badge" style="background: rgba(255,255,255,0.08);">${show.status === 'airing' ? 'En Emisión' : 'Finalizado'}</span>
+        <span class="badge badge-subtle">${show.status === 'airing' ? 'En Emisión' : 'Finalizado'}</span>
       `;
     }
 
@@ -707,7 +705,7 @@ export async function loadShowDetails(id) {
         try { cast = JSON.parse(show.cast_members); } catch { cast = []; }
       }
       if (!Array.isArray(cast) || cast.length === 0) {
-        detailCast.innerHTML = '<p style="color: var(--text-muted);">Sin información de reparto.</p>';
+        detailCast.innerHTML = '<p class="text-muted">Sin información de reparto.</p>';
       } else {
         detailCast.innerHTML = cast.map(c => `
           <div class="cast-chip">
@@ -757,7 +755,7 @@ export async function renderMyListView() {
   const container = document.getElementById('mylist-grid');
   if (!container) return;
 
-  container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--text-muted); grid-column: 1 / -1;">Cargando tu lista...</div>`;
+  container.innerHTML = `<div class="state-box-loading">Cargando tu lista...</div>`;
   const { activeUser, profileName, token } = getUserAndProfile();
   let favorites = [];
 
@@ -774,7 +772,7 @@ export async function renderMyListView() {
 
   if (!Array.isArray(favorites) || favorites.length === 0) {
     container.innerHTML = `
-      <div class="empty-state-card" style="grid-column: 1 / -1;">
+      <div class="empty-state-card col-span-all">
         <img src="/assets/illustrations/empty_watchlist.svg" alt="" class="empty-state-img">
         <h3>Tu lista está vacía</h3>
         <p>Guarda tus series y películas favoritas para encontrarlas fácilmente en cualquier momento.</p>
@@ -793,7 +791,7 @@ export async function renderHistoryView() {
   const container = document.getElementById('history-list');
   if (!container) return;
 
-  container.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--text-muted);"><div class="spinner" style="margin: 0 auto 12px auto;"></div>Cargando historial...</div>`;
+  container.innerHTML = `<div class="state-box-loading"><div class="spinner spinner-centered"></div>Cargando historial...</div>`;
   const { activeUser, profileName, token } = getUserAndProfile();
   let historyItems = [];
 
@@ -861,13 +859,13 @@ export async function loadPopularSidebar(currentShowId) {
     }
 
     popularSidebar.innerHTML = `
-      <h3 style="font-family: var(--font-title); font-size: 1.1rem; margin-bottom: 14px;">Populares</h3>
+      <h3 class="section-title section-title-compact">Populares</h3>
       ${popularShows.map(s => `
-        <a class="popular-item" href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(s.id))}" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(s.id))}" style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; text-decoration: none; color: inherit;">
-          <img src="${escapeHtmlAttribute(catalogueImageUrl(s.poster_path || ''))}" alt="${escapeHtmlAttribute(s.title)}" style="width: 50px; height: 70px; object-fit: cover; border-radius: 4px;">
-          <div>
-            <h4 style="font-size: 0.85rem; margin: 0 0 4px 0;">${escapeHtml(s.title)}</h4>
-            <span style="font-size: 0.75rem; color: var(--accent-color); display: inline-flex; align-items: center; gap: 3px;">${(s.rating && Number(s.rating) > 0) ? `<i data-lucide="star" style="width: 12px; height: 12px;"></i> ${Number(s.rating).toFixed(1)}` : '<span style="color: var(--text-muted);">N/A</span>'}</span>
+        <a class="popular-item" href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(s.id))}" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(s.id))}">
+          <img class="popular-item-img" src="${escapeHtmlAttribute(catalogueImageUrl(s.poster_path || ''))}" alt="${escapeHtmlAttribute(s.title)}">
+          <div class="popular-item-info">
+            <h4 class="popular-item-title">${escapeHtml(s.title)}</h4>
+            <span class="popular-item-rating">${(s.rating && Number(s.rating) > 0) ? `<i data-lucide="star"></i> ${Number(s.rating).toFixed(1)}` : '<span>N/A</span>'}</span>
           </div>
         </a>
       `).join('')}
@@ -885,8 +883,8 @@ export function renderCalendarDay(dayName) {
 
   if (showsList.length === 0) {
     gridContainer.innerHTML = `
-      <div class="empty-state" style="text-align: center; padding: 60px; color: var(--text-muted);">
-        <i data-lucide="calendar-off" style="width:48px;height:48px;margin-bottom:10px;display:inline-block;"></i>
+      <div class="empty-state">
+        <i data-lucide="calendar-off"></i>
         <h2>No hay estrenos programados para este día</h2>
       </div>`;
     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -894,24 +892,24 @@ export function renderCalendarDay(dayName) {
   }
 
   gridContainer.innerHTML = `
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
+    <div class="calendar-grid">
       ${showsList.map(item => {
         const cover = item.cover_image || '';
         const inLibBadge = item.in_library ? `
-          <div style="position: absolute; top: 10px; right: 10px; background: #2DD4BF; color: #000; font-family: var(--font-title); font-size: 0.7rem; font-weight: 800; padding: 4px 10px; border-radius: 4px; box-shadow: 0 0 10px rgba(45,212,191,0.5); z-index: 3; display: flex; align-items: center; gap: 4px;">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> EN TU BIBLIOTECA
+          <div class="calendar-airing-pill">
+            <i data-lucide="check"></i> EN TU BIBLIOTECA
           </div>
         ` : '';
 
         return `
-          <div class="calendar-show-card" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; position: relative;">
-            <div style="height: 160px; position: relative; overflow: hidden;">
-              <img src="${escapeHtmlAttribute(catalogueImageUrl(cover))}" alt="${escapeHtmlAttribute(item.title || '')}" style="width: 100%; height: 100%; object-fit: cover;">
+          <div class="calendar-show-card">
+            <div class="calendar-card-img-wrap">
+              <img src="${escapeHtmlAttribute(catalogueImageUrl(cover))}" alt="${escapeHtmlAttribute(item.title || '')}">
               ${inLibBadge}
             </div>
-            <div style="padding: 14px;">
-              <h3 style="font-size: 0.95rem; margin: 0 0 6px 0;">${escapeHtml(item.title || '')}</h3>
-              <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">${escapeHtml(item.studio || '')} • ${escapeHtml(item.episode || '')}</p>
+            <div class="calendar-card-body">
+              <h3 class="calendar-card-title">${escapeHtml(item.title || '')}</h3>
+              <p class="calendar-card-meta">${escapeHtml(item.studio || '')} • ${escapeHtml(item.episode || '')}</p>
             </div>
           </div>
         `;
@@ -929,7 +927,7 @@ export async function openRandomAnimeModal() {
 
   modal.style.display = 'flex';
   cardBody.className = 'random-card';
-  cardBody.innerHTML = `<div style="padding: 40px; text-align: center;"><div class="spinner" style="margin: 0 auto 15px auto;"></div>Buscando anime aleatorio...</div>`;
+  cardBody.innerHTML = `<div class="state-box"><div class="spinner"></div>Buscando anime aleatorio...</div>`;
 
   try {
     const res = await fetch('/api/shows/random');
@@ -937,11 +935,11 @@ export async function openRandomAnimeModal() {
     const show = data.show || data;
 
     cardBody.innerHTML = `
-      <div style="padding: 24px; text-align: center;">
-        <img src="${escapeHtmlAttribute(catalogueImageUrl(show.poster_path || ''))}" alt="${escapeHtmlAttribute(show.title)}" style="max-height: 250px; border-radius: 6px; margin-bottom: 16px;">
-        <h3 style="margin-bottom: 8px;">${escapeHtml(show.title)}</h3>
-        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 20px;">${escapeHtml(show.synopsis || '')}</p>
-        <a class="btn btn-primary" id="random-card-watch-btn" href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" style="text-decoration: none;">Ver Anime</a>
+      <div class="state-box">
+        <img src="${escapeHtmlAttribute(catalogueImageUrl(show.poster_path || ''))}" alt="${escapeHtmlAttribute(show.title)}" class="random-poster-img">
+        <h3 class="modal-title">${escapeHtml(show.title)}</h3>
+        <p class="modal-subtitle">${escapeHtml(show.synopsis || '')}</p>
+        <a class="btn btn-primary" id="random-card-watch-btn" href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}">Ver Anime</a>
       </div>
     `;
     const watchBtn = document.getElementById('random-card-watch-btn');
@@ -951,7 +949,7 @@ export async function openRandomAnimeModal() {
       });
     }
   } catch (err) {
-    cardBody.innerHTML = `<div style="padding: 30px; text-align: center; color: var(--danger-color);">Error al buscar anime aleatorio.</div>`;
+    cardBody.innerHTML = `<div class="state-box state-box-error">Error al buscar anime aleatorio.</div>`;
   }
 }
 
@@ -960,8 +958,8 @@ export async function renderStatsView() {
   const chartContainer = document.getElementById('stats-genre-chart');
   if (!cardsGrid || !chartContainer) return;
 
-  cardsGrid.innerHTML = `<div style="grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--text-muted);"><div class="spinner" style="margin: 0 auto 15px auto;"></div>Cargando estadísticas...</div>`;
-  chartContainer.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-muted);">Cargando gráfico...</div>`;
+  cardsGrid.innerHTML = '<div class="state-box col-span-all"><div class="spinner"></div>Cargando estadísticas...</div>';
+  chartContainer.innerHTML = '<div class="state-box">Cargando gráfico...</div>';
 
   const { activeUser, profileName, token } = getUserAndProfile();
   let stats = {
@@ -988,19 +986,19 @@ export async function renderStatsView() {
   cardsGrid.innerHTML = `
     <div class="stat-card">
       <span class="stat-card-label">Tiempo Total</span>
-      <div class="stat-card-value" style="color: var(--info-color);">${hours} horas</div>
+      <div class="stat-card-value text-info">${hours} horas</div>
     </div>
     <div class="stat-card">
       <span class="stat-card-label">Capítulos Vistos</span>
-      <div class="stat-card-value" style="color: var(--accent-color);">${stats.watched_episodes || 0}</div>
+      <div class="stat-card-value text-accent">${stats.watched_episodes || 0}</div>
     </div>
     <div class="stat-card">
       <span class="stat-card-label">Series Completadas</span>
-      <div class="stat-card-value" style="color: var(--success-color);">${stats.completed_shows || 0}</div>
+      <div class="stat-card-value text-success">${stats.completed_shows || 0}</div>
     </div>
   `;
 
-  chartContainer.innerHTML = `<p style="color: var(--text-muted); font-size: 0.9rem;">Género favorito: <strong style="color: var(--info-color);">${escapeHtml(stats.top_genre || 'Anime')}</strong></p>`;
+  chartContainer.innerHTML = `<p class="stat-genre-pill">Género favorito: <strong>${escapeHtml(stats.top_genre || 'Anime')}</strong></p>`;
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
@@ -1038,7 +1036,7 @@ export async function loadNotifications() {
 
   if (list) {
     if (notifications.length === 0) {
-      list.innerHTML = `<div class="notification-empty" style="padding: 24px 16px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">No hay notificaciones sin leer</div>`;
+      list.innerHTML = `<div class="notification-empty">No hay notificaciones sin leer</div>`;
     } else {
       list.innerHTML = notifications.map(item => {
         const epNum = item.episode_number || item.episode || 1;
@@ -1049,10 +1047,9 @@ export async function loadNotifications() {
 
         const isUnread = !!item.is_unread;
         const readClass = isUnread ? '' : ' notification-item-read';
-        const opacityStyle = isUnread ? '' : ' style="opacity: 0.65;"';
 
         return `
-          <a href="${escapeHtmlAttribute(targetHash)}" class="notification-item${readClass}"${opacityStyle} data-show-id="${escapeHtmlAttribute(item.show_id || '')}" data-episode-id="${escapeHtmlAttribute(item.episode_id || '')}">
+          <a href="${escapeHtmlAttribute(targetHash)}" class="notification-item${readClass}" data-show-id="${escapeHtmlAttribute(item.show_id || '')}" data-episode-id="${escapeHtmlAttribute(item.episode_id || '')}">
             <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(title)}" class="notification-poster" onerror="this.onerror=null;this.src='/api/placeholder-poster?title=Show';">
             <div class="notification-info">
               <span class="notification-title">${escapeHtml(title)}</span>
@@ -1377,11 +1374,11 @@ async function initCatalogView(filterType = 'all') {
     if (dashboardSections) {
       const continueHtml = renderContinueWatching(history);
       const catalogHtml = `
-        <section class="catalog-section" style="margin-top: 24px;">
-          <h2 class="section-title" style="font-family: var(--font-title); font-size: 1.3rem; margin-bottom: 16px; font-weight: 700;">
+        <section class="catalog-section">
+          <h2 class="section-title">
             ${filterType === 'movie' ? 'Películas Disponibles' : 'Catálogo Completo'}
           </h2>
-          <div class="shows-grid" style="display: flex; flex-wrap: wrap; gap: 20px;">
+          <div class="shows-grid">
             ${shows.map(s => createShowCardHTML(s)).join('')}
           </div>
         </section>
@@ -1460,7 +1457,7 @@ async function loadSettingsView() {
 async function loadProfilesView() {
   const grid = document.getElementById('profile-grid');
   if (!grid) return;
-  grid.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted);"><div class="spinner" style="margin: 0 auto 15px auto;"></div>Cargando perfiles...</div>';
+  grid.innerHTML = '<div class="state-box"><div class="spinner"></div>Cargando perfiles...</div>';
 
   try {
     const res = await fetch('/api/profiles');
@@ -1471,12 +1468,13 @@ async function loadProfilesView() {
       <div class="profile-card" onclick="window.KuraStream.selectProfile('${escapeHtmlAttribute(p.id)}')">
         <div class="profile-avatar" style="background: ${escapeHtmlAttribute(p.color || 'var(--accent-color)')};">
           ${escapeHtml((p.name || 'P')[0].toUpperCase())}
+          ${p.is_kids ? '<span class="profile-badge-kids">KIDS</span>' : ''}
         </div>
         <div class="profile-name">${escapeHtml(p.name)}</div>
       </div>
     `).join('');
   } catch (e) {
-    grid.innerHTML = '<div style="color: var(--danger-color); padding: 30px;">Error al cargar perfiles.</div>';
+    grid.innerHTML = '<div class="state-box state-box-error">Error al cargar perfiles.</div>';
   }
 }
 

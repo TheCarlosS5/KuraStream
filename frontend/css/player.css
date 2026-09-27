@@ -579,3 +579,112 @@
   display: flex;
   flex-direction: column;
 }
+
+/* ==================================================== */
+/* NOCTURNAL CINEMATIC: Player Utility Classes          */
+/* ==================================================== */
+
+.qr-share-modal {
+  width: 330px;
+}
+
+.qr-share-body {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.qr-box {
+  background: #ffffff;
+  padding: 12px;
+  border-radius: var(--radius-xs);
+  display: inline-block;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.qr-img {
+  width: 180px;
+  height: 180px;
+  display: block;
+}
+
+.qr-url-text {
+  word-break: break-all;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 8px;
+  border-radius: var(--radius-control);
+  color: var(--accent-color);
+  margin-top: 6px;
+}
+
+.outro-overlay-container {
+  position: absolute;
+  bottom: 130px;
+  right: 40px;
+  z-index: 12;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.btn-skip-outro {
+  position: static !important;
+  background: var(--accent-color) !important;
+  border-color: var(--accent-color) !important;
+  color: #080A10 !important;
+  font-weight: 700 !important;
+}
+
+.btn-watch-credits {
+  position: static !important;
+  font-size: 0.75rem !important;
+  padding: 6px 14px !important;
+  background: var(--surface-raised) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-muted) !important;
+  font-weight: 500 !important;
+}
+
+.party-btn-leave {
+  color: var(--danger-color) !important;
+}
+
+.party-sync-pill {
+  background: rgba(94, 216, 198, 0.15) !important;
+  color: var(--party-accent) !important;
+  border: 1px solid var(--party-accent) !important;
+}
+
+.party-sync-dot {
+  width: 6px;
+  height: 6px;
+  margin-right: 4px;
+}
+
+.party-btn-copy-cta {
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  color: var(--accent-color) !important;
+  background: var(--accent-soft) !important;
+  border-radius: var(--radius-xs) !important;
+  padding: 2px 6px !important;
+}
+
+.party-host-icon {
+  width: 13px;
+  height: 13px;
+  vertical-align: middle;
+  margin-right: 3px;
+}
+
+.icon-chevron-inline {
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+

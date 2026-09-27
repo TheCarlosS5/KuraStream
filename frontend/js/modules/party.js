@@ -150,7 +150,7 @@ class PartyManager {
   }
 
   getRandomColor(name) {
-    const colors = ['#00e08f', '#F97316', '#3b82f6', '#ec4899', '#f59e0b', '#06b6d4', '#10b981'];
+    const colors = ['#5ED8C6', '#818CF8', '#3b82f6', '#ec4899', '#f59e0b', '#06b6d4', '#10b981'];
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
       hash = name.charCodeAt(i) + ((hash << 5) - hash);

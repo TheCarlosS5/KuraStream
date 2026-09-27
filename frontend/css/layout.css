@@ -365,6 +365,17 @@
   background: var(--surface-hover);
 }
 
+.notification-item.notification-item-read {
+  opacity: 0.65;
+}
+
+.notification-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
 .notification-poster {
   width: 38px;
   height: 52px;
@@ -632,3 +643,21 @@
   margin-bottom: 20px;
   color: var(--text-main);
 }
+
+.custom-logo {
+  height: 36px;
+  width: auto;
+  object-fit: contain;
+}
+
+.fallback-logo {
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-link-party {
+  color: var(--party-accent) !important;
+  font-weight: 700;
+}
+

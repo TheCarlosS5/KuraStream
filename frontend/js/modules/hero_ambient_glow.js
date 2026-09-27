@@ -7,9 +7,9 @@
  * with smooth transitions and subtle radial gradient aura lighting.
  */
 
-export const DEFAULT_ACCENT_RGB = [249, 115, 22]; // #F97316
-export const DEFAULT_SECONDARY_RGB = [234, 88, 12]; // #EA580C
-export const DEFAULT_ACCENT_STR = '249, 115, 22';
+export const DEFAULT_ACCENT_RGB = [129, 140, 248]; // #818CF8 (Nocturnal Indigo)
+export const DEFAULT_SECONDARY_RGB = [94, 216, 198]; // #5ED8C6 (Nocturnal Mint)
+export const DEFAULT_ACCENT_STR = '129, 140, 248';
 export const DEFAULT_LUMINANCE = 0.536;
 
 const STYLE_ID = 'kura-hero-ambient-styles';

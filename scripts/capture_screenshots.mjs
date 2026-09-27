@@ -243,7 +243,7 @@ async function captureAll() {
   await page.evaluate(() => {
     localStorage.setItem('kurastream_jwt', 'mock_jwt_token_for_user');
     localStorage.setItem('kurastream_user', JSON.stringify({ username: 'CarlosUser', role: 'user' }));
-    localStorage.setItem('kurastream_active_profile', JSON.stringify({ id: 'prof-1', name: 'Principal', is_kids: 0, color: '#FF6B2C' }));
+    localStorage.setItem('kurastream_active_profile', JSON.stringify({ id: 'prof-1', name: 'Principal', is_kids: 0, color: '#818CF8' }));
   });
 
   // 5. Authenticated Home
