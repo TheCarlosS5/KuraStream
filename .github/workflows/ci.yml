@@ -135,7 +135,16 @@ jobs:
           fi
 
       - name: Generate Visual UI Audit Screenshots
+        id: visual_qa
+        continue-on-error: true
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: kurastream
+          DB_USER: kurastream
+          DB_PASS: testpassword
         run: |
+          export JWT_SECRET=$(openssl rand -hex 32)
           node scripts/capture_screenshots.mjs final
 
       - name: Upload UI Audit Screenshots Artifact
@@ -148,8 +157,8 @@ jobs:
 
       - name: Verify All Test Suites Passed
         run: |
-          if [ "${{ steps.e2e.outcome }}" != "success" ] || [ "${{ steps.php_tests.outcome }}" != "success" ] || [ "${{ steps.docker_smoke.outcome }}" != "success" ]; then
-            FAIL_MSG="E2E: ${{ steps.e2e.outcome }}, PHP: ${{ steps.php_tests.outcome }}, Docker: ${{ steps.docker_smoke.outcome }}"
+          if [ "${{ steps.e2e.outcome }}" != "success" ] || [ "${{ steps.php_tests.outcome }}" != "success" ] || [ "${{ steps.docker_smoke.outcome }}" != "success" ] || [ "${{ steps.visual_qa.outcome }}" != "success" ]; then
+            FAIL_MSG="E2E: ${{ steps.e2e.outcome }}, PHP: ${{ steps.php_tests.outcome }}, Docker: ${{ steps.docker_smoke.outcome }}, VisualQA: ${{ steps.visual_qa.outcome }}"
             if [ -f /tmp/php_tests.log ]; then
               FAIL_DETAILS=$(grep -A 15 "FAIL ✗" /tmp/php_tests.log | tr '\n' ' ' || true)
               if [ -n "$FAIL_DETAILS" ]; then
