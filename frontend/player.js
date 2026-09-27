@@ -133,9 +133,7 @@ let isDraggingProgress = false;
 // Active state tracker for keyboard inputs
 let isPlayerActive = false;
 let playerAbortController = null;
-let isControlsLocked = false;
 let isControlsVisible = false;
-let lockPillTimeout = null;
 let speedHoldTimer = null;
 let isSpeedHoldActive = false;
 let previousSpeed = 1.0;
@@ -184,9 +182,6 @@ export async function initPlayer(rawEpisodeId) {
   }
   if (typeof AbortController !== 'undefined') {
     playerAbortController = new AbortController();
-  }
-  if (typeof isControlsLocked !== 'undefined') {
-    isControlsLocked = false;
   }
 
   // Cache DOM elements
@@ -848,13 +843,6 @@ export function destroyPlayer() {
     playerAbortController.abort();
     playerAbortController = null;
   }
-  if (typeof isControlsLocked !== 'undefined') {
-    isControlsLocked = false;
-  }
-  if (typeof lockPillTimeout !== 'undefined' && lockPillTimeout) {
-    clearTimeout(lockPillTimeout);
-    lockPillTimeout = null;
-  }
   if (typeof speedHoldTimer !== 'undefined' && speedHoldTimer) {
     clearTimeout(speedHoldTimer);
     speedHoldTimer = null;
@@ -1212,6 +1200,20 @@ function setupPlayerEventListeners() {
       }
       return;
     }
+    const role = AuthManager.getRole();
+    const activeProfile = AuthManager.getActiveProfile();
+    if (role !== 'admin' && !activeProfile) {
+      showPlayerErrorOverlay("Debes seleccionar un perfil para reproducir este contenido.");
+      const retryBtn = document.getElementById('player-error-retry-btn');
+      if (retryBtn) {
+        retryBtn.innerHTML = '<i data-lucide="user"></i> Elegir Perfil';
+        retryBtn.onclick = () => {
+          window.location.hash = '#/profiles';
+        };
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+      }
+      return;
+    }
     showPlayerErrorOverlay("Error de reproducción. ¿Reintentar?");
   };
 
@@ -1272,10 +1274,6 @@ function setupPlayerEventListeners() {
   
   // Click on video canvas to toggle play
   video.onclick = (e) => {
-    if (typeof isControlsLocked !== 'undefined' && isControlsLocked) {
-      if (typeof revealLockPill !== 'undefined') revealLockPill();
-      return;
-    }
     if (typeof isSpeedHoldActive !== 'undefined' && isSpeedHoldActive) return;
     if (e.target.tagName === 'VIDEO') {
       togglePlay();
@@ -1864,7 +1862,6 @@ function setupPlayerEventListeners() {
   setupTouchGestures();
 
   const abortSignal = playerAbortController ? playerAbortController.signal : undefined;
-  initScreenLock(abortSignal);
   setupHoldSpeed(abortSignal);
   initSpeedMenu(abortSignal);
 }
@@ -2175,7 +2172,6 @@ function showTechnicalModal() {
 }
 
 function triggerControlsActivity() {
-  if (isControlsLocked) return;
   if (!controlsOverlay) return;
   controlsOverlay.classList.remove('hide');
   isControlsVisible = true;
@@ -2832,52 +2828,6 @@ export function formatChapterTime(seconds) {
 
 
 
-function revealLockPill() {
-  const pill = document.querySelector('.player-lock-pill');
-  if (pill) {
-    pill.classList.remove('hide');
-    clearTimeout(lockPillTimeout);
-    lockPillTimeout = setTimeout(() => {
-      pill.classList.add('hide');
-    }, 3000);
-  }
-}
-
-function initScreenLock(signal) {
-  const topBar = document.querySelector('.player-top-bar');
-  if (topBar && !document.getElementById('btn-lock-controls')) {
-    const lockBtn = document.createElement('button');
-    lockBtn.id = 'btn-lock-controls';
-    lockBtn.className = 'player-btn';
-    lockBtn.title = 'Bloquear Pantalla';
-    lockBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-lock"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
-    topBar.appendChild(lockBtn);
-    lockBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      isControlsLocked = true;
-      const overlay = document.querySelector('.player-controls-overlay');
-      if (overlay) overlay.classList.add('hide');
-      isControlsVisible = false;
-      if (typeof showVideoToast !== 'undefined') showVideoToast(formatToast('lock', 'Pantalla bloqueada'));
-      revealLockPill();
-    }, signal ? { signal } : undefined);
-  }
-  const container = document.getElementById('player-container');
-  if (container && !document.querySelector('.player-lock-pill')) {
-    const pill = document.createElement('div');
-    pill.className = 'player-lock-pill hide';
-    pill.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> Pantalla bloqueada - Toca para desbloquear';
-    container.appendChild(pill);
-    pill.addEventListener('click', (e) => {
-      e.stopPropagation();
-      isControlsLocked = false;
-      pill.classList.add('hide');
-      if (typeof showVideoToast !== 'undefined') showVideoToast(formatToast('unlock', 'Pantalla desbloqueada'));
-      if (typeof triggerControlsActivity !== 'undefined') triggerControlsActivity();
-    }, signal ? { signal } : undefined);
-  }
-}
-
 function showSpeedPill() {
   let pill = document.getElementById('speed-accelerator-pill');
   if (!pill) {
@@ -2897,7 +2847,6 @@ function hideSpeedPill() {
 }
 
 function handleHoldStart(e) {
-  if (isControlsLocked) return;
   if (e.button === 2) return;
   if (e.target.tagName !== 'VIDEO') return;
   
