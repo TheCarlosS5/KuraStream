@@ -277,7 +277,7 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
     tooltip.style.opacity = '1';
 
     // Synchronize video source if missing
-    if (!offscreenVideo.src && mainVideoEl) {
+    if (offscreenVideo && !offscreenVideo.src && mainVideoEl) {
       const src = mainVideoEl.currentSrc || mainVideoEl.src;
       if (src) {
         updateSource(src);
@@ -331,7 +331,7 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
 
   function onMainVideoUpdate() {
     if (isDestroyed) return;
-    if (!offscreenVideo.src && mainVideoEl) {
+    if (offscreenVideo && !offscreenVideo.src && mainVideoEl) {
       const src = mainVideoEl.currentSrc || mainVideoEl.src;
       if (src) {
         updateSource(src);

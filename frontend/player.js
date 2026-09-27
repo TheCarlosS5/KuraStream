@@ -597,6 +597,10 @@ function loadVideoStream(startTime = 0) {
   if (partyManager && partyManager.streamCapabilityToken) {
     streamUrl += (streamUrl.includes('?') ? '&' : '?') + `ticket=${encodeURIComponent(partyManager.streamCapabilityToken)}`;
   }
+  const authToken = AuthManager.getToken();
+  if (authToken) {
+    streamUrl += (streamUrl.includes('?') ? '&' : '?') + `token=${encodeURIComponent(authToken)}`;
+  }
   
   const currentSrc = (video && (video.getAttribute('src') || video.src)) || '';
   const isSameDirectStream = direct && currentSrc.includes(baseStreamUrl) && !currentSrc.includes('&start=') && !currentSrc.includes('?start=');
@@ -758,10 +762,16 @@ async function startOctopusInstance(trackNum) {
 
     if (!subContent) {
       let subFetchUrl = `/api/subtitles/${encodeURIComponent(currentEpisodeId)}/${trackNum}`;
-      if (partyManager && partyManager.streamCapabilityToken) {
-        subFetchUrl += `?ticket=${encodeURIComponent(partyManager.streamCapabilityToken)}`;
+      const subAuthToken = AuthManager.getToken();
+      if (subAuthToken) {
+        subFetchUrl += `?token=${encodeURIComponent(subAuthToken)}`;
       }
-      const subRes = await fetch(subFetchUrl);
+      if (partyManager && partyManager.streamCapabilityToken) {
+        subFetchUrl += (subFetchUrl.includes('?') ? '&' : '?') + `ticket=${encodeURIComponent(partyManager.streamCapabilityToken)}`;
+      }
+      const headers = {};
+      if (subAuthToken) headers['Authorization'] = `Bearer ${subAuthToken}`;
+      const subRes = await fetch(subFetchUrl, { headers });
       if (!subRes.ok) throw new Error(`HTTP ${subRes.status}`);
       subContent = await subRes.text();
       subtitleContentCache.set(cacheKey, subContent);
@@ -770,7 +780,9 @@ async function startOctopusInstance(trackNum) {
     let fontUrls = [];
     if (currentEpisodeId) {
       try {
-        const fontsRes = await fetch(`/api/episodes/${encodeURIComponent(currentEpisodeId)}/fonts`);
+        const fontAuth = AuthManager.getToken();
+        const fHeaders = fontAuth ? { 'Authorization': `Bearer ${fontAuth}` } : {};
+        const fontsRes = await fetch(`/api/episodes/${encodeURIComponent(currentEpisodeId)}/fonts`, { headers: fHeaders });
         if (fontsRes.ok) {
           const fontsData = await fontsRes.json();
           if (fontsData && Array.isArray(fontsData.fonts)) {
@@ -1186,6 +1198,20 @@ function setupPlayerEventListeners() {
   video.onerror = () => {
     hideLoader();
     console.warn("Video element error occurred:", video.error);
+    const authToken = AuthManager.getToken();
+    if (!authToken) {
+      showPlayerErrorOverlay("Debes iniciar sesión para reproducir este contenido.");
+      const retryBtn = document.getElementById('player-error-retry-btn');
+      if (retryBtn) {
+        retryBtn.innerHTML = '<i data-lucide="log-in"></i> Iniciar Sesión';
+        retryBtn.onclick = () => {
+          const loginTrigger = document.getElementById('btn-login-trigger');
+          if (loginTrigger) loginTrigger.click();
+        };
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+      }
+      return;
+    }
     showPlayerErrorOverlay("Error de reproducción. ¿Reintentar?");
   };
 
