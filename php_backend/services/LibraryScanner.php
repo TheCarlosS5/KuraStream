@@ -130,11 +130,19 @@ class LibraryScanner {
                                     if (empty($showData['trailer_key']) && !empty($details['trailer_key'])) {
                                         $showData['trailer_key'] = $details['trailer_key'];
                                     }
-                                    if (empty($showData['poster_path']) && !empty($details['poster_path'])) {
-                                        $showData['poster_path'] = $details['poster_path'];
+                                    if (!file_exists($showPath . '/poster.jpg') && !empty($details['poster_path'])) {
+                                        if (TmdbScraper::downloadFile($details['poster_path'], $showPath . '/poster.jpg')) {
+                                            $showData['poster_path'] = "/library/{$dirName}/{$showFolder}/poster.jpg";
+                                        } else if (empty($showData['poster_path'])) {
+                                            $showData['poster_path'] = $details['poster_path'];
+                                        }
                                     }
-                                    if (empty($showData['backdrop_path']) && !empty($details['backdrop_path'])) {
-                                        $showData['backdrop_path'] = $details['backdrop_path'];
+                                    if (!file_exists($showPath . '/backdrop.jpg') && !empty($details['backdrop_path'])) {
+                                        if (TmdbScraper::downloadFile($details['backdrop_path'], $showPath . '/backdrop.jpg')) {
+                                            $showData['backdrop_path'] = "/library/{$dirName}/{$showFolder}/backdrop.jpg";
+                                        } else if (empty($showData['backdrop_path'])) {
+                                            $showData['backdrop_path'] = $details['backdrop_path'];
+                                        }
                                     }
                                     if (!empty($details['status'])) $showData['status'] = $details['status'];
                                 }
