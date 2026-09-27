@@ -56,7 +56,7 @@ class TmdbScraper {
         while ($attempt < $maxRetries) {
             $attempt++;
             $ch = curl_init();
-            curl_setopt_array($ch, [
+            $curlOpts = [
                 CURLOPT_URL => $url,
                 CURLOPT_HTTPHEADER => $headers,
                 CURLOPT_RETURNTRANSFER => true,
@@ -64,7 +64,11 @@ class TmdbScraper {
                 CURLOPT_CONNECTTIMEOUT => 4,
                 CURLOPT_SSL_VERIFYPEER => true,
                 CURLOPT_SSL_VERIFYHOST => 2
-            ]);
+            ];
+            if (defined('CURLSSLOPT_NATIVE_CA')) {
+                $curlOpts[CURLOPT_SSL_OPTIONS] = CURLSSLOPT_NATIVE_CA;
+            }
+            curl_setopt_array($ch, $curlOpts);
             $response = curl_exec($ch);
             $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);
@@ -360,6 +364,9 @@ class TmdbScraper {
         if (defined('CURLPROTO_HTTPS')) {
             $curlOptions[CURLOPT_PROTOCOLS] = CURLPROTO_HTTPS;
             $curlOptions[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTPS;
+        }
+        if (defined('CURLSSLOPT_NATIVE_CA')) {
+            $curlOptions[CURLOPT_SSL_OPTIONS] = CURLSSLOPT_NATIVE_CA;
         }
 
         $ch = curl_init($url);

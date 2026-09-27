@@ -29,8 +29,7 @@ class CalendarController {
           }
         }';
 
-        $ch = curl_init();
-        curl_setopt_array($ch, [
+        $curlOpts = [
             CURLOPT_URL => 'https://graphql.anilist.co',
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode(['query' => $query, 'variables' => ['start' => $startOfWeek, 'end' => $endOfWeek]]),
@@ -39,7 +38,11 @@ class CalendarController {
             CURLOPT_TIMEOUT => 10,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2
-        ]);
+        ];
+        if (defined('CURLSSLOPT_NATIVE_CA')) {
+            $curlOpts[CURLOPT_SSL_OPTIONS] = CURLSSLOPT_NATIVE_CA;
+        }
+        curl_setopt_array($ch, $curlOpts);
 
         $res = curl_exec($ch);
         curl_close($ch);
