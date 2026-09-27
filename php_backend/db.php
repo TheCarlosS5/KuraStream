@@ -18,7 +18,8 @@ class Database {
                     DB_PASS,
                     [
                         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                        PDO::ATTR_TIMEOUT => 2
                     ]
                 );
             } catch (PDOException $e) {
@@ -245,11 +246,22 @@ class DbHelper {
         $stmt->execute(['u' => $username, 'p' => $profile]);
         $row = $stmt->fetch();
         if (!$row) {
-            return ['auto_skip_intro' => false, 'auto_play_next' => true];
+            return [
+                'auto_skip_intro' => false,
+                'auto_play_next' => true,
+                'preferred_audio_language' => 'jpn',
+                'preferred_subtitle_language' => 'spa',
+                'audio_boost' => 100,
+                'audio_preset' => 'flat'
+            ];
         }
         return [
             'auto_skip_intro' => (bool)$row['auto_skip_intro'],
-            'auto_play_next' => (bool)$row['auto_play_next']
+            'auto_play_next' => (bool)$row['auto_play_next'],
+            'preferred_audio_language' => !empty($row['preferred_audio_language']) ? (string)$row['preferred_audio_language'] : 'jpn',
+            'preferred_subtitle_language' => !empty($row['preferred_subtitle_language']) ? (string)$row['preferred_subtitle_language'] : 'spa',
+            'audio_boost' => isset($row['audio_boost']) ? (int)$row['audio_boost'] : 100,
+            'audio_preset' => !empty($row['audio_preset']) ? (string)$row['audio_preset'] : 'flat'
         ];
     }
 
@@ -258,13 +270,32 @@ class DbHelper {
         $existing = self::getUserPreferences($username, $profile);
         $autoSkip = isset($data['auto_skip_intro']) ? (int)(bool)$data['auto_skip_intro'] : (int)$existing['auto_skip_intro'];
         $autoPlay = isset($data['auto_play_next']) ? (int)(bool)$data['auto_play_next'] : (int)$existing['auto_play_next'];
+        $prefAudio = isset($data['preferred_audio_language']) ? trim((string)$data['preferred_audio_language']) : ($existing['preferred_audio_language'] ?? 'jpn');
+        $prefSub = isset($data['preferred_subtitle_language']) ? trim((string)$data['preferred_subtitle_language']) : ($existing['preferred_subtitle_language'] ?? 'spa');
+        $audioBoost = isset($data['audio_boost']) ? (int)$data['audio_boost'] : (int)($existing['audio_boost'] ?? 100);
+        $audioPreset = isset($data['audio_preset']) ? trim((string)$data['audio_preset']) : ($existing['audio_preset'] ?? 'flat');
 
         $stmt = $db->prepare("
-            INSERT INTO user_preferences (username, profile_name, auto_skip_intro, auto_play_next)
-            VALUES (:u, :p, :skip, :play)
-            ON DUPLICATE KEY UPDATE auto_skip_intro = VALUES(auto_skip_intro), auto_play_next = VALUES(auto_play_next)
+            INSERT INTO user_preferences (username, profile_name, auto_skip_intro, auto_play_next, preferred_audio_language, preferred_subtitle_language, audio_boost, audio_preset)
+            VALUES (:u, :p, :skip, :play, :pref_audio, :pref_sub, :boost, :preset)
+            ON DUPLICATE KEY UPDATE 
+                auto_skip_intro = VALUES(auto_skip_intro), 
+                auto_play_next = VALUES(auto_play_next),
+                preferred_audio_language = VALUES(preferred_audio_language),
+                preferred_subtitle_language = VALUES(preferred_subtitle_language),
+                audio_boost = VALUES(audio_boost),
+                audio_preset = VALUES(audio_preset)
         ");
-        $stmt->execute(['u' => $username, 'p' => $profile, 'skip' => $autoSkip, 'play' => $autoPlay]);
+        $stmt->execute([
+            'u' => $username,
+            'p' => $profile,
+            'skip' => $autoSkip,
+            'play' => $autoPlay,
+            'pref_audio' => $prefAudio,
+            'pref_sub' => $prefSub,
+            'boost' => $audioBoost,
+            'preset' => $audioPreset
+        ]);
     }
 
     public static function getEpisode($id): ?array {
@@ -432,10 +463,10 @@ class DbHelper {
             audio_tracks = VALUES(audio_tracks),
             subtitle_tracks = VALUES(subtitle_tracks),
             thumbnail_path = VALUES(thumbnail_path),
-            intro_start = VALUES(intro_start),
-            intro_end = VALUES(intro_end),
-            outro_start = VALUES(outro_start),
-            chapters = VALUES(chapters),
+            intro_start = COALESCE(VALUES(intro_start), episodes.intro_start),
+            intro_end = COALESCE(VALUES(intro_end), episodes.intro_end),
+            outro_start = COALESCE(VALUES(outro_start), episodes.outro_start),
+            chapters = CASE WHEN VALUES(chapters) IS NOT NULL AND VALUES(chapters) != '[]' THEN VALUES(chapters) ELSE episodes.chapters END,
             availability_status = 'available',
             missing_scan_count = 0,
             missing_since = NULL
@@ -460,16 +491,80 @@ class DbHelper {
             'audio_tracks' => json_encode($ep['audio_tracks'] ?? []),
             'subtitle_tracks' => json_encode($ep['subtitle_tracks'] ?? []),
             'thumbnail_path' => $ep['thumbnail_path'] ?? '',
-            'intro_start' => $ep['intro_start'] ?? null,
-            'intro_end' => $ep['intro_end'] ?? null,
-            'outro_start' => $ep['outro_start'] ?? null,
-            'chapters' => json_encode($ep['chapters'] ?? [])
+            'intro_start' => array_key_exists('intro_start', $ep) ? $ep['intro_start'] : null,
+            'intro_end' => array_key_exists('intro_end', $ep) ? $ep['intro_end'] : null,
+            'outro_start' => array_key_exists('outro_start', $ep) ? $ep['outro_start'] : null,
+            'chapters' => (!empty($ep['chapters']) && $ep['chapters'] !== '[]') ? (is_string($ep['chapters']) ? $ep['chapters'] : json_encode($ep['chapters'])) : null
         ];
         if ($hasCreatedAt) {
             $params['created_at'] = $ep['created_at'];
         }
         if ($hasFileMtime) {
             $params['file_mtime'] = (int)$ep['file_mtime'];
+        }
+
+        $driver = '';
+        try {
+            $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+        } catch (Throwable $e) {}
+
+        if ($driver === 'sqlite') {
+            $check = $db->prepare("SELECT id, intro_start, intro_end, outro_start, chapters FROM episodes WHERE id = :id");
+            $check->execute(['id' => $ep['id']]);
+            $existing = $check->fetch(PDO::FETCH_ASSOC);
+
+            if ($existing) {
+                $introStart = array_key_exists('intro_start', $ep) && $ep['intro_start'] !== null ? $ep['intro_start'] : $existing['intro_start'];
+                $introEnd = array_key_exists('intro_end', $ep) && $ep['intro_end'] !== null ? $ep['intro_end'] : $existing['intro_end'];
+                $outroStart = array_key_exists('outro_start', $ep) && $ep['outro_start'] !== null ? $ep['outro_start'] : $existing['outro_start'];
+                $chapters = (!empty($ep['chapters']) && $ep['chapters'] !== '[]') ? (is_string($ep['chapters']) ? $ep['chapters'] : json_encode($ep['chapters'])) : $existing['chapters'];
+
+                $stmt = $db->prepare("
+                    UPDATE episodes SET
+                        title = :title,
+                        synopsis = :synopsis,
+                        filepath = :filepath,
+                        duration = :duration,
+                        size = :size,
+                        video_codec = :video_codec,
+                        resolution = :resolution,
+                        fps = :fps,
+                        audio_tracks = :audio_tracks,
+                        subtitle_tracks = :subtitle_tracks,
+                        thumbnail_path = :thumbnail_path,
+                        intro_start = :intro_start,
+                        intro_end = :intro_end,
+                        outro_start = :outro_start,
+                        chapters = :chapters,
+                        availability_status = 'available',
+                        missing_scan_count = 0,
+                        missing_since = NULL
+                    WHERE id = :id
+                ");
+                $stmt->execute([
+                    'title' => $ep['title'] ?? '',
+                    'synopsis' => $ep['synopsis'] ?? '',
+                    'filepath' => $ep['filepath'],
+                    'duration' => $ep['duration'] ?? 0,
+                    'size' => $ep['size'] ?? 0,
+                    'video_codec' => $ep['video_codec'] ?? '',
+                    'resolution' => $ep['resolution'] ?? '',
+                    'fps' => $ep['fps'] ?? 0,
+                    'audio_tracks' => json_encode($ep['audio_tracks'] ?? []),
+                    'subtitle_tracks' => json_encode($ep['subtitle_tracks'] ?? []),
+                    'thumbnail_path' => $ep['thumbnail_path'] ?? '',
+                    'intro_start' => $introStart,
+                    'intro_end' => $introEnd,
+                    'outro_start' => $outroStart,
+                    'chapters' => $chapters,
+                    'id' => $ep['id']
+                ]);
+                return;
+            } else {
+                $stmt = $db->prepare("INSERT INTO episodes ({$cols}) VALUES ({$vals})");
+                $stmt->execute($params);
+                return;
+            }
         }
 
         try {

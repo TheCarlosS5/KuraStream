@@ -140,6 +140,36 @@ let speedHoldTimer = null;
 let isSpeedHoldActive = false;
 let previousSpeed = 1.0;
 
+export function matchesLanguage(trackLang, prefLang) {
+  if (!trackLang || !prefLang) return false;
+  const t = String(trackLang).toLowerCase().trim();
+  const p = String(prefLang).toLowerCase().trim();
+  if (p === 'default' || p === 'off') return false;
+  if (t === p) return true;
+
+  const spanishAliases = ['spa', 'es', 'es-es', 'es-la', 'es-419', 'spanish', 'español', 'castellano', 'lat'];
+  const englishAliases = ['eng', 'en', 'en-us', 'en-gb', 'english', 'inglés'];
+  const japaneseAliases = ['jpn', 'ja', 'japanese', 'japonés'];
+
+  if (spanishAliases.includes(p) && spanishAliases.includes(t)) return true;
+  if (englishAliases.includes(p) && englishAliases.includes(t)) return true;
+  if (japaneseAliases.includes(p) && japaneseAliases.includes(t)) return true;
+
+  return t.startsWith(p) || p.startsWith(t);
+}
+
+export function isDirectPlayable(ep, audioTrackNum = 0) {
+  if (!ep) return false;
+  const pathOrName = ep.filepath || ep.filename || ep.id || '';
+  const ext = pathOrName.split('.').pop().toLowerCase();
+  const isDirectContainer = ['mp4', 'webm', 'm4v'].includes(ext);
+  const codec = (ep.video_codec || '').toLowerCase();
+  const isDirectCodec = !codec || ['h264', 'avc1', 'avc', 'vp8', 'vp9', 'av1'].includes(codec);
+  const audioTracks = parseJsonArray(ep.audio_tracks);
+  const isDefaultAudio = audioTrackNum <= 0 || audioTracks.length <= 1;
+  return isDirectContainer && isDirectCodec && isDefaultAudio;
+}
+
 export async function initPlayer(rawEpisodeId) {
   // Router and party callers supply decoded IDs, not a hash or query string.
   const episodeId = String(rawEpisodeId || '');
@@ -307,34 +337,45 @@ export async function initPlayer(rawEpisodeId) {
   }
 
   // Resolve Audio and Subtitle track preferences from Settings
-  const prefAudio = localStorage.getItem('kura_pref_audio_lang') || 'default';
-  const prefSub = localStorage.getItem('kura_pref_sub_lang') || 'default';
+  const prefAudio = window.userPreferences?.preferred_audio_language || localStorage.getItem('kurastream_preferred_audio_language') || localStorage.getItem('kura_pref_audio_lang') || 'default';
+  const prefSub = window.userPreferences?.preferred_subtitle_language || localStorage.getItem('kurastream_preferred_subtitle_language') || localStorage.getItem('kura_pref_sub_lang') || 'default';
 
-  // 1. Resolve Audio Track
+  // 1. Resolve Audio Track: user preference -> disposition default -> first track
   const audioTracks = parseJsonArray(currentEpisodeData.audio_tracks);
-  let chosenAudio = 0; // Default fallback to first track
-  if (prefAudio !== 'default' && audioTracks.length > 0) {
-    const match = audioTracks.find(t => (t.language || '').toLowerCase().includes(prefAudio.toLowerCase()));
-    if (match) {
-      chosenAudio = (match.track_number !== undefined) ? match.track_number : (match.index !== undefined ? match.index : 0);
+  let chosenAudio = 0;
+  if (audioTracks.length > 0) {
+    let matchedTrack = null;
+    if (prefAudio !== 'default') {
+      matchedTrack = audioTracks.find(t => matchesLanguage(t.language, prefAudio));
     }
+    if (!matchedTrack) {
+      matchedTrack = audioTracks.find(t => t.disposition?.default || t.is_default);
+    }
+    if (!matchedTrack) {
+      matchedTrack = audioTracks[0];
+    }
+    chosenAudio = (matchedTrack.track_number !== undefined) ? matchedTrack.track_number : (matchedTrack.index !== undefined ? matchedTrack.index : 0);
   }
   selectedAudioTrackNum = chosenAudio;
 
-  // 2. Resolve Subtitle Track
+  // 2. Resolve Subtitle Track: text subtitles only, avoiding bitmap codecs
   const subTracks = parseJsonArray(currentEpisodeData.subtitle_tracks);
-  let chosenSub = -1; // Default fallback to Off
+  const isBitmapSub = (t) => Boolean(t.is_bitmap) || ['hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle'].includes((t.codec || '').toLowerCase());
+  const textSubTracks = subTracks.filter(t => !isBitmapSub(t));
+  let chosenSub = -1;
   if (prefSub === 'off') {
     chosenSub = -1;
-  } else if (prefSub !== 'default' && subTracks.length > 0) {
-    const match = subTracks.find(t => (t.language || '').toLowerCase().includes(prefSub.toLowerCase()));
+  } else if (prefSub !== 'default' && textSubTracks.length > 0) {
+    const match = textSubTracks.find(t => matchesLanguage(t.language, prefSub));
     if (match) {
       chosenSub = (match.track_number !== undefined) ? match.track_number : (match.index !== undefined ? match.index : 0);
     } else {
-      chosenSub = (subTracks[0].track_number !== undefined) ? subTracks[0].track_number : (subTracks[0].index !== undefined ? subTracks[0].index : 0);
+      const defaultSub = textSubTracks.find(t => t.disposition?.default || t.is_default) || textSubTracks[0];
+      chosenSub = (defaultSub.track_number !== undefined) ? defaultSub.track_number : (defaultSub.index !== undefined ? defaultSub.index : 0);
     }
-  } else if (prefSub === 'default' && subTracks.length > 0) {
-    chosenSub = (subTracks[0].track_number !== undefined) ? subTracks[0].track_number : (subTracks[0].index !== undefined ? subTracks[0].index : 0);
+  } else if (prefSub === 'default' && textSubTracks.length > 0) {
+    const defaultSub = textSubTracks.find(t => t.disposition?.default || t.is_default) || textSubTracks[0];
+    chosenSub = (defaultSub.track_number !== undefined) ? defaultSub.track_number : (defaultSub.index !== undefined ? defaultSub.index : 0);
   }
   selectedSubtitleTrackNum = chosenSub;
 
@@ -414,16 +455,83 @@ export async function initPlayer(rawEpisodeId) {
 
   // Initialize Ultra-Cinematic Pro Modules
   if (video) {
-    if (audioEnhancerInstance) audioEnhancerInstance.destroy();
-    audioEnhancerInstance = initAudioEnhancer(video);
+    if (!audioEnhancerInstance) {
+      audioEnhancerInstance = initAudioEnhancer(video);
+    }
 
-    if (shortcutsHudInstance) shortcutsHudInstance.destroy();
-    shortcutsHudInstance = initShortcutsHud(video, container, {
-      audioEnhancer: audioEnhancerInstance
-    });
+    if (!shortcutsHudInstance) {
+      shortcutsHudInstance = initShortcutsHud(video, container, {
+        audioEnhancer: audioEnhancerInstance,
+        onVolumeChange: (vol, muted) => {
+          if (volumeSlider) volumeSlider.value = muted ? 0 : vol;
+          updateVolumeIcon(muted ? 0 : vol);
+        },
+        onMuteToggle: (muted) => {
+          updateVolumeIcon(muted ? 0 : (video ? video.volume : 1));
+        },
+        onToggleFullscreen: () => {
+          toggleFullscreen();
+        },
+        onPlaybackRateChange: (rate) => {
+          const speedBtnEl = document.getElementById('speed-btn');
+          if (speedBtnEl) speedBtnEl.textContent = `${rate}x`;
+          document.querySelectorAll('.speed-opt').forEach(o => {
+            o.classList.toggle('active', o.getAttribute('data-speed') === String(rate));
+          });
+        },
+        onEscape: () => {
+          const moreMenu = document.getElementById('more-options-menu');
+          if (moreMenu && moreMenu.classList.contains('show')) {
+            moreMenu.classList.remove('show');
+            return;
+          }
+          if (document.fullscreenElement) {
+            document.exitFullscreen();
+          } else {
+            location.hash = `#/show/${encodeURIComponent(getShowIdFromEpisodeId(currentEpisodeId))}`;
+          }
+        },
+        onNextEpisode: () => {
+          if (nextEpisodeId) {
+            showVideoToast('Siguiente episodio');
+            location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
+          } else {
+            showVideoToast('No hay más episodios');
+          }
+        }
+      });
+    }
 
-    if (smartSkipInstance) smartSkipInstance.destroy();
-    smartSkipInstance = initSmartSkip(video, container);
+    const isAutoSkip = window.userPreferences?.auto_skip_intro === true || 
+                       window.userPreferences?.auto_skip_intro === 'true' ||
+                       localStorage.getItem('kurastream_auto_skip_intro') === 'true';
+
+    const isAutoPlayNext = window.userPreferences?.auto_play_next !== false && 
+                           window.userPreferences?.auto_play_next !== 'false' &&
+                           localStorage.getItem('kurastream_auto_play_next') !== 'false';
+
+    if (!smartSkipInstance) {
+      smartSkipInstance = initSmartSkip(video, container, {
+        introStart: currentEpisodeData ? currentEpisodeData.intro_start : null,
+        introEnd: currentEpisodeData ? currentEpisodeData.intro_end : null,
+        outroStart: currentEpisodeData ? currentEpisodeData.outro_start : null,
+        autoSkip: isAutoSkip,
+        onSkip: () => {
+          showVideoToast("Intro omitida");
+        },
+        onPlayNext: () => {
+          if (nextEpisodeId && isAutoPlayNext) {
+            location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
+          }
+        }
+      });
+    } else if (currentEpisodeData) {
+      smartSkipInstance.setTimingIntervals({
+        introStart: currentEpisodeData.intro_start,
+        introEnd: currentEpisodeData.intro_end,
+        outroStart: currentEpisodeData.outro_start
+      });
+    }
   }
 
   // Reset controls timer
@@ -465,49 +573,67 @@ export async function initPlayer(rawEpisodeId) {
 }
 
 function loadVideoStream(startTime = 0) {
+  const wasPaused = video ? video.paused : false;
   currentStreamStartOffset = startTime;
   destroySubtitles();
-  if (audioEnhancerInstance) {
-    audioEnhancerInstance.destroy();
-    audioEnhancerInstance = null;
-  }
-  if (shortcutsHudInstance) {
-    shortcutsHudInstance.destroy();
-    shortcutsHudInstance = null;
-  }
-  if (smartSkipInstance) {
-    smartSkipInstance.destroy();
-    smartSkipInstance = null;
+  if (smartSkipInstance && currentEpisodeData) {
+    smartSkipInstance.setTimingIntervals({
+      introStart: currentEpisodeData.intro_start,
+      introEnd: currentEpisodeData.intro_end,
+      outroStart: currentEpisodeData.outro_start
+    });
   }
   
   // Show glowing buffer loader on stream start
   const loader = document.getElementById('player-loader');
   if (loader) loader.style.display = 'flex';
 
-  // Build Stream URL with encoded episode ID
-  let streamUrl = `/api/stream/${encodeURIComponent(currentEpisodeId)}?audio=${selectedAudioTrackNum}`;
-  if (startTime > 0) {
+  const direct = isDirectPlayable(currentEpisodeData, selectedAudioTrackNum);
+  let baseStreamUrl = `/api/stream/${encodeURIComponent(currentEpisodeId)}`;
+  let streamUrl = direct ? baseStreamUrl : `${baseStreamUrl}?audio=${selectedAudioTrackNum}`;
+  if (!direct && startTime > 0) {
     streamUrl += `&start=${startTime}`;
   }
   if (partyManager && partyManager.streamCapabilityToken) {
-    streamUrl += `&ticket=${encodeURIComponent(partyManager.streamCapabilityToken)}`;
+    streamUrl += (streamUrl.includes('?') ? '&' : '?') + `ticket=${encodeURIComponent(partyManager.streamCapabilityToken)}`;
   }
   
-  video.src = streamUrl;
-  video.load();
+  const currentSrc = (video && (video.getAttribute('src') || video.src)) || '';
+  const isSameDirectStream = direct && currentSrc.includes(baseStreamUrl) && !currentSrc.includes('&start=') && !currentSrc.includes('?start=');
+
+  if (isSameDirectStream && startTime > 0) {
+    // Native HTML5 seek for Direct Play streams without resetting video.src
+    video.currentTime = startTime;
+    hideLoader();
+  } else {
+    video.src = streamUrl;
+    video.load();
+    if (direct && startTime > 0) {
+      video.addEventListener('loadedmetadata', () => {
+        video.currentTime = startTime;
+      }, { once: true });
+    }
+  }
+
   if (scrubPreviewInstance && typeof scrubPreviewInstance.updateSource === 'function') {
-    scrubPreviewInstance.updateSource(streamUrl);
+    scrubPreviewInstance.updateSource(direct ? baseStreamUrl : streamUrl);
   }
   
   // Set playback speed state
   const currentSpeed = speedBtn ? (parseFloat(speedBtn.textContent) || 1.0) : 1.0;
   video.playbackRate = currentSpeed;
 
-  video.play().catch(e => {
+  if (!wasPaused) {
+    video.play().catch(e => {
+      setLucideIcon('play-icon', 'play');
+      setLucideIcon('center-play-icon', 'play');
+      if (centerPlayBtn) centerPlayBtn.style.display = 'flex';
+    });
+  } else {
     setLucideIcon('play-icon', 'play');
     setLucideIcon('center-play-icon', 'play');
     if (centerPlayBtn) centerPlayBtn.style.display = 'flex';
-  });
+  }
 
   // Reinitialize Subtitles if selected
   if (selectedSubtitleTrackNum !== -1) {
@@ -515,7 +641,7 @@ function loadVideoStream(startTime = 0) {
   }
 
   if (partyManager && partyManager.isInRoom()) {
-    partyManager.sendPlaybackSync(true, startTime, currentEpisodeId, 'seek');
+    partyManager.sendPlaybackSync(!wasPaused, startTime, currentEpisodeId, 'seek');
   }
 }
 
@@ -597,6 +723,10 @@ function initSubtitles(trackNum) {
       isSubtitlesLoadingScript = false;
       startOctopusInstance(selectedSubtitleTrackNum);
     };
+    script.onerror = () => {
+      isSubtitlesLoadingScript = false;
+      console.warn('SubtitlesOctopus script failed to load.');
+    };
     document.body.appendChild(script);
   } else {
     startOctopusInstance(trackNum);
@@ -637,6 +767,24 @@ async function startOctopusInstance(trackNum) {
       subtitleContentCache.set(cacheKey, subContent);
     }
 
+    let fontUrls = [];
+    if (currentEpisodeId) {
+      try {
+        const fontsRes = await fetch(`/api/episodes/${encodeURIComponent(currentEpisodeId)}/fonts`);
+        if (fontsRes.ok) {
+          const fontsData = await fontsRes.json();
+          if (fontsData && Array.isArray(fontsData.fonts)) {
+            fontUrls = fontsData.fonts.map(f => {
+              if (typeof f === 'string') return `/api/episodes/${encodeURIComponent(currentEpisodeId)}/fonts/${encodeURIComponent(f)}`;
+              return f.url || `/api/episodes/${encodeURIComponent(currentEpisodeId)}/fonts/${encodeURIComponent(f.name)}`;
+            });
+          }
+        }
+      } catch {
+        // Fallback without embedded fonts
+      }
+    }
+
     if (trackNum !== selectedSubtitleTrackNum) return; // Discard if user changed track while fetching
 
     destroySubtitles();
@@ -647,6 +795,7 @@ async function startOctopusInstance(trackNum) {
       workerUrl: '/vendor/subtitles-octopus/subtitles-octopus-worker.js',
       legacyWorkerUrl: '/vendor/subtitles-octopus/subtitles-octopus-worker-legacy.js',
       fallbackFont: '/vendor/subtitles-octopus/default.ttf',
+      fonts: fontUrls,
       timeOffset: currentStreamStartOffset,
       targetFps: 60,
       renderMode: 'wasm-blend',
@@ -827,6 +976,29 @@ export function destroyPlayer() {
   if (handleFullscreenChange) {
     document.removeEventListener('fullscreenchange', handleFullscreenChange);
     handleFullscreenChange = null;
+  }
+
+  // Clean up Pro modules and options menu
+  const moreMenu = document.getElementById('more-options-menu');
+  if (moreMenu) moreMenu.classList.remove('show');
+  const moreDropdown = document.getElementById('more-options-dropdown');
+  if (moreDropdown) moreDropdown.classList.remove('active');
+
+  if (audioEnhancerInstance) {
+    audioEnhancerInstance.destroy();
+    audioEnhancerInstance = null;
+  }
+  if (shortcutsHudInstance) {
+    shortcutsHudInstance.destroy();
+    shortcutsHudInstance = null;
+  }
+  if (smartSkipInstance) {
+    smartSkipInstance.destroy();
+    smartSkipInstance = null;
+  }
+  if (scrubPreviewInstance && typeof scrubPreviewInstance.destroy === 'function') {
+    scrubPreviewInstance.destroy();
+    scrubPreviewInstance = null;
   }
 
   // Restore custom cursor elements back to body if they were inside fullscreen element
@@ -1084,81 +1256,11 @@ function setupPlayerEventListeners() {
     }
   };
 
-  // Keyboard controls
+  // Keyboard controls are handled centrally by shortcutsHudInstance (with HUD overlay and audio booster integration)
   if (handleKeyboard) {
     document.removeEventListener('keydown', handleKeyboard);
+    handleKeyboard = null;
   }
-  handleKeyboard = (e) => {
-    if (!isPlayerActive) return;
-    
-    // Ignore hotkeys when typing in search or inputs
-    if (document.activeElement && (
-      document.activeElement.tagName === 'INPUT' || 
-      document.activeElement.tagName === 'TEXTAREA' || 
-      document.activeElement.isContentEditable
-    )) {
-      return;
-    }
-    
-    if (e.code === 'Space' || e.code === 'KeyK') {
-      e.preventDefault();
-      togglePlay();
-      showVideoToast(video.paused ? formatToast('pause', 'Pausa') : formatToast('play', 'Reproducir'));
-    } else if (e.code === 'ArrowRight') {
-      e.preventDefault();
-      seekRelative(10);
-      showSeekIndicator('right');
-      showVideoToast(formatToast('fwd', '+10s'));
-    } else if (e.code === 'ArrowLeft') {
-      e.preventDefault();
-      seekRelative(-10);
-      showSeekIndicator('left');
-      showVideoToast(formatToast('rwd', '-10s'));
-    } else if (e.code === 'ArrowUp') {
-      e.preventDefault();
-      video.volume = Math.min(1, video.volume + 0.1);
-      volumeSlider.value = video.volume;
-      updateVolumeIcon(video.volume);
-      showVideoToast(`Volumen: ${Math.round(video.volume * 100)}%`);
-    } else if (e.code === 'ArrowDown') {
-      e.preventDefault();
-      video.volume = Math.max(0, video.volume - 0.1);
-      volumeSlider.value = video.volume;
-      updateVolumeIcon(video.volume);
-      showVideoToast(`Volumen: ${Math.round(video.volume * 100)}%`);
-    } else if (e.code === 'KeyF') {
-      e.preventDefault();
-      toggleFullscreen();
-    } else if (e.code === 'KeyM') {
-      if (video.muted) {
-        video.muted = false;
-        const vol = parseFloat(volumeSlider.value) || 1.0;
-        video.volume = vol;
-        updateVolumeIcon(vol);
-        showVideoToast(`Volumen: ${Math.round(vol * 100)}%`);
-      } else {
-        video.muted = true;
-        updateVolumeIcon(0);
-        showVideoToast(formatToast('mute', 'Silenciado'));
-      }
-      triggerControlsActivity();
-    } else if (e.code === 'KeyN') {
-      e.preventDefault();
-      if (nextEpisodeId) {
-        showVideoToast('Siguiente episodio');
-        location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
-      } else {
-        showVideoToast('No hay más episodios');
-      }
-    } else if (e.code === 'Escape') {
-      if (document.fullscreenElement) {
-        document.exitFullscreen();
-      } else {
-        location.hash = `#/show/${encodeURIComponent(getShowIdFromEpisodeId(currentEpisodeId))}`;
-      }
-    }
-  };
-  document.addEventListener('keydown', handleKeyboard, playerAbortController ? { signal: playerAbortController.signal } : undefined);
 
   // Fullscreen change listener
   if (handleFullscreenChange) {
@@ -1208,33 +1310,37 @@ function setupPlayerEventListeners() {
 
     updateBufferTrack();
 
-    // Auto-Skip and Skip Overlay logic
-    const isAutoSkip = window.userPreferences?.auto_skip_intro === true || 
-                       window.userPreferences?.auto_skip_intro === 'true' ||
-                       localStorage.getItem('kurastream_auto_skip_intro') === 'true';
+    // Auto-Skip and Skip Overlay logic (deferred to smartSkipInstance when active)
+    if (!smartSkipInstance) {
+      const isAutoSkip = window.userPreferences?.auto_skip_intro === true || 
+                         window.userPreferences?.auto_skip_intro === 'true' ||
+                         localStorage.getItem('kurastream_auto_skip_intro') === 'true';
 
-    const introStart = currentEpisodeData.intro_start;
-    const introEnd = currentEpisodeData.intro_end;
-    const effectiveIntroEnd = (introEnd !== null && introEnd !== undefined) ? introEnd : ((introStart !== null && introStart !== undefined) ? introStart + 90 : null);
-    
-    if (introStart !== null && introStart !== undefined && effectiveIntroEnd !== null) {
-      if (totalCurrentTime < introStart) {
-        hasSkippedIntroForCurrentEpisode = false;
-      }
-      if (totalCurrentTime >= introStart && totalCurrentTime < effectiveIntroEnd) {
-        if (isAutoSkip) {
-          if (!hasSkippedIntroForCurrentEpisode) {
-            hasSkippedIntroForCurrentEpisode = true;
-            if (skipIntroBtn) skipIntroBtn.style.display = 'none';
-            if (introEnd !== null && introEnd !== undefined) {
-              loadVideoStream(introEnd);
-            } else {
-              seekRelative(90);
+      const introStart = currentEpisodeData.intro_start;
+      const introEnd = currentEpisodeData.intro_end;
+      const effectiveIntroEnd = (introEnd !== null && introEnd !== undefined) ? introEnd : ((introStart !== null && introStart !== undefined) ? introStart + 90 : null);
+      
+      if (introStart !== null && introStart !== undefined && effectiveIntroEnd !== null) {
+        if (totalCurrentTime < introStart) {
+          hasSkippedIntroForCurrentEpisode = false;
+        }
+        if (totalCurrentTime >= introStart && totalCurrentTime < effectiveIntroEnd) {
+          if (isAutoSkip) {
+            if (!hasSkippedIntroForCurrentEpisode) {
+              hasSkippedIntroForCurrentEpisode = true;
+              if (skipIntroBtn) skipIntroBtn.style.display = 'none';
+              if (introEnd !== null && introEnd !== undefined) {
+                loadVideoStream(introEnd);
+              } else {
+                seekRelative(90);
+              }
+              showVideoToast("Intro saltada automáticamente");
             }
-            showVideoToast("Intro saltada automáticamente");
+          } else {
+            if (skipIntroBtn) skipIntroBtn.style.display = 'block';
           }
         } else {
-          if (skipIntroBtn) skipIntroBtn.style.display = 'block';
+          if (skipIntroBtn) skipIntroBtn.style.display = 'none';
         }
       } else {
         if (skipIntroBtn) skipIntroBtn.style.display = 'none';
@@ -1249,6 +1355,10 @@ function setupPlayerEventListeners() {
     const isValidOutro = !isNaN(outroStart) && outroStart > 60 && duration > 0 && outroStart < (duration - 5);
 
     if (isValidOutro && totalCurrentTime >= outroStart) {
+      const isAutoSkip = window.userPreferences?.auto_skip_intro === true || 
+                         window.userPreferences?.auto_skip_intro === 'true' ||
+                         localStorage.getItem('kurastream_auto_skip_intro') === 'true';
+
       if (isAutoSkip && !hasSkippedOutroForCurrentEpisode) {
         hasSkippedOutroForCurrentEpisode = true;
         showVideoToast("Outro saltado automáticamente");
@@ -1263,9 +1373,13 @@ function setupPlayerEventListeners() {
       if (outroOverlayContainer) outroOverlayContainer.style.display = 'none';
     }
 
-    // Next Episode Countdown Overlay Card (when duration - totalCurrentTime <= 25 and next episode exists)
+    // Next Episode Countdown Overlay Card (when duration - totalCurrentTime <= 25 and next episode exists and auto-play-next enabled)
+    const isAutoPlayNext = window.userPreferences?.auto_play_next !== false && 
+                           window.userPreferences?.auto_play_next !== 'false' &&
+                           localStorage.getItem('kurastream_auto_play_next') !== 'false';
+
     const remainingTime = duration - totalCurrentTime;
-    if (nextEpisodeId && !nextEpisodeDismissed && !nextEpisodeNavigated && remainingTime <= 25 && remainingTime > 0) {
+    if (isAutoPlayNext && nextEpisodeId && !nextEpisodeDismissed && !nextEpisodeNavigated && remainingTime <= 25 && remainingTime > 0) {
       showNextEpisodeCard(Math.max(1, Math.ceil(remainingTime)));
       if (remainingTime <= 0.8 && !nextEpisodeNavigated) {
         nextEpisodeNavigated = true;
@@ -1314,7 +1428,10 @@ function setupPlayerEventListeners() {
   video.onended = () => {
     if (!video) return;
     saveWatchProgress(true);
-    if (nextEpisodeId) {
+    const isAutoPlayNext = window.userPreferences?.auto_play_next !== false && 
+                           window.userPreferences?.auto_play_next !== 'false' &&
+                           localStorage.getItem('kurastream_auto_play_next') !== 'false';
+    if (nextEpisodeId && isAutoPlayNext) {
       triggerCountdownAutoplay();
     } else {
       location.hash = `#/show/${encodeURIComponent(getShowIdFromEpisodeId(currentEpisodeId))}`;
@@ -1424,13 +1541,50 @@ function setupPlayerEventListeners() {
   // Playback Speed Selector options
   document.querySelectorAll('.speed-opt').forEach(opt => {
     opt.onclick = (e) => {
+      e.stopPropagation();
       document.querySelectorAll('.speed-opt').forEach(o => o.classList.remove('active'));
-      e.target.classList.add('active');
-      const rate = parseFloat(e.target.getAttribute('data-speed'));
-      video.playbackRate = rate;
-      speedBtn.textContent = `${rate}x`;
-      // Close dropdown
-      document.getElementById('speed-dropdown').classList.remove('active');
+      const btn = e.currentTarget;
+      btn.classList.add('active');
+      const rate = parseFloat(btn.getAttribute('data-speed'));
+      if (video) video.playbackRate = rate;
+      if (speedBtn) speedBtn.textContent = `${rate}x`;
+      localStorage.setItem('kura_playback_speed', rate);
+      showVideoToast(`Velocidad: ${rate}x`);
+      triggerControlsActivity();
+    };
+  });
+
+  // Audio Boost (100% - 200%)
+  document.querySelectorAll('.boost-opt').forEach(opt => {
+    opt.onclick = (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.boost-opt').forEach(b => b.classList.remove('active'));
+      const btn = e.currentTarget;
+      btn.classList.add('active');
+      const boostVal = parseInt(btn.getAttribute('data-boost'), 10) || 100;
+      const gainMult = boostVal / 100;
+      if (audioEnhancerInstance) {
+        audioEnhancerInstance.setGain(gainMult);
+      }
+      showVideoToast(`Audio Boost: ${boostVal}%`);
+      triggerControlsActivity();
+    };
+  });
+
+  // Equalizer presets (Plano, Voces, Nocturno, Bass Boost)
+  document.querySelectorAll('.preset-opt').forEach(opt => {
+    opt.onclick = (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.preset-opt').forEach(b => b.classList.remove('active'));
+      const btn = e.currentTarget;
+      btn.classList.add('active');
+      const presetId = btn.getAttribute('data-preset') || 'flat';
+      if (audioEnhancerInstance) {
+        audioEnhancerInstance.setPreset(presetId);
+      }
+      const label = btn.textContent.trim();
+      showVideoToast(`Ecualizador: ${label}`);
+      triggerControlsActivity();
     };
   });
 
@@ -1451,6 +1605,7 @@ function setupPlayerEventListeners() {
   const handlePipToggle = async (e) => {
     if (e) e.stopPropagation();
     document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+    document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
     try {
       if (document.pictureInPictureElement) {
         await document.exitPictureInPicture();
@@ -1472,12 +1627,23 @@ function setupPlayerEventListeners() {
   if (menuPipBtn) menuPipBtn.onclick = handlePipToggle;
   if (pipBtn) pipBtn.onclick = handlePipToggle;
 
+  // Picture-in-Picture browser support check
+  const isPipSupported = !!(
+    document.pictureInPictureEnabled ||
+    (video && video.webkitSupportsPresentationMode && typeof video.webkitSetPresentationMode === 'function')
+  );
+  if (!isPipSupported) {
+    if (menuPipBtn) menuPipBtn.style.display = 'none';
+    if (pipBtn) pipBtn.style.display = 'none';
+  }
+
   const menuAmbilightBtn = document.getElementById('menu-ambilight-btn');
   if (menuAmbilightBtn && ambilightToggleBtn) {
     menuAmbilightBtn.onclick = (e) => {
       if (e) e.stopPropagation();
       ambilightToggleBtn.click();
       document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+      document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
     };
   }
 
@@ -1485,6 +1651,7 @@ function setupPlayerEventListeners() {
   const handleFileInfoToggle = (e) => {
     if (e) e.stopPropagation();
     document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+    document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
     if (!fileInfoModal) return;
     if (fileInfoModal.style.display === 'none') {
       showTechnicalModal();
@@ -1508,6 +1675,7 @@ function setupPlayerEventListeners() {
   const handleQRToggle = (e) => {
     if (e) e.stopPropagation();
     document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+    document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
     if (!qrShareModal) return;
     if (qrShareModal.style.display === 'none') {
       showQRModal();
@@ -1527,11 +1695,11 @@ function setupPlayerEventListeners() {
     };
   }
 
-  // Skip Intro button listener
+  // Skip Intro button listener (legacy fallback)
   if (skipIntroBtn) {
     skipIntroBtn.onclick = () => {
       hasSkippedIntroForCurrentEpisode = true;
-      const introEnd = currentEpisodeData.intro_end;
+      const introEnd = currentEpisodeData ? currentEpisodeData.intro_end : null;
       if (introEnd !== null && introEnd !== undefined) {
         loadVideoStream(introEnd);
       } else {
@@ -1555,8 +1723,51 @@ function setupPlayerEventListeners() {
     outroOverlayContainer.style.display = 'none';
   };
 
+  // More Options Menu Toggle & State Sync
+  const moreOptionsBtn = document.getElementById('more-options-btn');
+  const moreOptionsMenu = document.getElementById('more-options-menu');
+  const moreOptionsDropdown = document.getElementById('more-options-dropdown');
+
+  if (moreOptionsBtn && moreOptionsMenu) {
+    moreOptionsBtn.onclick = (e) => {
+      e.stopPropagation();
+      const isVisible = moreOptionsMenu.classList.contains('show') || (moreOptionsDropdown && moreOptionsDropdown.classList.contains('active'));
+
+      // Close all other dropdowns
+      document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+      document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
+
+      if (!isVisible) {
+        moreOptionsMenu.classList.add('show');
+        if (moreOptionsDropdown) moreOptionsDropdown.classList.add('active');
+
+        // Sync speed active state
+        const currentSpeed = video ? String(video.playbackRate) : '1';
+        document.querySelectorAll('.speed-opt').forEach(opt => {
+          opt.classList.toggle('active', opt.getAttribute('data-speed') === currentSpeed);
+        });
+
+        // Sync boost active state
+        const currentGain = audioEnhancerInstance ? audioEnhancerInstance.getGain() : 1.0;
+        const currentBoostPercent = Math.round(currentGain * 100);
+        document.querySelectorAll('.boost-opt').forEach(opt => {
+          const val = parseInt(opt.getAttribute('data-boost'), 10);
+          opt.classList.toggle('active', val === currentBoostPercent);
+        });
+
+        // Sync preset active state
+        const currentPreset = audioEnhancerInstance ? audioEnhancerInstance.getCurrentPreset() : 'flat';
+        document.querySelectorAll('.preset-opt').forEach(opt => {
+          opt.classList.toggle('active', opt.getAttribute('data-preset') === currentPreset);
+        });
+      }
+      triggerControlsActivity();
+    };
+  }
+
   // Dropdown menus triggers click handler
   document.querySelectorAll('.dropdown-trigger').forEach(trigger => {
+    if (trigger === moreOptionsBtn) return;
     trigger.onclick = (e) => {
       e.stopPropagation();
       const parent = trigger.parentElement;
@@ -1564,6 +1775,7 @@ function setupPlayerEventListeners() {
       
       // Close all dropdowns
       document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+      document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
       
       if (!isActive) {
         parent.classList.add('active');
@@ -1573,8 +1785,13 @@ function setupPlayerEventListeners() {
   });
 
   // Close menus on click outside
-  window.onclick = () => {
+  window.onclick = (e) => {
     document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
+    if (moreOptionsMenu && moreOptionsMenu.classList.contains('show')) {
+      if (!moreOptionsMenu.contains(e.target) && e.target !== moreOptionsBtn) {
+        moreOptionsMenu.classList.remove('show');
+      }
+    }
   };
 
   // Exit button

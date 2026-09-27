@@ -6,7 +6,7 @@
 import { AuthManager } from './core/auth.js';
 import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
-import { initPlayer, destroyPlayer, getShowIdFromEpisodeId } from '../player.js?v=2026.09.26-modern-streaming-rc2';
+import { initPlayer, destroyPlayer } from '../player.js?v=2026.09.26-modern-streaming-rc2';
 import { partyManager } from './modules/party.js';
 import { updateActiveNavHighlight, initHeaderDropdowns, initAdminSidebar, stopAdminPolling } from './modules/navigation.js';
 import { initCardPopovers } from './modules/card_popover_preview.js';
@@ -674,9 +674,90 @@ export async function loadShowDetails(id) {
     }
     const ambientBg = document.querySelector('.detail-ambient-bg');
     if (ambientBg) {
-      const backdropUrl = catalogueImageUrl(show.backdrop_path || show.poster_path || '') || '/assets/illustrations/backdrop_placeholder.svg';
-      ambientBg.style.backgroundImage = `url("${backdropUrl}")`;
+      let loops = [];
+      if (Array.isArray(show.backdrop_loops)) {
+        loops = show.backdrop_loops;
+      } else if (typeof show.backdrop_loops === 'string') {
+        try { loops = JSON.parse(show.backdrop_loops); } catch { loops = []; }
+      }
+
+      let ambientVideo = typeof ambientBg.querySelector === 'function'
+        ? ambientBg.querySelector('video.ambient-loop-video')
+        : (typeof ambientBg.querySelectorAll === 'function' ? (ambientBg.querySelectorAll('video.ambient-loop-video')[0] || null) : null);
+
+      if (loops && loops.length > 0 && loops[0]) {
+        const loopSrc = loops[0].startsWith('/') ? loops[0] : `/library/${loops[0]}`;
+        if (!ambientVideo) {
+          ambientVideo = document.createElement('video');
+          ambientVideo.className = 'ambient-loop-video';
+          ambientVideo.setAttribute('muted', '');
+          ambientVideo.muted = true;
+          ambientVideo.setAttribute('loop', '');
+          ambientVideo.loop = true;
+          ambientVideo.setAttribute('playsinline', '');
+          ambientVideo.setAttribute('autoplay', '');
+          ambientVideo.style.position = 'absolute';
+          ambientVideo.style.inset = '0';
+          ambientVideo.style.width = '100%';
+          ambientVideo.style.height = '100%';
+          ambientVideo.style.objectFit = 'cover';
+          ambientVideo.style.opacity = '0.35';
+          ambientVideo.style.pointerEvents = 'none';
+          if (typeof ambientBg.prepend === 'function') {
+            ambientBg.prepend(ambientVideo);
+          } else if (typeof ambientBg.insertAdjacentElement === 'function') {
+            ambientBg.insertAdjacentElement('afterbegin', ambientVideo);
+          } else if (typeof ambientBg.appendChild === 'function') {
+            ambientBg.appendChild(ambientVideo);
+          }
+        }
+        ambientVideo.src = loopSrc;
+        ambientVideo.play().catch(() => {});
+        ambientBg.style.backgroundImage = 'none';
+      } else {
+        if (ambientVideo) {
+          ambientVideo.pause();
+          ambientVideo.src = '';
+          ambientVideo.remove();
+        }
+        const backdropUrl = catalogueImageUrl(show.backdrop_path || show.poster_path || '') || '/assets/illustrations/backdrop_placeholder.svg';
+        ambientBg.style.backgroundImage = `url("${backdropUrl}")`;
+      }
     }
+
+    // Trailer Button & Modal
+    const trailerBtn = document.getElementById('detail-trailer-btn');
+    const trailerModal = document.getElementById('trailer-modal');
+    const trailerIframe = document.getElementById('trailer-iframe');
+    const trailerClose = document.getElementById('trailer-close-btn');
+
+    if (trailerBtn) {
+      if (show.trailer_key) {
+        trailerBtn.style.display = 'inline-flex';
+        trailerBtn.onclick = () => {
+          if (trailerIframe) {
+            trailerIframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(show.trailer_key)}?autoplay=1`;
+          }
+          if (trailerModal) trailerModal.style.display = 'flex';
+        };
+      } else {
+        trailerBtn.style.display = 'none';
+      }
+    }
+
+    if (trailerClose && trailerModal && trailerIframe) {
+      trailerClose.onclick = () => {
+        trailerModal.style.display = 'none';
+        trailerIframe.src = '';
+      };
+      trailerModal.onclick = (e) => {
+        if (e.target === trailerModal) {
+          trailerModal.style.display = 'none';
+          trailerIframe.src = '';
+        }
+      };
+    }
+
     if (detailRating) detailRating.textContent = show.rating ? Number(show.rating).toFixed(1) : 'N/A';
     if (detailYear) detailYear.textContent = show.year || 'N/A';
 
@@ -1436,8 +1517,14 @@ async function renderGenresView() {
 
 async function loadSettingsView() {
   const { activeUser, profileName, token } = getUserAndProfile();
-  const skipIntroCheckbox = document.getElementById('pref-auto-skip-intro');
-  const playNextCheckbox = document.getElementById('pref-auto-play-next');
+  const audioLangSelect = document.getElementById('pref-audio-lang');
+  const subLangSelect = document.getElementById('pref-sub-lang');
+  const boostSelect = document.getElementById('pref-audio-boost');
+  const presetSelect = document.getElementById('pref-audio-preset');
+  const skipIntroToggle = document.getElementById('autoSkipIntroToggle');
+  const autoPlayNextToggle = document.getElementById('autoPlayNextToggle');
+  const notifToggle = document.getElementById('notificationsToggle');
+  const saveSuccessToast = document.getElementById('settings-save-success');
 
   try {
     const headers = {};
@@ -1446,12 +1533,72 @@ async function loadSettingsView() {
     if (res.ok) {
       const data = await res.json();
       const prefs = data.preferences || data;
-      if (skipIntroCheckbox) skipIntroCheckbox.checked = Boolean(prefs.auto_skip_intro);
-      if (playNextCheckbox) playNextCheckbox.checked = Boolean(prefs.auto_play_next);
+      if (audioLangSelect) audioLangSelect.value = prefs.preferred_audio_language || 'default';
+      if (subLangSelect) subLangSelect.value = prefs.preferred_subtitle_language || 'default';
+      if (boostSelect) boostSelect.value = String(prefs.audio_boost || 100);
+      if (presetSelect) presetSelect.value = prefs.audio_preset || 'flat';
+      if (skipIntroToggle) skipIntroToggle.checked = Boolean(prefs.auto_skip_intro);
+      if (autoPlayNextToggle) autoPlayNextToggle.checked = prefs.auto_play_next !== false && prefs.auto_play_next !== 0 && prefs.auto_play_next !== 'false';
+      if (notifToggle) notifToggle.checked = Boolean(prefs.notifications_enabled);
+
+      if (!window.userPreferences) window.userPreferences = {};
+      Object.assign(window.userPreferences, prefs);
     }
   } catch (e) {
     console.warn('Error loading settings:', e);
   }
+
+  const savePreferences = async () => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const payload = {
+      username: activeUser,
+      profile_name: profileName,
+      preferred_audio_language: audioLangSelect ? audioLangSelect.value : 'default',
+      preferred_subtitle_language: subLangSelect ? subLangSelect.value : 'default',
+      audio_boost: boostSelect ? parseInt(boostSelect.value, 10) : 100,
+      audio_preset: presetSelect ? presetSelect.value : 'flat',
+      auto_skip_intro: skipIntroToggle && skipIntroToggle.checked ? 1 : 0,
+      auto_play_next: autoPlayNextToggle && autoPlayNextToggle.checked ? 1 : 0,
+      notifications_enabled: notifToggle && notifToggle.checked ? 1 : 0
+    };
+
+    try {
+      const res = await fetch('/api/user/preferences', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        if (!window.userPreferences) window.userPreferences = {};
+        Object.assign(window.userPreferences, payload);
+        localStorage.setItem('kurastream_auto_skip_intro', String(skipIntroToggle ? skipIntroToggle.checked : false));
+        localStorage.setItem('kurastream_auto_play_next', String(autoPlayNextToggle ? autoPlayNextToggle.checked : true));
+        localStorage.setItem('kurastream_preferred_audio_language', audioLangSelect ? audioLangSelect.value : 'default');
+        localStorage.setItem('kura_pref_audio_lang', audioLangSelect ? audioLangSelect.value : 'default');
+        localStorage.setItem('kurastream_preferred_subtitle_language', subLangSelect ? subLangSelect.value : 'default');
+        localStorage.setItem('kura_pref_sub_lang', subLangSelect ? subLangSelect.value : 'default');
+        localStorage.setItem('kura_audio_boost', String(boostSelect ? boostSelect.value : 100));
+        localStorage.setItem('kura_audio_preset', presetSelect ? presetSelect.value : 'flat');
+
+        if (saveSuccessToast) {
+          saveSuccessToast.style.display = 'block';
+          setTimeout(() => { saveSuccessToast.style.display = 'none'; }, 2500);
+        }
+      }
+    } catch (err) {
+      console.warn('Error saving preferences:', err);
+    }
+  };
+
+  if (audioLangSelect) audioLangSelect.onchange = savePreferences;
+  if (subLangSelect) subLangSelect.onchange = savePreferences;
+  if (boostSelect) boostSelect.onchange = savePreferences;
+  if (presetSelect) presetSelect.onchange = savePreferences;
+  if (skipIntroToggle) skipIntroToggle.onchange = savePreferences;
+  if (autoPlayNextToggle) autoPlayNextToggle.onchange = savePreferences;
+  if (notifToggle) notifToggle.onchange = savePreferences;
 }
 
 async function loadProfilesView() {
@@ -1535,6 +1682,22 @@ document.addEventListener('DOMContentLoaded', () => {
   loadNotifications();
   renderAuthState();
   setupAuthModalListeners();
+
+  // Load user preferences globally into window.userPreferences
+  try {
+    const { activeUser, profileName, token } = getUserAndProfile();
+    const prefHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
+    fetch(`/api/user/preferences?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers: prefHeaders })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && data.preferences) {
+          window.userPreferences = Object.assign(window.userPreferences || {}, data.preferences);
+        }
+      })
+      .catch(() => {});
+  } catch (err) {
+    console.warn('Failed to load initial user preferences:', err);
+  }
 
   // Notifications Mark Read Action
   const btnMarkNotificationsRead = document.getElementById('btn-mark-notifications-read');

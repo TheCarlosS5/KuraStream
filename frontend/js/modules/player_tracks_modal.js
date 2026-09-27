@@ -411,10 +411,12 @@ export function initTracksModal(options = {}) {
 
     const tracksHtml = state.subtitleTracks.map((track, idx) => {
       const trackId = getTrackId(track, idx);
-      const isActive = !isOff && (String(trackId) === String(state.currentSubtitleIndex) || String(idx) === String(state.currentSubtitleIndex));
-      const title = formatTrackTitle(track, idx, 'Subtítulo');
+      const isBitmap = Boolean(track.is_bitmap) || ['hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle'].includes((track.codec || '').toLowerCase());
+      const isActive = !isOff && !isBitmap && (String(trackId) === String(state.currentSubtitleIndex) || String(idx) === String(state.currentSubtitleIndex));
+      const title = formatTrackTitle(track, idx, 'Subtítulo') + (isBitmap ? ' (No compatible)' : '');
+      const disabledAttr = isBitmap ? 'disabled style="opacity: 0.45; cursor: not-allowed;" title="Subtítulo en formato bitmap/imagen incompatible con el reproductor de texto"' : '';
       return `
-        <button type="button" class="track-item${isActive ? ' is-active' : ''}" data-type="subtitle" data-index="${idx}" data-track-id="${trackId}" role="radio" aria-checked="${isActive ? 'true' : 'false'}">
+        <button type="button" class="track-item${isActive ? ' is-active' : ''}" data-type="subtitle" data-index="${idx}" data-track-id="${trackId}" ${disabledAttr} role="radio" aria-checked="${isActive ? 'true' : 'false'}">
           <span class="track-check" style="${isActive ? '' : 'visibility: hidden; opacity: 0;'}">${CHECK_SVG}</span>
           <span class="track-title">${escapeHtml(title)}</span>
         </button>
@@ -445,6 +447,8 @@ export function initTracksModal(options = {}) {
 
     if (typeof options.onSelectAudio === 'function') {
       options.onSelectAudio(trackId, track);
+    } else if (typeof options.onAudioChange === 'function') {
+      options.onAudioChange(trackId, track);
     }
   }
 
@@ -464,6 +468,8 @@ export function initTracksModal(options = {}) {
 
     if (typeof options.onSelectSubtitle === 'function') {
       options.onSelectSubtitle(trackId, track);
+    } else if (typeof options.onSubtitleChange === 'function') {
+      options.onSubtitleChange(trackId, track);
     }
   }
 
@@ -487,6 +493,8 @@ export function initTracksModal(options = {}) {
         selectSubtitle(-1, null);
       } else {
         const track = state.subtitleTracks[idx] || null;
+        const isBitmap = track && (track.is_bitmap || ['hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle'].includes((track.codec || '').toLowerCase()));
+        if (isBitmap) return;
         const trackId = isNaN(parseInt(trackIdAttr, 10)) ? trackIdAttr : parseInt(trackIdAttr, 10);
         selectSubtitle(trackId, track);
       }
@@ -588,6 +596,16 @@ export function initTracksModal(options = {}) {
     }
     if (data.currentSubtitleIndex !== undefined) {
       state.currentSubtitleIndex = data.currentSubtitleIndex;
+    }
+    if (typeof data.onSelectAudio === 'function') {
+      options.onSelectAudio = data.onSelectAudio;
+    } else if (typeof data.onAudioChange === 'function') {
+      options.onSelectAudio = data.onAudioChange;
+    }
+    if (typeof data.onSelectSubtitle === 'function') {
+      options.onSelectSubtitle = data.onSelectSubtitle;
+    } else if (typeof data.onSubtitleChange === 'function') {
+      options.onSelectSubtitle = data.onSubtitleChange;
     }
 
     renderAudioList();

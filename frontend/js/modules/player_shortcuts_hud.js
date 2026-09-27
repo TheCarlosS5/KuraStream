@@ -18,6 +18,7 @@ export const DEFAULT_SHORTCUTS = [
       { keys: ['J', '←'], description: 'Retroceder 10 segundos' },
       { keys: ['L', '→'], description: 'Avanzar 10 segundos' },
       { keys: ['S', '< / >'], description: 'Velocidad de reproducción (0.5x - 2x)' },
+      { keys: ['N'], description: 'Siguiente episodio' },
       { keys: ['F'], description: 'Alternar pantalla completa' }
     ]
   },
@@ -867,6 +868,15 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
     if (key === '?' || (event.shiftKey && (key === '/' || code === 'Slash')) || key === 'h' || key === 'H') {
       event.preventDefault();
       toggleCheatSheet();
+      return;
+    }
+
+    // 12. Next Episode: 'n' / 'N'
+    if (key === 'n' || key === 'N') {
+      event.preventDefault();
+      if (typeof options.onNextEpisode === 'function') {
+        options.onNextEpisode();
+      }
       return;
     }
   }

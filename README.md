@@ -144,6 +144,7 @@ graph TD
 | `JWT_SECRET` | Secret key for signing authentication tokens | Required |
 | `MEDIA_LIBRARY_PATH` | Absolute path to media storage directory | `./library` |
 | `TMDB_API_KEY` | Optional TMDB v3 API Key for metadata scraping | None |
+| `TMDB_READ_TOKEN` | Optional TMDB v4 API Read Access Token for metadata scraping | None |
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowed origins | `localhost, LAN` |
 | `TRUSTED_PROXIES` | Comma-separated list of trusted reverse proxy IPs | None |
 

@@ -517,6 +517,28 @@
                       <button class="speed-opt" data-speed="2">2.0x</button>
                     </div>
                     <div class="more-menu-divider"></div>
+                    <div class="more-menu-section-header">
+                      <i data-lucide="volume-2"></i>
+                      <span>Audio Boost</span>
+                    </div>
+                    <div class="more-menu-speed-grid" id="boost-options-group">
+                      <button type="button" class="boost-opt active" data-boost="100">100%</button>
+                      <button type="button" class="boost-opt" data-boost="125">125%</button>
+                      <button type="button" class="boost-opt" data-boost="150">150%</button>
+                      <button type="button" class="boost-opt" data-boost="175">175%</button>
+                      <button type="button" class="boost-opt" data-boost="200">200%</button>
+                    </div>
+                    <div class="more-menu-section-header" style="margin-top: 6px;">
+                      <i data-lucide="sliders"></i>
+                      <span>Ecualizador</span>
+                    </div>
+                    <div class="more-menu-speed-grid" id="preset-options-group">
+                      <button type="button" class="preset-opt active" data-preset="flat">Plano</button>
+                      <button type="button" class="preset-opt" data-preset="vocal_clarity">Voces</button>
+                      <button type="button" class="preset-opt" data-preset="night_mode">Nocturno</button>
+                      <button type="button" class="preset-opt" data-preset="bass_boost">Bass Boost</button>
+                    </div>
+                    <div class="more-menu-divider"></div>
                     <button class="more-menu-item" id="menu-pip-btn">
                       <i data-lucide="picture-in-picture"></i>
                       <span>Ventana en ventana</span>
@@ -782,6 +804,71 @@
               </div>
             </div>
 
+            <!-- Diagnóstico multimedia Card (Requirement 37) -->
+            <div class="admin-card">
+              <div class="admin-panel-header">
+                <div class="admin-header-title-group">
+                  <i data-lucide="activity" class="admin-header-icon"></i>
+                  <h3 class="admin-card-title">Diagnóstico multimedia</h3>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-run-diagnostics">
+                  <i data-lucide="play"></i> Ejecutar diagnóstico
+                </button>
+              </div>
+              <p class="admin-card-desc">Estado operativo de los componentes de video, audio, subtítulos y servicios externos sin exposición de credenciales.</p>
+
+              <div class="admin-storage-grid" style="grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 15px;">
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">Database</div>
+                  <div id="diag-database" class="admin-storage-metric-value text-accent">--</div>
+                </div>
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">Library path</div>
+                  <div id="diag-lib-path" class="admin-storage-metric-value" style="font-size: 0.85rem; word-break: break-all;">--</div>
+                </div>
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">Library writable</div>
+                  <div id="diag-lib-writable" class="admin-storage-metric-value">--</div>
+                </div>
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">FFmpeg</div>
+                  <div id="diag-ffmpeg" class="admin-storage-metric-value">--</div>
+                </div>
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">FFprobe</div>
+                  <div id="diag-ffprobe" class="admin-storage-metric-value">--</div>
+                </div>
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">TMDB configured</div>
+                  <div id="diag-tmdb-config" class="admin-storage-metric-value">--</div>
+                </div>
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">TMDB auth/reachable</div>
+                  <div id="diag-tmdb-auth" class="admin-storage-metric-value">--</div>
+                </div>
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">PHP upload_max_filesize</div>
+                  <div id="diag-php-upload" class="admin-storage-metric-value">--</div>
+                </div>
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">PHP post_max_size</div>
+                  <div id="diag-php-post" class="admin-storage-metric-value">--</div>
+                </div>
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">Subtitle renderer assets</div>
+                  <div id="diag-subs-assets" class="admin-storage-metric-value">--</div>
+                </div>
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">Transcode workers</div>
+                  <div id="diag-transcode-workers" class="admin-storage-metric-value">--</div>
+                </div>
+                <div class="admin-storage-metric-box">
+                  <div class="admin-storage-metric-label">Subtitles cache writable</div>
+                  <div id="diag-subs-cache" class="admin-storage-metric-value">--</div>
+                </div>
+              </div>
+            </div>
+
             <!-- Active Streams Section -->
             <div class="admin-card">
               <div class="admin-section-header-row">
@@ -869,7 +956,7 @@
                     <label>Archivo de Video*</label>
                     <div class="import-file-selector-col">
                       <div class="import-file-selector-row">
-                        <input type="file" id="import-file" accept=".mkv,.mp4,.avi,.webm" multiple style="display: none;">
+                        <input type="file" id="import-file" accept=".mkv,.mp4,.webm" multiple style="display: none;">
                         <button type="button" class="btn btn-secondary btn-file-select" id="btn-select-file">
                           <i data-lucide="video"></i>
                           Seleccionar Archivos...
@@ -1073,10 +1160,33 @@
             <small class="settings-tip">Si se encuentra una pista de subtítulos en este idioma, se activará de forma automática al reproducir.</small>
           </div>
 
+          <div class="settings-group mt-25">
+            <label for="pref-audio-boost"><i data-lucide="volume-1" class="icon-accent"></i> Realce de Audio por Defecto (Audio Boost)</label>
+            <select id="pref-audio-boost" class="settings-select">
+              <option value="100" selected>100% (Estándar)</option>
+              <option value="125">125%</option>
+              <option value="150">150%</option>
+              <option value="175">175%</option>
+              <option value="200">200% (Máximo)</option>
+            </select>
+            <small class="settings-tip">Nivel de amplificación de volumen dinámico inicial aplicado por el ecualizador.</small>
+          </div>
+
+          <div class="settings-group mt-25">
+            <label for="pref-audio-preset"><i data-lucide="sliders" class="icon-accent"></i> Preset de Ecualizador</label>
+            <select id="pref-audio-preset" class="settings-select">
+              <option value="flat" selected>Plano (Sin ecualización)</option>
+              <option value="vocal_clarity">Voces (Claridad de diálogo)</option>
+              <option value="night_mode">Nocturno (Rango dinámico reducido)</option>
+              <option value="bass_boost">Bass Boost (Graves reforzados)</option>
+            </select>
+            <small class="settings-tip">Perfil acústico por defecto para compensar pistas de bajo nivel o diálogos suaves.</small>
+          </div>
+
           <div class="setting-item">
             <div class="setting-info">
-              <label for="notificationsToggle" class="setting-label">Notificaciones de nuevos episodios</label>
-              <p class="setting-desc">Si está activado, recibirás notificaciones push cuando se añadan nuevos capítulos o animes al catálogo.</p>
+              <label for="notificationsToggle" class="setting-label">Notificaciones en la aplicación</label>
+              <p class="setting-desc">Si está activado, recibirás avisos dentro de la aplicación cuando se añadan nuevos capítulos o animes al catálogo.</p>
             </div>
             <label class="switch">
               <input type="checkbox" id="notificationsToggle">
@@ -1091,6 +1201,17 @@
             </div>
             <label class="switch">
               <input type="checkbox" id="autoSkipIntroToggle">
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <label for="autoPlayNextToggle" class="setting-label">Reproducción Automática del Siguiente Episodio</label>
+              <p class="setting-desc">Si está activado, el reproductor iniciará la cuenta atrás y reproducirá el siguiente capítulo automáticamente.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="autoPlayNextToggle" checked>
               <span class="slider round"></span>
             </label>
           </div>

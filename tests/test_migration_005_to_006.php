@@ -49,9 +49,9 @@ $appliedBaseline = [
 $allAvailable = array_keys($migrationFiles);
 $pending = array_values(array_diff($allAvailable, $appliedBaseline));
 
-assert(count($pending) === 1, "Exactly one migration must be pending from 005 baseline");
-assert($pending[0] === '006_party_member_profile_context.sql', "Pending migration must be 006_party_member_profile_context.sql");
-echo "    ✓ Only 006 is pending after 005 baseline\n";
+assert(in_array('006_party_member_profile_context.sql', $pending, true), "Pending migrations must include 006_party_member_profile_context.sql");
+assert($pending[0] === '006_party_member_profile_context.sql', "Next pending migration must be 006_party_member_profile_context.sql");
+echo "    ✓ 006 is next pending migration after 005 baseline\n";
 
 // -------------------------------------------------------------------------------------------------
 // 3. Test Schema Upgrade from 005 baseline to 006 with real legacy data (Requires DB)

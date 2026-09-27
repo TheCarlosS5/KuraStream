@@ -23,64 +23,48 @@ class FfmpegScanner {
     }
 
     public static function executeBoundedCommand(string $cmd, int $timeoutSeconds = 15): ?string {
+        $cmdWithRedirect = $cmd . ' 2>&1';
         $descriptors = [
             0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w']
+            1 => ['pipe', 'w']
         ];
 
-        $process = @proc_open($cmd, $descriptors, $pipes);
+        $process = @proc_open($cmdWithRedirect, $descriptors, $pipes);
         if (!is_resource($process)) {
             return null;
         }
 
         fclose($pipes[0]);
         stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
 
         $stdout = '';
-        $stderr = '';
         $startTime = microtime(true);
 
         while (true) {
-            $read = [$pipes[1], $pipes[2]];
-            $write = null;
-            $except = null;
-            $changed = @stream_select($read, $write, $except, 0, 100000); // 100ms
-
-            if ($changed > 0) {
-                foreach ($read as $r) {
-                    if ($r === $pipes[1]) {
-                        $chunk = fread($pipes[1], 8192);
-                        if ($chunk !== false) $stdout .= $chunk;
-                    } elseif ($r === $pipes[2]) {
-                        $chunk = fread($pipes[2], 8192);
-                        if ($chunk !== false) $stderr .= $chunk;
-                    }
-                }
+            $chunk = fread($pipes[1], 8192);
+            if ($chunk !== false && strlen($chunk) > 0) {
+                $stdout .= $chunk;
             }
 
             $status = proc_get_status($process);
             if (!$status['running']) {
                 $remOut = stream_get_contents($pipes[1]);
                 if ($remOut !== false) $stdout .= $remOut;
-                $remErr = stream_get_contents($pipes[2]);
-                if ($remErr !== false) $stderr .= $remErr;
                 break;
             }
 
             if ((microtime(true) - $startTime) > $timeoutSeconds) {
                 @proc_terminate($process, 9);
                 fclose($pipes[1]);
-                fclose($pipes[2]);
                 proc_close($process);
                 error_log("[FfmpegScanner] Proceso excedió el tiempo límite ({$timeoutSeconds}s): {$cmd}");
                 return null;
             }
+
+            usleep(10000); // 10ms
         }
 
         fclose($pipes[1]);
-        fclose($pipes[2]);
         proc_close($process);
 
         return $stdout;
@@ -88,7 +72,7 @@ class FfmpegScanner {
 
     public static function probeVideo(string $filepath, int $timeoutSeconds = 15): array {
         $cmd = sprintf(
-            'ffprobe -v quiet -print_format json -show_format -show_streams %s',
+            'ffprobe -v quiet -print_format json -show_format -show_streams -show_chapters %s',
             escapeshellarg($filepath)
         );
 
@@ -125,32 +109,85 @@ class FfmpegScanner {
         
         $audioTracks = [];
         $subtitleTracks = [];
+        $attachments = [];
         $audioIdx = 0;
         $subIdx = 0;
+
+        $bitmapCodecs = ['hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle', 'xsub', 'pgssub'];
 
         foreach ($streams as $s) {
             $type = $s['codec_type'] ?? '';
             $tags = $s['tags'] ?? [];
             $lang = $tags['language'] ?? 'und';
             $title = $tags['title'] ?? ($lang !== 'und' ? strtoupper($lang) : "Pista " . ($type === 'audio' ? $audioIdx + 1 : $subIdx + 1));
+            $isDefault = isset($s['disposition']['default']) && (int)$s['disposition']['default'] === 1;
 
             if ($type === 'audio') {
+                $channels = isset($s['channels']) ? (int)$s['channels'] : 2;
+                $channelLayout = $s['channel_layout'] ?? ($channels === 1 ? 'mono' : ($channels === 2 ? 'stereo' : "{$channels}ch"));
+                $sampleRate = isset($s['sample_rate']) ? (int)$s['sample_rate'] : 44100;
+                $bitRate = isset($s['bit_rate']) ? (int)$s['bit_rate'] : null;
+
                 $audioTracks[] = [
                     'index' => $s['index'] ?? $audioIdx,
+                    'track_number' => $audioIdx,
                     'codec' => $s['codec_name'] ?? 'unknown',
                     'language' => $lang,
-                    'title' => $title
+                    'title' => $title,
+                    'channels' => $channels,
+                    'channel_layout' => $channelLayout,
+                    'sample_rate' => $sampleRate,
+                    'bit_rate' => $bitRate,
+                    'disposition' => [
+                        'default' => $isDefault
+                    ]
                 ];
                 $audioIdx++;
             } else if ($type === 'subtitle') {
+                $codecName = strtolower($s['codec_name'] ?? 'unknown');
+                $isBitmap = in_array($codecName, $bitmapCodecs, true);
+
                 $subtitleTracks[] = [
                     'index' => $s['index'] ?? $subIdx,
-                    'codec' => $s['codec_name'] ?? 'unknown',
+                    'track_number' => $subIdx,
+                    'codec' => $codecName,
                     'language' => $lang,
-                    'title' => $title
+                    'title' => $title,
+                    'is_bitmap' => $isBitmap,
+                    'disposition' => [
+                        'default' => $isDefault
+                    ]
                 ];
                 $subIdx++;
+            } else if ($type === 'attachment') {
+                $filename = $tags['filename'] ?? ($tags['FILENAME'] ?? '');
+                if (!empty($filename)) {
+                    $cleanFilename = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', basename($filename));
+                    $attachments[] = [
+                        'index' => $s['index'] ?? null,
+                        'filename' => $cleanFilename,
+                        'mimetype' => $tags['mimetype'] ?? ($tags['MIMETYPE'] ?? ''),
+                        'codec' => $s['codec_name'] ?? ''
+                    ];
+                }
             }
+        }
+
+        // Parse chapters
+        $rawChapters = $data['chapters'] ?? [];
+        $chapters = [];
+        foreach ($rawChapters as $c) {
+            $cTags = $c['tags'] ?? [];
+            $chapTitle = $cTags['title'] ?? ($cTags['TITLE'] ?? 'Chapter ' . (count($chapters) + 1));
+            $startTime = round((float)($c['start_time'] ?? 0.0), 3);
+            $endTime = round((float)($c['end_time'] ?? 0.0), 3);
+            $chapters[] = [
+                'title' => trim($chapTitle),
+                'start' => $startTime,
+                'start_time' => $startTime,
+                'end' => $endTime,
+                'end_time' => $endTime
+            ];
         }
 
         return [
@@ -159,8 +196,42 @@ class FfmpegScanner {
             'video_codec' => $videoCodec,
             'fps' => $fps,
             'audio_tracks' => $audioTracks,
-            'subtitle_tracks' => $subtitleTracks
+            'subtitle_tracks' => $subtitleTracks,
+            'chapters' => $chapters,
+            'attachments' => $attachments
         ];
+    }
+
+    public static function extractFonts(string $videoPath, string $destDir): array {
+        if (!file_exists($videoPath) || !is_file($videoPath)) return [];
+        if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
+
+        $cmd = sprintf(
+            'ffmpeg -y -v error -dump_attachment:t "" -i %s',
+            escapeshellarg($videoPath)
+        );
+
+        $cwd = getcwd();
+        @chdir($destDir);
+        self::executeBoundedCommand($cmd, 15);
+        if ($cwd) @chdir($cwd);
+
+        $extracted = [];
+        if (is_dir($destDir)) {
+            $files = glob($destDir . '/*.{ttf,otf,woff,woff2,TTF,OTF}', GLOB_BRACE) ?: [];
+            foreach ($files as $f) {
+                $base = basename($f);
+                $clean = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', $base);
+                if ($clean !== $base) {
+                    @rename($f, $destDir . '/' . $clean);
+                    $f = $destDir . '/' . $clean;
+                }
+                if (file_exists($f) && filesize($f) > 0) {
+                    $extracted[] = basename($f);
+                }
+            }
+        }
+        return $extracted;
     }
 
     public static function extractThumbnail(string $videoPath, string $destThumbPath, float $seekSeconds = 120, int $timeoutSeconds = 15): bool {
@@ -176,5 +247,43 @@ class FfmpegScanner {
         );
         self::executeBoundedCommand($cmd, $timeoutSeconds);
         return file_exists($destThumbPath) && filesize($destThumbPath) > 0;
+    }
+
+    public static function getFfmpegPath(): ?string {
+        if (defined('FFMPEG_PATH') && FFMPEG_PATH !== '') {
+            return FFMPEG_PATH;
+        }
+        $cmd = DIRECTORY_SEPARATOR === '\\' ? 'where.exe ffmpeg 2>NUL' : 'which ffmpeg 2>/dev/null';
+        $out = @shell_exec($cmd);
+        if ($out) {
+            $lines = array_filter(array_map('trim', explode("\n", $out)));
+            if (!empty($lines)) {
+                return reset($lines);
+            }
+        }
+        $test = @shell_exec('ffmpeg -version 2>&1');
+        if ($test && str_contains($test, 'ffmpeg version')) {
+            return 'ffmpeg';
+        }
+        return null;
+    }
+
+    public static function getFfprobePath(): ?string {
+        if (defined('FFPROBE_PATH') && FFPROBE_PATH !== '') {
+            return FFPROBE_PATH;
+        }
+        $cmd = DIRECTORY_SEPARATOR === '\\' ? 'where.exe ffprobe 2>NUL' : 'which ffprobe 2>/dev/null';
+        $out = @shell_exec($cmd);
+        if ($out) {
+            $lines = array_filter(array_map('trim', explode("\n", $out)));
+            if (!empty($lines)) {
+                return reset($lines);
+            }
+        }
+        $test = @shell_exec('ffprobe -version 2>&1');
+        if ($test && str_contains($test, 'ffprobe version')) {
+            return 'ffprobe';
+        }
+        return null;
     }
 }

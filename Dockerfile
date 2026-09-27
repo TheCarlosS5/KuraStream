@@ -18,7 +18,8 @@ COPY --chown=kurastream:kurastream . .
 
 # Ensure storage directories exist with correct permissions
 RUN mkdir -p /app/library /tmp/kura_ratelimits /tmp/kura_subs_cache /tmp/kura_transcode_slots \
-    && chown -R kurastream:kurastream /app /tmp/kura_* 2>/dev/null || true
+    && chown -R kurastream:kurastream /app /tmp/kura_* 2>/dev/null || true \
+    && cp /app/php.ini $PHP_INI_DIR/conf.d/kurastream.ini
 
 USER kurastream
 

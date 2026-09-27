@@ -54,7 +54,7 @@ $skipped = 0;
 $total = count($testFiles);
 $phpBin = PHP_BINARY ?: 'php';
 $phpExtDir = dirname($phpBin) . DIRECTORY_SEPARATOR . 'ext';
-$requiredExts = ['pdo_mysql', 'curl', 'mbstring', 'fileinfo'];
+$requiredExts = ['pdo_mysql', 'curl', 'mbstring', 'fileinfo', 'pdo_sqlite'];
 $missingExts = array_filter($requiredExts, fn($ext) => !extension_loaded($ext));
 $phpExtensionArgs = '';
 if (!empty($missingExts) && is_dir($phpExtDir)) {

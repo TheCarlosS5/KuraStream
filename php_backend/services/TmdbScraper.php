@@ -410,4 +410,41 @@ class TmdbScraper {
 
         return file_exists($destPath) && filesize($destPath) > 0;
     }
+
+    public static function checkHealth(): array {
+        self::initConfig();
+        $isConfigured = !empty(self::$apiKey) || !empty(self::$readToken);
+        if (!$isConfigured) {
+            return [
+                'configured' => false,
+                'configured_label' => 'No',
+                'auth' => 'error',
+                'reachable' => 'error',
+                'status' => 'not_configured',
+                'message' => 'Sin credenciales configuradas'
+            ];
+        }
+
+        $res = self::fetch('/configuration');
+        if (!empty($res) && !empty($res['images'])) {
+            return [
+                'configured' => true,
+                'configured_label' => 'Yes',
+                'auth' => 'OK',
+                'reachable' => 'OK',
+                'status' => 'connected',
+                'message' => 'Conexión exitosa con TMDB'
+            ];
+        }
+
+        return [
+            'configured' => true,
+            'configured_label' => 'Yes',
+            'auth' => 'error',
+            'reachable' => 'error',
+            'status' => 'disconnected',
+            'message' => 'No se pudo conectar a la API de TMDB o credenciales inválidas'
+        ];
+    }
 }
+

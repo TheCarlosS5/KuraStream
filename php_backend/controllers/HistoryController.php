@@ -38,6 +38,14 @@ class HistoryController {
     }
 
     public static function getProgress(?string $episodeId = null): void {
+        $token = AuthMiddleware::getBearerToken();
+        if ($token) {
+            $tokenData = AuthMiddleware::verifyToken($token);
+            if (($tokenData['role'] ?? '') === 'admin' && empty($tokenData['profile_name']) && empty($tokenData['profile_id'])) {
+                jsonResponse(['progress' => 0, 'completed' => false, 'duration' => 0, 'admin_preview' => true]);
+                return;
+            }
+        }
         list($username, $profile) = self::resolveUserAndProfile();
         $epId = $episodeId ?: ($_GET['episode_id'] ?? '');
 
@@ -54,6 +62,14 @@ class HistoryController {
     }
 
     public static function saveProgress(?string $episodeId = null): void {
+        $token = AuthMiddleware::getBearerToken();
+        if ($token) {
+            $tokenData = AuthMiddleware::verifyToken($token);
+            if (($tokenData['role'] ?? '') === 'admin' && empty($tokenData['profile_name']) && empty($tokenData['profile_id'])) {
+                jsonResponse(['success' => true, 'admin_preview' => true]);
+                return;
+            }
+        }
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
 

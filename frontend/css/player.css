@@ -688,3 +688,116 @@
   margin-left: 4px;
 }
 
+/* More Options Menu & Audio Boost / Equalizer */
+.player-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.player-more-menu {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  right: 0;
+  width: 270px;
+  background: rgba(14, 20, 30, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-card, 10px);
+  padding: 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8);
+  z-index: 55;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.player-more-menu.show,
+.player-dropdown.active .player-more-menu {
+  display: flex;
+}
+
+.more-menu-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.more-menu-section-header i,
+.more-menu-section-header svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent-color, #f97316);
+}
+
+.more-menu-speed-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.speed-opt, .boost-opt, .preset-opt {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--text-main, #f8fafc);
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.speed-opt:hover, .boost-opt:hover, .preset-opt:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.speed-opt.active, .boost-opt.active, .preset-opt.active {
+  background: var(--accent-color, #f97316);
+  border-color: var(--accent-color, #f97316);
+  color: #fff;
+  font-weight: 600;
+}
+
+.more-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 6px 0;
+}
+
+.more-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-main, #f8fafc);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+  width: 100%;
+}
+
+.more-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.more-menu-item i,
+.more-menu-item svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted, #94a3b8);
+}
+

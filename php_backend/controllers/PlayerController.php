@@ -144,10 +144,20 @@ class PlayerController {
             jsonError('Ticket de reproducción inválido o expirado', 403);
         }
 
-        // 2. Authenticated user session - MUST require active profile
+        // 2. Authenticated user session
         $userToken = AuthMiddleware::getBearerToken();
         if (empty($userToken)) {
             jsonError('Autenticación requerida para acceder al flujo de medios', 401);
+        }
+
+        $tokenData = AuthMiddleware::verifyToken($userToken);
+        if (!$tokenData) {
+            jsonError('Token inválido o expirado', 401);
+        }
+
+        // Admin preview playback: Allow admin role without requiring active profile
+        if (($tokenData['role'] ?? '') === 'admin') {
+            return;
         }
 
         $payload = AuthMiddleware::requireProfile();
@@ -211,23 +221,64 @@ class PlayerController {
         $filepath = $ep['filepath'];
         $trackIndex = -1;
         $tracks = !empty($ep['subtitle_tracks']) ? (is_array($ep['subtitle_tracks']) ? $ep['subtitle_tracks'] : json_decode($ep['subtitle_tracks'], true)) : [];
+        $t = null;
         if (is_array($tracks) && count($tracks) > 0) {
-            $t = array_values(array_filter($tracks, fn($x) => isset($x['index']) && (int)$x['index'] === (int)$trackNum))[0] ?? null;
-            if (!$t) {
-                $t = array_values(array_filter($tracks, fn($x) => isset($x['track_number']) && (int)$x['track_number'] === (int)$trackNum))[0] ?? null;
-            }
+            $t = array_values(array_filter($tracks, fn($x) => isset($x['track_number']) && (string)$x['track_number'] === (string)$trackNum))[0] ?? null;
             if (!$t && isset($tracks[(int)$trackNum])) {
                 $t = $tracks[(int)$trackNum];
             }
-            if ($t && isset($t['index'])) {
-                $trackIndex = (int)$t['index'];
+            if (!$t) {
+                $t = array_values(array_filter($tracks, fn($x) => isset($x['index']) && (string)$x['index'] === (string)$trackNum))[0] ?? null;
             }
+            if ($t && isset($t['index'])) {
+                $trackIndex = is_numeric($t['index']) ? (int)$t['index'] : -1;
+            }
+        }
+
+        if ($t && !empty($t['is_bitmap'])) {
+            jsonError('Pista de subtítulos bitmap (PGS/VobSub) no compatible con renderizador de texto libass', 400);
         }
 
         $cacheDir = sys_get_temp_dir() . '/kura_subs_cache';
         if (!is_dir($cacheDir)) {
             @mkdir($cacheDir, 0777, true);
         }
+
+        // External sidecar subtitle check (.ass, .ssa, .srt, .vtt)
+        if ($t && isset($t['source']) && $t['source'] === 'external' && !empty($t['filepath']) && file_exists($t['filepath'])) {
+            $sidecarPath = $t['filepath'];
+            $sidecarExt = strtolower(pathinfo($sidecarPath, PATHINFO_EXTENSION));
+            if ($sidecarExt === 'ass' || $sidecarExt === 'ssa') {
+                @header('Content-Type: text/plain; charset=utf-8');
+                setCorsHeaders();
+                @header('Cache-Control: public, max-age=86400');
+                while (ob_get_level()) { ob_end_clean(); }
+                $content = file_get_contents($sidecarPath);
+                readfile($sidecarPath);
+                if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200, $content);
+                exit();
+            } else {
+                // Convert SRT/VTT to ASS and cache
+                $sidecarCacheKey = md5($sidecarPath . '_' . filemtime($sidecarPath));
+                $sidecarCacheFile = $cacheDir . '/' . $sidecarCacheKey . '.ass';
+                if (!file_exists($sidecarCacheFile) || filesize($sidecarCacheFile) === 0) {
+                    require_once __DIR__ . '/../services/FfmpegScanner.php';
+                    $cmd = sprintf('ffmpeg -y -v error -i %s -f ass %s', escapeshellarg($sidecarPath), escapeshellarg($sidecarCacheFile));
+                    FfmpegScanner::executeBoundedCommand($cmd, 15);
+                }
+                if (file_exists($sidecarCacheFile) && filesize($sidecarCacheFile) > 0) {
+                    @header('Content-Type: text/plain; charset=utf-8');
+                    setCorsHeaders();
+                    @header('Cache-Control: public, max-age=86400');
+                    while (ob_get_level()) { ob_end_clean(); }
+                    $content = file_get_contents($sidecarCacheFile);
+                    readfile($sidecarCacheFile);
+                    if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200, $content);
+                    exit();
+                }
+            }
+        }
+
         $cacheKey = md5($filepath . '_' . $trackIndex . '_' . (int)$trackNum . '_' . @filemtime($filepath));
         $cacheFile = $cacheDir . '/' . $cacheKey . '.ass';
 
@@ -240,8 +291,9 @@ class PlayerController {
         }
 
         if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
+            $content = file_get_contents($cacheFile);
             readfile($cacheFile);
-            if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream cached success", 200);
+            if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream cached success", 200, $content);
             exit();
         }
 
@@ -275,12 +327,14 @@ class PlayerController {
         }
 
         if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
+            $content = file_get_contents($cacheFile);
             readfile($cacheFile);
+            if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200, $content);
         } else {
-            echo "";
+            @http_response_code(404);
+            echo "Subtitle track not available";
+            if (defined('TESTING_MODE')) throw new ExitException("Subtitle not found", 404);
         }
-
-        if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200);
         exit();
     }
 
@@ -329,10 +383,24 @@ class PlayerController {
         $start = isset($_GET['start']) ? (float)$_GET['start'] : 0.0;
         $audioTrack = isset($_GET['audio']) ? (int)$_GET['audio'] : -1;
 
+        $epData = $ep;
+        $tracks = !empty($epData['audio_tracks']) ? (is_array($epData['audio_tracks']) ? $epData['audio_tracks'] : json_decode($epData['audio_tracks'], true)) : [];
+        $videoCodec = strtolower($epData['video_codec'] ?? '');
+        $isDirectCodec = ($videoCodec === '' || $videoCodec === 'h264' || $videoCodec === 'avc1' || $videoCodec === 'avc');
+        $isDirectContainer = ($ext === 'mp4' || $ext === 'webm' || $ext === 'm4v');
+        $isDownmixRequested = (isset($_GET['downmix']) && $_GET['downmix'] === 'stereo');
+        $isForceTranscode = isset($_GET['transcode']) && $_GET['transcode'] == '1';
+
+        // Check if selected audio track is first or default
+        $isDefaultAudio = ($audioTrack <= 0 || count($tracks) <= 1);
+
+        // Can we Direct Play using HTTP Range?
+        $canDirectPlay = $isDirectContainer && $isDirectCodec && $isDefaultAudio && !$isDownmixRequested && !$isForceTranscode && ($start <= 0);
+
         $isHead = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'HEAD';
 
-        // If file is MKV (not supported natively by HTML5 video tag) or seek/audio track specified:
-        if ($isMkv || $start > 0 || $audioTrack !== -1) {
+        // If file is not direct-playable (MKV container, seek offset, non-default audio track, or downmix):
+        if (!$canDirectPlay) {
             $isPreview = isset($_GET['preview']) || (isset($_SERVER['HTTP_X_PURPOSE']) && $_SERVER['HTTP_X_PURPOSE'] === 'preview');
             if ($isPreview) {
                 @http_response_code(403);
@@ -370,23 +438,25 @@ class PlayerController {
             
             // Map selected audio track or default to first audio stream
             $mappedAudio = false;
+            $selectedTrackMeta = null;
             if ($audioTrack >= 0 && !empty($episodeId)) {
                 $epData = $ep;
                 $tracks = !empty($epData['audio_tracks']) ? (is_array($epData['audio_tracks']) ? $epData['audio_tracks'] : json_decode($epData['audio_tracks'], true)) : [];
                 if (is_array($tracks) && count($tracks) > 0) {
-                    // Match by stream index first
-                    $targetTrack = array_values(array_filter($tracks, fn($x) => isset($x['index']) && (int)$x['index'] === $audioTrack))[0] ?? null;
-                    if (!$targetTrack) {
-                        // Match by track_number
-                        $targetTrack = array_values(array_filter($tracks, fn($x) => isset($x['track_number']) && (int)$x['track_number'] === $audioTrack))[0] ?? null;
-                    }
+                    // Match by track_number first, then array offset, then container stream index
+                    $targetTrack = array_values(array_filter($tracks, fn($x) => isset($x['track_number']) && (int)$x['track_number'] === $audioTrack))[0] ?? null;
                     if (!$targetTrack && isset($tracks[$audioTrack])) {
                         // Match by array offset
                         $targetTrack = $tracks[$audioTrack];
                     }
+                    if (!$targetTrack) {
+                        // Fallback: match by container stream index
+                        $targetTrack = array_values(array_filter($tracks, fn($x) => isset($x['index']) && (int)$x['index'] === $audioTrack))[0] ?? null;
+                    }
                     if ($targetTrack && isset($targetTrack['index'])) {
                         $cmd .= "-map 0:" . intval($targetTrack['index']) . "? ";
                         $mappedAudio = true;
+                        $selectedTrackMeta = $targetTrack;
                     }
                 }
             }
@@ -408,11 +478,18 @@ class PlayerController {
                 : '-c:v copy';
 
             // Remux video (transcode to H.264 if needed or copy), audio aac preserving channels unless downmix requested
-            $acArg = (isset($_GET['downmix']) && $_GET['downmix'] === 'stereo') ? '-ac 2 ' : '';
-            $cmd .= $vCodecArg . ' -c:a aac ' . $acArg . '-b:a 192k -af "aresample=async=1" -avoid_negative_ts disabled -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
+            $needsDownmix = (isset($_GET['downmix']) && $_GET['downmix'] === 'stereo');
+            if (!$needsDownmix && $selectedTrackMeta && isset($selectedTrackMeta['channels']) && (int)$selectedTrackMeta['channels'] > 2) {
+                $needsDownmix = true;
+            }
+            $acArg = $needsDownmix ? '-ac 2 ' : '';
+            $afFilter = $needsDownmix
+                ? 'pan=stereo|c0=c0+0.707*c2+0.707*c4|c1=c1+0.707*c2+0.707*c5,aresample=async=1'
+                : 'aresample=async=1';
+            $cmd .= $vCodecArg . ' -c:a aac ' . $acArg . '-b:a 192k -af ' . escapeshellarg($afFilter) . ' -avoid_negative_ts disabled -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
 
             if (defined('TESTING_MODE')) {
-                throw new ExitException("Stream remux success", 200);
+                throw new ExitException("Stream remux success", 200, ['cmd' => $cmd, 'needs_downmix' => $needsDownmix]);
             }
 
             while (ob_get_level()) {
@@ -561,5 +638,78 @@ class PlayerController {
         }
         fclose($fp);
         exit();
+    }
+
+    public static function streamFont(string $episodeId, string $fontName): void {
+        self::authorizeStreamAccess($episodeId);
+        $cleanFont = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', basename($fontName));
+        if (empty($cleanFont)) {
+            jsonError('Nombre de fuente inválido', 400);
+        }
+
+        $ep = DbHelper::getEpisode($episodeId);
+        if (!$ep || empty($ep['filepath']) || !file_exists($ep['filepath'])) {
+            jsonError('Episodio no encontrado', 404);
+        }
+
+        $cacheDir = sys_get_temp_dir() . '/kura_subs_cache/fonts/' . md5($ep['filepath']);
+        $fontPath = $cacheDir . '/' . $cleanFont;
+
+        if (!file_exists($fontPath)) {
+            require_once __DIR__ . '/../services/FfmpegScanner.php';
+            FfmpegScanner::extractFonts($ep['filepath'], $cacheDir);
+        }
+
+        if (!file_exists($fontPath)) {
+            jsonError('Fuente no encontrada', 404);
+        }
+
+        $ext = strtolower(pathinfo($fontPath, PATHINFO_EXTENSION));
+        $mimes = [
+            'ttf' => 'font/ttf',
+            'otf' => 'font/otf',
+            'woff' => 'font/woff',
+            'woff2' => 'font/woff2'
+        ];
+        $contentType = $mimes[$ext] ?? 'application/octet-stream';
+
+        @header("Content-Type: {$contentType}");
+        setCorsHeaders();
+        @header('Cache-Control: public, max-age=86400');
+        @header('Content-Length: ' . filesize($fontPath));
+
+        if (defined('TESTING_MODE')) {
+            throw new ExitException("Font stream success", 200, basename($fontPath));
+        }
+
+        readfile($fontPath);
+        exit();
+    }
+
+    public static function getEpisodeFonts(string $episodeId): void {
+        self::authorizeStreamAccess($episodeId);
+        $ep = DbHelper::getEpisode($episodeId);
+        if (!$ep || empty($ep['filepath']) || !file_exists($ep['filepath'])) {
+            jsonError('Episodio no encontrado', 404);
+        }
+
+        $cacheDir = sys_get_temp_dir() . '/kura_subs_cache/fonts/' . md5($ep['filepath']);
+        if (!is_dir($cacheDir)) {
+            require_once __DIR__ . '/../services/FfmpegScanner.php';
+            FfmpegScanner::extractFonts($ep['filepath'], $cacheDir);
+        }
+
+        $fonts = [];
+        if (is_dir($cacheDir)) {
+            $files = glob($cacheDir . '/*.{ttf,otf,woff,woff2}', GLOB_BRACE) ?: [];
+            foreach ($files as $f) {
+                $base = basename($f);
+                $fonts[] = [
+                    'name' => $base,
+                    'url' => "/api/episodes/" . urlencode($episodeId) . "/fonts/" . urlencode($base)
+                ];
+            }
+        }
+        jsonResponse(['fonts' => $fonts]);
     }
 }

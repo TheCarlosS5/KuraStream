@@ -8,6 +8,7 @@ services:
       - PORT=3000
       - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET in .env before starting Docker}
       - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - TMDB_READ_TOKEN=${TMDB_READ_TOKEN:-}
       - ADMIN_USER=${ADMIN_USER:-}
       - ADMIN_PASS=${ADMIN_PASS:-}
       - ADMIN_PASS_HASH=${ADMIN_PASS_HASH:-}

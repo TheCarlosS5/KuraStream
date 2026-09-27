@@ -191,6 +191,14 @@ if (preg_match('#^/api/episodes/([^/]+)/timestamps$#', $uri, $m) && $method === 
     PlayerController::saveTimestamps(urldecode($m[1]));
 }
 
+if (preg_match('#^/api/episodes/([^/]+)/fonts/([^/]+)$#', $uri, $m) && $method === 'GET') {
+    PlayerController::streamFont(urldecode($m[1]), urldecode($m[2]));
+}
+
+if (preg_match('#^/api/episodes/([^/]+)/fonts$#', $uri, $m) && $method === 'GET') {
+    PlayerController::getEpisodeFonts(urldecode($m[1]));
+}
+
 if (preg_match('#^/api/episodes/([^/]+)$#', $uri, $m) && $method === 'GET') {
     PlayerController::getEpisodeDetails(urldecode($m[1]));
 }
@@ -307,6 +315,18 @@ if ($uri === '/api/admin/save-episode-timings' && $method === 'POST') {
     AdminController::saveEpisodeTimings();
 }
 
+if ($uri === '/api/admin/diagnostics' && $method === 'GET') {
+    AdminController::getDiagnostics();
+}
+
+if ($uri === '/api/admin/detect-timings' && in_array($method, ['GET', 'POST'])) {
+    AdminController::detectTimings();
+}
+
+if ($uri === '/api/admin/apply-timings' && $method === 'POST') {
+    AdminController::applyTimings();
+}
+
 if ($uri === '/api/admin/preview-tmdb' && $method === 'GET') {
     AdminController::previewTmdb();
 }
@@ -375,7 +395,7 @@ if ($uri === '/api/comments' && $method === 'POST') {
     ShowController::addComment();
 }
 
-if (($uri === '/api/admin/tmdb/search' || $uri === '/api/search-tmdb' || $uri === '/api/admin/search-tmdb-candidates') && $method === 'GET') {
+if (($uri === '/api/admin/tmdb/search' || $uri === '/api/search-tmdb' || $uri === '/api/admin/search-tmdb-candidates' || $uri === '/api/admin/search-tmdb') && $method === 'GET') {
     ShowController::searchTmdb();
 }
 

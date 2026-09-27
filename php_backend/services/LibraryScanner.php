@@ -246,7 +246,8 @@ class LibraryScanner {
                                 'resolution' => $existingEp['resolution'] ?? 'unknown',
                                 'fps' => (float)($existingEp['fps'] ?? 0.0),
                                 'audio_tracks' => is_array($existingEp['audio_tracks']) ? $existingEp['audio_tracks'] : json_decode($existingEp['audio_tracks'] ?? '[]', true),
-                                'subtitle_tracks' => is_array($existingEp['subtitle_tracks']) ? $existingEp['subtitle_tracks'] : json_decode($existingEp['subtitle_tracks'] ?? '[]', true)
+                                'subtitle_tracks' => is_array($existingEp['subtitle_tracks']) ? $existingEp['subtitle_tracks'] : json_decode($existingEp['subtitle_tracks'] ?? '[]', true),
+                                'chapters' => is_array($existingEp['chapters'] ?? null) ? $existingEp['chapters'] : json_decode($existingEp['chapters'] ?? '[]', true)
                             ];
                         } else {
                             try {
@@ -254,6 +255,60 @@ class LibraryScanner {
                             } catch (Throwable $e) {
                                 error_log("[LibraryScanner] No se pudo leer el archivo multimedia {$fullPath}: " . $e->getMessage());
                                 continue;
+                            }
+                        }
+
+                        // Discover safe external sidecar subtitles (.ass, .ssa, .srt, .vtt) in episode folder
+                        $subTracks = $probe['subtitle_tracks'] ?? [];
+                        $videoDir = dirname($fullPath);
+                        $videoBase = pathinfo($fullPath, PATHINFO_FILENAME);
+                        $realLibRoot = realpath(LIBRARY_DIR);
+
+                        if (is_dir($videoDir) && is_readable($videoDir) && $realLibRoot) {
+                            $dirFiles = @scandir($videoDir) ?: [];
+                            foreach ($dirFiles as $df) {
+                                if ($df === '.' || $df === '..') continue;
+                                $sidecarExt = strtolower(pathinfo($df, PATHINFO_EXTENSION));
+                                if (!in_array($sidecarExt, ['ass', 'ssa', 'srt', 'vtt'], true)) continue;
+
+                                $sidecarBase = pathinfo($df, PATHINFO_FILENAME);
+                                if ($sidecarBase === $videoBase || str_starts_with($sidecarBase, $videoBase . '.') || str_starts_with($sidecarBase, $videoBase . '_') || str_starts_with($sidecarBase, $videoBase . '-')) {
+                                    $sidecarPath = $videoDir . DIRECTORY_SEPARATOR . $df;
+                                    $realSidecar = realpath($sidecarPath);
+                                    if (!$realSidecar || !str_starts_with($realSidecar, $realLibRoot)) {
+                                        continue; // Prevent path traversal
+                                    }
+
+                                    $sidecarLang = 'und';
+                                    if (preg_match('/[\._\-]([a-zA-Z]{2,3})(?:[\._\-]|$)/i', substr($sidecarBase, strlen($videoBase)), $lm)) {
+                                        $sidecarLang = strtolower($lm[1]);
+                                    }
+
+                                    $alreadyIncluded = false;
+                                    foreach ($subTracks as $st) {
+                                        if (($st['source'] ?? '') === 'external' && ($st['filepath'] ?? '') === $realSidecar) {
+                                            $alreadyIncluded = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!$alreadyIncluded) {
+                                        $extIdx = 'ext_' . substr(md5($realSidecar), 0, 8);
+                                        $subTracks[] = [
+                                            'index' => $extIdx,
+                                            'track_number' => count($subTracks),
+                                            'codec' => $sidecarExt,
+                                            'language' => $sidecarLang,
+                                            'title' => ($sidecarLang !== 'und' ? strtoupper($sidecarLang) : 'Subtítulo') . " [Externo]",
+                                            'source' => 'external',
+                                            'filepath' => $realSidecar,
+                                            'is_bitmap' => false,
+                                            'disposition' => [
+                                                'default' => false
+                                            ]
+                                        ];
+                                    }
+                                }
                             }
                         }
 
@@ -275,6 +330,10 @@ class LibraryScanner {
                             }
                         }
 
+                        $epChapters = !empty($probe['chapters'])
+                            ? $probe['chapters']
+                            : (isset($existingEp['chapters']) ? (is_array($existingEp['chapters']) ? $existingEp['chapters'] : json_decode($existingEp['chapters'], true)) : []);
+
                         DbHelper::saveEpisode([
                             'id' => $epId,
                             'show_id' => $showId,
@@ -290,8 +349,12 @@ class LibraryScanner {
                             'resolution' => $probe['resolution'],
                             'fps' => $probe['fps'],
                             'audio_tracks' => $probe['audio_tracks'],
-                            'subtitle_tracks' => $probe['subtitle_tracks'],
-                            'thumbnail_path' => $thumbUrl
+                            'subtitle_tracks' => $subTracks,
+                            'chapters' => $epChapters,
+                            'thumbnail_path' => $thumbUrl,
+                            'intro_start' => $existingEp['intro_start'] ?? null,
+                            'intro_end' => $existingEp['intro_end'] ?? null,
+                            'outro_start' => $existingEp['outro_start'] ?? null
                         ]);
                         $scannedCount++;
                     }

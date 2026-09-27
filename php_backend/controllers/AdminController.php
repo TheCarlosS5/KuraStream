@@ -637,48 +637,53 @@ class AdminController {
             jsonError('No se proporcionó ningún archivo de vídeo válido', 400);
         }
 
-        // Enrich show metadata via TMDB if show record does not exist
+        // Enrich show metadata via TMDB
         $existingShow = DbHelper::findShowByFolderOrTitle($sanitizedDir, $title);
-        if (!$existingShow) {
-            $details = $tmdbId ? TmdbScraper::getDetails($tmdbId, $mediaType) : null;
-            if (!$details) {
-                $searchRes = TmdbScraper::search($title, $mediaType);
-                if (!empty($searchRes)) {
-                    $details = TmdbScraper::getDetails((int)$searchRes[0]['id'], $mediaType);
-                }
+        $details = $tmdbId ? TmdbScraper::getDetails($tmdbId, $mediaType) : null;
+        if (!$details) {
+            $searchRes = TmdbScraper::search($title, $mediaType);
+            if (!empty($searchRes)) {
+                $details = TmdbScraper::getDetails((int)$searchRes[0]['id'], $mediaType);
             }
-
-            $posterPath = '';
-            $backdropPath = '';
-            if ($details) {
-                if (!empty($details['poster_path'])) {
-                    $destPoster = $showDir . '/poster.jpg';
-                    if (TmdbScraper::downloadFile($details['poster_path'], $destPoster)) {
-                        $posterPath = "/library/{$catFolder}/{$sanitizedDir}/poster.jpg";
-                    }
-                }
-                if (!empty($details['backdrop_path'])) {
-                    $destBackdrop = $showDir . '/backdrop.jpg';
-                    if (TmdbScraper::downloadFile($details['backdrop_path'], $destBackdrop)) {
-                        $backdropPath = "/library/{$catFolder}/{$sanitizedDir}/backdrop.jpg";
-                    }
-                }
-            }
-
-            DbHelper::saveShow([
-                'id' => $sanitizedDir,
-                'title' => $title,
-                'synopsis' => $details['synopsis'] ?? '',
-                'rating' => $details['rating'] ?? 0.0,
-                'year' => $details['year'] ?? (int)date('Y'),
-                'studio' => $details['studio'] ?? '',
-                'poster_path' => $posterPath,
-                'backdrop_path' => $backdropPath,
-                'media_type' => $mediaType,
-                'genres' => $details['genres'] ?? '',
-                'status' => $details['status'] ?? 'finished'
-            ]);
         }
+
+        $posterPath = $existingShow['poster_path'] ?? '';
+        $backdropPath = $existingShow['backdrop_path'] ?? '';
+        if ($details) {
+            if (empty($posterPath) && !empty($details['poster_path'])) {
+                $destPoster = $showDir . '/poster.jpg';
+                if (TmdbScraper::downloadFile($details['poster_path'], $destPoster)) {
+                    $posterPath = "/library/{$catFolder}/{$sanitizedDir}/poster.jpg";
+                }
+            }
+            if (empty($backdropPath) && !empty($details['backdrop_path'])) {
+                $destBackdrop = $showDir . '/backdrop.jpg';
+                if (TmdbScraper::downloadFile($details['backdrop_path'], $destBackdrop)) {
+                    $backdropPath = "/library/{$catFolder}/{$sanitizedDir}/backdrop.jpg";
+                }
+            }
+        }
+
+        DbHelper::saveShow([
+            'id' => $sanitizedDir,
+            'title' => $title,
+            'synopsis' => $details['synopsis'] ?? ($existingShow['synopsis'] ?? ''),
+            'rating' => $details['rating'] ?? ($existingShow['rating'] ?? 0.0),
+            'year' => $details['year'] ?? ($existingShow['year'] ?? (int)date('Y')),
+            'studio' => $details['studio'] ?? ($existingShow['studio'] ?? ''),
+            'director' => $details['director'] ?? ($existingShow['director'] ?? ''),
+            'writer' => $details['writer'] ?? ($existingShow['writer'] ?? ''),
+            'cast_members' => $details['cast_members'] ?? ($existingShow['cast_members'] ?? []),
+            'poster_path' => $posterPath,
+            'backdrop_path' => $backdropPath,
+            'media_type' => $mediaType,
+            'genres' => $details['genres'] ?? ($existingShow['genres'] ?? ''),
+            'trailer_key' => $details['trailer_key'] ?? ($existingShow['trailer_key'] ?? null),
+            'age_rating' => $details['age_rating'] ?? ($existingShow['age_rating'] ?? 'TV-14'),
+            'status' => $details['status'] ?? ($existingShow['status'] ?? 'finished'),
+            'tmdb_id' => $details['id'] ?? ($tmdbId ?: ($existingShow['tmdb_id'] ?? null))
+        ]);
+
 
         // Rescan to discover and probe the new video
         LibraryScanner::runScan();
@@ -1131,4 +1136,429 @@ class AdminController {
             'tmdb_title' => $tmdbResults[0]['title'] ?? $show['title']
         ]);
     }
+
+    public static function getDiagnostics(): void {
+        AuthMiddleware::requireAdmin();
+
+        $dbStatus = 'disconnected';
+        $dbError = null;
+        try {
+            $db = Database::getConnection();
+            $db->query('SELECT 1');
+            $dbStatus = 'connected';
+        } catch (Throwable $e) {
+            $dbError = 'Database unavailable';
+        }
+
+        $libDir = defined('LIBRARY_DIR') ? LIBRARY_DIR : (ROOT_DIR . '/library');
+        $storage = [
+            'path' => $libDir,
+            'exists' => is_dir($libDir),
+            'readable' => is_readable($libDir),
+            'writable' => is_writable($libDir),
+            'free_bytes' => @disk_free_space($libDir) ?: 0,
+            'total_bytes' => @disk_total_space($libDir) ?: 0
+        ];
+
+        $ffmpegPath = FfmpegScanner::getFfmpegPath();
+        $ffprobePath = FfmpegScanner::getFfprobePath();
+
+        $ffmpegVersion = 'unknown';
+        $ffmpegOk = false;
+        if ($ffmpegPath) {
+            $out = @shell_exec(escapeshellcmd($ffmpegPath) . ' -version 2>&1');
+            if ($out && preg_match('/ffmpeg version ([^\s]+)/i', $out, $m)) {
+                $ffmpegVersion = $m[1];
+                $ffmpegOk = true;
+            }
+        }
+
+        $ffprobeVersion = 'unknown';
+        $ffprobeOk = false;
+        if ($ffprobePath) {
+            $out = @shell_exec(escapeshellcmd($ffprobePath) . ' -version 2>&1');
+            if ($out && preg_match('/ffprobe version ([^\s]+)/i', $out, $m)) {
+                $ffprobeVersion = $m[1];
+                $ffprobeOk = true;
+            }
+        }
+
+        $tmdbHealth = TmdbScraper::checkHealth();
+
+        // Subtitle assets
+        $octopusJs = ROOT_DIR . '/frontend/assets/subtitles-octopus/subtitles-octopus.js';
+        $fontsDir = ROOT_DIR . '/library/fonts';
+        $fontsCount = is_dir($fontsDir) ? count(glob($fontsDir . '/*.*') ?: []) : 0;
+
+        require_once __DIR__ . '/PlayerController.php';
+        $activeWorkers = TranscodeLimiter::getActiveWorkerCount();
+
+        $subsCacheDir = sys_get_temp_dir() . '/kura_subs_cache';
+        if (!is_dir($subsCacheDir)) {
+            @mkdir($subsCacheDir, 0777, true);
+        }
+        $subsCacheWritable = is_dir($subsCacheDir) && is_writable($subsCacheDir);
+
+        $diagnostics = [
+            'database' => [
+                'status' => $dbStatus,
+                'connected' => ($dbStatus === 'connected'),
+                'label' => ($dbStatus === 'connected') ? 'OK' : 'Error',
+                'error' => $dbError
+            ],
+            'storage' => array_merge($storage, [
+                'label' => ($storage['exists'] && $storage['readable']) ? 'OK' : 'Error',
+                'writable_label' => $storage['writable'] ? 'Yes' : 'No'
+            ]),
+            'ffmpeg' => [
+                'installed' => $ffmpegOk,
+                'path' => $ffmpegPath,
+                'version' => $ffmpegOk ? $ffmpegVersion : 'missing',
+                'label' => $ffmpegOk ? $ffmpegVersion : 'missing',
+                'ffmpeg_version' => $ffmpegVersion,
+                'ffprobe_version' => $ffprobeVersion
+            ],
+            'ffprobe' => [
+                'installed' => $ffprobeOk,
+                'path' => $ffprobePath,
+                'version' => $ffprobeOk ? $ffprobeVersion : 'missing',
+                'label' => $ffprobeOk ? $ffprobeVersion : 'missing',
+                'ffprobe_version' => $ffprobeVersion
+            ],
+            'tmdb' => array_merge($tmdbHealth, [
+                'configured_label' => (!empty($tmdbHealth['configured'])) ? 'Yes' : 'No',
+                'auth_label' => (($tmdbHealth['auth'] ?? '') === 'OK' && ($tmdbHealth['reachable'] ?? '') === 'OK') ? 'OK' : 'Error'
+            ]),
+            'php' => [
+                'version' => PHP_VERSION,
+                'upload_max_filesize' => ini_get('upload_max_filesize') ?: '2M',
+                'post_max_size' => ini_get('post_max_size') ?: '8M',
+                'memory_limit' => ini_get('memory_limit') ?: '128M',
+                'max_execution_time' => (int)ini_get('max_execution_time')
+            ],
+            'subtitle_assets' => [
+                'octopus_available' => file_exists($octopusJs),
+                'label' => file_exists($octopusJs) ? 'OK' : 'Error',
+                'fonts_dir_exists' => is_dir($fontsDir),
+                'fonts_count' => $fontsCount,
+                'cache_writable' => $subsCacheWritable,
+                'cache_writable_label' => $subsCacheWritable ? 'Yes' : 'No'
+            ],
+            'transcode' => [
+                'active_workers' => $activeWorkers,
+                'max_workers' => TranscodeLimiter::$maxWorkers,
+                'label' => "{$activeWorkers} / " . TranscodeLimiter::$maxWorkers
+            ]
+        ];
+
+        jsonResponse(array_merge([
+            'success' => true,
+            'diagnostics' => $diagnostics
+        ], $diagnostics));
+    }
+
+    public static function searchTmdb(): void {
+        AuthMiddleware::requireAdmin();
+        $query = trim($_GET['query'] ?? ($_GET['q'] ?? ''));
+        $type = $_GET['type'] ?? 'anime';
+
+        if (empty($query)) {
+            jsonResponse([]);
+            return;
+        }
+
+        $results = TmdbScraper::search($query, $type);
+        jsonResponse($results);
+    }
+
+    public static function detectTimings(?string $epId = null): void {
+        AuthMiddleware::requireAdmin();
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: [];
+
+        $episodeId = $epId ?: ($data['episode_id'] ?? ($_GET['episode_id'] ?? ($data['episodeId'] ?? ($_GET['episodeId'] ?? ''))));
+        if (empty($episodeId)) {
+            jsonError('episode_id requerido', 400);
+        }
+
+        $ep = DbHelper::getEpisode($episodeId);
+        if (!$ep) {
+            jsonError('Episodio no encontrado', 404);
+        }
+
+        $chapters = !empty($ep['chapters']) ? $ep['chapters'] : [];
+        if (empty($chapters) && !empty($ep['filepath']) && file_exists($ep['filepath'])) {
+            $probe = FfmpegScanner::probeMedia($ep['filepath']);
+            if (!empty($probe['chapters'])) {
+                $chapters = $probe['chapters'];
+                DbHelper::saveEpisodeTimestamps($episodeId, ['chapters' => $chapters]);
+            }
+        }
+
+        // Level 1: MKV Chapters regex
+        $detectedIntro = null;
+        $detectedOutro = null;
+        foreach ($chapters as $ch) {
+            $t = trim($ch['title'] ?? ($ch['tags']['title'] ?? ''));
+            $st = (float)($ch['start_time'] ?? ($ch['start'] ?? 0));
+            $et = (float)($ch['end_time'] ?? ($ch['end'] ?? 0));
+
+            if (preg_match('/^(op|opening|intro|theme|opening\s*theme)$/i', $t) ||
+                preg_match('/\b(opening|intro)\b/i', $t) ||
+                (preg_match('/\bop\b/i', $t) && !preg_match('/\b(episode|option)\b/i', $t))) {
+                $detectedIntro = [
+                    'start' => (int)round($st),
+                    'end' => (int)round($et)
+                ];
+            }
+
+            if (preg_match('/^(ed|ending|outro|credits|ending\s*theme)$/i', $t) ||
+                preg_match('/\b(ending|outro|credits)\b/i', $t) ||
+                (preg_match('/\bed\b/i', $t) && !preg_match('/\b(edition|editor)\b/i', $t))) {
+                $detectedOutro = [
+                    'start' => (int)round($st),
+                    'end' => (int)round($et)
+                ];
+            }
+        }
+
+        if ($detectedIntro !== null || $detectedOutro !== null) {
+            $introStart = $detectedIntro['start'] ?? null;
+            $introEnd = $detectedIntro['end'] ?? null;
+            $outroStart = $detectedOutro['start'] ?? null;
+            jsonResponse([
+                'success' => true,
+                'method' => 'chapters',
+                'confidence' => 0.95,
+                'intro_start' => $introStart,
+                'intro_end' => $introEnd,
+                'outro_start' => $outroStart,
+                'outro_end' => $detectedOutro['end'] ?? null,
+                'proposed_intro_start' => $introStart,
+                'proposed_intro_end' => $introEnd,
+                'proposed_outro_start' => $outroStart,
+                'matched_episodes' => [$episodeId],
+                'episode_id' => $episodeId
+            ]);
+            return;
+        }
+
+        // Level 2: Sibling episode / Season repetition
+        $siblings = !empty($ep['show_id']) ? DbHelper::getEpisodesForShow($ep['show_id']) : [];
+        $siblingWithTimings = null;
+        $siblingWithFile = null;
+
+        foreach ($siblings as $sib) {
+            if ($sib['id'] !== $ep['id'] && (int)$sib['season_number'] === (int)$ep['season_number']) {
+                if (!empty($sib['intro_start']) && !empty($sib['intro_end'])) {
+                    $siblingWithTimings = $sib;
+                    break;
+                }
+                if ($siblingWithFile === null && !empty($sib['filepath']) && file_exists($sib['filepath'])) {
+                    $siblingWithFile = $sib;
+                }
+            }
+        }
+
+        if ($siblingWithTimings !== null) {
+            $introStart = (int)$siblingWithTimings['intro_start'];
+            $introEnd = (int)$siblingWithTimings['intro_end'];
+            $outroStart = !empty($siblingWithTimings['outro_start']) ? (int)$siblingWithTimings['outro_start'] : null;
+            jsonResponse([
+                'success' => true,
+                'method' => 'season_sibling',
+                'confidence' => 0.85,
+                'intro_start' => $introStart,
+                'intro_end' => $introEnd,
+                'outro_start' => $outroStart,
+                'proposed_intro_start' => $introStart,
+                'proposed_intro_end' => $introEnd,
+                'proposed_outro_start' => $outroStart,
+                'matched_episodes' => [$siblingWithTimings['id'], $episodeId],
+                'episode_id' => $episodeId
+            ]);
+            return;
+        }
+
+        // Level 2 (B): Audio Correlation across sibling episodes
+        $ffmpeg = FfmpegScanner::getFfmpegPath();
+        if ($ffmpeg && $siblingWithFile && !empty($ep['filepath']) && file_exists($ep['filepath'])) {
+            $corr = self::correlateAudioOpening($ffmpeg, $ep['filepath'], $siblingWithFile['filepath']);
+            if ($corr !== null) {
+                jsonResponse([
+                    'success' => true,
+                    'method' => 'audio_correlation',
+                    'confidence' => $corr['confidence'],
+                    'intro_start' => $corr['intro_start'],
+                    'intro_end' => $corr['intro_end'],
+                    'outro_start' => $corr['outro_start'] ?? null,
+                    'proposed_intro_start' => $corr['intro_start'],
+                    'proposed_intro_end' => $corr['intro_end'],
+                    'proposed_outro_start' => $corr['outro_start'] ?? null,
+                    'matched_episodes' => [$siblingWithFile['id'], $episodeId],
+                    'episode_id' => $episodeId
+                ]);
+                return;
+            }
+        }
+
+        // No timings detected
+        jsonResponse([
+            'success' => true,
+            'method' => 'none',
+            'confidence' => 0.0,
+            'intro_start' => null,
+            'intro_end' => null,
+            'outro_start' => null,
+            'proposed_intro_start' => null,
+            'proposed_intro_end' => null,
+            'proposed_outro_start' => null,
+            'matched_episodes' => [],
+            'episode_id' => $episodeId
+        ]);
+    }
+
+    public static function applyTimings(?array $payload = null): void {
+        AuthMiddleware::requireAdmin();
+        $raw = file_get_contents('php://input');
+        $data = $payload ?: (json_decode($raw, true) ?: []);
+
+        $episodeId = $data['episode_id'] ?? ($data['episodeId'] ?? '');
+        $showId = $data['show_id'] ?? ($data['showId'] ?? '');
+        $season = isset($data['season']) ? (int)$data['season'] : (isset($data['season_number']) ? (int)$data['season_number'] : null);
+        $applyToSeason = !empty($data['apply_to_season']) || !empty($data['applyToSeason']);
+
+        $introStart = isset($data['intro_start']) && $data['intro_start'] !== null ? (int)$data['intro_start'] : null;
+        $introEnd = isset($data['intro_end']) && $data['intro_end'] !== null ? (int)$data['intro_end'] : null;
+        $outroStart = isset($data['outro_start']) && $data['outro_start'] !== null ? (int)$data['outro_start'] : null;
+
+        $appliedCount = 0;
+
+        if ($applyToSeason && !empty($showId) && $season !== null) {
+            $episodes = DbHelper::getEpisodesForShow($showId);
+            foreach ($episodes as $ep) {
+                if ((int)$ep['season_number'] === $season) {
+                    DbHelper::saveEpisodeTimestamps($ep['id'], [
+                        'intro_start' => $introStart,
+                        'intro_end' => $introEnd,
+                        'outro_start' => $outroStart
+                    ]);
+                    $appliedCount++;
+                }
+            }
+        } else if (!empty($episodeId)) {
+            $ep = DbHelper::getEpisode($episodeId);
+            if (!$ep) {
+                jsonError('Episodio no encontrado', 404);
+            }
+            DbHelper::saveEpisodeTimestamps($episodeId, [
+                'intro_start' => $introStart,
+                'intro_end' => $introEnd,
+                'outro_start' => $outroStart
+            ]);
+            $appliedCount = 1;
+
+            if ($applyToSeason && !empty($ep['show_id'])) {
+                $episodes = DbHelper::getEpisodesForShow($ep['show_id']);
+                foreach ($episodes as $sibling) {
+                    if ((int)$sibling['season_number'] === (int)$ep['season_number'] && $sibling['id'] !== $episodeId) {
+                        DbHelper::saveEpisodeTimestamps($sibling['id'], [
+                            'intro_start' => $introStart,
+                            'intro_end' => $introEnd,
+                            'outro_start' => $outroStart
+                        ]);
+                        $appliedCount++;
+                    }
+                }
+            }
+        } else {
+            jsonError('episode_id o (show_id y season) requerido', 400);
+        }
+
+        jsonResponse([
+            'success' => true,
+            'applied_count' => $appliedCount,
+            'intro_start' => $introStart,
+            'intro_end' => $introEnd,
+            'outro_start' => $outroStart,
+            'proposed_intro_start' => $introStart,
+            'proposed_intro_end' => $introEnd,
+            'proposed_outro_start' => $outroStart
+        ]);
+    }
+
+    private static function correlateAudioOpening(string $ffmpeg, string $file1, string $file2): ?array {
+        $devNull = DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null';
+        $cmd1 = escapeshellcmd($ffmpeg) . ' -nostdin -ss 0 -t 200 -i ' . escapeshellarg($file1) . ' -vn -ac 1 -ar 100 -f f32le pipe:1 2>' . $devNull;
+        $cmd2 = escapeshellcmd($ffmpeg) . ' -nostdin -ss 0 -t 200 -i ' . escapeshellarg($file2) . ' -vn -ac 1 -ar 100 -f f32le pipe:1 2>' . $devNull;
+
+        $raw1 = @shell_exec($cmd1);
+        $raw2 = @shell_exec($cmd2);
+
+        if (!$raw1 || !$raw2 || strlen($raw1) < 800 || strlen($raw2) < 800) {
+            return null;
+        }
+
+        $samples1 = array_values(unpack('f*', $raw1) ?: []);
+        $samples2 = array_values(unpack('f*', $raw2) ?: []);
+
+        $len = min(count($samples1), count($samples2));
+        if ($len < 200) return null;
+
+        // Compute short-time energy (1 second = 100 samples)
+        $energy1 = [];
+        $energy2 = [];
+        $window = 50; // 0.5s chunks
+        for ($i = 0; $i < $len - $window; $i += $window) {
+            $e1 = 0.0;
+            $e2 = 0.0;
+            for ($w = 0; $w < $window; $w++) {
+                $e1 += abs($samples1[$i + $w]);
+                $e2 += abs($samples2[$i + $w]);
+            }
+            $energy1[] = $e1;
+            $energy2[] = $e2;
+        }
+
+        $eCount = count($energy1);
+        if ($eCount < 4) return null;
+
+        // Slide window of 90 seconds (180 chunks of 0.5s) or best match
+        $opChunks = min(180, (int)max(2, $eCount * 0.75));
+
+        $bestCorr = 0.0;
+        $bestStartChunk = 0;
+
+        for ($start = 0; $start <= $eCount - $opChunks; $start++) {
+            $dot = 0.0;
+            $norm1 = 0.0;
+            $norm2 = 0.0;
+            for ($c = 0; $c < $opChunks; $c++) {
+                $v1 = $energy1[$start + $c];
+                $v2 = $energy2[$start + $c];
+                $dot += $v1 * $v2;
+                $norm1 += $v1 * $v1;
+                $norm2 += $v2 * $v2;
+            }
+            $denom = sqrt($norm1 * $norm2);
+            $corr = $denom > 0 ? ($dot / $denom) : 0;
+            if ($corr > $bestCorr) {
+                $bestCorr = $corr;
+                $bestStartChunk = $start;
+            }
+        }
+
+        if ($bestCorr >= 0.70) {
+            $startSec = (int)round($bestStartChunk * 0.5);
+            $endSec = $startSec + (int)round($opChunks * 0.5);
+            return [
+                'confidence' => round($bestCorr, 2),
+                'intro_start' => $startSec,
+                'intro_end' => $endSec
+            ];
+        }
+
+        return null;
+    }
 }
+
