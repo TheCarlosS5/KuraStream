@@ -647,13 +647,22 @@ export async function loadShowDetails(id) {
   const detailPoster = document.getElementById('detail-poster');
   const detailRating = document.getElementById('detail-rating');
   const detailYear = document.getElementById('detail-year');
+  const detailAge = document.getElementById('detail-age');
+  const detailStatusBadge = document.getElementById('detail-status-badge');
   const detailCast = document.getElementById('detail-cast');
+  const detailStudio = document.getElementById('detail-studio');
+  const detailDirector = document.getElementById('detail-director');
+  const detailWriter = document.getElementById('detail-writer');
   const seasonTabs = document.getElementById('season-tabs');
   const episodesList = document.getElementById('episodes-list');
 
   if (detailTitle) detailTitle.textContent = 'Cargando...';
   if (detailSynopsis) detailSynopsis.textContent = '';
   if (detailCast) detailCast.innerHTML = '';
+  if (detailStudio) detailStudio.textContent = '--';
+  if (detailDirector) detailDirector.textContent = '--';
+  if (detailWriter) detailWriter.textContent = '--';
+  if (detailStatusBadge) detailStatusBadge.textContent = '--';
 
   try {
     const res = await fetch(`/api/shows/${encodeURIComponent(id)}`);
@@ -760,6 +769,12 @@ export async function loadShowDetails(id) {
 
     if (detailRating) detailRating.textContent = show.rating ? Number(show.rating).toFixed(1) : 'N/A';
     if (detailYear) detailYear.textContent = show.year || 'N/A';
+    if (detailAge) detailAge.textContent = show.age_rating || 'TV-14';
+    if (detailStatusBadge) {
+      const isAiring = show.status === 'airing';
+      detailStatusBadge.textContent = isAiring ? 'En Emisión' : 'Finalizado';
+      detailStatusBadge.className = `badge ${isAiring ? 'badge-status-airing' : 'badge-subtle'}`;
+    }
 
     // Badges row
     let metaBadgesEl = document.getElementById('detail-meta-badges');
@@ -796,6 +811,11 @@ export async function loadShowDetails(id) {
         `).join('');
       }
     }
+
+    // Production credits (Estudio, Director, Guionista)
+    if (detailStudio) detailStudio.textContent = (show.studio && show.studio.trim()) || '--';
+    if (detailDirector) detailDirector.textContent = (show.director && show.director.trim()) || '--';
+    if (detailWriter) detailWriter.textContent = (show.writer && show.writer.trim()) || '--';
 
     // Seasons and episodes
     if (seasonTabs && episodesList) {

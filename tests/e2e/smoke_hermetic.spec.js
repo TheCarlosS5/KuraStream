@@ -25,6 +25,9 @@ test.describe('KuraStream Hermetic E2E Platform Smoke Suite', () => {
       title: "Frieren: Beyond Journey's End",
       year: 2023,
       rating: 9.1,
+      studio: 'Madhouse',
+      director: 'Keiichirou Saitou',
+      writer: 'Tomohiro Suzuki',
       genres: 'Aventura, Fantasía, Drama',
       synopsis: 'El viaje de la maga elfa Frieren tras derrotar al Rey Demonio.',
       poster_path: '/assets/branding/KuraStreamLogoBlack.png',
@@ -192,6 +195,9 @@ test.describe('KuraStream Hermetic E2E Platform Smoke Suite', () => {
     await expect(page).toHaveURL(/#\/show\/frieren-beyond-journeys-end/);
     await expect(page.locator('#detail-view')).toBeVisible();
     await expect(page.locator('#detail-title')).toHaveText("Frieren: Beyond Journey's End");
+    await expect(page.locator('#detail-studio')).toHaveText('Madhouse');
+    await expect(page.locator('#detail-director')).toHaveText('Keiichirou Saitou');
+    await expect(page.locator('#detail-writer')).toHaveText('Tomohiro Suzuki');
 
     // -------------------------------------------------------------
     // 3. Open Episode Modal and Trigger Player

@@ -66,6 +66,22 @@ export function renderShowDetailHTML(show) {
             ${show.episodes ? `<span class="badge">${escapeHtml(String(show.episodes.length))} Episodios</span>` : ''}
           </div>
           <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-secondary); margin-bottom: 24px; max-width: 680px;">${escapeHtml(synopsis)}</p>
+          ${(show.studio || show.director || show.writer) ? `
+            <div class="production-credits-grid" style="margin-bottom: 24px; max-width: 680px;">
+              <div class="sidebar-info-block">
+                <h3 class="credit-label">Estudio</h3>
+                <p class="credit-value">${escapeHtml(show.studio || '--')}</p>
+              </div>
+              <div class="sidebar-info-block">
+                <h3 class="credit-label">Director</h3>
+                <p class="credit-value">${escapeHtml(show.director || '--')}</p>
+              </div>
+              <div class="sidebar-info-block">
+                <h3 class="credit-label">Guionista</h3>
+                <p class="credit-value">${escapeHtml(show.writer || '--')}</p>
+              </div>
+            </div>
+          ` : ''}
           <div style="display: flex; align-items: center; gap: 12px;">
             <button class="btn btn-primary detail-smart-resume-btn" data-action="resume-episode" data-episode-id="${escapeHtmlAttribute(String(resumeEpId))}">
               <i data-lucide="play" style="width: 18px; height: 18px; fill: currentColor;"></i> ${escapeHtml(resumeBtnText)}
