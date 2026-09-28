@@ -50,6 +50,12 @@ interface ShowDao {
 
     @Query("DELETE FROM cached_shows WHERE serverId = :serverId")
     suspend fun clearShowsForServer(serverId: String)
+
+    @Transaction
+    suspend fun replaceShowsForServer(serverId: String, shows: List<CachedShowEntity>) {
+        clearShowsForServer(serverId)
+        insertShows(shows)
+    }
 }
 
 @Dao

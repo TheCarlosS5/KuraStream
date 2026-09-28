@@ -1,7 +1,10 @@
 package com.kurastream.app.feature.settings
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import coil.Coil
+import com.kurastream.app.core.database.ShowDao
 import com.kurastream.app.core.model.UserPreferences
 import com.kurastream.app.core.model.UserStats
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
@@ -9,6 +12,8 @@ import com.kurastream.app.core.preferences.UserSessionPreferences
 import com.kurastream.app.core.repository.AuthRepository
 import com.kurastream.app.core.repository.HistoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -22,8 +27,10 @@ data class SettingsUiState(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val authRepository: AuthRepository,
     private val historyRepository: HistoryRepository,
+    private val catalogShowDao: ShowDao,
     private val preferencesDataSource: KuraPreferencesDataSource
 ) : ViewModel() {
 
@@ -153,8 +160,21 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    @OptIn(coil.annotation.ExperimentalCoilApi::class)
     fun clearCache() {
-        _uiState.update { it.copy(cacheClearedMessage = "Caché de imágenes y catálogo limpiada correctamente") }
+        viewModelScope.launch(Dispatchers.IO) {
+            val serverId = _uiState.value.sessionPrefs.activeServerId
+            if (!serverId.isNullOrBlank()) {
+                catalogShowDao.clearShowsForServer(serverId)
+            }
+            try {
+                val imageLoader = Coil.imageLoader(context)
+                imageLoader.diskCache?.clear()
+                imageLoader.memoryCache?.clear()
+            } catch (_: Exception) {}
+
+            _uiState.update { it.copy(cacheClearedMessage = "Caché de imágenes y catálogo limpiada correctamente") }
+        }
     }
 
     fun dismissCacheMessage() {

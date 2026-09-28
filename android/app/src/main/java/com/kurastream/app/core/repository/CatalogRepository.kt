@@ -24,7 +24,7 @@ class CatalogRepository(
         return try {
             val dtoList = apiService.getShows(type = "all")
             val entities = dtoList.map { it.toEntity(serverId) }
-            showDao.insertShows(entities)
+            showDao.replaceShowsForServer(serverId, entities)
             val filtered = if (isKidsMode) entities.filter { !it.isRestrictedKids } else entities
             Result.success(filtered.map { it.toModel() })
         } catch (e: Exception) {

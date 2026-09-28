@@ -9,6 +9,7 @@ import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import com.kurastream.app.core.repository.CatalogRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -38,7 +39,8 @@ data class ExploreUiState(
     val catalogState: UiState<List<Show>> = UiState.Loading,
     val calendarState: UiState<Map<String, List<CalendarItem>>> = UiState.Loading,
     val availableGenres: List<String> = emptyList(),
-    val baseUrl: String = ""
+    val baseUrl: String = "",
+    val isRefreshing: Boolean = false
 )
 
 @OptIn(FlowPreview::class)
@@ -54,15 +56,76 @@ class ExploreViewModel @Inject constructor(
     private val searchQueryFlow = MutableStateFlow("")
     private var allCatalogShows = listOf<Show>()
 
+    private var cacheObservationJob: Job? = null
+    private var networkRefreshJob: Job? = null
+
+    private var currentServerId: String = ""
+    private var currentIsKids: Boolean = false
+
     init {
-        loadData()
+        observePreferencesAndInitialize()
 
         viewModelScope.launch {
             searchQueryFlow
                 .debounce(300)
-                .collectLatest { query ->
+                .collectLatest {
                     applyFilters()
                 }
+        }
+    }
+
+    private fun observePreferencesAndInitialize() {
+        viewModelScope.launch {
+            preferencesDataSource.preferencesFlow.collectLatest { prefs ->
+                val serverId = prefs.activeServerId ?: return@collectLatest
+                val serverUrl = prefs.activeServerUrl ?: ""
+                val isKids = prefs.isKidsMode
+
+                _uiState.update { it.copy(baseUrl = serverUrl) }
+
+                val sessionChanged = serverId != currentServerId || isKids != currentIsKids
+                currentServerId = serverId
+                currentIsKids = isKids
+
+                if (sessionChanged) {
+                    _uiState.update { it.copy(catalogState = UiState.Loading) }
+                    startCacheObservation(serverId, isKids)
+                    triggerNetworkRefresh(serverId, isKids)
+                }
+            }
+        }
+    }
+
+    private fun startCacheObservation(serverId: String, isKids: Boolean) {
+        cacheObservationJob?.cancel()
+        cacheObservationJob = viewModelScope.launch {
+            catalogRepository.getCachedShows(serverId, isKids).collect { cachedShows ->
+                allCatalogShows = cachedShows
+                extractGenres(cachedShows)
+                applyFilters()
+            }
+        }
+    }
+
+    fun refresh() {
+        if (currentServerId.isBlank()) return
+        triggerNetworkRefresh(currentServerId, currentIsKids)
+    }
+
+    fun loadData() = refresh()
+
+    private fun triggerNetworkRefresh(serverId: String, isKids: Boolean) {
+        networkRefreshJob?.cancel()
+        networkRefreshJob = viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshing = true) }
+            val refreshRes = catalogRepository.refreshCatalog(serverId, isKids)
+            _uiState.update { it.copy(isRefreshing = false) }
+
+            if (refreshRes.isFailure && allCatalogShows.isEmpty()) {
+                _uiState.update {
+                    it.copy(catalogState = UiState.Error(refreshRes.exceptionOrNull()?.message ?: "Error al actualizar catálogo"))
+                }
+            }
         }
     }
 
@@ -92,32 +155,6 @@ class ExploreViewModel @Inject constructor(
         val next = if (_uiState.value.selectedGenre == genre) null else genre
         _uiState.update { it.copy(selectedGenre = next) }
         applyFilters()
-    }
-
-    fun loadData() {
-        viewModelScope.launch {
-            preferencesDataSource.preferencesFlow.collectLatest { prefs ->
-                val serverId = prefs.activeServerId ?: return@collectLatest
-                val serverUrl = prefs.activeServerUrl ?: ""
-                val isKids = prefs.isKidsMode
-
-                _uiState.update { it.copy(baseUrl = serverUrl) }
-
-                catalogRepository.getCachedShows(serverId, isKids).collectLatest { cachedShows ->
-                    allCatalogShows = cachedShows
-                    extractGenres(cachedShows)
-                    applyFilters()
-
-                    // Background network refresh
-                    val refreshRes = catalogRepository.refreshCatalog(serverId, isKids)
-                    if (refreshRes.isSuccess) {
-                        allCatalogShows = refreshRes.getOrThrow()
-                        extractGenres(allCatalogShows)
-                        applyFilters()
-                    }
-                }
-            }
-        }
     }
 
     fun surpriseMe(onShowFound: (String) -> Unit) {
@@ -188,7 +225,9 @@ class ExploreViewModel @Inject constructor(
         }
 
         if (filtered.isEmpty()) {
-            _uiState.update { it.copy(catalogState = UiState.Empty("No se encontraron coincidencias")) }
+            if (_uiState.value.catalogState !is UiState.Loading) {
+                _uiState.update { it.copy(catalogState = UiState.Empty("No se encontraron coincidencias")) }
+            }
         } else {
             _uiState.update { it.copy(catalogState = UiState.Content(filtered)) }
         }
