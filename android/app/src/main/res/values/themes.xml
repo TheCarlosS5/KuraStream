@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.KuraStream" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/kura_bg</item>
+        <item name="android:navigationBarColor">@color/kura_bg</item>
+        <item name="android:windowBackground">@color/kura_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="Theme.KuraStream.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/kura_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_kurastream_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.KuraStream</item>
+    </style>
+</resources>

@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="128dp"
+    android:height="128dp"
+    android:viewportWidth="128"
+    android:viewportHeight="128">
+    <!-- Background Circle -->
+    <path
+        android:fillColor="#111824"
+        android:strokeColor="#263447"
+        android:strokeWidth="2"
+        android:pathData="M64,64m-60,0a60,60 0,1,1 120,0a60,60 0,1,1 -120,0" />
+    <!-- Inner Glow Ring -->
+    <path
+        android:strokeColor="#818CF8"
+        android:strokeWidth="2"
+        android:strokeAlpha="0.3"
+        android:pathData="M64,64m-42,0a42,42 0,1,1 84,0a42,42 0,1,1 -84,0" />
+    <!-- Play Triangle (Nocturnal Cold Indigo) -->
+    <path
+        android:fillColor="#818CF8"
+        android:pathData="M52,42 L88,64 L52,86 Z" />
+    <!-- Mint Spark / Accent Dot -->
+    <path
+        android:fillColor="#5ED8C6"
+        android:pathData="M88,40m-4,0a4,4 0,1,1 8,0a4,4 0,1,1 -8,0" />
+</vector>

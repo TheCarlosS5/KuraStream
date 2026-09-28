@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- KuraStream Nocturnal Palette -->
+    <color name="kura_bg">#080A10</color>
+    <color name="kura_bg_secondary">#0C1018</color>
+    <color name="kura_surface">#111824</color>
+    <color name="kura_surface_raised">#172131</color>
+    <color name="kura_surface_hover">#1D2A3C</color>
+    <color name="kura_border">#263447</color>
+    <color name="kura_border_strong">#34465E</color>
+
+    <color name="kura_accent">#818CF8</color>
+    <color name="kura_accent_hover">#9AA3FF</color>
+    <color name="kura_accent_pressed">#6C76E8</color>
+    <color name="kura_secondary">#5ED8C6</color>
+
+    <color name="kura_success">#4DD4A7</color>
+    <color name="kura_rating">#F1C75B</color>
+    <color name="kura_danger">#FF6B81</color>
+    <color name="kura_info">#5AA7FF</color>
+
+    <color name="kura_text_main">#F5F7FB</color>
+    <color name="kura_text_secondary">#B8C1D1</color>
+    <color name="kura_text_muted">#7D899C</color>
+</resources>

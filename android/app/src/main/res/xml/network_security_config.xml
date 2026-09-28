@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Base config permits cleartext HTTP for dynamic self-hosted/LAN servers,
+         while the application layer strictly restricts requests to the configured origin,
+         prohibits untrusted redirects, and maintains strict TLS verification without TrustAllCerts. -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
