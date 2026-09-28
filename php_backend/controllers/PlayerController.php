@@ -433,7 +433,8 @@ class PlayerController {
 
             $cmd = 'ffmpeg -v error -fflags +nobuffer+fastseek -probesize 1M -analyzeduration 1M ';
             if ($start > 0) {
-                $cmd .= '-ss ' . escapeshellarg(strval($start)) . ' ';
+                $startStr = (fmod($start, 1) !== 0.0) ? number_format($start, 3, '.', '') : strval((int)$start);
+                $cmd .= '-ss ' . escapeshellarg($startStr) . ' ';
             }
             $cmd .= '-i ' . escapeshellarg($realPath) . ' ';
             $cmd .= '-map 0:v:0 ';

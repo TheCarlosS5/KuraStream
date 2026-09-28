@@ -693,9 +693,11 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
     }
 
     // 2. Seek -10s: 'j' / 'J' or ArrowLeft
-    if (key === 'j' || key === 'J' || key === 'ArrowLeft') {
+    if (key === 'j' || key === 'J' || key === 'ArrowLeft' || key === 'Left') {
       event.preventDefault();
-      if (videoElement) {
+      if (typeof options.onSeekRelative === 'function') {
+        options.onSeekRelative(-10);
+      } else if (videoElement) {
         const cur = Number(videoElement.currentTime) || 0;
         videoElement.currentTime = Math.max(0, cur - 10);
       }
@@ -704,15 +706,33 @@ export function initShortcutsHud(videoElement, containerElement, options = {}) {
     }
 
     // 3. Seek +10s: 'l' / 'L' or ArrowRight
-    if (key === 'l' || key === 'L' || key === 'ArrowRight') {
+    if (key === 'l' || key === 'L' || key === 'ArrowRight' || key === 'Right') {
       event.preventDefault();
-      if (videoElement) {
+      if (typeof options.onSeekRelative === 'function') {
+        options.onSeekRelative(10);
+      } else if (videoElement) {
         const cur = Number(videoElement.currentTime) || 0;
         const dur = Number(videoElement.duration);
         const max = !isNaN(dur) && dur > 0 ? dur : Infinity;
         videoElement.currentTime = Math.min(max, cur + 10);
       }
       showHud('⏩', '+10s');
+      return;
+    }
+
+    // 3b. Jump by Percentage: Number keys 0-9 (0%, 10%, ... 90%)
+    if (/^[0-9]$/.test(key) && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      event.preventDefault();
+      const pct = parseInt(key, 10) * 0.1;
+      if (typeof options.onSeekPercent === 'function') {
+        options.onSeekPercent(pct);
+      } else if (typeof options.onSeekTo === 'function') {
+        const dur = Number(videoElement?.duration) || 0;
+        if (dur > 0) options.onSeekTo(dur * pct);
+      } else if (videoElement && !isNaN(videoElement.duration) && videoElement.duration > 0) {
+        videoElement.currentTime = videoElement.duration * pct;
+      }
+      showHud('⏩', `${Math.round(pct * 100)}%`);
       return;
     }
 

@@ -178,9 +178,11 @@ export function matchesLanguage(trackLang, prefLang) {
 
 export function isDirectPlayable(ep, audioTrackNum = 0) {
   if (!ep) return false;
+  if (ep.direct_playable === false) return false;
+  const container = (ep.container || '').toLowerCase();
   const pathOrName = ep.filepath || ep.filename || ep.id || '';
-  const ext = pathOrName.split('.').pop().toLowerCase();
-  const isDirectContainer = ['mp4', 'webm', 'm4v'].includes(ext);
+  const ext = container || (pathOrName.includes('.') ? pathOrName.split('.').pop().toLowerCase() : '');
+  const isDirectContainer = ['mp4', 'webm', 'm4v'].includes(ext) || ep.direct_playable === true;
   const codec = (ep.video_codec || '').toLowerCase();
   const isDirectCodec = !codec || ['h264', 'avc1', 'avc', 'vp8', 'vp9', 'av1'].includes(codec);
   const audioTracks = parseJsonArray(ep.audio_tracks);
@@ -506,6 +508,16 @@ export async function initPlayer(rawEpisodeId) {
     if (!shortcutsHudInstance) {
       shortcutsHudInstance = initShortcutsHud(video, container, {
         audioEnhancer: audioEnhancerInstance,
+        onSeekRelative: (seconds) => {
+          seekRelative(seconds);
+          triggerControlsActivity();
+        },
+        onSeekPercent: (pct) => {
+          const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video ? video.duration : 1) || 1;
+          const targetTime = pct * duration;
+          loadVideoStream(targetTime);
+          triggerControlsActivity();
+        },
         onVolumeChange: (vol, muted) => {
           if (volumeSlider) volumeSlider.value = muted ? 0 : vol;
           updateVolumeIcon(muted ? 0 : vol);
@@ -560,7 +572,10 @@ export async function initPlayer(rawEpisodeId) {
         introEnd: currentEpisodeData ? currentEpisodeData.intro_end : null,
         outroStart: currentEpisodeData ? currentEpisodeData.outro_start : null,
         autoSkip: isAutoSkip,
-        onSkip: () => {
+        onSkip: (targetTime) => {
+          if (typeof targetTime === 'number' && targetTime > 0) {
+            loadVideoStream(targetTime);
+          }
           showVideoToast("Intro omitida");
         },
         onPlayNext: () => {
@@ -616,9 +631,24 @@ export async function initPlayer(rawEpisodeId) {
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
+function showLoader() {
+  const loader = document.getElementById('player-loader');
+  if (loader) loader.style.display = 'flex';
+  if (centerPlayBtn) centerPlayBtn.style.display = 'none';
+}
+
+function hideLoader() {
+  const loader = document.getElementById('player-loader');
+  if (loader) loader.style.display = 'none';
+  if (video && video.paused && centerPlayBtn) {
+    centerPlayBtn.style.display = 'flex';
+  }
+}
+
 function loadVideoStream(startTime = 0) {
   const wasPaused = video ? video.paused : false;
-  currentStreamStartOffset = startTime;
+  const direct = isDirectPlayable(currentEpisodeData, selectedAudioTrackNum);
+  currentStreamStartOffset = direct ? 0 : startTime;
   if (startTime === 0) {
     if (video) video.currentTime = 0;
     if (timeCurrent) timeCurrent.textContent = '0:00';
@@ -626,7 +656,7 @@ function loadVideoStream(startTime = 0) {
     if (progressHandle) progressHandle.style.left = '0%';
   }
   if (octopusInstance) {
-    octopusInstance.timeOffset = startTime;
+    octopusInstance.timeOffset = currentStreamStartOffset;
   }
   if (smartSkipInstance && currentEpisodeData) {
     smartSkipInstance.setTimingIntervals({
@@ -637,10 +667,8 @@ function loadVideoStream(startTime = 0) {
   }
   
   // Show glowing buffer loader on stream start
-  const loader = document.getElementById('player-loader');
-  if (loader) loader.style.display = 'flex';
+  showLoader();
 
-  const direct = isDirectPlayable(currentEpisodeData, selectedAudioTrackNum);
   let baseStreamUrl = `/api/stream/${encodeURIComponent(currentEpisodeId)}`;
   let streamUrl = direct ? baseStreamUrl : `${baseStreamUrl}?audio=${selectedAudioTrackNum}`;
   if (!direct && startTime > 0) {
@@ -657,7 +685,7 @@ function loadVideoStream(startTime = 0) {
   const currentSrc = (video && (video.getAttribute('src') || video.src)) || '';
   const isSameDirectStream = direct && currentSrc.includes(baseStreamUrl) && !currentSrc.includes('&start=') && !currentSrc.includes('?start=');
 
-  if (isSameDirectStream && startTime > 0) {
+  if (isSameDirectStream) {
     // Native HTML5 seek for Direct Play streams without resetting video.src
     video.currentTime = startTime;
     hideLoader();
@@ -668,7 +696,7 @@ function loadVideoStream(startTime = 0) {
       video.addEventListener('loadedmetadata', () => {
         video.currentTime = startTime;
       }, { once: true });
-    } else if (startTime === 0) {
+    } else {
       video.addEventListener('loadedmetadata', () => {
         video.currentTime = 0;
       }, { once: true });
@@ -700,9 +728,9 @@ function loadVideoStream(startTime = 0) {
     if (!octopusInstance) {
       initSubtitles(selectedSubtitleTrackNum);
     } else {
-      octopusInstance.timeOffset = startTime;
+      octopusInstance.timeOffset = currentStreamStartOffset;
       if (typeof octopusInstance.setCurrentTime === 'function' && video) {
-        octopusInstance.setCurrentTime((video.currentTime || 0) + startTime);
+        octopusInstance.setCurrentTime((video.currentTime || 0) + currentStreamStartOffset);
       }
     }
   }
@@ -1271,20 +1299,6 @@ function setupTracksMenu() {
 }
 
 function setupPlayerEventListeners() {
-  const showLoader = () => {
-    const loader = document.getElementById('player-loader');
-    if (loader) loader.style.display = 'flex';
-    if (centerPlayBtn) centerPlayBtn.style.display = 'none';
-  };
-
-  const hideLoader = () => {
-    const loader = document.getElementById('player-loader');
-    if (loader) loader.style.display = 'none';
-    if (video && video.paused && centerPlayBtn) {
-      centerPlayBtn.style.display = 'flex';
-    }
-  };
-
   // Play/Pause toggling
   const togglePlay = () => {
     if (!video) return;
@@ -1592,18 +1606,53 @@ function setupPlayerEventListeners() {
   };
 
   // Scrubbing Timeline event listeners
+  let justHandledDragSeek = false;
+  let dragTargetTime = null;
+
   const getTimelineClickPos = (e) => {
+    if (!progressBar) return 0;
     const rect = progressBar.getBoundingClientRect();
-    const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
-    const pos = (clientX - rect.left) / rect.width;
-    return Math.max(0, Math.min(1, pos));
+    let clientX = null;
+    if (e.touches && e.touches.length > 0 && typeof e.touches[0].clientX === 'number') {
+      clientX = e.touches[0].clientX;
+    } else if (e.changedTouches && e.changedTouches.length > 0 && typeof e.changedTouches[0].clientX === 'number') {
+      clientX = e.changedTouches[0].clientX;
+    } else if (typeof e.clientX === 'number') {
+      clientX = e.clientX;
+    }
+    if (clientX === null || isNaN(clientX)) return 0;
+    const width = rect.width > 0 ? rect.width : (progressBar.offsetWidth || 1);
+    const pos = (clientX - rect.left) / width;
+    return Math.max(0, Math.min(1, isNaN(pos) ? 0 : pos));
   };
 
   // Hover Ghost Scrubber and Timestamp Tooltip
   if (progressBar) {
+    progressBar.onmousedown = (e) => {
+      e.preventDefault();
+      isDraggingProgress = true;
+      updateProgressOnDrag(e);
+      triggerControlsActivity();
+    };
+
+    progressBar.ontouchstart = (e) => {
+      isDraggingProgress = true;
+      updateProgressOnDrag(e);
+      triggerControlsActivity();
+    };
+
+    progressBar.onclick = (e) => {
+      if (justHandledDragSeek) return;
+      const pos = getTimelineClickPos(e);
+      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video ? video.duration : 1) || 1;
+      const targetTime = pos * duration;
+      loadVideoStream(targetTime);
+      triggerControlsActivity();
+    };
+
     progressBar.onmousemove = (e) => {
       const pos = getTimelineClickPos(e);
-      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
+      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video ? video.duration : 1) || 1;
       const hoverTime = pos * duration;
 
       if (progressHover) {
@@ -1627,11 +1676,12 @@ function setupPlayerEventListeners() {
         if (progressTooltip) progressTooltip.style.opacity = '0';
       }
     };
-  };
+  }
 
   const handleGlobalMouseMove = (e) => {
     if (isDraggingProgress) {
       updateProgressOnDrag(e);
+      triggerControlsActivity();
     }
   };
 
@@ -1644,15 +1694,24 @@ function setupPlayerEventListeners() {
   const handleGlobalMouseUp = () => {
     if (isDraggingProgress) {
       isDraggingProgress = false;
+      justHandledDragSeek = true;
+      setTimeout(() => {
+        justHandledDragSeek = false;
+      }, 100);
       if (progressTooltip) {
         progressTooltip.style.opacity = '0';
       }
       
-      const percent = parseFloat(progressCurrent.style.width) / 100;
-      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
-      const targetTime = percent * duration;
+      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video ? video.duration : 1) || 1;
+      let targetTime = dragTargetTime;
+      if (targetTime === null || isNaN(targetTime)) {
+        const percent = parseFloat(progressCurrent ? progressCurrent.style.width : 0) / 100;
+        targetTime = !isNaN(percent) ? percent * duration : 0;
+      }
+      dragTargetTime = null;
       
       loadVideoStream(targetTime);
+      triggerControlsActivity();
     }
   };
   window.addEventListener('mouseup', handleGlobalMouseUp, playerAbortController ? { signal: playerAbortController.signal } : undefined);
@@ -1660,12 +1719,13 @@ function setupPlayerEventListeners() {
 
   function updateProgressOnDrag(e) {
     const pos = getTimelineClickPos(e);
-    progressCurrent.style.width = `${pos * 100}%`;
-    progressHandle.style.left = `${pos * 100}%`;
+    if (progressCurrent) progressCurrent.style.width = `${pos * 100}%`;
+    if (progressHandle) progressHandle.style.left = `${pos * 100}%`;
     if (progressHover) progressHover.style.width = `${pos * 100}%`;
     
-    const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
-    timeCurrent.textContent = formatTime(pos * duration);
+    const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video ? video.duration : 1) || 1;
+    dragTargetTime = pos * duration;
+    if (timeCurrent) timeCurrent.textContent = formatTime(dragTargetTime);
   }
 
   // Volume slider control
