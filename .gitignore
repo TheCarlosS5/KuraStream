@@ -27,19 +27,17 @@ Thumbs.db
 .superpowers/
 .agy-atlas/
 
-# Proyectos externos
-android/
-
-# Archivos temporales y de construcción de Android
-.gradle/
-build/
-app/build/
-*.iml
-.idea/
+# Android build caches
+android/.gradle/
+android/**/build/
+android/.idea/
+android/*.iml
+android/local.properties
 # Bases de datos temporales y caches
 *.db
 *.db-shm
 *.db-wal
+kurastream_data.sql
 cache_*.json
 php_backend/cache_*.json
 php_backend/torrent_state.json

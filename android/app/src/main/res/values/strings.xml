@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KuraStream</string>
+    <string name="server_connection">Conexión al servidor</string>
+    <string name="server_url">URL del servidor</string>
+    <string name="server_url_hint">https://ejemplo.com o http://192.168.1.100:3000</string>
+    <string name="connect">Conectar</string>
+    <string name="testing_connection">Comprobando servidor…</string>
+    <string name="connection_success">Servidor conectado correctamente</string>
+    <string name="recent_servers">Servidores recientes</string>
+    <string name="http_warning">Esta conexión no es cifrada (HTTP). Ten precaución en redes no confiables.</string>
+    <string name="local_network_permission_title">Permiso de Red Local Requerido</string>
+    <string name="local_network_permission_desc">KuraStream necesita acceder al servidor multimedia en tu red local (LAN) para reproducir el catálogo.</string>
+    <string name="grant_permission">Conceder permiso</string>
+
+    <!-- Auth -->
+    <string name="login">Iniciar sesión</string>
+    <string name="register">Registrarse</string>
+    <string name="username">Usuario</string>
+    <string name="password">Contraseña</string>
+    <string name="logout">Cerrar sesión</string>
+    <string name="no_account">¿No tienes cuenta? Regístrate</string>
+    <string name="have_account">¿Ya tienes cuenta? Inicia sesión</string>
+
+    <!-- Profiles -->
+    <string name="who_is_watching">¿Quién está viendo?</string>
+    <string name="profile_pin_required">Este perfil requiere PIN</string>
+    <string name="enter_pin">Ingresa el PIN de 4 dígitos</string>
+    <string name="kids_profile">Perfil Infantil</string>
+    <string name="switch_profile">Cambiar perfil</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Inicio</string>
+    <string name="nav_explore">Explorar</string>
+    <string name="nav_my_list">Mi Lista</string>
+    <string name="nav_history">Historial</string>
+    <string name="nav_profile">Perfil</string>
+
+    <!-- Sections -->
+    <string name="continue_watching">Continuar viendo</string>
+    <string name="recently_added">Recién añadidos</string>
+    <string name="anime">Anime</string>
+    <string name="movies">Películas</string>
+    <string name="airing_now">En emisión</string>
+    <string name="calendar">Calendario</string>
+    <string name="watch_party">Watch Party</string>
+    <string name="search_hint">Buscar anime, películas, géneros…</string>
+    <string name="surprise_me">Sorpréndeme</string>
+
+    <!-- Details & Player -->
+    <string name="play">Reproducir</string>
+    <string name="resume">Continuar</string>
+    <string name="more_info">Más información</string>
+    <string name="episodes">Episodios</string>
+    <string name="season">Temporada %1$d</string>
+    <string name="skip_intro">Saltar intro</string>
+    <string name="skip_outro">Saltar outro</string>
+    <string name="next_episode">Siguiente episodio</string>
+    <string name="playing_next_in">Reproduciendo siguiente en %1$d s…</string>
+    <string name="cancel">Cancelar</string>
+    <string name="audio_and_subtitles">Audio y Subtítulos</string>
+    <string name="audio">Audio</string>
+    <string name="subtitles">Subtítulos</string>
+    <string name="playback_speed">Velocidad</string>
+    <string name="subtitles_off">Desactivados</string>
+
+    <!-- Errors -->
+    <string name="retry">Reintentar</string>
+    <string name="error_generic">Ocurrió un error inesperado</string>
+    <string name="error_transcode_busy">El servidor está preparando otros streams. Reintentando en unos segundos…</string>
+    <string name="error_session_expired">Tu sesión ha expirado. Por favor, inicia sesión nuevamente.</string>
+    <string name="error_kids_restricted">Contenido no disponible para el perfil infantil activo.</string>
+    <string name="error_server_unreachable">No fue posible comunicarse con el servidor. Verifica tu conexión o la URL.</string>
+
+    <!-- Settings -->
+    <string name="settings">Ajustes</string>
+    <string name="player_settings">Reproductor</string>
+    <string name="auto_skip_intro_pref">Saltar intro automáticamente</string>
+    <string name="auto_skip_outro_pref">Saltar outro automáticamente</string>
+    <string name="autoplay_next_pref">Reproducir siguiente episodio automáticamente</string>
+    <string name="preferred_audio">Idioma de audio preferido</string>
+    <string name="preferred_subtitles">Idioma de subtítulos preferido</string>
+    <string name="clear_cache">Borrar caché de imágenes y catálogo</string>
+    <string name="clear_history">Borrar todo el historial</string>
+    <string name="clear_history_confirm">¿Estás seguro de que deseas borrar todo tu historial de visualización?</string>
+    <string name="diagnostics">Diagnósticos</string>
+    <string name="about">Acerca de KuraStream</string>
+</resources>
