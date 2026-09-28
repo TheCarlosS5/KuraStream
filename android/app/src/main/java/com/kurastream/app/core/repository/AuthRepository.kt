@@ -6,9 +6,11 @@ import com.kurastream.app.core.network.KuraApiService
 import com.kurastream.app.core.network.dto.LoginRequestDto
 import com.kurastream.app.core.network.dto.ProfileDto
 import com.kurastream.app.core.network.dto.RegisterRequestDto
+import com.kurastream.app.core.network.dto.SaveProfileRequestDto
 import com.kurastream.app.core.network.dto.SelectProfileRequestDto
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import com.kurastream.app.core.security.TokenStorage
+import kotlinx.coroutines.flow.firstOrNull
 
 class AuthRepository(
     private val apiService: KuraApiService,
@@ -19,7 +21,8 @@ class AuthRepository(
         return try {
             val response = apiService.login(LoginRequestDto(username, password))
             if (response.success && !response.token.isNullOrBlank()) {
-                tokenStorage.saveToken(response.token)
+                val activeServerId = preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerId
+                tokenStorage.saveToken(response.token, activeServerId)
                 val user = User(
                     username = response.username.ifBlank { username },
                     role = response.role
@@ -38,7 +41,8 @@ class AuthRepository(
         return try {
             val response = apiService.register(RegisterRequestDto(username, password))
             if (response.success && !response.token.isNullOrBlank()) {
-                tokenStorage.saveToken(response.token)
+                val activeServerId = preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerId
+                tokenStorage.saveToken(response.token, activeServerId)
                 val user = User(
                     username = response.username.ifBlank { username },
                     role = response.role
@@ -71,8 +75,9 @@ class AuthRepository(
         return try {
             val response = apiService.selectProfile(SelectProfileRequestDto(profileId, pin))
             if (response.success && !response.token.isNullOrBlank() && response.profile != null) {
-                // ATOMIC REPLACEMENT: Overwrite existing token with new profile-bound token
-                tokenStorage.saveToken(response.token)
+                // ATOMIC REPLACEMENT: Overwrite existing token with new profile-bound token for active server
+                val activeServerId = preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerId
+                tokenStorage.saveToken(response.token, activeServerId)
                 val profile = response.profile.toModel()
                 preferencesDataSource.setActiveProfile(
                     profileId = profile.id,
@@ -88,13 +93,34 @@ class AuthRepository(
         }
     }
 
+    suspend fun saveProfile(name: String, color: String, isKids: Boolean, pin: String? = null): Result<Unit> {
+        return try {
+            val response = apiService.saveProfile(
+                SaveProfileRequestDto(
+                    name = name,
+                    color = color,
+                    isKids = isKids,
+                    pin = pin
+                )
+            )
+            if (response.success) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception(response.error ?: "No fue posible guardar el perfil"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun logout(): Result<Unit> {
         return try {
             try {
                 apiService.logout()
             } catch (_: Exception) {}
 
-            tokenStorage.clearToken()
+            val activeServerId = preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerId
+            tokenStorage.clearToken(activeServerId)
             preferencesDataSource.clearSession()
             Result.success(Unit)
         } catch (e: Exception) {

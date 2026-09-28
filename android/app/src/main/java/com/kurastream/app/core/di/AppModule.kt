@@ -25,7 +25,10 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import java.util.concurrent.TimeUnit
+import javax.inject.Named
 import javax.inject.Singleton
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "kurastream_preferences")
 
@@ -35,8 +38,13 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideTokenStorage(@ApplicationContext context: Context): TokenStorage {
-        return SecureTokenStorage(context)
+    fun provideTokenStorage(
+        @ApplicationContext context: Context,
+        preferencesDataSource: KuraPreferencesDataSource
+    ): TokenStorage {
+        return SecureTokenStorage(context) {
+            runBlocking { preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerId }
+        }
     }
 
     @Provides
@@ -90,7 +98,12 @@ object AppModule {
             }
         }
 
-        val authInterceptor = AuthInterceptor(tokenStorage)
+        val authInterceptor = AuthInterceptor(tokenStorage) {
+            runBlocking {
+                val prefs = preferencesDataSource.preferencesFlow.firstOrNull()
+                Pair(prefs?.activeServerId, prefs?.activeServerUrl)
+            }
+        }
         val safeOriginInterceptor = SafeOriginInterceptor {
             runBlocking {
                 preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerUrl
@@ -105,6 +118,48 @@ object AppModule {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    @Named("media")
+    fun provideMediaOkHttpClient(
+        tokenStorage: TokenStorage,
+        preferencesDataSource: KuraPreferencesDataSource
+    ): OkHttpClient {
+        val authInterceptor = Interceptor { chain ->
+            val original = chain.request()
+            val builder = original.newBuilder()
+
+            val prefs = runBlocking { preferencesDataSource.preferencesFlow.firstOrNull() }
+            val activeServerUrl = prefs?.activeServerUrl
+            val activeServerId = prefs?.activeServerId
+
+            val isMatchingServer = if (!activeServerUrl.isNullOrBlank()) {
+                val parsedActive = activeServerUrl.toHttpUrlOrNull()
+                parsedActive != null && parsedActive.host.equals(original.url.host, ignoreCase = true)
+            } else {
+                true
+            }
+
+            if (isMatchingServer) {
+                // If caller didn't pass explicit authorization or stream capability
+                if (original.header("Authorization") == null && original.header("X-Stream-Capability") == null) {
+                    val token = tokenStorage.getToken(activeServerId)
+                    if (!token.isNullOrBlank()) {
+                        builder.header("Authorization", "Bearer $token")
+                    }
+                }
+            }
+
+            chain.proceed(builder.build())
+        }
+
+        return OkHttpClient.Builder()
+            .addInterceptor(authInterceptor)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
             .build()
     }
 

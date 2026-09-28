@@ -11,30 +11,43 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 interface TokenStorage {
-    fun getToken(): String?
-    fun saveToken(token: String)
-    fun clearToken()
-    fun hasToken(): Boolean
+    fun getToken(serverKey: String? = null): String?
+    fun saveToken(token: String, serverKey: String? = null)
+    fun clearToken(serverKey: String? = null)
+    fun clearAllTokens()
+    fun hasToken(serverKey: String? = null): Boolean
 }
 
 /**
  * Android Keystore AES-GCM encrypted token storage.
  * Secret keys remain securely in the Android Keystore hardware-backed provider (minSdk 26).
  * Tokens are never stored in plain text in SharedPreferences or Room.
+ * Provides per-server cryptographic isolation so tokens for server A never leak to server B.
  */
-class SecureTokenStorage(private val context: Context) : TokenStorage {
+class SecureTokenStorage(
+    private val context: Context,
+    private val activeServerKeyProvider: (() -> String?)? = null
+) : TokenStorage {
 
     private val keyAlias = "kurastream_jwt_key_v1"
     private val keyStoreType = "AndroidKeyStore"
     private val prefsName = "kurastream_secure_sec_prefs"
-    private val keyEncryptedToken = "enc_jwt"
-    private val keyIv = "enc_iv"
+    private val legacyTokenKey = "enc_jwt"
+    private val legacyIvKey = "enc_iv"
 
     private val lock = Any()
 
     init {
         ensureKeyExists()
     }
+
+    private fun sanitizeKey(rawKey: String?): String {
+        val key = rawKey?.ifBlank { null } ?: activeServerKeyProvider?.invoke()?.ifBlank { null } ?: "default"
+        return key.replace(Regex("[^a-zA-Z0-9_]"), "_")
+    }
+
+    private fun tokenKey(serverKey: String?): String = "enc_jwt_${sanitizeKey(serverKey)}"
+    private fun ivKey(serverKey: String?): String = "enc_iv_${sanitizeKey(serverKey)}"
 
     private fun ensureKeyExists() {
         val keyStore = KeyStore.getInstance(keyStoreType).apply { load(null) }
@@ -62,11 +75,22 @@ class SecureTokenStorage(private val context: Context) : TokenStorage {
         return keyStore.getKey(keyAlias, null) as SecretKey
     }
 
-    override fun getToken(): String? {
+    override fun getToken(serverKey: String?): String? {
         synchronized(lock) {
             val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-            val encBase64 = prefs.getString(keyEncryptedToken, null) ?: return null
-            val ivBase64 = prefs.getString(keyIv, null) ?: return null
+            val tKey = tokenKey(serverKey)
+            val iKey = ivKey(serverKey)
+
+            var encBase64 = prefs.getString(tKey, null)
+            var ivBase64 = prefs.getString(iKey, null)
+
+            // Fallback to legacy single-token storage if matching default
+            if (encBase64 == null && (serverKey == null || sanitizeKey(serverKey) == "default")) {
+                encBase64 = prefs.getString(legacyTokenKey, null)
+                ivBase64 = prefs.getString(legacyIvKey, null)
+            }
+
+            if (encBase64 == null || ivBase64 == null) return null
 
             return try {
                 val encryptedBytes = Base64.decode(encBase64, Base64.NO_WRAP)
@@ -79,14 +103,13 @@ class SecureTokenStorage(private val context: Context) : TokenStorage {
                 val decryptedBytes = cipher.doFinal(encryptedBytes)
                 String(decryptedBytes, Charsets.UTF_8)
             } catch (e: Exception) {
-                // If decryption fails due to key invalidation, clear invalid tokens immediately
-                clearToken()
+                clearToken(serverKey)
                 null
             }
         }
     }
 
-    override fun saveToken(token: String) {
+    override fun saveToken(token: String, serverKey: String?) {
         synchronized(lock) {
             try {
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -97,32 +120,51 @@ class SecureTokenStorage(private val context: Context) : TokenStorage {
                 val encBase64 = Base64.encodeToString(encryptedBytes, Base64.NO_WRAP)
                 val ivBase64 = Base64.encodeToString(iv, Base64.NO_WRAP)
 
-                // Atomic commit to replace the previous token instantly
-                context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-                    .edit()
-                    .putString(keyEncryptedToken, encBase64)
-                    .putString(keyIv, ivBase64)
-                    .commit()
+                val tKey = tokenKey(serverKey)
+                val iKey = ivKey(serverKey)
+
+                // Atomic commit to replace the previous token instantly for this server
+                val editor = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE).edit()
+                editor.putString(tKey, encBase64)
+                editor.putString(iKey, ivBase64)
+                if (serverKey == null || sanitizeKey(serverKey) == "default") {
+                    editor.putString(legacyTokenKey, encBase64)
+                    editor.putString(legacyIvKey, ivBase64)
+                }
+                editor.commit()
             } catch (e: Exception) {
-                // Safe failure recovery
                 ensureKeyExists()
             }
         }
     }
 
-    override fun clearToken() {
+    override fun clearToken(serverKey: String?) {
+        synchronized(lock) {
+            val tKey = tokenKey(serverKey)
+            val iKey = ivKey(serverKey)
+            val editor = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE).edit()
+            editor.remove(tKey)
+            editor.remove(iKey)
+            if (serverKey == null || sanitizeKey(serverKey) == "default") {
+                editor.remove(legacyTokenKey)
+                editor.remove(legacyIvKey)
+            }
+            editor.commit()
+        }
+    }
+
+    override fun clearAllTokens() {
         synchronized(lock) {
             context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
                 .edit()
-                .remove(keyEncryptedToken)
-                .remove(keyIv)
+                .clear()
                 .commit()
         }
     }
 
-    override fun hasToken(): Boolean {
+    override fun hasToken(serverKey: String?): Boolean {
         synchronized(lock) {
-            return !getToken().isNullOrBlank()
+            return !getToken(serverKey).isNullOrBlank()
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.kurastream.app.feature.server
 
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kurastream.app.core.model.ServerProfile
@@ -49,11 +50,20 @@ class ServerSetupViewModel @Inject constructor(
         }
     }
 
-    fun connectServer(onSuccess: (ServerProfile) -> Unit) {
+    fun connectServer(
+        isLocalNetworkPermissionGranted: Boolean = false,
+        onSuccess: (ServerProfile) -> Unit
+    ) {
         val currentInput = _uiState.value.urlInput
         val validation = ServerUrlResolver.validateAndNormalize(currentInput)
         if (!validation.isValid) {
             _uiState.update { it.copy(errorMessage = validation.errorMessage ?: "URL no válida") }
+            return
+        }
+
+        // On Android 17+ (API 37), prompt contextually for local network access before testing connection
+        if (validation.isLocalNetwork && !isLocalNetworkPermissionGranted && Build.VERSION.SDK_INT >= 37) {
+            _uiState.update { it.copy(showLocalNetworkPermissionDialog = true) }
             return
         }
 
@@ -88,9 +98,27 @@ class ServerSetupViewModel @Inject constructor(
         }
     }
 
+    fun onLocalNetworkPermissionResult(granted: Boolean, onSuccess: (ServerProfile) -> Unit) {
+        _uiState.update { it.copy(showLocalNetworkPermissionDialog = false) }
+        if (granted) {
+            connectServer(isLocalNetworkPermissionGranted = true, onSuccess = onSuccess)
+        } else {
+            _uiState.update {
+                it.copy(
+                    isTesting = false,
+                    errorMessage = "Se denegó el permiso de red local. KuraStream no puede acceder al servidor multimedia en la red local sin este permiso."
+                )
+            }
+        }
+    }
+
+    fun dismissLocalNetworkDialog() {
+        _uiState.update { it.copy(showLocalNetworkPermissionDialog = false) }
+    }
+
     fun selectRecentServer(server: ServerProfile, onSuccess: (ServerProfile) -> Unit) {
         onUrlChanged(server.baseUrl)
-        connectServer(onSuccess)
+        connectServer(isLocalNetworkPermissionGranted = true, onSuccess = onSuccess)
     }
 
     fun deleteRecentServer(id: String) {

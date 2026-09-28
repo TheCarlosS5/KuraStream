@@ -10,6 +10,7 @@ import java.io.IOException
 
 /**
  * Ensures requests dynamically target the currently active ServerProfile base URL.
+ * Preserves subpath installations (e.g. https://example.com/kura).
  */
 class DynamicBaseUrlInterceptor(
     private val getBaseUrl: () -> String?
@@ -22,14 +23,22 @@ class DynamicBaseUrlInterceptor(
         if (!currentBase.isNullOrBlank()) {
             val newHttpUrl = currentBase.toHttpUrlOrNull()
             if (newHttpUrl != null) {
-                val updatedUrl = request.url.newBuilder()
+                val newUrlBuilder = request.url.newBuilder()
                     .scheme(newHttpUrl.scheme)
                     .host(newHttpUrl.host)
                     .port(newHttpUrl.port)
-                    .build()
+
+                val basePathSegments = newHttpUrl.pathSegments.filter { it.isNotEmpty() }
+                if (basePathSegments.isNotEmpty()) {
+                    val basePrefix = basePathSegments.joinToString("/")
+                    val originalPath = request.url.encodedPath.trimStart('/')
+                    val combinedPath = if (originalPath.isEmpty()) "/$basePrefix" else "/$basePrefix/$originalPath"
+                    newUrlBuilder.encodedPath(combinedPath)
+                }
+
                 request = request.newBuilder()
                     .removeHeader("X-Target-Base-Url")
-                    .url(updatedUrl)
+                    .url(newUrlBuilder.build())
                     .build()
             }
         }
@@ -39,10 +48,12 @@ class DynamicBaseUrlInterceptor(
 }
 
 /**
- * Injects Authorization header with Bearer token, and emits unauthorized signals on 401.
+ * Injects Authorization header with Bearer token for authenticated endpoints.
+ * Never leaks tokens across servers or sends tokens to anonymous endpoints (health, login, register).
  */
 class AuthInterceptor(
-    private val tokenStorage: TokenStorage
+    private val tokenStorage: TokenStorage,
+    private val getActiveServerInfo: () -> Pair<String?, String?>? // serverId to serverBaseUrl
 ) : Interceptor {
 
     private val _unauthorizedEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
@@ -52,22 +63,45 @@ class AuthInterceptor(
         val original = chain.request()
         val builder = original.newBuilder()
 
-        // Don't overwrite existing Authorization if explicitly provided
-        if (original.header("Authorization") == null) {
-            val token = tokenStorage.getToken()
-            if (!token.isNullOrBlank()) {
-                builder.header("Authorization", "Bearer $token")
+        val isExplicitNoAuth = original.header("X-No-Auth") == "true"
+        if (isExplicitNoAuth) {
+            builder.removeHeader("X-No-Auth")
+        }
+
+        val path = original.url.encodedPath
+        val isAnonymousEndpoint = path.endsWith("/api/health") ||
+                path.endsWith("/api/login") ||
+                path.endsWith("/api/register")
+
+        // Only inject Authorization if endpoint is not anonymous and no explicit X-No-Auth
+        if (!isExplicitNoAuth && !isAnonymousEndpoint && original.header("Authorization") == null) {
+            val serverInfo = getActiveServerInfo()
+            val activeServerId = serverInfo?.first
+            val activeServerBaseUrl = serverInfo?.second
+
+            // Ensure the request target matches the active server's host to prevent cross-origin leaks
+            val isMatchingServer = if (!activeServerBaseUrl.isNullOrBlank()) {
+                val parsedActive = activeServerBaseUrl.toHttpUrlOrNull()
+                parsedActive != null && parsedActive.host.equals(original.url.host, ignoreCase = true)
+            } else {
+                true
+            }
+
+            if (isMatchingServer) {
+                val token = tokenStorage.getToken(activeServerId)
+                if (!token.isNullOrBlank()) {
+                    builder.header("Authorization", "Bearer $token")
+                }
             }
         }
 
         val response = chain.proceed(builder.build())
 
         // Handle 401 Unauthorized cleanly without infinite recursion
-        if (response.code == 401) {
-            val path = original.url.encodedPath
-            if (!path.contains("/api/login") && !path.contains("/api/register")) {
-                _unauthorizedEvents.tryEmit(Unit)
-            }
+        if (response.code == 401 && !isAnonymousEndpoint) {
+            val activeServerId = getActiveServerInfo()?.first
+            tokenStorage.clearToken(activeServerId)
+            _unauthorizedEvents.tryEmit(Unit)
         }
 
         return response
@@ -75,7 +109,7 @@ class AuthInterceptor(
 }
 
 /**
- * Restricts all HTTP responses to the configured server host to prevent rogue redirects.
+ * Restricts all HTTP responses and redirects to the configured server host to prevent rogue redirects.
  */
 class SafeOriginInterceptor(
     private val getBaseUrl: () -> String?
@@ -88,7 +122,7 @@ class SafeOriginInterceptor(
             val location = response.header("Location")
             if (!location.isNullOrBlank()) {
                 val redirectUrl = location.toHttpUrlOrNull()
-                if (redirectUrl != null && (redirectUrl.host != configuredBase.host || redirectUrl.port != configuredBase.port)) {
+                if (redirectUrl != null && (!redirectUrl.host.equals(configuredBase.host, ignoreCase = true) || redirectUrl.port != configuredBase.port)) {
                     throw IOException("Redirección bloqueada por seguridad: origin no autorizado ($location)")
                 }
             }
