@@ -40,6 +40,22 @@ class ShowController {
 
         $shows = DbHelper::getShows($type);
 
+        if (!defined('TESTING_MODE')) {
+            $shows = array_values(array_filter($shows, function($s) {
+                $id = strtolower($s['id'] ?? '');
+                $title = strtolower($s['title'] ?? '');
+                return !str_starts_with($id, 'show_pin_test')
+                    && !str_starts_with($id, 'test_')
+                    && !str_starts_with($id, 'show_party_')
+                    && !str_starts_with($id, 'notif_show')
+                    && !str_starts_with($id, 'show_sec_')
+                    && !str_starts_with($id, 'mock_')
+                    && !str_ends_with($id, '_test')
+                    && !str_contains($id, '_test_')
+                    && !preg_match('/\btest\b/i', $title);
+            }));
+        }
+
         if (self::isKidsProfileActive()) {
             $shows = array_values(array_filter($shows, fn($s) => !self::isAdultOrMaturityRestricted($s)));
         }

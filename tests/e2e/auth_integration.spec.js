@@ -172,5 +172,14 @@ test.describe('KuraStream Auth & Profile PIN Security Integration Suite', () => 
     expect(histARes.status()).toBe(200);
     const histAData = await histARes.json();
     expect(histAData.some(item => item.episode_id === `ep_pin_test_${timestamp}`)).toBe(false);
+
+    // Cleanup seeded test fixtures
+    try {
+      const cleanupPhp = `require_once 'php_backend/db.php'; DbHelper::deleteShow('show_pin_test_${timestamp}');`;
+      const b64Clean = Buffer.from(cleanupPhp).toString('base64');
+      execSync(`php -r "eval(base64_decode('${b64Clean}'));"`, { stdio: 'ignore' });
+    } catch {
+      // Ignore
+    }
   });
 });

@@ -279,7 +279,10 @@
   transform: translate(-50%, -50%) scale(1);
 }
 
-.player-progress-tooltip,
+.player-progress-tooltip {
+  display: none !important;
+}
+
 .scrub-preview-tooltip {
   position: absolute;
   bottom: 24px;

@@ -639,6 +639,9 @@ assert((int)$epAfter['outro_start'] === 8, "outro_start MUST be preserved across
 assert(!empty($epAfter['chapters']), "chapters MUST be preserved across rescan");
 echo "  ✓ Rescan preservation verified: intro_start, intro_end, outro_start and chapters remain intact\n";
 
+DbHelper::deleteShow('test_show_multimedia');
+$cleanup();
+
 echo "\n=====================================================\n";
 echo "  ✓ ALL REAL MEDIA PIPELINE INTEGRATION TESTS PASSED!\n";
 echo "=====================================================\n";

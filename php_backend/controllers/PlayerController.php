@@ -6,7 +6,7 @@ require_once __DIR__ . '/PartyController.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
 class TranscodeLimiter {
-    public static int $maxWorkers = 3;
+    public static int $maxWorkers = 8;
     private static array $activeLocks = [];
 
     public static function acquireSlot(int $timeoutSeconds = 2): bool {
@@ -431,7 +431,7 @@ class PlayerController {
             }
             register_shutdown_function([TranscodeLimiter::class, 'releaseSlot']);
 
-            $cmd = 'ffmpeg -v error ';
+            $cmd = 'ffmpeg -v error -fflags +nobuffer+fastseek -probesize 1M -analyzeduration 1M ';
             if ($start > 0) {
                 $cmd .= '-ss ' . escapeshellarg(strval($start)) . ' ';
             }
@@ -476,19 +476,31 @@ class PlayerController {
             $needTranscodeVideo = $forceH264 || ($videoCodec !== '' && $videoCodec !== 'h264' && $videoCodec !== 'avc1' && $videoCodec !== 'avc');
 
             $vCodecArg = $needTranscodeVideo
-                ? '-vf "scale=min(iw\\,1280):-2" -c:v libx264 -preset ultrafast -tune fastdecode -crf 25 -pix_fmt yuv420p'
+                ? '-vf "scale=min(iw\\,1280):-2" -c:v libx264 -preset ultrafast -tune fastdecode,zerolatency -crf 25 -pix_fmt yuv420p'
                 : '-c:v copy';
 
-            // Remux video (transcode to H.264 if needed or copy), audio aac preserving channels unless downmix requested
+            // Audio downmix check
             $needsDownmix = (isset($_GET['downmix']) && $_GET['downmix'] === 'stereo');
             if (!$needsDownmix && $selectedTrackMeta && isset($selectedTrackMeta['channels']) && (int)$selectedTrackMeta['channels'] > 2) {
                 $needsDownmix = true;
             }
+
+            $trackAudioCodec = strtolower($selectedTrackMeta['codec'] ?? '');
+            if (!$trackAudioCodec && !empty($tracks[0]['codec'])) {
+                $trackAudioCodec = strtolower($tracks[0]['codec']);
+            }
+            $canCopyAudio = !$needsDownmix && ($trackAudioCodec === 'aac' || $trackAudioCodec === 'mp4a');
+
             $acArg = $needsDownmix ? '-ac 2 ' : '';
             $afFilter = $needsDownmix
                 ? 'pan=stereo|c0=c0+0.707*c2+0.707*c4|c1=c1+0.707*c2+0.707*c5,aresample=async=1'
                 : 'aresample=async=1';
-            $cmd .= $vCodecArg . ' -c:a aac ' . $acArg . '-b:a 192k -af ' . escapeshellarg($afFilter) . ' -avoid_negative_ts disabled -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -';
+
+            $aCodecArg = $canCopyAudio
+                ? '-c:a copy '
+                : ('-c:a aac ' . $acArg . '-b:a 192k -af ' . escapeshellarg($afFilter) . ' ');
+
+            $cmd .= $vCodecArg . ' ' . $aCodecArg . '-avoid_negative_ts make_zero -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -flush_packets 1 -';
 
             if (defined('TESTING_MODE')) {
                 throw new ExitException("Stream remux success", 200, ['cmd' => $cmd, 'needs_downmix' => $needsDownmix]);
@@ -497,6 +509,8 @@ class PlayerController {
             while (ob_get_level()) {
                 ob_end_clean();
             }
+
+            @ignore_user_abort(false);
 
             // Stream chunks in real-time with managed subprocess lifecycle and timeout
             $descriptors = [
@@ -522,13 +536,13 @@ class PlayerController {
                         $read = [$pipes[1]];
                         $write = null;
                         $except = null;
-                        $numChanged = @stream_select($read, $write, $except, 0, 150000);
+                        $numChanged = @stream_select($read, $write, $except, 0, 25000);
                         if ($numChanged > 0) {
-                            $buffer = fread($pipes[1], 65536);
+                            $buffer = fread($pipes[1], 16384);
                             if ($buffer !== false && strlen($buffer) > 0) {
                                 echo $buffer;
                                 if (ob_get_level()) @ob_flush();
-                                flush();
+                                @flush();
                             }
                         } else {
                             $status = proc_get_status($process);
@@ -543,12 +557,7 @@ class PlayerController {
 
                     $status = proc_get_status($process);
                     if ($status['running']) {
-                        @proc_terminate($process, 15);
-                        usleep(100000);
-                        $status = proc_get_status($process);
-                        if ($status['running']) {
-                            @proc_terminate($process, 9);
-                        }
+                        @proc_terminate($process, 9);
                     }
                     @proc_close($process);
                     TranscodeLimiter::releaseSlot();

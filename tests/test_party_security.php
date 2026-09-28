@@ -135,5 +135,6 @@ RateLimiter::clear('party_create_192.168.1.100');
 RateLimiter::clear('party_join_192.168.1.100');
 RateLimiter::clear('party_msg_192.168.1.100');
 RateLimiter::clear('party_sync_192.168.1.100');
+DbHelper::deleteShow('show_party_sec');
 
 echo "\n🎉 ALL WATCH PARTY SECURITY TESTS PASSED 100%!\n";

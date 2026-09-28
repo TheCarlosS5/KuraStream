@@ -929,8 +929,21 @@ export async function loadPopularSidebar(currentShowId) {
   try {
     const res = await fetch('/api/shows');
     const allShows = await res.json();
+    const isTestShow = (s) => {
+      const id = String(s.id || '').toLowerCase();
+      const title = String(s.title || '').toLowerCase();
+      return id.startsWith('show_pin_test')
+        || id.startsWith('test_')
+        || id.startsWith('show_party_')
+        || id.startsWith('notif_show')
+        || id.startsWith('show_sec_')
+        || id.startsWith('mock_')
+        || id.endsWith('_test')
+        || id.includes('_test_')
+        || /\btest\b/i.test(title);
+    };
     const popularShows = (Array.isArray(allShows) ? allShows : (allShows.shows || []))
-      .filter(s => s.id !== currentShowId)
+      .filter(s => s.id !== currentShowId && !isTestShow(s))
       .sort((a, b) => (b.rating || 0) - (a.rating || 0))
       .slice(0, 5);
 

@@ -124,6 +124,26 @@ let octopusInstance = null;
 let subtitleMetadataAbortController = null;
 let isSubtitlesLoadingScript = false;
 const subtitleContentCache = new Map();
+const fontsCache = new Map();
+
+function preloadSubtitles(episodeId, tracks) {
+  if (!episodeId || !Array.isArray(tracks) || tracks.length === 0) return;
+  const token = AuthManager.getToken();
+  const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+  tracks.forEach(t => {
+    const num = (t.track_number !== undefined) ? t.track_number : (t.index !== undefined ? t.index : 0);
+    const key = `${episodeId}_${num}`;
+    if (subtitleContentCache.has(key)) return;
+    let url = `/api/subtitles/${encodeURIComponent(episodeId)}/${num}`;
+    if (token) url += `?token=${encodeURIComponent(token)}`;
+    fetch(url, { headers })
+      .then(res => res.ok ? res.text() : null)
+      .then(content => {
+        if (content) subtitleContentCache.set(key, content);
+      })
+      .catch(() => {});
+  });
+}
 
 // Progress Save Interval
 let progressSaveInterval = null;
@@ -230,6 +250,14 @@ export async function initPlayer(rawEpisodeId) {
 
   // Reset state
   lastSavedTime = 0;
+  currentStreamStartOffset = 0;
+  if (video) {
+    video.currentTime = 0;
+  }
+  if (timeCurrent) timeCurrent.textContent = '0:00';
+  if (progressCurrent) progressCurrent.style.width = '0%';
+  if (progressHandle) progressHandle.style.left = '0%';
+  if (progressTooltip) progressTooltip.style.display = 'none';
   if (progressSaveInterval) clearInterval(progressSaveInterval);
 
   qrShareBtn = document.getElementById('qr-share-btn');
@@ -374,6 +402,9 @@ export async function initPlayer(rawEpisodeId) {
   }
   selectedSubtitleTrackNum = chosenSub;
 
+  // Preload subtitle tracks in the background
+  preloadSubtitles(currentEpisodeId, textSubTracks);
+
   // Set up menus for Audio and Subtitles
   setupTracksMenu();
 
@@ -384,12 +415,12 @@ export async function initPlayer(rawEpisodeId) {
   if (hashParts.length > 1) {
     const params = new URLSearchParams(hashParts[1]);
     const tVal = parseFloat(params.get('t'));
-    if (!isNaN(tVal)) {
+    if (!isNaN(tVal) && tVal > 0) {
       urlTime = tVal;
     }
   }
 
-  if (urlTime !== null) {
+  if (urlTime !== null && urlTime > 0) {
     startProgress = urlTime;
     console.log(`Starting playback from shared QR timestamp: ${startProgress} seconds`);
   } else {
@@ -406,8 +437,11 @@ export async function initPlayer(rawEpisodeId) {
         // Read local-only guest progress
         try {
           const guestProg = JSON.parse(localStorage.getItem('kura_guest_progress') || '{}');
-          if (guestProg[episodeId] && guestProg[episodeId].progress && !guestProg[episodeId].completed) {
-            startProgress = guestProg[episodeId].progress;
+          if (guestProg[episodeId] && !guestProg[episodeId].completed) {
+            const p = parseFloat(guestProg[episodeId].progress);
+            if (!isNaN(p) && p >= 3) {
+              startProgress = p;
+            }
           }
         } catch(e) {}
       } else {
@@ -419,14 +453,29 @@ export async function initPlayer(rawEpisodeId) {
         const progressRes = await fetch(`/api/progress/${encodeURIComponent(episodeId)}?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
         if (progressRes.ok) {
           const progressData = await progressRes.json();
-          if (progressData && progressData.progress && !progressData.completed) {
-            startProgress = progressData.progress;
+          if (progressData && !progressData.completed) {
+            const p = parseFloat(progressData.progress);
+            if (!isNaN(p) && p >= 3) {
+              startProgress = p;
+            }
           }
         }
       }
     } catch (e) {
       console.warn("Could not load watch progress:", e);
     }
+  }
+
+  if (!startProgress || isNaN(startProgress) || startProgress < 3) {
+    startProgress = 0;
+  }
+
+  if (startProgress === 0) {
+    currentStreamStartOffset = 0;
+    if (video) video.currentTime = 0;
+    if (timeCurrent) timeCurrent.textContent = '0:00';
+    if (progressCurrent) progressCurrent.style.width = '0%';
+    if (progressHandle) progressHandle.style.left = '0%';
   }
 
   // Set up event listeners FIRST so all controls are active
@@ -570,7 +619,15 @@ export async function initPlayer(rawEpisodeId) {
 function loadVideoStream(startTime = 0) {
   const wasPaused = video ? video.paused : false;
   currentStreamStartOffset = startTime;
-  destroySubtitles();
+  if (startTime === 0) {
+    if (video) video.currentTime = 0;
+    if (timeCurrent) timeCurrent.textContent = '0:00';
+    if (progressCurrent) progressCurrent.style.width = '0%';
+    if (progressHandle) progressHandle.style.left = '0%';
+  }
+  if (octopusInstance) {
+    octopusInstance.timeOffset = startTime;
+  }
   if (smartSkipInstance && currentEpisodeData) {
     smartSkipInstance.setTimingIntervals({
       introStart: currentEpisodeData.intro_start,
@@ -611,6 +668,10 @@ function loadVideoStream(startTime = 0) {
       video.addEventListener('loadedmetadata', () => {
         video.currentTime = startTime;
       }, { once: true });
+    } else if (startTime === 0) {
+      video.addEventListener('loadedmetadata', () => {
+        video.currentTime = 0;
+      }, { once: true });
     }
   }
 
@@ -634,9 +695,16 @@ function loadVideoStream(startTime = 0) {
     if (centerPlayBtn) centerPlayBtn.style.display = 'flex';
   }
 
-  // Reinitialize Subtitles if selected
+  // Reinitialize Subtitles if selected and not yet initialized
   if (selectedSubtitleTrackNum !== -1) {
-    initSubtitles(selectedSubtitleTrackNum);
+    if (!octopusInstance) {
+      initSubtitles(selectedSubtitleTrackNum);
+    } else {
+      octopusInstance.timeOffset = startTime;
+      if (typeof octopusInstance.setCurrentTime === 'function' && video) {
+        octopusInstance.setCurrentTime((video.currentTime || 0) + startTime);
+      }
+    }
   }
 
   if (partyManager && partyManager.isInRoom()) {
@@ -708,9 +776,26 @@ function saveWatchProgress(force = false) {
 
 // SubtitlesOctopus WASM Renderer
 function initSubtitles(trackNum) {
-  destroySubtitles();
-  
-  if (trackNum === -1) return;
+  if (trackNum === -1) {
+    if (octopusInstance) {
+      if (typeof octopusInstance.freeTrack === 'function') {
+        try {
+          octopusInstance.freeTrack();
+        } catch (e) {
+          console.warn('Error freeing subtitle track:', e);
+        }
+      }
+      if (octopusInstance.ctx && octopusInstance.canvas) {
+        try {
+          octopusInstance.ctx.clearRect(0, 0, octopusInstance.canvas.width, octopusInstance.canvas.height);
+        } catch (e) {}
+      }
+      if (octopusInstance.canvasParent) {
+        octopusInstance.canvasParent.style.display = 'none';
+      }
+    }
+    return;
+  }
   
   // SubtitlesOctopus library must be loaded in the page
   if (typeof SubtitlesOctopus === 'undefined') {
@@ -733,7 +818,20 @@ function initSubtitles(trackNum) {
 }
 
 async function startOctopusInstance(trackNum) {
-  if (trackNum === -1) return;
+  if (trackNum === -1) {
+    if (octopusInstance) {
+      if (typeof octopusInstance.freeTrack === 'function') {
+        try { octopusInstance.freeTrack(); } catch (e) {}
+      }
+      if (octopusInstance.ctx && octopusInstance.canvas) {
+        try { octopusInstance.ctx.clearRect(0, 0, octopusInstance.canvas.width, octopusInstance.canvas.height); } catch (e) {}
+      }
+      if (octopusInstance.canvasParent) {
+        octopusInstance.canvasParent.style.display = 'none';
+      }
+    }
+    return;
+  }
 
   if (subtitleMetadataAbortController) {
     subtitleMetadataAbortController.abort();
@@ -772,8 +870,30 @@ async function startOctopusInstance(trackNum) {
       subtitleContentCache.set(cacheKey, subContent);
     }
 
-    let fontUrls = [];
-    if (currentEpisodeId) {
+    if (trackNum !== selectedSubtitleTrackNum) return; // Discard if user changed track while fetching
+
+    const wasPlaying = video && !video.paused;
+
+    // Hot-swap subtitle track on existing instance without disrupting playback
+    if (octopusInstance) {
+      if (octopusInstance.canvasParent) {
+        octopusInstance.canvasParent.style.display = '';
+      }
+      octopusInstance.timeOffset = currentStreamStartOffset;
+      if (typeof octopusInstance.setTrack === 'function') {
+        octopusInstance.setTrack(subContent);
+      }
+      if (wasPlaying && typeof octopusInstance.setIsPaused === 'function') {
+        octopusInstance.setIsPaused(false, (video.currentTime || 0) + currentStreamStartOffset);
+      }
+      if (wasPlaying && video.paused) {
+        video.play().catch(() => {});
+      }
+      return;
+    }
+
+    let fontUrls = fontsCache.get(currentEpisodeId) || [];
+    if (currentEpisodeId && fontUrls.length === 0) {
       try {
         const fontAuth = AuthManager.getToken();
         const fHeaders = fontAuth ? { 'Authorization': `Bearer ${fontAuth}` } : {};
@@ -785,6 +905,7 @@ async function startOctopusInstance(trackNum) {
               if (typeof f === 'string') return `/api/episodes/${encodeURIComponent(currentEpisodeId)}/fonts/${encodeURIComponent(f)}`;
               return f.url || `/api/episodes/${encodeURIComponent(currentEpisodeId)}/fonts/${encodeURIComponent(f.name)}`;
             });
+            fontsCache.set(currentEpisodeId, fontUrls);
           }
         }
       } catch {
@@ -794,7 +915,8 @@ async function startOctopusInstance(trackNum) {
 
     if (trackNum !== selectedSubtitleTrackNum) return; // Discard if user changed track while fetching
 
-    destroySubtitles();
+    const subContainer = document.getElementById('subtitles-container');
+    if (subContainer) subContainer.innerHTML = '';
     console.log(`Initializing SubtitlesOctopus with video dimensions: ${video.videoWidth}x${video.videoHeight} for track ${trackNum}, offset: ${currentStreamStartOffset}s`);
     octopusInstance = new SubtitlesOctopus({
       video: video,
@@ -806,11 +928,18 @@ async function startOctopusInstance(trackNum) {
       timeOffset: currentStreamStartOffset,
       targetFps: 60,
       renderMode: 'wasm-blend',
-      container: document.getElementById('subtitles-container'),
+      container: subContainer,
       onError: (err) => {
         console.error('SubtitlesOctopus critical error:', err);
       }
     });
+
+    if (wasPlaying && typeof octopusInstance.setIsPaused === 'function') {
+      octopusInstance.setIsPaused(false, (video.currentTime || 0) + currentStreamStartOffset);
+    }
+    if (wasPlaying && video.paused) {
+      video.play().catch(() => {});
+    }
   } catch (err) {
     console.error('Failed to launch SubtitlesOctopus WASM worker:', err);
   }
@@ -1481,7 +1610,7 @@ function setupPlayerEventListeners() {
         progressHover.style.width = `${pos * 100}%`;
       }
 
-      if (progressTooltip) {
+      if (progressTooltip && !scrubPreviewInstance && progressTooltip.style.display !== 'none') {
         progressTooltip.style.left = `${pos * 100}%`;
         progressTooltip.textContent = formatTime(hoverTime);
         progressTooltip.style.opacity = '1';
