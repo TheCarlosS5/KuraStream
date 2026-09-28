@@ -14,17 +14,17 @@ class CatalogRepository(
     private val apiService: KuraApiService,
     private val showDao: ShowDao
 ) {
-    fun getCachedShows(serverId: String, isKidsMode: Boolean): Flow<List<Show>> {
-        return showDao.getCachedShows(serverId, isKidsMode).map { entities ->
+    fun getCachedShows(serverId: String, username: String = "", profileId: String = "", isKidsMode: Boolean): Flow<List<Show>> {
+        return showDao.getCachedShows(serverId, username, profileId, isKidsMode).map { entities ->
             entities.map { it.toModel() }
         }
     }
 
-    suspend fun refreshCatalog(serverId: String, isKidsMode: Boolean): Result<List<Show>> {
+    suspend fun refreshCatalog(serverId: String, username: String = "", profileId: String = "", isKidsMode: Boolean): Result<List<Show>> {
         return try {
             val dtoList = apiService.getShows(type = "all")
-            val entities = dtoList.map { it.toEntity(serverId) }
-            showDao.replaceShowsForServer(serverId, entities)
+            val entities = dtoList.map { it.toEntity(serverId, username, profileId) }
+            showDao.replaceShowsForProfile(serverId, username, profileId, entities)
             val filtered = if (isKidsMode) entities.filter { !it.isRestrictedKids } else entities
             Result.success(filtered.map { it.toModel() })
         } catch (e: Exception) {
@@ -32,8 +32,8 @@ class CatalogRepository(
         }
     }
 
-    suspend fun searchShowsLocally(serverId: String, isKidsMode: Boolean, query: String): List<Show> {
-        val matches = showDao.searchCachedShows(serverId, isKidsMode, query)
+    suspend fun searchShowsLocally(serverId: String, username: String = "", profileId: String = "", isKidsMode: Boolean, query: String): List<Show> {
+        val matches = showDao.searchCachedShows(serverId, username, profileId, isKidsMode, query)
         return matches.map { it.toModel() }
     }
 
@@ -164,7 +164,7 @@ class CatalogRepository(
         }
     }
 
-    private fun ShowDto.toEntity(serverId: String): CachedShowEntity {
+    private fun ShowDto.toEntity(serverId: String, username: String = "", profileId: String = ""): CachedShowEntity {
         val age = (ageRating ?: "TV-14").uppercase()
         val g = (genres ?: "").lowercase()
         val isRestricted = age in listOf("R", "TV-MA", "18+", "NC-17", "RX", "R18") ||
@@ -172,6 +172,8 @@ class CatalogRepository(
 
         return CachedShowEntity(
             serverId = serverId,
+            username = username,
+            profileId = profileId,
             id = id,
             title = title,
             synopsis = synopsis ?: "",

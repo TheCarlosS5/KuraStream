@@ -60,6 +60,8 @@ class ExploreViewModel @Inject constructor(
     private var networkRefreshJob: Job? = null
 
     private var currentServerId: String = ""
+    private var currentUsername: String = ""
+    private var currentProfileId: String = ""
     private var currentIsKids: Boolean = false
 
     init {
@@ -79,27 +81,31 @@ class ExploreViewModel @Inject constructor(
             preferencesDataSource.preferencesFlow.collectLatest { prefs ->
                 val serverId = prefs.activeServerId ?: return@collectLatest
                 val serverUrl = prefs.activeServerUrl ?: ""
+                val username = prefs.activeUsername ?: ""
+                val profileId = prefs.activeProfileId ?: ""
                 val isKids = prefs.isKidsMode
 
                 _uiState.update { it.copy(baseUrl = serverUrl) }
 
-                val sessionChanged = serverId != currentServerId || isKids != currentIsKids
+                val sessionChanged = serverId != currentServerId || username != currentUsername || isKids != currentIsKids || profileId != currentProfileId
                 currentServerId = serverId
+                currentUsername = username
+                currentProfileId = profileId
                 currentIsKids = isKids
 
                 if (sessionChanged) {
                     _uiState.update { it.copy(catalogState = UiState.Loading) }
-                    startCacheObservation(serverId, isKids)
-                    triggerNetworkRefresh(serverId, isKids)
+                    startCacheObservation(serverId, username, profileId, isKids)
+                    triggerNetworkRefresh(serverId, username, profileId, isKids)
                 }
             }
         }
     }
 
-    private fun startCacheObservation(serverId: String, isKids: Boolean) {
+    private fun startCacheObservation(serverId: String, username: String, profileId: String, isKids: Boolean) {
         cacheObservationJob?.cancel()
         cacheObservationJob = viewModelScope.launch {
-            catalogRepository.getCachedShows(serverId, isKids).collect { cachedShows ->
+            catalogRepository.getCachedShows(serverId, username, profileId, isKids).collect { cachedShows ->
                 allCatalogShows = cachedShows
                 extractGenres(cachedShows)
                 applyFilters()
@@ -109,16 +115,16 @@ class ExploreViewModel @Inject constructor(
 
     fun refresh() {
         if (currentServerId.isBlank()) return
-        triggerNetworkRefresh(currentServerId, currentIsKids)
+        triggerNetworkRefresh(currentServerId, currentUsername, currentProfileId, currentIsKids)
     }
 
     fun loadData() = refresh()
 
-    private fun triggerNetworkRefresh(serverId: String, isKids: Boolean) {
+    private fun triggerNetworkRefresh(serverId: String, username: String, profileId: String, isKids: Boolean) {
         networkRefreshJob?.cancel()
         networkRefreshJob = viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true) }
-            val refreshRes = catalogRepository.refreshCatalog(serverId, isKids)
+            val refreshRes = catalogRepository.refreshCatalog(serverId, username, profileId, isKids)
             _uiState.update { it.copy(isRefreshing = false) }
 
             if (refreshRes.isFailure && allCatalogShows.isEmpty()) {

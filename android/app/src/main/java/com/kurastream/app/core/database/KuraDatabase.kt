@@ -10,7 +10,7 @@ import androidx.room.RoomDatabase
         CachedEpisodeEntity::class,
         CachedHistoryEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class KuraDatabase : RoomDatabase() {

@@ -26,6 +26,28 @@ class WatchPartyRepository(
 ) {
     val realtimeEvents: Flow<PartyRealtimeEvent> = watchPartyClient.events
 
+    private val _activeSession = kotlinx.coroutines.flow.MutableStateFlow<ActivePartySession?>(null)
+    val activeSession: kotlinx.coroutines.flow.StateFlow<ActivePartySession?> = _activeSession
+
+    fun setActiveSession(session: ActivePartySession?) {
+        _activeSession.value = session
+    }
+
+    fun updatePlaybackState(currentTime: Float, isPlaying: Boolean, episodeId: String? = null) {
+        val current = _activeSession.value ?: return
+        val updatedRoom = current.room?.copy(
+            currentTime = currentTime,
+            isPlaying = isPlaying,
+            episodeId = episodeId ?: current.room.episodeId
+        )
+        _activeSession.value = current.copy(room = updatedRoom)
+    }
+
+    fun updateStreamTicket(ticket: String) {
+        val current = _activeSession.value ?: return
+        _activeSession.value = current.copy(streamTicket = ticket)
+    }
+
     suspend fun createRoom(episodeId: String, roomName: String, isPublic: Boolean): Result<ActivePartySession> {
         return try {
             val res = apiService.createPartyRoom(
@@ -58,6 +80,7 @@ class WatchPartyRepository(
                     isHost = true,
                     room = room
                 )
+                _activeSession.value = session
                 Result.success(session)
             } else {
                 Result.failure(Exception("Error al crear la sala de Watch Party"))
@@ -90,6 +113,7 @@ class WatchPartyRepository(
                     isHost = res.isHost,
                     room = room
                 )
+                _activeSession.value = session
                 Result.success(session)
             } else {
                 Result.failure(Exception("Error al unirse a la sala de Watch Party"))
@@ -99,10 +123,16 @@ class WatchPartyRepository(
         }
     }
 
-    suspend fun leaveRoom(roomId: String, memberId: String) {
+    suspend fun leaveRoom(roomId: String, memberId: String, memberToken: String = "") {
         try {
-            apiService.leavePartyRoom(roomId, memberId)
+            apiService.leavePartyRoom(
+                memberId = memberId,
+                memberToken = memberToken,
+                roomId = roomId,
+                memberIdQuery = memberId
+            )
         } catch (_: Exception) {}
+        _activeSession.value = null
         watchPartyClient.disconnect()
     }
 

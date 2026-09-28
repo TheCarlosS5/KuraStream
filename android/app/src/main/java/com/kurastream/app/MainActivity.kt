@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
+import android.content.Intent
+import androidx.navigation.NavHostController
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
@@ -24,6 +27,14 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var preferencesDataSource: KuraPreferencesDataSource
+
+    private var currentNavController: NavHostController? = null
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        currentNavController?.handleDeepLink(intent)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -48,6 +59,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             KuraTheme {
                 val navController = rememberNavController()
+                currentNavController = navController
                 AppNavGraph(
                     navController = navController,
                     startDestination = startDestination

@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +30,140 @@ fun SettingsScreen(
     val state by viewModel.uiState.collectAsState()
     val prefs = state.sessionPrefs
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    var showAudioDialog by remember { mutableStateOf(false) }
+    var showSubtitlesDialog by remember { mutableStateOf(false) }
+    var showSeekDialog by remember { mutableStateOf(false) }
+
+    if (showAudioDialog) {
+        val options = listOf(
+            "jpn" to "Japonés (Original)",
+            "es-419" to "Español Latino",
+            "spa" to "Español (Castellano)",
+            "eng" to "Inglés"
+        )
+        AlertDialog(
+            onDismissRequest = { showAudioDialog = false },
+            title = { Text("Audio preferido", color = KuraColors.TextMain) },
+            text = {
+                Column {
+                    options.forEach { (code, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setPreferredAudio(code)
+                                    showAudioDialog = false
+                                }
+                                .padding(vertical = KuraDimens.Space2),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = prefs.preferredAudioLanguage.equals(code, ignoreCase = true),
+                                onClick = {
+                                    viewModel.setPreferredAudio(code)
+                                    showAudioDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(KuraDimens.Space2))
+                            Text(text = label, color = KuraColors.TextMain)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAudioDialog = false }) {
+                    Text("Cerrar", color = KuraColors.Secondary)
+                }
+            },
+            containerColor = KuraColors.Surface
+        )
+    }
+
+    if (showSubtitlesDialog) {
+        val options = listOf(
+            "es-419" to "Español Latino",
+            "spa" to "Español (Castellano)",
+            "eng" to "Inglés",
+            "" to "Desactivados"
+        )
+        AlertDialog(
+            onDismissRequest = { showSubtitlesDialog = false },
+            title = { Text("Subtítulos preferidos", color = KuraColors.TextMain) },
+            text = {
+                Column {
+                    options.forEach { (code, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setPreferredSubtitles(code)
+                                    showSubtitlesDialog = false
+                                }
+                                .padding(vertical = KuraDimens.Space2),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = (prefs.preferredSubtitleLanguage.equals(code, ignoreCase = true) || (code.isEmpty() && prefs.preferredSubtitleLanguage.isEmpty())),
+                                onClick = {
+                                    viewModel.setPreferredSubtitles(code)
+                                    showSubtitlesDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(KuraDimens.Space2))
+                            Text(text = label, color = KuraColors.TextMain)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSubtitlesDialog = false }) {
+                    Text("Cerrar", color = KuraColors.Secondary)
+                }
+            },
+            containerColor = KuraColors.Surface
+        )
+    }
+
+    if (showSeekDialog) {
+        val options = listOf(5, 10, 15, 30)
+        AlertDialog(
+            onDismissRequest = { showSeekDialog = false },
+            title = { Text("Salto de doble toque", color = KuraColors.TextMain) },
+            text = {
+                Column {
+                    options.forEach { seconds ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setDoubleTapSeekSeconds(seconds)
+                                    showSeekDialog = false
+                                }
+                                .padding(vertical = KuraDimens.Space2),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = prefs.doubleTapSeekSeconds == seconds,
+                                onClick = {
+                                    viewModel.setDoubleTapSeekSeconds(seconds)
+                                    showSeekDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(KuraDimens.Space2))
+                            Text(text = "$seconds segundos", color = KuraColors.TextMain)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSeekDialog = false }) {
+                    Text("Cerrar", color = KuraColors.Secondary)
+                }
+            },
+            containerColor = KuraColors.Surface
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -177,6 +312,39 @@ fun SettingsScreen(
                             checked = prefs.autoPlayNext,
                             onCheckedChange = viewModel::setAutoPlayNext
                         )
+                        HorizontalDivider(color = KuraColors.Border, modifier = Modifier.padding(vertical = KuraDimens.Space2))
+                        ClickableSettingItem(
+                            title = "Audio preferido",
+                            subtitle = "Pista de audio predeterminada al reproducir",
+                            value = when (prefs.preferredAudioLanguage.lowercase()) {
+                                "jpn", "ja" -> "Japonés"
+                                "es-419", "lat" -> "Español Latino"
+                                "spa", "es" -> "Español (Castellano)"
+                                "eng", "en" -> "Inglés"
+                                else -> prefs.preferredAudioLanguage
+                            },
+                            onClick = { showAudioDialog = true }
+                        )
+                        HorizontalDivider(color = KuraColors.Border, modifier = Modifier.padding(vertical = KuraDimens.Space2))
+                        ClickableSettingItem(
+                            title = "Subtítulos preferidos",
+                            subtitle = "Pista de subtítulos predeterminada",
+                            value = when (prefs.preferredSubtitleLanguage.lowercase()) {
+                                "es-419", "lat" -> "Español Latino"
+                                "spa", "es" -> "Español (Castellano)"
+                                "eng", "en" -> "Inglés"
+                                "", "off" -> "Desactivados"
+                                else -> prefs.preferredSubtitleLanguage
+                            },
+                            onClick = { showSubtitlesDialog = true }
+                        )
+                        HorizontalDivider(color = KuraColors.Border, modifier = Modifier.padding(vertical = KuraDimens.Space2))
+                        ClickableSettingItem(
+                            title = "Salto de doble toque",
+                            subtitle = "Segundos a avanzar o retroceder",
+                            value = "${prefs.doubleTapSeekSeconds}s",
+                            onClick = { showSeekDialog = true }
+                        )
                     }
                 }
             }
@@ -303,7 +471,7 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     text = "Cerrar Sesión",
                     leadingIcon = {
-                        Icon(imageVector = Icons.Default.Logout, contentDescription = null, tint = KuraColors.Danger)
+                        Icon(imageVector = Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = KuraColors.Danger)
                     }
                 )
             }
@@ -398,3 +566,40 @@ private fun ToggleSettingItem(
         )
     }
 }
+
+@Composable
+private fun ClickableSettingItem(
+    title: String,
+    subtitle: String,
+    value: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = KuraDimens.Space2),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = KuraColors.TextMain
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = KuraColors.TextSecondary
+            )
+        }
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = KuraColors.Secondary
+        )
+    }
+}
+

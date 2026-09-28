@@ -47,6 +47,12 @@ class DynamicBaseUrlInterceptor(
     }
 }
 
+fun okhttp3.HttpUrl.hasSameOrigin(other: okhttp3.HttpUrl): Boolean {
+    return this.scheme.equals(other.scheme, ignoreCase = true) &&
+            this.host.equals(other.host, ignoreCase = true) &&
+            this.port == other.port
+}
+
 /**
  * Injects Authorization header with Bearer token for authenticated endpoints.
  * Never leaks tokens across servers or sends tokens to anonymous endpoints (health, login, register).
@@ -79,10 +85,10 @@ class AuthInterceptor(
             val activeServerId = serverInfo?.first
             val activeServerBaseUrl = serverInfo?.second
 
-            // Ensure the request target matches the active server's host to prevent cross-origin leaks
+            // Ensure the request target matches the active server's scheme, host, and port to prevent cross-origin leaks
             val isMatchingServer = if (!activeServerBaseUrl.isNullOrBlank()) {
                 val parsedActive = activeServerBaseUrl.toHttpUrlOrNull()
-                parsedActive != null && parsedActive.host.equals(original.url.host, ignoreCase = true)
+                parsedActive != null && parsedActive.hasSameOrigin(original.url)
             } else {
                 true
             }
@@ -109,24 +115,43 @@ class AuthInterceptor(
 }
 
 /**
- * Restricts all HTTP responses and redirects to the configured server host to prevent rogue redirects.
+ * Restricts all HTTP responses and redirects to the configured server origin (scheme, host, port)
+ * to prevent rogue cross-origin redirects.
  */
 class SafeOriginInterceptor(
     private val getBaseUrl: () -> String?
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
-        val response = chain.proceed(chain.request())
-        val configuredBase = getBaseUrl()?.toHttpUrlOrNull() ?: return response
+        var request = chain.request()
+        var response = chain.proceed(request)
+        var redirectCount = 0
+        val maxRedirects = 5
 
-        if (response.isRedirect) {
+        while (response.isRedirect && redirectCount < maxRedirects) {
+            val configuredBase = getBaseUrl()?.toHttpUrlOrNull()
             val location = response.header("Location")
-            if (!location.isNullOrBlank()) {
-                val redirectUrl = location.toHttpUrlOrNull()
-                if (redirectUrl != null && (!redirectUrl.host.equals(configuredBase.host, ignoreCase = true) || redirectUrl.port != configuredBase.port)) {
-                    throw IOException("Redirección bloqueada por seguridad: origin no autorizado ($location)")
-                }
+            if (location.isNullOrBlank()) {
+                return response
             }
+
+            val redirectUrl = request.url.resolve(location)
+                ?: throw IOException("Redirección bloqueada por seguridad: URL inválida ($location)")
+
+            if (configuredBase != null && !redirectUrl.hasSameOrigin(configuredBase)) {
+                response.close()
+                throw IOException("Redirección bloqueada por seguridad: origin no autorizado ($redirectUrl)")
+            }
+
+            response.close()
+            redirectCount++
+
+            request = request.newBuilder()
+                .url(redirectUrl)
+                .build()
+            response = chain.proceed(request)
         }
+
         return response
     }
 }
+

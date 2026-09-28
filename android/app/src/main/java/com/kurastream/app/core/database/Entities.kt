@@ -18,10 +18,12 @@ data class ServerProfileEntity(
 
 @Entity(
     tableName = "cached_shows",
-    primaryKeys = ["serverId", "id"]
+    primaryKeys = ["serverId", "username", "profileId", "id"]
 )
 data class CachedShowEntity(
     val serverId: String,
+    val username: String = "",
+    val profileId: String = "",
     val id: String,
     val title: String,
     val synopsis: String,

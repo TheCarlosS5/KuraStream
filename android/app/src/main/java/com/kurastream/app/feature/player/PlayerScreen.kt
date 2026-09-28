@@ -69,6 +69,9 @@ fun PlayerScreen(
 
     var showTracksSheet by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
+    var showCreatePartyDialog by remember { mutableStateOf(false) }
+    var showPartyInfoDialog by remember { mutableStateOf(false) }
+    var partyRoomNameInput by remember { mutableStateOf("") }
 
     // Navigation events from PlayerViewModel (e.g. next episode auto-advance)
     LaunchedEffect(Unit) {
@@ -210,12 +213,13 @@ fun PlayerScreen(
                                         if (timeSinceLast < 300 && dist < 120f) {
                                             // Double tap detected
                                             lastTapTime = 0L
+                                            val sec = state.doubleTapSeekSeconds
                                             if (startPos.x < size.width / 2) {
-                                                viewModel.seekRelative(-10f)
-                                                showGestureHud("-10s", Icons.Default.Replay10)
+                                                viewModel.seekDoubleTap(forward = false)
+                                                showGestureHud("-${sec}s", Icons.Default.Replay10)
                                             } else {
-                                                viewModel.seekRelative(10f)
-                                                showGestureHud("+10s", Icons.Default.Forward10)
+                                                viewModel.seekDoubleTap(forward = true)
+                                                showGestureHud("+${sec}s", Icons.Default.Forward10)
                                             }
                                         } else {
                                             // Single tap candidate
@@ -360,6 +364,49 @@ fun PlayerScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                    }
+
+                    if (state.isWatchPartyActive) {
+                        Surface(
+                            shape = CircleShape,
+                            color = KuraColors.Secondary.copy(alpha = 0.2f),
+                            border = BorderStroke(1.dp, KuraColors.Secondary)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(KuraColors.Secondary, CircleShape)
+                                )
+                                Text(
+                                    text = "PARTY",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = KuraColors.Secondary
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(KuraDimens.Space2))
+                    }
+
+                    // Watch Party Button
+                    IconButton(onClick = {
+                        if (state.isWatchPartyActive) {
+                            showPartyInfoDialog = true
+                        } else {
+                            partyRoomNameInput = state.show?.let { "${it.title} - T${state.episode?.seasonNumber}E${state.episode?.episodeNumber}" } ?: "Watch Party"
+                            showCreatePartyDialog = true
+                        }
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Group,
+                            contentDescription = "Watch Party",
+                            tint = if (state.isWatchPartyActive) KuraColors.Secondary else KuraColors.TextMain
+                        )
                     }
 
                     // Top Action Buttons: Lock controls
@@ -684,22 +731,32 @@ fun PlayerScreen(
                     .padding(KuraDimens.Space6),
                 shape = KuraShapes.Modal,
                 color = KuraColors.Surface,
-                border = BorderStroke(1.dp, KuraColors.Danger)
+                border = BorderStroke(1.dp, if (state.isTranscodingBusy) KuraColors.Primary else KuraColors.Danger)
             ) {
                 Column(
                     modifier = Modifier.padding(KuraDimens.Space5),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    if (state.isTranscodingBusy) {
+                        CircularProgressIndicator(
+                            color = KuraColors.Primary,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(KuraDimens.Space2))
+                    }
                     Text(
                         text = state.errorMessage!!,
                         style = MaterialTheme.typography.bodyMedium,
                         color = KuraColors.TextMain
                     )
-                    Spacer(modifier = Modifier.height(KuraDimens.Space3))
-                    KuraButton(
-                        onClick = { viewModel.seekRelative(0f) },
-                        text = stringResource(R.string.retry)
-                    )
+                    if (!state.isTranscodingBusy) {
+                        Spacer(modifier = Modifier.height(KuraDimens.Space3))
+                        KuraButton(
+                            onClick = { viewModel.seekRelative(0f) },
+                            text = stringResource(R.string.retry)
+                        )
+                    }
                 }
             }
         }
@@ -912,6 +969,114 @@ fun PlayerScreen(
                     }
                 }
             }
+        }
+
+        // Dialog: Create Watch Party
+        if (showCreatePartyDialog) {
+            AlertDialog(
+                onDismissRequest = { showCreatePartyDialog = false },
+                containerColor = KuraColors.Surface,
+                title = {
+                    Text(
+                        text = "Crear Watch Party",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = KuraColors.TextMain
+                    )
+                },
+                text = {
+                    Column {
+                        Text(
+                            text = "Transmite este episodio sincronizado con tus amigos en tiempo real.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = KuraColors.TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(KuraDimens.Space3))
+                        OutlinedTextField(
+                            value = partyRoomNameInput,
+                            onValueChange = { partyRoomNameInput = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Nombre de la sala") },
+                            singleLine = true,
+                            shape = KuraShapes.Control,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = KuraColors.Secondary,
+                                unfocusedBorderColor = KuraColors.Border,
+                                focusedTextColor = KuraColors.TextMain,
+                                unfocusedTextColor = KuraColors.TextMain,
+                                focusedContainerColor = KuraColors.SurfaceRaised,
+                                unfocusedContainerColor = KuraColors.SurfaceRaised
+                            )
+                        )
+                    }
+                },
+                confirmButton = {
+                    KuraButton(
+                        onClick = {
+                            viewModel.createWatchParty(roomName = partyRoomNameInput)
+                            showCreatePartyDialog = false
+                        },
+                        text = "Crear Sala"
+                    )
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCreatePartyDialog = false }) {
+                        Text("Cancelar", color = KuraColors.TextMuted)
+                    }
+                }
+            )
+        }
+
+        // Dialog: Active Watch Party Info / Leave
+        if (showPartyInfoDialog) {
+            AlertDialog(
+                onDismissRequest = { showPartyInfoDialog = false },
+                containerColor = KuraColors.Surface,
+                title = {
+                    Text(
+                        text = "Watch Party Activa",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = KuraColors.TextMain
+                    )
+                },
+                text = {
+                    Column {
+                        Text(
+                            text = "Estás conectado a la sala:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = KuraColors.TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(KuraDimens.Space2))
+                        Text(
+                            text = state.watchPartyRoomId ?: "Sala Compartida",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = KuraColors.Secondary
+                        )
+                        Spacer(modifier = Modifier.height(KuraDimens.Space2))
+                        Text(
+                            text = "La reproducción de video se mantiene sincronizada con el anfitrión y participantes de la sala.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = KuraColors.TextMuted
+                        )
+                    }
+                },
+                confirmButton = {
+                    KuraOutlinedButton(
+                        onClick = {
+                            viewModel.leaveWatchParty()
+                            showPartyInfoDialog = false
+                        },
+                        text = "Abandonar Sala"
+                    )
+                },
+                dismissButton = {
+                    TextButton(onClick = { showPartyInfoDialog = false }) {
+                        Text("Cerrar", color = KuraColors.TextMuted)
+                    }
+                }
+            )
         }
     }
 }

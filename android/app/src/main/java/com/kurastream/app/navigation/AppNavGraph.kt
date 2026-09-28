@@ -170,8 +170,20 @@ private fun NavContent(
         startDestination = startDestination,
         modifier = modifier
     ) {
-        // Setup & Auth
-        composable(Screen.ServerSetup.route) {
+        // Setup & Auth with Deep Link support (kurastream://server?url=...)
+        composable(
+            route = "server_setup?url={serverUrl}",
+            arguments = listOf(
+                navArgument("serverUrl") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            ),
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "kurastream://server?url={serverUrl}" }
+            )
+        ) {
             val vm: ServerSetupViewModel = hiltViewModel()
             ServerSetupScreen(
                 viewModel = vm,
@@ -333,7 +345,10 @@ private fun NavContent(
             WatchPartyScreen(
                 viewModel = vm,
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateToPlayerWithTicket = { epId, _ ->
+                onNavigateToPlayerWithTicket = { epId, ticket ->
+                    if (ticket.isNotBlank()) {
+                        vm.setPartyPlaybackTicket(ticket)
+                    }
                     navController.navigate(Screen.Player.createRoute(epId))
                 }
             )

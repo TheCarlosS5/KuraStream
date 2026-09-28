@@ -93,6 +93,7 @@ runTest('Android Project Files & Architecture Structure', () => {
     'android/app/src/main/java/com/kurastream/app/core/preferences/KuraPreferencesDataSource.kt',
     'android/app/src/main/java/com/kurastream/app/core/player/PlayerState.kt',
     'android/app/src/main/java/com/kurastream/app/core/player/StreamResolver.kt',
+    'android/app/src/main/java/com/kurastream/app/core/player/PartyPlaybackContext.kt',
     'android/app/src/main/java/com/kurastream/app/core/player/KuraPlaybackService.kt',
     'android/app/src/main/java/com/kurastream/app/core/player/WatchPartySyncController.kt',
     'android/app/src/main/java/com/kurastream/app/core/designsystem/theme/Theme.kt',
@@ -248,6 +249,40 @@ runTest('WatchPartySyncController Drift Evaluation', () => {
   assert.deepStrictEqual(evaluateSync(100.0, false, 100.5, true, false), { action: 'PAUSE' });
   assert.deepStrictEqual(evaluateSync(100.0, true, 100.5, false, false), { action: 'PLAY' });
   assert.deepStrictEqual(evaluateSync(150.0, true, 10.0, false, true), { action: 'NONE' }); // host self
+});
+
+// 8. Test Audio Track Backend Parameter Translation Contract
+runTest('StreamResolver Audio Track Backend Param Resolution Hierarchy', () => {
+  function resolveAudioTrackBackendParam(tracks, selectedIndex) {
+    if (selectedIndex < 0) return null;
+    const track = tracks[selectedIndex];
+    if (!track) return selectedIndex;
+    if (track.trackNumber && track.trackNumber > 0) return track.trackNumber;
+    if (track.index && track.index > 0) return track.index;
+    return selectedIndex;
+  }
+
+  const sampleTracks = [
+    { index: 10, trackNumber: 2, title: 'Spanish' },
+    { index: 11, trackNumber: 0, title: 'Japanese' },
+    { index: 0, trackNumber: 0, title: 'English' }
+  ];
+
+  // Prefers trackNumber
+  assert.strictEqual(resolveAudioTrackBackendParam(sampleTracks, 0), 2);
+  // Falls back to index if trackNumber is 0
+  assert.strictEqual(resolveAudioTrackBackendParam(sampleTracks, 1), 11);
+  // Falls back to UI index if both are 0
+  assert.strictEqual(resolveAudioTrackBackendParam(sampleTracks, 2), 2);
+  // Out of bounds fallback
+  assert.strictEqual(resolveAudioTrackBackendParam(sampleTracks, 99), 99);
+});
+
+// 9. Verify Multi-user Scoped Room Database Contract
+runTest('Room CachedShowEntity Multi-user Composite Key Scope', () => {
+  const entitiesFile = fs.readFileSync(path.resolve('android/app/src/main/java/com/kurastream/app/core/database/Entities.kt'), 'utf8');
+  assert.ok(entitiesFile.includes('primaryKeys = ["serverId", "username", "profileId", "id"]'), 'CachedShowEntity must define composite key with serverId, username, profileId, id');
+  assert.ok(entitiesFile.includes('val username: String = ""'), 'CachedShowEntity must include username field');
 });
 
 console.log('\n=====================================================');

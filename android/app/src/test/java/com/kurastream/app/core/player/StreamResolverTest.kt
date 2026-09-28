@@ -177,5 +177,26 @@ class StreamResolverTest {
         assertFalse(StreamResolver.isCompletedProgress(100f, 0f))
         assertFalse(StreamResolver.isCompletedProgress(0f, -10f))
     }
+
+    @Test
+    fun `resolveAudioTrackBackendParam prefers trackNumber over index and falls back to UI index`() {
+        val ep = Episode(
+            id = "ep1",
+            audioTracks = listOf(
+                AudioTrack(index = 10, trackNumber = 2, title = "Spanish", language = "spa"),
+                AudioTrack(index = 11, trackNumber = 0, title = "Japanese", language = "jpn"),
+                AudioTrack(index = 0, trackNumber = 0, title = "English", language = "eng")
+            )
+        )
+
+        // When trackNumber > 0, returns trackNumber
+        assertEquals(2, StreamResolver.resolveAudioTrackBackendParam(ep, 0))
+        // When trackNumber == 0 but index > 0, returns index
+        assertEquals(11, StreamResolver.resolveAudioTrackBackendParam(ep, 1))
+        // When both == 0, returns UI index
+        assertEquals(2, StreamResolver.resolveAudioTrackBackendParam(ep, 2))
+        // When out of bounds, returns UI index
+        assertEquals(99, StreamResolver.resolveAudioTrackBackendParam(ep, 99))
+    }
 }
 

@@ -11,16 +11,20 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import com.kurastream.app.core.model.*
 import com.kurastream.app.core.player.*
+import com.kurastream.app.core.network.PartyRealtimeEvent
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import com.kurastream.app.core.preferences.UserSessionPreferences
+import com.kurastream.app.core.repository.ActivePartySession
 import com.kurastream.app.core.repository.CatalogRepository
 import com.kurastream.app.core.repository.HistoryRepository
+import com.kurastream.app.core.repository.WatchPartyRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -28,7 +32,9 @@ class PlayerViewModel @Inject constructor(
     private val catalogRepository: CatalogRepository,
     private val historyRepository: HistoryRepository,
     private val preferencesDataSource: KuraPreferencesDataSource,
-    private val playbackConnectionManager: PlaybackConnectionManager
+    private val playbackConnectionManager: PlaybackConnectionManager,
+    private val watchPartyRepository: WatchPartyRepository,
+    private val partyPlaybackContext: com.kurastream.app.core.player.PartyPlaybackContext
 ) : ViewModel() {
 
     val episodeId: String = checkNotNull(savedStateHandle["episodeId"])
@@ -43,6 +49,8 @@ class PlayerViewModel @Inject constructor(
     private var progressTrackingJob: Job? = null
     private var autoHideControlsJob: Job? = null
     private var nextCountdownJob: Job? = null
+    private var retry503Job: Job? = null
+    private var hasRetried503: Boolean = false
 
     private var baseUrl: String = ""
     private var userPreferences = UserSessionPreferences()
@@ -98,12 +106,46 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             userPreferences = preferencesDataSource.preferencesFlow.first()
             baseUrl = userPreferences.activeServerUrl ?: ""
+            _playerState.update { it.copy(doubleTapSeekSeconds = userPreferences.doubleTapSeekSeconds) }
 
             playbackConnectionManager.getPlayer { p ->
                 player = p
                 p.addListener(playerListener)
                 viewModelScope.launch {
                     loadEpisodeAndInitPlayer()
+                }
+            }
+        }
+
+        // Track active Watch Party session
+        viewModelScope.launch {
+            watchPartyRepository.activeSession.collect { session ->
+                _playerState.update {
+                    it.copy(
+                        isWatchPartyActive = session != null,
+                        watchPartyRoomId = session?.roomId
+                    )
+                }
+            }
+        }
+
+        // Handle Watch Party realtime events (Sync, RoomClosed)
+        viewModelScope.launch {
+            watchPartyRepository.realtimeEvents.collect { event ->
+                when (event) {
+                    is PartyRealtimeEvent.Sync -> {
+                        handlePartySync(event.sync)
+                    }
+                    is PartyRealtimeEvent.RoomClosed -> {
+                        _playerState.update {
+                            it.copy(
+                                isWatchPartyActive = false,
+                                watchPartyRoomId = null,
+                                errorMessage = "La sala de Watch Party ha sido cerrada por el anfitrión."
+                            )
+                        }
+                    }
+                    else -> {}
                 }
             }
         }
@@ -166,7 +208,7 @@ class PlayerViewModel @Inject constructor(
 
         val resumeSeconds = progressRes?.progressSeconds ?: 0f
 
-        setupPlayerInstance(ep, resumeSeconds, preferredAudioIdx, preferredSubIdx)
+        setupPlayerInstance(ep, resumeSeconds, preferredAudioIdx, preferredSubIdx, initialPlayWhenReady = true)
     }
 
     private fun setupPlayerInstance(
@@ -174,9 +216,13 @@ class PlayerViewModel @Inject constructor(
         resumePositionSeconds: Float,
         audioTrackIndex: Int,
         subtitleTrackIndex: Int,
-        forceH264: Boolean = false
+        forceH264: Boolean = false,
+        initialPlayWhenReady: Boolean? = null
     ) {
         val p = player ?: return
+
+        val wasPlaying = initialPlayWhenReady ?: (p.playWhenReady && p.playbackState != Player.STATE_ENDED)
+        val currentSpeed = _playerState.value.playbackSpeed
 
         val resolved = StreamResolver.resolvePlaybackStream(
             baseUrl = baseUrl,
@@ -235,7 +281,9 @@ class PlayerViewModel @Inject constructor(
             p.seekTo((resolved.targetSeekPositionSeconds * 1000).toLong())
         }
 
-        p.playWhenReady = true
+        p.setPlaybackSpeed(currentSpeed)
+        p.playWhenReady = wasPlaying
+        _playerState.update { it.copy(playWhenReady = wasPlaying, playbackSpeed = currentSpeed) }
         startProgressTracker()
     }
 
@@ -256,17 +304,70 @@ class PlayerViewModel @Inject constructor(
             return
         }
 
+        // Check for HTTP 503 (Transcoding Service Unavailable / Busy)
+        val causeMsg = error.cause?.message ?: ""
+        val invalidResponseCode = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)
+            ?: (error.cause?.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)
+        val is503 = invalidResponseCode?.responseCode == 503 || causeMsg.contains("503")
+
+        if (is503) {
+            if (!hasRetried503) {
+                hasRetried503 = true
+                val retryAfterSec = invalidResponseCode?.headerFields?.get("Retry-After")?.firstOrNull()?.toIntOrNull()
+                    ?: invalidResponseCode?.headerFields?.get("retry-after")?.firstOrNull()?.toIntOrNull()
+                    ?: 5
+
+                _playerState.update {
+                    it.copy(
+                        isBuffering = true,
+                        isTranscodingBusy = true,
+                        retryAfterSeconds = retryAfterSec,
+                        errorMessage = "El servidor de transcodificación está ocupado. Reintentando en ${retryAfterSec}s..."
+                    )
+                }
+
+                retry503Job?.cancel()
+                retry503Job = viewModelScope.launch {
+                    delay(retryAfterSec * 1000L)
+                    _playerState.update {
+                        it.copy(
+                            isTranscodingBusy = false,
+                            retryAfterSeconds = null,
+                            errorMessage = null
+                        )
+                    }
+                    val currentPos = _playerState.value.absolutePositionSeconds
+                    setupPlayerInstance(
+                        episode = episode,
+                        resumePositionSeconds = currentPos,
+                        audioTrackIndex = _playerState.value.selectedAudioTrackIndex,
+                        subtitleTrackIndex = _playerState.value.selectedSubtitleTrackIndex,
+                        forceH264 = hasAppliedCodecFallback
+                    )
+                }
+                return
+            } else {
+                _playerState.update {
+                    it.copy(
+                        isBuffering = false,
+                        isTranscodingBusy = false,
+                        retryAfterSeconds = null,
+                        errorMessage = "El servidor de transcodificación continúa ocupado tras el reintento. Inténtalo más tarde."
+                    )
+                }
+                return
+            }
+        }
+
         val msg = when (error.errorCode) {
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ->
                 "Error de conexión con el servidor multimedia. Comprueba la red local."
             PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
-                val causeMsg = error.cause?.message ?: ""
                 when {
                     causeMsg.contains("401") -> "Sesión expirada o no autorizada para reproducir este flujo."
                     causeMsg.contains("403") -> "Acceso denegado: contenido restringido para este perfil."
                     causeMsg.contains("404") -> "El archivo de video no fue encontrado en el servidor."
                     causeMsg.contains("416") -> "Rango de reproducción inválido."
-                    causeMsg.contains("503") -> "El servidor de transcodificación está ocupado. Reintentando..."
                     else -> "El servidor devolvió un error de reproducción HTTP ($causeMsg)"
                 }
             }
@@ -337,16 +438,82 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun play() {
+    private fun handlePartySync(sync: PartySyncEvent) {
+        val session = watchPartyRepository.activeSession.value ?: return
+        val currentAbs = _playerState.value.absolutePositionSeconds
+        val isPlaying = _playerState.value.isPlaying
+
+        val decision = WatchPartySyncController.evaluateSync(
+            hostEvent = sync,
+            clientAbsolutePositionSeconds = currentAbs,
+            clientIsPlaying = isPlaying,
+            isClientHost = session.isHost
+        )
+
+        when (decision.action) {
+            PartySyncAction.NONE -> {}
+            PartySyncAction.SEEK -> {
+                decision.targetPositionSeconds?.let { seekToAbsolute(it, fromPartySync = true) }
+            }
+            PartySyncAction.PLAY -> {
+                play(fromPartySync = true)
+            }
+            PartySyncAction.PAUSE -> {
+                pause(fromPartySync = true)
+            }
+            PartySyncAction.SEEK_AND_PLAY -> {
+                decision.targetPositionSeconds?.let { seekToAbsolute(it, fromPartySync = true) }
+                play(fromPartySync = true)
+            }
+            PartySyncAction.SEEK_AND_PAUSE -> {
+                decision.targetPositionSeconds?.let { seekToAbsolute(it, fromPartySync = true) }
+                pause(fromPartySync = true)
+            }
+        }
+    }
+
+    fun play(fromPartySync: Boolean = false) {
         player?.play()
         _playerState.update { it.copy(playWhenReady = true) }
         scheduleControlsAutoHide()
+
+        if (!fromPartySync) {
+            val session = watchPartyRepository.activeSession.value
+            if (session != null && session.isHost) {
+                viewModelScope.launch {
+                    watchPartyRepository.syncPlayback(
+                        session = session,
+                        currentTime = _playerState.value.absolutePositionSeconds,
+                        isPlaying = true,
+                        rate = _playerState.value.playbackSpeed,
+                        action = "play",
+                        episodeId = episodeId
+                    )
+                }
+            }
+        }
     }
 
-    fun pause() {
+    fun pause(fromPartySync: Boolean = false) {
         player?.pause()
         _playerState.update { it.copy(playWhenReady = false) }
         showControlsPermanently()
+
+        if (!fromPartySync) {
+            val session = watchPartyRepository.activeSession.value
+            if (session != null && session.isHost) {
+                viewModelScope.launch {
+                    watchPartyRepository.syncPlayback(
+                        session = session,
+                        currentTime = _playerState.value.absolutePositionSeconds,
+                        isPlaying = false,
+                        rate = _playerState.value.playbackSpeed,
+                        action = "pause",
+                        episodeId = episodeId
+                    )
+                }
+            }
+        }
     }
 
     fun togglePlayPause() {
@@ -360,7 +527,13 @@ class PlayerViewModel @Inject constructor(
         seekToAbsolute(target)
     }
 
-    fun seekToAbsolute(targetSeconds: Float) {
+    fun seekDoubleTap(forward: Boolean) {
+        val seconds = _playerState.value.doubleTapSeekSeconds.toFloat()
+        val delta = if (forward) seconds else -seconds
+        seekRelative(delta)
+    }
+
+    fun seekToAbsolute(targetSeconds: Float, fromPartySync: Boolean = false) {
         val ep = _playerState.value.episode ?: return
         val isDirect = StreamResolver.canDirectPlay(ep, _playerState.value.selectedAudioTrackIndex)
 
@@ -377,6 +550,22 @@ class PlayerViewModel @Inject constructor(
         }
         _playerState.update { it.copy(absolutePositionSeconds = targetSeconds) }
         scheduleControlsAutoHide()
+
+        if (!fromPartySync) {
+            val session = watchPartyRepository.activeSession.value
+            if (session != null && session.isHost) {
+                viewModelScope.launch {
+                    watchPartyRepository.syncPlayback(
+                        session = session,
+                        currentTime = targetSeconds,
+                        isPlaying = _playerState.value.isPlaying,
+                        rate = _playerState.value.playbackSpeed,
+                        action = "seek",
+                        episodeId = episodeId
+                    )
+                }
+            }
+        }
     }
 
     fun selectAudioTrack(index: Int) {
@@ -479,7 +668,61 @@ class PlayerViewModel @Inject constructor(
         val next = _playerState.value.nextEpisode ?: return
         saveCurrentProgress()
         cancelNextEpisodeCountdown()
+
+        val session = watchPartyRepository.activeSession.value
+        if (session != null && session.isHost) {
+            viewModelScope.launch {
+                watchPartyRepository.syncPlayback(
+                    session = session,
+                    currentTime = 0f,
+                    isPlaying = true,
+                    rate = _playerState.value.playbackSpeed,
+                    action = "change_episode",
+                    episodeId = next.id
+                )
+            }
+        }
+
         _navigationEvents.tryEmit(next.id)
+    }
+
+    fun createWatchParty(
+        roomName: String = "Watch Party",
+        isPublic: Boolean = true,
+        onCreated: ((ActivePartySession) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val ep = _playerState.value.episode ?: return@launch
+            val defaultName = _playerState.value.show?.let { "${it.title} - T${ep.seasonNumber}E${ep.episodeNumber}" }
+                ?: roomName
+            val result = watchPartyRepository.createRoom(
+                episodeId = ep.id,
+                roomName = defaultName,
+                isPublic = isPublic
+            )
+            if (result.isSuccess) {
+                val session = result.getOrThrow()
+                partyPlaybackContext.setPartyPlayback(session.roomId, session.streamTicket)
+                watchPartyRepository.startListening(baseUrl, session)
+                onCreated?.invoke(session)
+            } else {
+                _playerState.update {
+                    it.copy(errorMessage = "Error al crear la sala: ${result.exceptionOrNull()?.message}")
+                }
+            }
+        }
+    }
+
+    fun leaveWatchParty() {
+        partyPlaybackContext.clear()
+        viewModelScope.launch {
+            val session = watchPartyRepository.activeSession.value ?: return@launch
+            watchPartyRepository.leaveRoom(
+                roomId = session.roomId,
+                memberId = session.memberId,
+                memberToken = session.memberToken
+            )
+        }
     }
 
     private fun onPlaybackEnded() {
@@ -528,6 +771,9 @@ class PlayerViewModel @Inject constructor(
     override fun onCleared() {
         saveCurrentProgress()
         stopProgressTracker()
+        partyPlaybackContext.clear()
+        retry503Job?.cancel()
+        retry503Job = null
         player?.removeListener(playerListener)
         player = null
         super.onCleared()

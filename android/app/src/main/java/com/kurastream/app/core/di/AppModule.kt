@@ -111,6 +111,8 @@ object AppModule {
         }
 
         return OkHttpClient.Builder()
+            .followRedirects(false)
+            .followSslRedirects(false)
             .addInterceptor(dynamicBaseInterceptor)
             .addInterceptor(authInterceptor)
             .addInterceptor(safeOriginInterceptor)
@@ -126,7 +128,9 @@ object AppModule {
     @Named("media")
     fun provideMediaOkHttpClient(
         tokenStorage: TokenStorage,
-        preferencesDataSource: KuraPreferencesDataSource
+        preferencesDataSource: KuraPreferencesDataSource,
+        watchPartyRepositoryProvider: javax.inject.Provider<WatchPartyRepository>,
+        partyPlaybackContextProvider: javax.inject.Provider<com.kurastream.app.core.player.PartyPlaybackContext>
     ): OkHttpClient {
         val authInterceptor = Interceptor { chain ->
             val original = chain.request()
@@ -138,14 +142,24 @@ object AppModule {
 
             val isMatchingServer = if (!activeServerUrl.isNullOrBlank()) {
                 val parsedActive = activeServerUrl.toHttpUrlOrNull()
-                parsedActive != null && parsedActive.host.equals(original.url.host, ignoreCase = true)
+                parsedActive != null && parsedActive.hasSameOrigin(original.url)
             } else {
                 true
             }
 
             if (isMatchingServer) {
-                // If caller didn't pass explicit authorization or stream capability
-                if (original.header("Authorization") == null && original.header("X-Stream-Capability") == null) {
+                // If caller didn't pass explicit stream capability header, inject active party stream ticket
+                val partySession = watchPartyRepositoryProvider.get().activeSession.value
+                val streamTicket = original.header("X-Stream-Capability")
+                    ?: partyPlaybackContextProvider.get().streamCapabilityToken.value
+                    ?: partySession?.streamTicket
+
+                if (!streamTicket.isNullOrBlank() && original.header("X-Stream-Capability") == null) {
+                    builder.header("X-Stream-Capability", streamTicket)
+                }
+
+                // If caller didn't pass explicit authorization or stream capability, use active bearer token
+                if (original.header("Authorization") == null && original.header("X-Stream-Capability") == null && streamTicket.isNullOrBlank()) {
                     val token = tokenStorage.getToken(activeServerId)
                     if (!token.isNullOrBlank()) {
                         builder.header("Authorization", "Bearer $token")
@@ -156,8 +170,17 @@ object AppModule {
             chain.proceed(builder.build())
         }
 
+        val safeOriginInterceptor = SafeOriginInterceptor {
+            runBlocking {
+                preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerUrl
+            }
+        }
+
         return OkHttpClient.Builder()
+            .followRedirects(false)
+            .followSslRedirects(false)
             .addInterceptor(authInterceptor)
+            .addInterceptor(safeOriginInterceptor)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .build()

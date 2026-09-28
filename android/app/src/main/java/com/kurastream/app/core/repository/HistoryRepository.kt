@@ -24,7 +24,7 @@ class HistoryRepository(
         return try {
             val dtoList = apiService.getHistory()
             val entities = dtoList.map { it.toEntity(serverId, username, profileId) }
-            historyDao.insertHistory(entities)
+            historyDao.replaceHistory(serverId, username, profileId, entities)
             Result.success(entities.map { it.toModel() })
         } catch (e: Exception) {
             Result.failure(e)

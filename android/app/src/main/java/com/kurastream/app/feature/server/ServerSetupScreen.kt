@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.kurastream.app.R
 import com.kurastream.app.core.designsystem.component.KuraButton
+import com.kurastream.app.core.designsystem.component.KuraOutlinedButton
 import com.kurastream.app.core.designsystem.component.KuraTopBar
 import com.kurastream.app.core.designsystem.theme.*
 import com.kurastream.app.core.model.ServerProfile
@@ -196,14 +198,55 @@ fun ServerSetupScreen(
                 )
             }
 
+            // Success Display (e.g. Server discovered)
+            if (state.successMessage != null) {
+                Spacer(modifier = Modifier.height(KuraDimens.Space3))
+                Text(
+                    text = state.successMessage!!,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = KuraColors.Success,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             Spacer(modifier = Modifier.height(KuraDimens.Space4))
 
             // Connect Button
             KuraButton(
                 onClick = attemptConnect,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !state.isTesting && state.urlInput.isNotBlank(),
+                enabled = !state.isTesting && !state.isScanningLan && state.urlInput.isNotBlank(),
                 text = if (state.isTesting) stringResource(R.string.testing_connection) else stringResource(R.string.connect)
+            )
+
+            Spacer(modifier = Modifier.height(KuraDimens.Space3))
+
+            // LAN Auto Discovery Button
+            KuraOutlinedButton(
+                onClick = {
+                    if (state.isScanningLan) {
+                        viewModel.cancelLanDiscovery()
+                    } else {
+                        viewModel.startLanDiscovery()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                text = if (state.isScanningLan) "Buscando en red local… (Cancelar)" else "Buscar servidor local automáticamente",
+                leadingIcon = {
+                    if (state.isScanningLan) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = KuraColors.Secondary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = KuraColors.Secondary
+                        )
+                    }
+                }
             )
 
             // Local Network Permission Contextual Dialog (Android 17 / API 37)
@@ -265,7 +308,14 @@ fun ServerSetupScreen(
                                 .clip(KuraShapes.Card)
                                 .background(KuraColors.Surface)
                                 .border(1.dp, KuraColors.Border, KuraShapes.Card)
-                                .clickable { viewModel.selectRecentServer(server, onServerConnected) }
+                                .clickable {
+                                    val hasLocalPermission = if (Build.VERSION.SDK_INT >= 37) {
+                                        ContextCompat.checkSelfPermission(context, "android.permission.ACCESS_LOCAL_NETWORK") == PackageManager.PERMISSION_GRANTED
+                                    } else {
+                                        true
+                                    }
+                                    viewModel.selectRecentServer(server, isLocalNetworkPermissionGranted = hasLocalPermission, onSuccess = onServerConnected)
+                                }
                                 .padding(horizontal = KuraDimens.Space4, vertical = KuraDimens.Space3),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween

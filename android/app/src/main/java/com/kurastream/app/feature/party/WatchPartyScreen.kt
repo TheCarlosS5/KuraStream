@@ -6,9 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,7 +36,7 @@ fun WatchPartyScreen(
                 title = stringResource(R.string.watch_party),
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Volver", tint = KuraColors.TextMain)
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver", tint = KuraColors.TextMain)
                     }
                 }
             )
@@ -91,25 +91,6 @@ fun WatchPartyScreen(
                         )
                     )
 
-                    Spacer(modifier = Modifier.height(KuraDimens.Space3))
-
-                    OutlinedTextField(
-                        value = state.passcodeInput,
-                        onValueChange = viewModel::onPasscodeChanged,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Código de acceso (opcional)") },
-                        singleLine = true,
-                        shape = KuraShapes.Control,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = KuraColors.Secondary,
-                            unfocusedBorderColor = KuraColors.Border,
-                            focusedTextColor = KuraColors.TextMain,
-                            unfocusedTextColor = KuraColors.TextMain,
-                            focusedContainerColor = KuraColors.Surface,
-                            unfocusedContainerColor = KuraColors.Surface
-                        )
-                    )
-
                     if (state.errorMessage != null) {
                         Spacer(modifier = Modifier.height(KuraDimens.Space3))
                         Text(
@@ -124,14 +105,31 @@ fun WatchPartyScreen(
                     KuraButton(
                         onClick = {
                             viewModel.joinRoom { s ->
-                                if (!s.streamTicket.isNullOrBlank() && s.room != null) {
-                                    onNavigateToPlayerWithTicket(s.room.episodeId, s.streamTicket)
+                                if (s.room != null) {
+                                    onNavigateToPlayerWithTicket(s.room.episodeId, s.streamTicket ?: "")
                                 }
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !state.isJoiningRoom && state.roomIdInput.isNotBlank(),
                         text = if (state.isJoiningRoom) "Entrando a la sala…" else "Unirse a la Sala"
+                    )
+
+                    Spacer(modifier = Modifier.height(KuraDimens.Space6))
+                    HorizontalDivider(color = KuraColors.Border)
+                    Spacer(modifier = Modifier.height(KuraDimens.Space4))
+
+                    Text(
+                        text = "¿Quieres crear tu propia sala?",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = KuraColors.TextMain,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(KuraDimens.Space1))
+                    Text(
+                        text = "Abre cualquier episodio en el reproductor y presiona el botón de Watch Party en la barra superior para iniciar una sesión compartida en tiempo real.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = KuraColors.TextSecondary
                     )
                 }
             } else {
@@ -175,12 +173,41 @@ fun WatchPartyScreen(
                                     color = KuraColors.Secondary
                                 )
                             }
+                            val syncStatus = state.lastSync?.let { sync ->
+                                val mins = (sync.currentTime / 60).toInt()
+                                val secs = (sync.currentTime % 60).toInt()
+                                val timeFormatted = String.format("%02d:%02d", mins, secs)
+                                if (sync.isPlaying) "Reproduciendo ($timeFormatted)" else "En pausa ($timeFormatted)"
+                            } ?: session.room?.let { room ->
+                                val mins = (room.currentTime / 60).toInt()
+                                val secs = (room.currentTime % 60).toInt()
+                                val timeFormatted = String.format("%02d:%02d", mins, secs)
+                                if (room.isPlaying) "Reproduciendo ($timeFormatted)" else "En pausa ($timeFormatted)"
+                            }
+                            if (syncStatus != null) {
+                                Spacer(modifier = Modifier.height(KuraDimens.Space1))
+                                Text(
+                                    text = syncStatus,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = KuraColors.TextMuted
+                                )
+                            }
                         }
 
-                        KuraOutlinedButton(
-                            onClick = viewModel::leaveRoom,
-                            text = "Salir"
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(KuraDimens.Space2)) {
+                            if (!session.room?.episodeId.isNullOrBlank()) {
+                                KuraButton(
+                                    onClick = {
+                                        onNavigateToPlayerWithTicket(session.room?.episodeId ?: "", session.streamTicket ?: "")
+                                    },
+                                    text = "Reproducir"
+                                )
+                            }
+                            KuraOutlinedButton(
+                                onClick = viewModel::leaveRoom,
+                                text = "Salir"
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(KuraDimens.Space3))
@@ -247,7 +274,7 @@ fun WatchPartyScreen(
                                 .background(KuraColors.Secondary, KuraShapes.Control)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Send,
+                                imageVector = Icons.AutoMirrored.Filled.Send,
                                 contentDescription = "Enviar",
                                 tint = KuraColors.Background
                             )

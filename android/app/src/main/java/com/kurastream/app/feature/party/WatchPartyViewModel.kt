@@ -15,13 +15,13 @@ import javax.inject.Inject
 data class WatchPartyUiState(
     val activeSession: ActivePartySession? = null,
     val roomIdInput: String = "",
-    val passcodeInput: String = "",
     val roomNameInput: String = "",
     val isCreatingRoom: Boolean = false,
     val isJoiningRoom: Boolean = false,
     val messages: List<PartyMessage> = emptyList(),
     val chatInput: String = "",
     val members: List<String> = emptyList(),
+    val lastSync: com.kurastream.app.core.model.PartySyncEvent? = null,
     val errorMessage: String? = null,
     val baseUrl: String = ""
 )
@@ -29,7 +29,8 @@ data class WatchPartyUiState(
 @HiltViewModel
 class WatchPartyViewModel @Inject constructor(
     private val partyRepository: WatchPartyRepository,
-    private val preferencesDataSource: KuraPreferencesDataSource
+    private val preferencesDataSource: KuraPreferencesDataSource,
+    private val partyPlaybackContext: com.kurastream.app.core.player.PartyPlaybackContext
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WatchPartyUiState())
@@ -44,6 +45,26 @@ class WatchPartyViewModel @Inject constructor(
         viewModelScope.launch {
             partyRepository.realtimeEvents.collect { event ->
                 when (event) {
+                    is PartyRealtimeEvent.Sync -> {
+                        _uiState.update { current ->
+                            val currentRoom = current.activeSession?.room
+                            val updatedRoom = currentRoom?.copy(
+                                currentTime = event.sync.currentTime,
+                                isPlaying = event.sync.isPlaying,
+                                episodeId = event.sync.episodeId ?: currentRoom.episodeId
+                            )
+                            val updatedSession = current.activeSession?.copy(room = updatedRoom)
+                            current.copy(
+                                activeSession = updatedSession,
+                                lastSync = event.sync
+                            )
+                        }
+                        partyRepository.updatePlaybackState(
+                            currentTime = event.sync.currentTime,
+                            isPlaying = event.sync.isPlaying,
+                            episodeId = event.sync.episodeId
+                        )
+                    }
                     is PartyRealtimeEvent.Message -> {
                         _uiState.update { it.copy(messages = it.messages + event.message) }
                     }
@@ -66,6 +87,7 @@ class WatchPartyViewModel @Inject constructor(
                         _uiState.update { it.copy(members = it.members - event.username) }
                     }
                     is PartyRealtimeEvent.RoomClosed -> {
+                        partyPlaybackContext.clear()
                         _uiState.update { it.copy(errorMessage = "La sala ha sido cerrada por el anfitrión") }
                     }
                     is PartyRealtimeEvent.ConnectionError -> {
@@ -79,10 +101,6 @@ class WatchPartyViewModel @Inject constructor(
 
     fun onRoomIdChanged(id: String) {
         _uiState.update { it.copy(roomIdInput = id, errorMessage = null) }
-    }
-
-    fun onPasscodeChanged(code: String) {
-        _uiState.update { it.copy(passcodeInput = code, errorMessage = null) }
     }
 
     fun onRoomNameChanged(name: String) {
@@ -105,6 +123,7 @@ class WatchPartyViewModel @Inject constructor(
             val res = partyRepository.joinRoom(state.roomIdInput.trim())
             if (res.isSuccess) {
                 val session = res.getOrThrow()
+                partyPlaybackContext.setPartyPlayback(session.roomId, session.streamTicket)
                 _uiState.update {
                     it.copy(
                         isJoiningRoom = false,
@@ -134,6 +153,7 @@ class WatchPartyViewModel @Inject constructor(
             val res = partyRepository.createRoom(episodeId, name, isPublic = true)
             if (res.isSuccess) {
                 val session = res.getOrThrow()
+                partyPlaybackContext.setPartyPlayback(session.roomId, session.streamTicket)
                 _uiState.update {
                     it.copy(
                         isCreatingRoom = false,
@@ -154,6 +174,12 @@ class WatchPartyViewModel @Inject constructor(
         }
     }
 
+    fun setPartyPlaybackTicket(ticket: String) {
+        val session = _uiState.value.activeSession
+        partyPlaybackContext.setPartyPlayback(session?.roomId, ticket)
+        partyRepository.updateStreamTicket(ticket)
+    }
+
     fun sendMessage() {
         val session = _uiState.value.activeSession ?: return
         val text = _uiState.value.chatInput.trim()
@@ -166,9 +192,10 @@ class WatchPartyViewModel @Inject constructor(
     }
 
     fun leaveRoom() {
+        partyPlaybackContext.clear()
         val session = _uiState.value.activeSession ?: return
         viewModelScope.launch {
-            partyRepository.leaveRoom(session.roomId, session.memberId)
+            partyRepository.leaveRoom(session.roomId, session.memberId, session.memberToken)
             _uiState.update { it.copy(activeSession = null, messages = emptyList(), members = emptyList()) }
         }
     }

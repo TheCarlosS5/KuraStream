@@ -151,6 +151,20 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setDoubleTapSeekSeconds(seconds: Int) {
+        val current = _uiState.value.sessionPrefs
+        viewModelScope.launch {
+            preferencesDataSource.updatePlayerPreferences(
+                autoSkipIntro = current.autoSkipIntro,
+                autoSkipOutro = current.autoSkipOutro,
+                autoPlayNext = current.autoPlayNext,
+                audioLang = current.preferredAudioLanguage,
+                subLang = current.preferredSubtitleLanguage,
+                seekSeconds = seconds
+            )
+        }
+    }
+
     fun logout(onLoggedOut: () -> Unit) {
         _uiState.update { it.copy(isLoggingOut = true) }
         viewModelScope.launch {

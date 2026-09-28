@@ -52,22 +52,45 @@ Registro completo del desarrollo, auditoría, implementación y verificación de
   - Soporte para teléfonos y tabletas con redimensionamiento de columnas.
   - Optimización de bitmaps en Coil y claves estables en listas perezosas.
 - [x] **Fase 11: Pruebas y Verificación Integral**
-  - 38 pruebas unitarias en Android (`./gradlew testDebugUnitTest`): 100% pasando.
+  - Pruebas unitarias en Android (`./gradlew testDebugUnitTest`): 100% pasando.
   - Análisis estático (`./gradlew lintDebug`): 100% pasando.
   - Verificación de contratos y arquitectura (`scripts/test_android_contracts.mjs`): 100% pasando.
   - Suite de regresión del backend PHP (`npm test`): 41/41 pasando.
+  - CI de GitHub Actions configurado para ramas `feat/*` con jobs de validación unitaria, lint y APK de Android.
 - [x] **Fase 12: Generación de APK y Documentación Final**
-  - Compilación exitosa de APK Debug: `android/app/build/outputs/apk/debug/app-debug.apk` (23.5 MB).
+  - Compilación exitosa de APK Debug: `android/app/build/outputs/apk/debug/app-debug.apk`.
   - Documentación técnica exhaustiva (`README.md`, `ARCHITECTURE.md`, `API_CONTRACT.md`, `PLAYER_ARCHITECTURE.md`, `SECURITY.md`, `TEST_MATRIX.md`).
 
 ---
 
-## 2. Verificación de Definition of Done
+## 2. Auditoría y Correcciones de la Revisión Bloqueante (feat/native-android-client)
+
+- [x] **Watch Party conectado al ciclo de ExoPlayer:** Sincronización en tiempo real vía `PartyRealtimeEvent.Sync` procesado por `WatchPartySyncController` en `PlayerViewModel` y actualización de estado en `WatchPartyViewModel`, emisión automática de acciones del host (`play`, `pause`, `seek`, `change_episode`) mediante `WatchPartyRepository.syncPlayback`.
+- [x] **Inyección de Ticket de Capacidad de Streaming:** `PartyPlaybackContext` almacena de forma segura en memoria el ticket de reproducción sin exponerlo en URLs de navegación, e inyecta `X-Stream-Capability` en el DataSource OkHttp de Media3 a partir del contexto activo.
+- [x] **Encabezados de Salida de Watch Party:** Envío de `X-Party-Member-Id` y `X-Party-Member-Token` en `leavePartyRoom` para validar la sesión del huésped sin error 401.
+- [x] **Creación Contextual de Watch Party:** Botón y diálogo nativo en `PlayerScreen` para crear sala directamente desde el episodio activo; eliminación del campo inútil de passcode en `WatchPartyScreen` y `WatchPartyViewModel`, y guía de creación en `WatchPartyScreen`.
+- [x] **Aislamiento de Caché Multiusuario en Room:** Clave primaria compuesta `(serverId, username, profileId, id)` en `CachedShowEntity` para evitar filtración de contenidos adultos en perfiles infantiles y aislar datos entre diferentes usuarios.
+- [x] **Preservación de Estado del Reproductor en Rebuild de MediaItem:** Conservación de `wasPlaying`, `playbackSpeed` y `positionSeconds` al alternar pistas de audio o subtítulos.
+- [x] **Resolución de Parámetro de Pistas de Audio:** Traducción de índice UI a identificador de backend (`trackNumber` > 0 -> `trackNumber`, o `index`) en `StreamResolver.resolveAudioTrackBackendParam`.
+- [x] **Reintento Controlado ante Error 503:** Manejo de servidor ocupado con lectura del encabezado `Retry-After` (fallback 5s) y un único reintento controlado cancelable en `onCleared()`.
+- [x] **Validación de Origen JWT Estricta:** Comparación de esquema, host y puerto en `hasSameOrigin` para evitar compartir tokens entre diferentes instancias locales.
+- [x] **Manejo Seguro de Redirecciones:** `SafeOriginInterceptor` con `followRedirects(false)` y verificación de origen cruzado antes de seguir redirecciones 3xx.
+- [x] **Auto-Descubrimiento LAN de Servidores:** Escaneo asíncrono de subred local en puertos 3000, 8080 y 80 con feedback en `ServerSetupScreen` y verificación estricta de permisos LAN también en servidores recientes.
+- [x] **Mapeo de Deep Links:** Manejo de `onNewIntent` en `MainActivity` y ruta `kurastream://server?url=...`.
+- [x] **Ajustes de Usuario:** Selección interactiva de idioma preferido de audio y subtítulos, y segundos de salto por doble toque dinámicos en el reproductor.
+- [x] **Eliminación de Items Fantasma en Historial:** Transacción atómica `replaceHistory` (clear + insert).
+- [x] **Localización:** Actualizado string a "Lanzamientos recientes".
+- [x] **Evaluación Media3:** Verificada la versión `1.5.1` como la última versión estable oficial de `androidx.media3` (versión 1.11.1 no existe en los repositorios de Google).
+- [x] **Pipeline CI en GitHub Actions:** Agregado trigger `feat/*` y job `android` para `testDebugUnitTest`, `lintDebug` y `assembleDebug`.
+
+---
+
+## 3. Verificación de Definition of Done
 
 - [x] Proyecto Android NATIVO en Kotlin + Jetpack Compose.
 - [x] `minSdk 26`, `compileSdk 37`, `targetSdk 37` (Android 17).
 - [x] Build debug compila (`./gradlew assembleDebug` EXIT 0).
-- [x] Servidor configurable (LAN, dominios, IPs).
+- [x] Servidor configurable (LAN, dominios, IPs) con escáner automático.
 - [x] Hotspot/LAN sin internet soportado sin bloqueos.
 - [x] Permiso `ACCESS_LOCAL_NETWORK` de Android 17 manejado contextualmente.
 - [x] HTTP local con advertencia de red y HTTPS seguro sin bypasses.
@@ -80,8 +103,8 @@ Registro completo del desarrollo, auditoría, implementación y verificación de
 - [x] Skip intro/outro y siguiente episodio (S1E12 -> S2E1).
 - [x] Gestos de brillo, volumen, seek y bloqueo de controles.
 - [x] Picture-in-Picture (PiP) y MediaSessionService con lockscreen controls.
-- [x] Watch Party con cliente SSE, chat en vivo y sincronización de drift.
-- [x] Aislamiento de caché por `(serverId, profileId)`.
+- [x] Watch Party con cliente SSE, chat en vivo, sincronización de drift y control de host en ExoPlayer.
+- [x] Aislamiento de caché por `(serverId, profileId, id)`.
 - [x] Sin tokens en logs ni secretos en el repositorio.
 - [x] Cero WebViews, cero mocks en runtime y cero botones muertos.
 - [x] Suite de pruebas unitarias y de backend pasando al 100%.

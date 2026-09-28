@@ -34,6 +34,9 @@ data class PlayerState(
     val errorMessage: String? = null,
     val retryAfterSeconds: Int? = null,
     val isTranscodingBusy: Boolean = false,
+    val isWatchPartyActive: Boolean = false,
+    val watchPartyRoomId: String? = null,
+    val doubleTapSeekSeconds: Int = 10,
     val videoFitMode: VideoFitMode = VideoFitMode.FIT
 )
 

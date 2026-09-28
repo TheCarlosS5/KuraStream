@@ -76,7 +76,7 @@ object StreamResolver {
         } else {
             // Remux / Transcode: Server FFmpeg starts from the requested position
             val startOffset = if (requestedResumePositionSeconds > 2f) requestedResumePositionSeconds else 0f
-            val audioParam = if (selectedAudioTrackIndex >= 0) selectedAudioTrackIndex else null
+            val audioParam = resolveAudioTrackBackendParam(episode, selectedAudioTrackIndex)
 
             val url = ServerUrlResolver.buildStreamUrl(
                 baseUrl = baseUrl,
@@ -120,6 +120,20 @@ object StreamResolver {
                     it.title.contains(preferredLanguage, ignoreCase = true)
         }
         return if (match >= 0) match else 0
+    }
+
+    /**
+     * Translates UI track list position to the audio track identifier expected by backend PHP.
+     * PHP matches in order: track_number -> array index -> ffmpeg stream index.
+     */
+    fun resolveAudioTrackBackendParam(episode: Episode, selectedAudioTrackIndex: Int): Int? {
+        if (selectedAudioTrackIndex < 0) return null
+        val track = episode.audioTracks.getOrNull(selectedAudioTrackIndex) ?: return selectedAudioTrackIndex
+        return when {
+            track.trackNumber > 0 -> track.trackNumber
+            track.index > 0 -> track.index
+            else -> selectedAudioTrackIndex
+        }
     }
 
     /**

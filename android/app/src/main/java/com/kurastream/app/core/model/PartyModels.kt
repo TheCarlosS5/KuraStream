@@ -36,5 +36,6 @@ data class PartySyncEvent(
     val currentTime: Float,
     val isPlaying: Boolean,
     val updatedBy: String,
-    val playbackRate: Float = 1.0f
+    val playbackRate: Float = 1.0f,
+    val episodeId: String? = null
 )

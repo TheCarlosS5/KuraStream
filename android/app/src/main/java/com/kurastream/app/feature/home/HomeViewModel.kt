@@ -81,6 +81,7 @@ class HomeViewModel @Inject constructor(
                 val isKids = prefs.isKidsMode
 
                 val sessionChanged = serverId != currentServerId ||
+                        username != currentUsername ||
                         profileId != currentProfileId ||
                         isKids != currentIsKids
 
@@ -110,7 +111,7 @@ class HomeViewModel @Inject constructor(
         cacheObservationJob?.cancel()
         cacheObservationJob = viewModelScope.launch {
             combine(
-                catalogRepository.getCachedShows(serverId, isKids),
+                catalogRepository.getCachedShows(serverId, username, profileId, isKids),
                 historyRepository.getCachedHistory(serverId, username, profileId)
             ) { shows, historyItems ->
                 val filteredHistory = historyItems.filter { !it.completed && it.progressSeconds > 10f }
@@ -144,7 +145,7 @@ class HomeViewModel @Inject constructor(
             }
 
             loadNotifications()
-            val catalogResult = catalogRepository.refreshCatalog(serverId, isKids)
+            val catalogResult = catalogRepository.refreshCatalog(serverId, username, profileId, isKids)
             var historyItems = emptyList<WatchHistoryItem>()
             if (username.isNotBlank() && profileId.isNotBlank()) {
                 val histRes = historyRepository.refreshHistory(serverId, username, profileId)

@@ -125,8 +125,10 @@ interface KuraApiService {
 
     @POST("api/party/leave")
     suspend fun leavePartyRoom(
+        @Header("X-Party-Member-Id") memberId: String,
+        @Header("X-Party-Member-Token") memberToken: String,
         @Query("room_id") roomId: String,
-        @Query("member_id") memberId: String
+        @Query("member_id") memberIdQuery: String = memberId
     ): BaseResponseDto
 
     @POST("api/party/sync")

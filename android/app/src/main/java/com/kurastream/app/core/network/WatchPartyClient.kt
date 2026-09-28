@@ -90,7 +90,8 @@ class WatchPartyClient(
                         val isPlaying = roomObj["is_playing"]?.jsonPrimitive?.booleanOrNull
                             ?: (roomObj["is_playing"]?.jsonPrimitive?.intOrNull == 1)
                         val host = roomObj["host_user"]?.jsonPrimitive?.contentOrNull ?: ""
-                        _events.tryEmit(PartyRealtimeEvent.Sync(PartySyncEvent(time, isPlaying, host, 1.0f)))
+                        val episodeId = roomObj["episode_id"]?.jsonPrimitive?.contentOrNull
+                        _events.tryEmit(PartyRealtimeEvent.Sync(PartySyncEvent(time, isPlaying, host, 1.0f, episodeId)))
                     }
                     val membersArr = obj["members"]?.jsonArray
                     if (membersArr != null) {
@@ -116,7 +117,8 @@ class WatchPartyClient(
                     val isPlaying = obj["is_playing"]?.jsonPrimitive?.booleanOrNull
                         ?: (obj["is_playing"]?.jsonPrimitive?.intOrNull == 1)
                     val host = obj["host_user"]?.jsonPrimitive?.contentOrNull ?: ""
-                    _events.tryEmit(PartyRealtimeEvent.Sync(PartySyncEvent(time, isPlaying, host, 1.0f)))
+                    val episodeId = obj["episode_id"]?.jsonPrimitive?.contentOrNull
+                    _events.tryEmit(PartyRealtimeEvent.Sync(PartySyncEvent(time, isPlaying, host, 1.0f, episodeId)))
                 }
                 "messages" -> {
                     // data: [ {...}, {...} ]
@@ -187,7 +189,8 @@ class WatchPartyClient(
                                     val isPlaying = room["is_playing"]?.jsonPrimitive?.booleanOrNull
                                         ?: (room["is_playing"]?.jsonPrimitive?.intOrNull == 1)
                                     val host = room["host_user"]?.jsonPrimitive?.contentOrNull ?: ""
-                                    _events.tryEmit(PartyRealtimeEvent.Sync(PartySyncEvent(time, isPlaying, host, 1.0f)))
+                                    val episodeId = room["episode_id"]?.jsonPrimitive?.contentOrNull
+                                    _events.tryEmit(PartyRealtimeEvent.Sync(PartySyncEvent(time, isPlaying, host, 1.0f, episodeId)))
                                 }
                                 val msgsArray = root["messages"]?.jsonArray
                                 if (msgsArray != null && msgsArray.isNotEmpty()) {
