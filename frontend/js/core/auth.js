@@ -19,10 +19,27 @@ export class AuthManager {
   static getUser() {
     const raw = localStorage.getItem(STORAGE_KEYS.USER);
     try {
-      return raw ? JSON.parse(raw) : null;
+      if (raw) return JSON.parse(raw);
     } catch {
-      return null;
+      // ignore JSON parse error
     }
+    const token = this.getToken();
+    if (token) {
+      try {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+          if (payload && payload.username) {
+            const userObj = { username: payload.username, role: payload.role || 'user' };
+            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userObj));
+            return userObj;
+          }
+        }
+      } catch {
+        // ignore decode error
+      }
+    }
+    return null;
   }
 
   static getRole() {
@@ -37,10 +54,31 @@ export class AuthManager {
   static getActiveProfile() {
     const raw = localStorage.getItem(STORAGE_KEYS.ACTIVE_PROFILE);
     try {
-      return raw ? JSON.parse(raw) : null;
+      if (raw) return JSON.parse(raw);
     } catch {
-      return null;
+      // ignore JSON parse error
     }
+    const token = this.getToken();
+    if (token) {
+      try {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+          if (payload && (payload.profile_name || payload.profile_id)) {
+            const profObj = {
+              id: payload.profile_id || 'prof_default',
+              name: payload.profile_name || 'Principal',
+              is_kids: Boolean(payload.is_kids)
+            };
+            localStorage.setItem(STORAGE_KEYS.ACTIVE_PROFILE, JSON.stringify(profObj));
+            return profObj;
+          }
+        }
+      } catch {
+        // ignore decode error
+      }
+    }
+    return null;
   }
 
   static setSession(token, user, profile = null) {
@@ -75,7 +113,7 @@ export class AuthManager {
         username: res.data.username || username,
         role: res.data.role || 'user'
       };
-      this.setSession(res.data.token, user);
+      this.setSession(res.data.token, user, res.data.profile || null);
       return res.data;
     }
     throw new Error(res.data?.error || 'Respuesta inválida del servidor al iniciar sesión');
@@ -88,7 +126,7 @@ export class AuthManager {
         username: res.data.username || username,
         role: res.data.role || 'user'
       };
-      this.setSession(res.data.token, user);
+      this.setSession(res.data.token, user, res.data.profile || null);
       return res.data;
     }
     throw new Error(res.data?.error || 'Error al registrar usuario');

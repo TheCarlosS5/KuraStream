@@ -84,6 +84,9 @@ class AuthController {
 
             if ($isPassValid) {
                 $actualUsername = $user['username'] ?? $username;
+                // Ensure default profile is created for the user in DB
+                DbHelper::getUserProfiles($actualUsername);
+
                 $tokenPayload = [
                     'username' => $actualUsername,
                     'role' => $user['role'] ?? 'user',
@@ -136,6 +139,9 @@ class AuthController {
         if (!$user) {
             jsonError('El nombre de usuario ya está registrado', 409);
         }
+
+        // Ensure default profile is created for the user in DB
+        DbHelper::getUserProfiles($username);
 
         $tokenPayload = [
             'username' => $username,

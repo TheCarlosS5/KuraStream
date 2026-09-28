@@ -1482,5 +1482,192 @@ input:checked + .slider:before {
   gap: 4px;
 }
 
+/* Party Public Rooms List Cards */
+.party-room-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--surface-control);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.party-room-card:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent-color);
+}
+
+.party-room-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.party-room-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-main);
+}
+
+.party-room-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.party-room-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 224, 143, 0.15);
+  color: var(--success-color);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Profile Management Cards and Add Card */
+.profile-card-add .profile-avatar {
+  background: var(--surface-control);
+  border: 2px dashed var(--border-color);
+  color: var(--text-muted);
+}
+
+.profile-card-add:hover .profile-avatar {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  background: var(--surface-hover);
+}
+
+.profile-avatar.has-image {
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+
+.profile-edit-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: var(--accent-color);
+  color: #fff;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  border: 2px solid var(--bg-canvas);
+}
+
+.preset-avatar-option {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.preset-avatar-option:hover,
+.preset-avatar-option.selected {
+  border-color: var(--accent-color);
+  transform: scale(1.1);
+  box-shadow: 0 0 10px var(--accent-soft);
+}
+
+.preset-avatars-grid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+/* Show Detail Pre-playback Audio / Subtitles Track Selection */
+.detail-audio-preferences {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  background: rgba(19, 26, 36, 0.65);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  margin: 16px 0 20px 0;
+  backdrop-filter: blur(12px);
+}
+
+.detail-pref-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-pref-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.detail-pref-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.detail-pref-pill {
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: var(--surface-control);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.detail-pref-pill:hover {
+  background: var(--surface-hover);
+  color: var(--text-main);
+  border-color: var(--text-muted);
+}
+
+.detail-pref-pill.active {
+  background: var(--accent-gradient, var(--accent-color));
+  color: #fff;
+  border-color: var(--accent-color);
+  font-weight: 600;
+  box-shadow: 0 0 12px rgba(129, 140, 248, 0.4);
+}
+
+/* Active Favorite Button Styling */
+.btn-favorite-active {
+  background: rgba(239, 68, 68, 0.16) !important;
+  color: #f87171 !important;
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.3) !important;
+}
+
+.btn-favorite-active i,
+.btn-favorite-active svg,
+.btn-favorite-active [data-lucide] {
+  color: #ef4444 !important;
+  fill: #ef4444 !important;
+}
+
 
 

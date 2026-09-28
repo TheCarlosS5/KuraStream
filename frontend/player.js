@@ -361,9 +361,9 @@ export async function initPlayer(rawEpisodeId) {
     return;
   }
 
-  // Resolve Audio and Subtitle track preferences from Settings
-  const prefAudio = window.userPreferences?.preferred_audio_language || localStorage.getItem('kurastream_preferred_audio_language') || localStorage.getItem('kura_pref_audio_lang') || 'default';
-  const prefSub = window.userPreferences?.preferred_subtitle_language || localStorage.getItem('kurastream_preferred_subtitle_language') || localStorage.getItem('kura_pref_sub_lang') || 'default';
+  // Resolve Audio and Subtitle track preferences (pre-playback selection first, then profile defaults)
+  const prefAudio = localStorage.getItem('kura_pref_audio_lang') || localStorage.getItem('kurastream_preferred_audio_language') || window.userPreferences?.preferred_audio_language || 'default';
+  const prefSub = localStorage.getItem('kura_pref_sub_lang') || localStorage.getItem('kurastream_preferred_subtitle_language') || window.userPreferences?.preferred_subtitle_language || 'default';
 
   // 1. Resolve Audio Track: user preference -> disposition default -> first track
   const audioTracks = parseJsonArray(currentEpisodeData.audio_tracks);

@@ -612,13 +612,18 @@ class DbHelper {
         $db = Database::getConnection();
 
         $stmt = $db->prepare("
-            SELECT SUM(progress_seconds) as total_time, COUNT(DISTINCT episode_id) as watched_eps
+            SELECT 
+                SUM(CASE 
+                    WHEN completed = 1 AND duration > 0 AND duration > progress_seconds THEN duration 
+                    ELSE COALESCE(progress_seconds, 0) 
+                END) as total_time, 
+                COUNT(DISTINCT episode_id) as watched_eps
             FROM watch_history
             WHERE username = :u AND profile_name = :p
         ");
         $stmt->execute(['u' => $username, 'p' => $profile]);
         $row = $stmt->fetch() ?: [];
-        $totalTime = (int)($row['total_time'] ?? 0);
+        $totalTime = (int)round((float)($row['total_time'] ?? 0));
         $watchedEpisodes = (int)($row['watched_eps'] ?? 0);
 
         $stmtComp = $db->prepare("
@@ -816,6 +821,14 @@ class DbHelper {
         $stmt = $db->prepare("SELECT * FROM user_profiles WHERE username = :u ORDER BY created_at ASC");
         $stmt->execute(['u' => $username]);
         $rows = $stmt->fetchAll();
+        if (empty($rows)) {
+            $defaultProfile = self::saveUserProfile($username, [
+                'name' => 'Principal',
+                'color' => '#818CF8',
+                'is_kids' => 0
+            ]);
+            return [$defaultProfile];
+        }
         return array_map(function($p) {
             $name = $p['name'] ?? 'Principal';
             $color = $p['color'] ?? '#a855f7';
@@ -886,6 +899,21 @@ class DbHelper {
         }
 
         $avatar = $data['avatar'] ?? ($data['avatar_image'] ?? '');
+        if (!empty($avatar) && str_starts_with($avatar, 'data:image/')) {
+            $parts = explode(',', $avatar);
+            $dataBin = base64_decode(end($parts));
+            if ($dataBin !== false) {
+                $avatarDir = ROOT_DIR . '/library/avatars/uploads';
+                if (!is_dir($avatarDir)) {
+                    @mkdir($avatarDir, 0777, true);
+                }
+                $cleanUser = preg_replace('/[^a-zA-Z0-9_-]/', '', $username);
+                $filename = 'avatar_' . $cleanUser . '_' . substr(bin2hex(random_bytes(6)), 0, 8) . '.jpg';
+                @file_put_contents($avatarDir . '/' . $filename, $dataBin);
+                $avatar = '/library/avatars/uploads/' . $filename;
+            }
+        }
+
         $color = $data['avatar_color'] ?? $data['color'] ?? '#a855f7';
         $isKids = !empty($data['is_kids']) ? 1 : 0;
         $rawPin = trim((string)($data['pin'] ?? ''));
@@ -952,7 +980,13 @@ class DbHelper {
 
     public static function getComments(string $showId): array {
         $db = Database::getConnection();
-        $stmt = $db->prepare("SELECT * FROM comments WHERE show_id = :s ORDER BY created_at DESC");
+        $stmt = $db->prepare("
+            SELECT c.*, p.avatar, p.color as avatar_color
+            FROM comments c
+            LEFT JOIN user_profiles p ON p.username = c.username AND p.name = c.profile_name
+            WHERE c.show_id = :s 
+            ORDER BY c.created_at DESC
+        ");
         $stmt->execute(['s' => $showId]);
         return $stmt->fetchAll();
     }

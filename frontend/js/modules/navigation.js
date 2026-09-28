@@ -115,15 +115,22 @@ export function initHeaderDropdowns() {
       });
     });
 
+    let exploreLeaveTimer = null;
     exploreDropdown.addEventListener('mouseenter', () => {
+      if (exploreLeaveTimer) {
+        clearTimeout(exploreLeaveTimer);
+        exploreLeaveTimer = null;
+      }
       exploreMenu.classList.add('show');
       exploreDropdown.classList.add('open');
       if (exploreTrigger) exploreTrigger.classList.add('active');
     });
     exploreDropdown.addEventListener('mouseleave', () => {
-      exploreMenu.classList.remove('show');
-      exploreDropdown.classList.remove('open');
-      syncExploreActiveState();
+      exploreLeaveTimer = setTimeout(() => {
+        exploreMenu.classList.remove('show');
+        exploreDropdown.classList.remove('open');
+        syncExploreActiveState();
+      }, 150);
     });
   }
 

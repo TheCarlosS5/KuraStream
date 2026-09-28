@@ -329,6 +329,18 @@
           <h1 id="detail-title" class="detail-title">--</h1>
           <p id="detail-synopsis" class="detail-synopsis">--</p>
 
+          <!-- Pre-playback Track Preferences (Audio & Subtitles) -->
+          <div id="detail-track-preferences" class="detail-audio-preferences" style="display: none;">
+            <div class="detail-pref-group" id="detail-pref-audio-group">
+              <span class="detail-pref-label"><i data-lucide="volume-2"></i> Audio:</span>
+              <div class="detail-pref-pills" id="detail-audio-pills"></div>
+            </div>
+            <div class="detail-pref-group" id="detail-pref-sub-group">
+              <span class="detail-pref-label"><i data-lucide="subtitles"></i> Subtítulos:</span>
+              <div class="detail-pref-pills" id="detail-sub-pills"></div>
+            </div>
+          </div>
+
           <!-- Season / Episodes Selector -->
           <div class="episodes-section">
             <div class="episodes-header">
@@ -1135,32 +1147,10 @@
     <section id="settings-view" class="app-view">
       <div class="settings-container">
         <h2 class="settings-title"><i data-lucide="settings"></i> Ajustes de Reproducción</h2>
-        <p class="settings-description">Configura tu idioma preferido para que se seleccione automáticamente al ver cualquier anime o película.</p>
+        <p class="settings-description">Configura las opciones de sonido, ecualización y comportamiento automático de reproducción.</p>
         
         <div class="settings-card">
           <div class="settings-group">
-            <label for="pref-audio-lang"><i data-lucide="volume-2" class="icon-accent"></i> Idioma Preferido del Audio</label>
-            <select id="pref-audio-lang" class="settings-select">
-              <option value="default" selected>Por defecto (Idioma original / Primera pista)</option>
-              <option value="spa">Español / Castellano</option>
-              <option value="jpn">Japonés (Japanese)</option>
-              <option value="eng">Inglés (English)</option>
-            </select>
-            <small class="settings-tip">Si el capítulo dispone de una pista de audio en este idioma, se seleccionará automáticamente al iniciar el reproductor.</small>
-          </div>
-
-          <div class="settings-group mt-25">
-            <label for="pref-sub-lang"><i data-lucide="subtitles" class="icon-accent"></i> Idioma Preferido de Subtítulos</label>
-            <select id="pref-sub-lang" class="settings-select">
-              <option value="default" selected>Por defecto (Primera pista de subtítulos)</option>
-              <option value="spa">Español / Castellano</option>
-              <option value="eng">Inglés (English)</option>
-              <option value="off">Desactivados por defecto</option>
-            </select>
-            <small class="settings-tip">Si se encuentra una pista de subtítulos en este idioma, se activará de forma automática al reproducir.</small>
-          </div>
-
-          <div class="settings-group mt-25">
             <label for="pref-audio-boost"><i data-lucide="volume-1" class="icon-accent"></i> Realce de Audio por Defecto (Audio Boost)</label>
             <select id="pref-audio-boost" class="settings-select">
               <option value="100" selected>100% (Estándar)</option>
@@ -1469,7 +1459,8 @@
 
   <!-- WATCH PARTY MODAL (Crear, Unirse, Públicas) -->
   <div class="pin-modal-overlay" id="modal-watch-party" style="display: none; z-index: 2100;">
-    <div class="pin-modal party-modal-dialog">
+    <div class="pin-modal party-modal-dialog" style="position: relative;">
+      <button class="modal-close" id="party-modal-close" aria-label="Cerrar" style="position: absolute; top: 12px; right: 14px; font-size: 1.5rem; background: transparent; border: none; color: var(--text-muted); cursor: pointer;">&times;</button>
       <!-- Tabs Header -->
       <div class="party-modal-tabs">
         <button class="party-tab-btn active" id="party-tab-join">Unirse a Sala</button>
@@ -1504,6 +1495,12 @@
           <div class="form-group">
             <label class="form-label">Nombre de la Sala</label>
             <input type="text" id="party-create-name-input" class="input-text" placeholder="Ej: Maratón de anime con amigos">
+          </div>
+          <div class="form-group" id="party-create-episode-group">
+            <label class="form-label">Episodio para ver juntos</label>
+            <select id="party-create-episode-select" class="input-text" style="width: 100%;">
+              <option value="">Selecciona un episodio...</option>
+            </select>
           </div>
           <div class="party-toggle-row">
             <label class="toggle-switch">

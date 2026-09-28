@@ -162,6 +162,13 @@ if (preg_match('#^/api/profiles/([^/]+)$#', $uri, $m) && $method === 'DELETE') {
     AuthController::deleteProfile($m[1]);
 }
 
+if ($uri === '/api/profiles/delete' && $method === 'POST') {
+    $raw = file_get_contents('php://input');
+    $d = json_decode($raw, true) ?: [];
+    $profId = $d['id'] ?? ($_GET['id'] ?? '');
+    AuthController::deleteProfile($profId);
+}
+
 if ($uri === '/api/shows' && $method === 'GET') {
     ShowController::getShows();
 }

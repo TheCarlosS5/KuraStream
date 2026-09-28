@@ -58,7 +58,17 @@ export function renderBillboardHero(show) {
 export function renderContinueWatching(items) {
   if (!items || items.length === 0) return '';
 
-  const cardsHtml = items.map(item => {
+  const seenShows = new Set();
+  const groupedItems = [];
+  for (const item of items) {
+    const key = String(item.show_id || item.show_title || item.episode_id);
+    if (!seenShows.has(key)) {
+      seenShows.add(key);
+      groupedItems.push(item);
+    }
+  }
+
+  const cardsHtml = groupedItems.map(item => {
     const progressPct = item.duration > 0 ? Math.min(100, Math.round((item.current_time / item.duration) * 100)) : 0;
     const thumb = item.episode_thumbnail || item.show_backdrop || item.show_cover || '';
 

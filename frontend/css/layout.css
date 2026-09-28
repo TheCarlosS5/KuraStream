@@ -188,7 +188,7 @@
 
 .nav-dropdown-menu {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 6px);
   left: 0;
   min-width: 220px;
   background: var(--surface-color);
@@ -201,6 +201,24 @@
   backdrop-filter: blur(16px);
   flex-direction: column;
   gap: 2px;
+}
+
+/* Invisible bridge preventing hover loss between trigger and menu */
+.nav-dropdown-menu::before {
+  content: '';
+  position: absolute;
+  top: -12px;
+  left: 0;
+  right: 0;
+  height: 12px;
+  background: transparent;
+  pointer-events: auto;
+}
+
+@media (hover: hover) {
+  .nav-dropdown:hover .nav-dropdown-menu {
+    display: flex;
+  }
 }
 
 .nav-dropdown-menu.show {

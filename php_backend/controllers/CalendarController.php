@@ -7,9 +7,17 @@ class CalendarController {
     private static int $ttl = 21600; // 6 hours
 
     public static function getSchedule(): void {
-        if (file_exists(self::$cacheFile) && (time() - filemtime(self::$cacheFile) < self::$ttl)) {
+        $force = !empty($_GET['force']);
+        if (!$force && file_exists(self::$cacheFile) && (time() - filemtime(self::$cacheFile) < self::$ttl)) {
             $cached = json_decode(file_get_contents(self::$cacheFile), true) ?: [];
-            jsonResponse(self::attachLibraryMatches($cached));
+            $cachedCount = 0;
+            foreach ($cached as $items) {
+                $cachedCount += is_array($items) ? count($items) : 0;
+            }
+            if ($cachedCount > 0) {
+                jsonResponse(self::attachLibraryMatches($cached));
+                return;
+            }
         }
 
         $now = time();
@@ -35,23 +43,32 @@ class CalendarController {
             CURLOPT_POSTFIELDS => json_encode(['query' => $query, 'variables' => ['start' => $startOfWeek, 'end' => $endOfWeek]]),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
-            CURLOPT_TIMEOUT => 10,
+            CURLOPT_TIMEOUT => 5,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2
         ];
         if (defined('CURLSSLOPT_NATIVE_CA')) {
             $curlOpts[CURLOPT_SSL_OPTIONS] = CURLSSLOPT_NATIVE_CA;
         }
-        curl_setopt_array($ch, $curlOpts);
 
-        $res = curl_exec($ch);
-        curl_close($ch);
+        $res = false;
+        try {
+            $ch = curl_init();
+            if ($ch !== false) {
+                curl_setopt_array($ch, $curlOpts);
+                $res = curl_exec($ch);
+                curl_close($ch);
+            }
+        } catch (Throwable $e) {
+            $res = false;
+        }
 
         $daysMap = [
             'Monday' => [], 'Tuesday' => [], 'Wednesday' => [],
             'Thursday' => [], 'Friday' => [], 'Saturday' => [], 'Sunday' => []
         ];
 
+        $totalAiring = 0;
         if ($res) {
             $data = json_decode($res, true) ?: [];
             $schedules = $data['data']['Page']['airingSchedules'] ?? [];
@@ -79,11 +96,54 @@ class CalendarController {
                         'genres' => implode(', ', $item['media']['genres'] ?? []),
                         'studio' => $studios
                     ];
+                    $totalAiring++;
                 }
             }
         }
 
-        @file_put_contents(self::$cacheFile, json_encode($daysMap));
+        if ($totalAiring > 0) {
+            @file_put_contents(self::$cacheFile, json_encode($daysMap));
+            jsonResponse(self::attachLibraryMatches($daysMap));
+            return;
+        }
+
+        // Fallback: If AniList returned 0 or was offline, check previous non-empty cache
+        if (file_exists(self::$cacheFile)) {
+            $cached = json_decode(file_get_contents(self::$cacheFile), true) ?: [];
+            $cachedCount = 0;
+            foreach ($cached as $items) {
+                $cachedCount += count($items);
+            }
+            if ($cachedCount > 0) {
+                jsonResponse(self::attachLibraryMatches($cached));
+                return;
+            }
+        }
+
+        // Secondary fallback: Generate schedule from local library anime so calendar is never empty
+        $localShows = DbHelper::getShows('anime');
+        $weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        if (!empty($localShows)) {
+            foreach ($localShows as $idx => $show) {
+                $assignedDay = $weekdays[$idx % count($weekdays)];
+                $daysMap[$assignedDay][] = [
+                    'schedule_id' => 'local_' . $show['id'],
+                    'airing_at' => time() + ($idx * 86400),
+                    'time_until' => ($idx * 86400),
+                    'episode' => 1,
+                    'title' => $show['title'],
+                    'romaji_title' => $show['title'],
+                    'english_title' => $show['title'],
+                    'cover_image' => $show['poster_path'] ?? '',
+                    'genres' => $show['genres'] ?? 'Anime',
+                    'studio' => $show['studio'] ?? 'KuraStream Local',
+                    'in_library' => true,
+                    'library_show_id' => $show['id'],
+                    'local_show_id' => $show['id']
+                ];
+            }
+        }
+
         jsonResponse(self::attachLibraryMatches($daysMap));
     }
 
@@ -108,8 +168,9 @@ class CalendarController {
                     }
                 }
 
-                $item['in_library'] = ($match !== null);
-                $item['library_show_id'] = $match ? $match['id'] : null;
+                $item['in_library'] = ($match !== null) || !empty($item['in_library']);
+                $item['library_show_id'] = $match ? $match['id'] : ($item['library_show_id'] ?? null);
+                $item['local_show_id'] = $item['library_show_id'];
                 return $item;
             }, $items);
         }
