@@ -1114,18 +1114,32 @@ export async function loadShowDetails(id) {
     if (seasonTabs && episodesList) {
       const seasons = {};
       episodes.forEach(ep => {
-        const sNum = ep.season_number || 1;
+        const sNum = (ep.season_number !== undefined && ep.season_number !== null && ep.season_number !== '') ? ep.season_number : 1;
         if (!seasons[sNum]) seasons[sNum] = [];
         seasons[sNum].push(ep);
       });
 
-      const seasonNums = Object.keys(seasons).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-      seasonTabs.innerHTML = seasonNums.map((num, idx) => `
-        <button class="season-tab ${idx === 0 ? 'active' : ''}" data-season="${escapeHtmlAttribute(num)}">Temporada ${escapeHtml(num)}</button>
-      `).join('');
+      const seasonNums = Object.keys(seasons).sort((a, b) => {
+        const na = parseInt(a, 10);
+        const nb = parseInt(b, 10);
+        if (!isNaN(na) && !isNaN(nb)) {
+          if (na === 0) return 1;
+          if (nb === 0) return -1;
+          return na - nb;
+        }
+        return String(a).localeCompare(String(b));
+      });
 
-      const firstSeason = seasonNums[0] || 1;
-      renderEpisodeList(seasons[firstSeason] || episodes, episodesList, show.poster_path, showProgressMap);
+      const defaultSeason = seasons[1] ? 1 : seasonNums[0];
+
+      seasonTabs.innerHTML = seasonNums.map((num, idx) => {
+        const isSpecials = (num === 0 || num === '0');
+        const isActive = (num == defaultSeason || (idx === 0 && !seasons[defaultSeason]));
+        const label = isSpecials ? 'Especiales' : `Temporada ${escapeHtml(num)}`;
+        return `<button class="season-tab ${isActive ? 'active' : ''}" data-season="${escapeHtmlAttribute(num)}">${label}</button>`;
+      }).join('');
+
+      renderEpisodeList(seasons[defaultSeason] || episodes, episodesList, show.poster_path, showProgressMap);
 
       seasonTabs.querySelectorAll('.season-tab').forEach(tab => {
         tab.onclick = () => {
