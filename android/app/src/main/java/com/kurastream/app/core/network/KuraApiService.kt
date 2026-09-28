@@ -9,7 +9,9 @@ interface KuraApiService {
 
     // Server
     @GET("api/health")
-    suspend fun getHealth(): ServerHealthDto
+    suspend fun getHealth(
+        @Header("X-Target-Base-Url") targetBaseUrl: String? = null
+    ): ServerHealthDto
 
     // Auth
     @POST("api/login")

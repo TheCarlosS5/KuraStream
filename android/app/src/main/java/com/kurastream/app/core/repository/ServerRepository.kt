@@ -21,7 +21,7 @@ class ServerRepository(
 
     suspend fun testConnection(baseUrl: String): Result<String> {
         return try {
-            val health = apiService.getHealth()
+            val health = apiService.getHealth(targetBaseUrl = baseUrl)
             if (health.success && health.status == "healthy") {
                 Result.success("Conexión exitosa (PHP ${health.phpVersion})")
             } else {

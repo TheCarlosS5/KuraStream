@@ -16,7 +16,8 @@ class DynamicBaseUrlInterceptor(
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         var request = chain.request()
-        val currentBase = getBaseUrl()
+        val overrideUrl = request.header("X-Target-Base-Url")
+        val currentBase = if (!overrideUrl.isNullOrBlank()) overrideUrl else getBaseUrl()
 
         if (!currentBase.isNullOrBlank()) {
             val newHttpUrl = currentBase.toHttpUrlOrNull()
@@ -26,7 +27,10 @@ class DynamicBaseUrlInterceptor(
                     .host(newHttpUrl.host)
                     .port(newHttpUrl.port)
                     .build()
-                request = request.newBuilder().url(updatedUrl).build()
+                request = request.newBuilder()
+                    .removeHeader("X-Target-Base-Url")
+                    .url(updatedUrl)
+                    .build()
             }
         }
 
