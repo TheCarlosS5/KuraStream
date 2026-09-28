@@ -81,10 +81,28 @@ El área del reproductor implementa un controlador de puntero Compose no bloquea
 
 ---
 
-## 6. Integración con el Sistema Operativo
+## 6. Integración con el Sistema Operativo y MediaSession Unificada
 
-- **MediaSession y `KuraPlaybackService`**: Servicio foreground declarado con `foregroundServiceType="mediaPlayback"`.
-- **Notificación y Lockscreen**: Muestra el poster del show, título del episodio y controles nativos de Play/Pause y Seek.
-- **Audio Becoming Noisy**: Pausa automáticamente la reproducción cuando se desconectan los auriculares por cable o Bluetooth.
-- **Audio Focus**: Gestiona llamadas entrantes y solicitudes de audio de otras aplicaciones respetando las prioridades de Android.
-- **Picture-in-Picture (PiP)**: Activación manual o al salir de la aplicación mediante `enterPictureInPictureMode(params)`.
+- **Arquitectura de Servicio Único (`KuraPlaybackService`)**:
+  - Un único servicio persistente `KuraPlaybackService` (`MediaSessionService`) aloja la instancia central de `ExoPlayer`.
+  - Se eliminan duplicaciones de `ExoPlayer` entre `PlayerViewModel` y el servicio; la UI se comunica de manera asíncrona a través de `PlaybackConnectionManager` que enlaza un `MediaController`.
+  - Declarado en el AndroidManifest con `foregroundServiceType="mediaPlayback"` y permisos `FOREGROUND_SERVICE` y `FOREGROUND_SERVICE_MEDIA_PLAYBACK`.
+
+- **Media OkHttp DataSource y Autenticación de Stream**:
+  - `DefaultMediaSourceFactory` está configurado con `OkHttpDataSource.Factory(mediaOkHttpClient)`.
+  - `MediaAuthInterceptor` adjunta automáticamente:
+    - Cabecera estándar `Authorization: Bearer <token>` para streams regulares.
+    - Cabecera `X-Stream-Capability: <capability_token>` cuando la reproducción proviene de una sala de Watch Party.
+  - No expone tokens ni capabilities en URLs ni query parameters.
+
+- **Notificación y Lockscreen**:
+  - Muestra el poster del show, título del episodio y controles nativos de Play/Pause y Seek sincronizados con MediaSession.
+
+- **Audio Becoming Noisy**:
+  - Pausa automáticamente la reproducción cuando se desconectan los auriculares por cable o Bluetooth.
+
+- **Audio Focus**:
+  - Gestiona llamadas entrantes y solicitudes de audio de otras aplicaciones respetando las prioridades de audio de Android.
+
+- **Picture-in-Picture (PiP)**:
+  - Activación manual o contextual al minimizar la aplicación mediante `enterPictureInPictureMode(params)` en dispositivos Android 8.0+ (API 26+).

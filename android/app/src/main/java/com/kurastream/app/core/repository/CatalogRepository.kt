@@ -146,6 +146,24 @@ class CatalogRepository(
         }
     }
 
+    suspend fun getNotifications(): Result<com.kurastream.app.core.network.dto.NotificationsResponseDto> {
+        return try {
+            val res = apiService.getNotifications()
+            Result.success(res)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun markNotificationsSeen(): Result<Unit> {
+        return try {
+            apiService.markNotificationsSeen()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun ShowDto.toEntity(serverId: String): CachedShowEntity {
         val age = (ageRating ?: "TV-14").uppercase()
         val g = (genres ?: "").lowercase()

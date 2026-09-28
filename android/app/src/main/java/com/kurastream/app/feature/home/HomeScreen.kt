@@ -6,13 +6,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -28,15 +29,72 @@ import com.kurastream.app.core.model.Show
 import com.kurastream.app.core.model.UiState
 import com.kurastream.app.core.network.ServerUrlResolver
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToShowDetail: (String) -> Unit,
-    onNavigateToPlayer: (String) -> Unit
+    onNavigateToPlayer: (String) -> Unit,
+    onNavigateToWatchParty: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val notifications by viewModel.notifications.collectAsState()
+    val unreadCount by viewModel.unreadCount.collectAsState()
+
+    var showNotificationsSheet by remember { mutableStateOf(false) }
 
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "KuraStream",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = KuraColors.Primary
+                    )
+                },
+                actions = {
+                    // Watch Party Contextual Shortcut
+                    IconButton(onClick = onNavigateToWatchParty) {
+                        Icon(
+                            imageVector = Icons.Default.Groups,
+                            contentDescription = "Watch Party",
+                            tint = KuraColors.TextMain
+                        )
+                    }
+
+                    // In-App Notifications Feed
+                    IconButton(onClick = {
+                        showNotificationsSheet = true
+                        viewModel.loadNotifications()
+                    }) {
+                        BadgedBox(
+                            badge = {
+                                if (unreadCount > 0) {
+                                    Badge(
+                                        containerColor = KuraColors.Danger,
+                                        contentColor = Color.White
+                                    ) {
+                                        Text("$unreadCount")
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = "Notificaciones",
+                                tint = KuraColors.TextMain
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = KuraColors.Background.copy(alpha = 0.95f),
+                    titleContentColor = KuraColors.Primary
+                )
+            )
+        },
         containerColor = KuraColors.Background
     ) { padding ->
         Box(
@@ -71,7 +129,6 @@ fun HomeScreen(
                                     show = feed.heroShow,
                                     baseUrl = feed.baseUrl,
                                     onPlayClick = {
-                                        // For hero play, navigate to show detail where first or next episode is resolved
                                         onNavigateToShowDetail(feed.heroShow.id)
                                     },
                                     onInfoClick = { onNavigateToShowDetail(feed.heroShow.id) }
@@ -147,6 +204,122 @@ fun HomeScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // In-App Notifications Modal Bottom Sheet
+        if (showNotificationsSheet) {
+            ModalBottomSheet(
+                onDismissRequest = {
+                    showNotificationsSheet = false
+                    viewModel.markNotificationsSeen()
+                },
+                containerColor = KuraColors.Surface,
+                dragHandle = { BottomSheetDefaults.DragHandle(color = KuraColors.Border) }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = KuraDimens.Space5, vertical = KuraDimens.Space3)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Notificaciones",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = KuraColors.TextMain
+                        )
+                        if (unreadCount > 0) {
+                            TextButton(onClick = viewModel::markNotificationsSeen) {
+                                Text("Marcar vistas", color = KuraColors.Primary)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(KuraDimens.Space3))
+
+                    if (notifications.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = KuraDimens.Space6),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No tienes notificaciones pendientes",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = KuraColors.TextMuted
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(KuraDimens.Space3),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 400.dp)
+                        ) {
+                            items(notifications, key = { it.id }) { notif ->
+                                Surface(
+                                    shape = KuraShapes.Card,
+                                    color = if (notif.isRead) KuraColors.SurfaceRaised else KuraColors.SurfaceHover,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            showNotificationsSheet = false
+                                            viewModel.markNotificationsSeen()
+                                            if (!notif.showId.isNullOrBlank()) {
+                                                onNavigateToShowDetail(notif.showId)
+                                            } else if (!notif.episodeId.isNullOrBlank()) {
+                                                onNavigateToPlayer(notif.episodeId)
+                                            }
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(KuraDimens.Space4),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (!notif.isRead) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .clip(CircleShape)
+                                                    .background(KuraColors.Primary)
+                                            )
+                                            Spacer(modifier = Modifier.width(KuraDimens.Space3))
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = notif.title,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = KuraColors.TextMain
+                                            )
+                                            Spacer(modifier = Modifier.height(KuraDimens.Space1))
+                                            Text(
+                                                text = notif.message,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = KuraColors.TextSecondary
+                                            )
+                                            if (notif.createdAt.isNotBlank()) {
+                                                Spacer(modifier = Modifier.height(KuraDimens.Space1))
+                                                Text(
+                                                    text = notif.createdAt,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = KuraColors.TextMuted
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(KuraDimens.Space4))
                 }
             }
         }

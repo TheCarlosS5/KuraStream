@@ -15,8 +15,11 @@ import java.util.concurrent.TimeUnit
 sealed interface PartyRealtimeEvent {
     data class Sync(val sync: PartySyncEvent) : PartyRealtimeEvent
     data class Message(val message: PartyMessage) : PartyRealtimeEvent
+    data class MessagesBatch(val messages: List<PartyMessage>) : PartyRealtimeEvent
     data class MemberJoined(val username: String) : PartyRealtimeEvent
     data class MemberLeft(val username: String) : PartyRealtimeEvent
+    data class MembersUpdated(val members: List<String>) : PartyRealtimeEvent
+    data object RoomClosed : PartyRealtimeEvent
     data object TicketExpiring : PartyRealtimeEvent
     data class ConnectionError(val error: Throwable) : PartyRealtimeEvent
 }
@@ -31,6 +34,8 @@ class WatchPartyClient(
 
     private val _events = MutableSharedFlow<PartyRealtimeEvent>(extraBufferCapacity = 64)
     val events = _events.asSharedFlow()
+
+    private var lastMessageId: Int = 0
 
     fun connect(
         baseUrl: String,
@@ -76,36 +81,77 @@ class WatchPartyClient(
         try {
             val element = json.parseToJsonElement(data)
             when (type) {
-                "party_sync" -> {
+                "init" -> {
+                    // data: {"room": {...}, "messages": [...], "members": [...]}
+                    val obj = element.jsonObject
+                    val roomObj = obj["room"]?.jsonObject
+                    if (roomObj != null) {
+                        val time = roomObj["current_time"]?.jsonPrimitive?.floatOrNull ?: 0f
+                        val isPlaying = roomObj["is_playing"]?.jsonPrimitive?.booleanOrNull
+                            ?: (roomObj["is_playing"]?.jsonPrimitive?.intOrNull == 1)
+                        val host = roomObj["host_user"]?.jsonPrimitive?.contentOrNull ?: ""
+                        _events.tryEmit(PartyRealtimeEvent.Sync(PartySyncEvent(time, isPlaying, host, 1.0f)))
+                    }
+                    val membersArr = obj["members"]?.jsonArray
+                    if (membersArr != null) {
+                        val memberNames = membersArr.mapNotNull {
+                            it.jsonObject["username"]?.jsonPrimitive?.contentOrNull
+                        }
+                        if (memberNames.isNotEmpty()) {
+                            _events.tryEmit(PartyRealtimeEvent.MembersUpdated(memberNames))
+                        }
+                    }
+                    val msgArr = obj["messages"]?.jsonArray
+                    if (msgArr != null) {
+                        val msgs = msgArr.mapNotNull { parsePartyMessage(it) }
+                        if (msgs.isNotEmpty()) {
+                            _events.tryEmit(PartyRealtimeEvent.MessagesBatch(msgs))
+                        }
+                    }
+                }
+                "sync" -> {
+                    // data: currentRoom object
                     val obj = element.jsonObject
                     val time = obj["current_time"]?.jsonPrimitive?.floatOrNull ?: 0f
-                    val isPlaying = obj["is_playing"]?.jsonPrimitive?.booleanOrNull ?: false
-                    val updatedBy = obj["updated_by"]?.jsonPrimitive?.contentOrNull ?: ""
-                    val rate = obj["playback_rate"]?.jsonPrimitive?.floatOrNull ?: 1.0f
-                    _events.tryEmit(PartyRealtimeEvent.Sync(PartySyncEvent(time, isPlaying, updatedBy, rate)))
+                    val isPlaying = obj["is_playing"]?.jsonPrimitive?.booleanOrNull
+                        ?: (obj["is_playing"]?.jsonPrimitive?.intOrNull == 1)
+                    val host = obj["host_user"]?.jsonPrimitive?.contentOrNull ?: ""
+                    _events.tryEmit(PartyRealtimeEvent.Sync(PartySyncEvent(time, isPlaying, host, 1.0f)))
                 }
-                "party_message" -> {
-                    val obj = element.jsonObject
-                    val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: System.currentTimeMillis().toString()
-                    val user = obj["username"]?.jsonPrimitive?.contentOrNull ?: "Usuario"
-                    val msg = obj["message"]?.jsonPrimitive?.contentOrNull ?: ""
-                    val time = obj["timestamp"]?.jsonPrimitive?.contentOrNull ?: ""
-                    _events.tryEmit(PartyRealtimeEvent.Message(PartyMessage(id, user, msg, time)))
+                "messages" -> {
+                    // data: [ {...}, {...} ]
+                    val arr = element.jsonArray
+                    val msgs = arr.mapNotNull { parsePartyMessage(it) }
+                    if (msgs.isNotEmpty()) {
+                        _events.tryEmit(PartyRealtimeEvent.MessagesBatch(msgs))
+                    }
                 }
-                "party_member_join" -> {
-                    val user = element.jsonObject["username"]?.jsonPrimitive?.contentOrNull ?: ""
-                    _events.tryEmit(PartyRealtimeEvent.MemberJoined(user))
+                "room_closed" -> {
+                    _events.tryEmit(PartyRealtimeEvent.RoomClosed)
                 }
-                "party_member_leave" -> {
-                    val user = element.jsonObject["username"]?.jsonPrimitive?.contentOrNull ?: ""
-                    _events.tryEmit(PartyRealtimeEvent.MemberLeft(user))
-                }
-                "ticket_expiring" -> {
-                    _events.tryEmit(PartyRealtimeEvent.TicketExpiring)
+                "ping" -> {
+                    // Heartbeat keep-alive; no action needed
                 }
             }
         } catch (_: Exception) {
             // Ignore malformed event frames
+        }
+    }
+
+    private fun parsePartyMessage(element: JsonElement): PartyMessage? {
+        return try {
+            val obj = element.jsonObject
+            val id = obj["id"]?.jsonPrimitive?.intOrNull ?: 0
+            if (id > lastMessageId) {
+                lastMessageId = id
+            }
+            val user = obj["username"]?.jsonPrimitive?.contentOrNull ?: "Usuario"
+            val msg = obj["message"]?.jsonPrimitive?.contentOrNull ?: ""
+            val time = obj["created_at"]?.jsonPrimitive?.contentOrNull
+                ?: obj["timestamp"]?.jsonPrimitive?.contentOrNull ?: ""
+            PartyMessage(id = id.toString(), username = user, message = msg, timestamp = time)
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -117,12 +163,11 @@ class WatchPartyClient(
     ) {
         if (pollingJob?.isActive == true) return
         pollingJob = scope.launch {
-            var lastSince = System.currentTimeMillis() / 1000
             val baseClean = baseUrl.trimEnd('/')
 
             while (isActive) {
                 try {
-                    val url = "$baseClean/api/party/poll?room_id=$roomId&since=$lastSince"
+                    val url = "$baseClean/api/party/poll?room_id=$roomId&last_msg_id=$lastMessageId"
                     val req = Request.Builder()
                         .url(url)
                         .apply {
@@ -136,14 +181,21 @@ class WatchPartyClient(
                             val body = resp.body?.string()
                             if (!body.isNullOrBlank()) {
                                 val root = json.parseToJsonElement(body).jsonObject
-                                val eventsArray = root["events"]?.jsonArray
-                                eventsArray?.forEach { ev ->
-                                    val evObj = ev.jsonObject
-                                    val type = evObj["type"]?.jsonPrimitive?.contentOrNull
-                                    val data = evObj["data"]?.toString() ?: "{}"
-                                    parseAndEmitEvent(type, data)
+                                val room = root["room"]?.jsonObject
+                                if (room != null) {
+                                    val time = room["current_time"]?.jsonPrimitive?.floatOrNull ?: 0f
+                                    val isPlaying = room["is_playing"]?.jsonPrimitive?.booleanOrNull
+                                        ?: (room["is_playing"]?.jsonPrimitive?.intOrNull == 1)
+                                    val host = room["host_user"]?.jsonPrimitive?.contentOrNull ?: ""
+                                    _events.tryEmit(PartyRealtimeEvent.Sync(PartySyncEvent(time, isPlaying, host, 1.0f)))
                                 }
-                                lastSince = System.currentTimeMillis() / 1000
+                                val msgsArray = root["messages"]?.jsonArray
+                                if (msgsArray != null && msgsArray.isNotEmpty()) {
+                                    val msgs = msgsArray.mapNotNull { parsePartyMessage(it) }
+                                    if (msgs.isNotEmpty()) {
+                                        _events.tryEmit(PartyRealtimeEvent.MessagesBatch(msgs))
+                                    }
+                                }
                             }
                         }
                     }
@@ -159,5 +211,6 @@ class WatchPartyClient(
         eventSource = null
         pollingJob?.cancel()
         pollingJob = null
+        lastMessageId = 0
     }
 }

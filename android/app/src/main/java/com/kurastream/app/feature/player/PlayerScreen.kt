@@ -20,6 +20,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -129,7 +130,7 @@ fun PlayerScreen(
             audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
             volumeAccumulator -= steps * step
             val pct = (newVol.toFloat() / maxVol.toFloat() * 100).toInt()
-            val icon = if (newVol == 0) Icons.Default.VolumeOff else Icons.Default.VolumeUp
+            val icon = if (newVol == 0) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp
             showGestureHud("Volumen: $pct%", icon)
         }
     }
@@ -332,7 +333,7 @@ fun PlayerScreen(
                         onNavigateBack()
                     }) {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Volver",
                             tint = KuraColors.TextMain
                         )
@@ -921,8 +922,8 @@ private fun formatTime(seconds: Float): String {
     val mins = (totalSec % 3600) / 60
     val secs = totalSec % 60
     return if (hrs > 0) {
-        String.format("%d:%02d:%02d", hrs, mins, secs)
+        String.format(java.util.Locale.US, "%d:%02d:%02d", hrs, mins, secs)
     } else {
-        String.format("%02d:%02d", mins, secs)
+        String.format(java.util.Locale.US, "%02d:%02d", mins, secs)
     }
 }

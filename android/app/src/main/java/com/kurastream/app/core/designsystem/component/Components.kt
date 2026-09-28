@@ -176,7 +176,7 @@ fun KuraRatingBadge(
         )
         Spacer(modifier = Modifier.width(3.dp))
         Text(
-            text = String.format("%.1f", rating),
+            text = String.format(java.util.Locale.US, "%.1f", rating),
             style = MaterialTheme.typography.labelSmall,
             color = KuraColors.Rating,
             fontWeight = FontWeight.Bold

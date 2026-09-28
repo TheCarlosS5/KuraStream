@@ -28,6 +28,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val prefs = state.sessionPrefs
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(
         topBar = {
@@ -225,6 +226,71 @@ fun SettingsScreen(
                                 color = KuraColors.Success
                             )
                         }
+                    }
+                }
+            }
+
+            // System Diagnostics (Section 72)
+            item {
+                SectionTitle("Diagnóstico del Sistema")
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = KuraShapes.Card,
+                    colors = CardDefaults.cardColors(containerColor = KuraColors.Surface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, KuraColors.Border)
+                ) {
+                    Column(modifier = Modifier.padding(KuraDimens.Space4)) {
+                        val serverUrlSanitized = prefs.activeServerUrl?.replace(Regex("//[^@]+@"), "//") ?: "No configurado"
+                        val isHttps = prefs.activeServerUrl?.startsWith("https", ignoreCase = true) == true
+
+                        Text(
+                            text = "Servidor: $serverUrlSanitized",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = KuraColors.TextMain
+                        )
+                        Text(
+                            text = "Seguridad: ${if (isHttps) "HTTPS Cifrado" else "HTTP Local (Sin cifrar)"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isHttps) KuraColors.Success else KuraColors.Rating
+                        )
+                        Spacer(modifier = Modifier.height(KuraDimens.Space2))
+                        Text(
+                            text = "Perfil: ${prefs.activeProfileName ?: "Predeterminado"} (${if (prefs.isKidsMode) "Modo Infantil" else "Estándar"})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = KuraColors.TextSecondary
+                        )
+                        Text(
+                            text = "Dispositivo: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} • Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = KuraColors.TextSecondary
+                        )
+                        Text(
+                            text = "Motor: Media3 ExoPlayer v1.5.1 • Room SQLite • OkHttp",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = KuraColors.TextSecondary
+                        )
+
+                        Spacer(modifier = Modifier.height(KuraDimens.Space3))
+
+                        KuraOutlinedButton(
+                            onClick = {
+                                val report = """
+                                    KuraStream Android Diagnostic Report
+                                    App Version: 2.0.0 (API 37 Target)
+                                    Server: $serverUrlSanitized
+                                    Protocol: ${if (isHttps) "HTTPS" else "HTTP"}
+                                    Profile: ${prefs.activeProfileName ?: "Default"} (Kids: ${prefs.isKidsMode})
+                                    OS: Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})
+                                    Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}
+                                    Media Engine: Media3 ExoPlayer 1.5.1
+                                """.trimIndent()
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("KuraStream Diagnostics", report))
+                                android.widget.Toast.makeText(context, "Diagnóstico copiado al portapapeles", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            text = "Copiar diagnóstico",
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }

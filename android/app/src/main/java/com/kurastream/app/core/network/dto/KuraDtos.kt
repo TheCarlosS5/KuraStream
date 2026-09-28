@@ -303,35 +303,48 @@ data class CalendarScheduleItemDto(
 @Serializable
 data class PartyCreateRequestDto(
     @SerialName("episode_id") val episodeId: String,
-    @SerialName("room_name") val roomName: String,
-    @SerialName("is_public") val isPublic: Boolean = true
+    @SerialName("name") val name: String,
+    @SerialName("is_public") val isPublic: Boolean = true,
+    @SerialName("allow_guest_controls") val allowGuestControls: Boolean = true
 )
 
 @Serializable
 data class PartyCreateResponseDto(
     val success: Boolean = true,
     @SerialName("room_id") val roomId: String = "",
+    val room: PartyRoomDto? = null,
     @SerialName("member_id") val memberId: String = "",
     @SerialName("member_token") val memberToken: String = "",
+    @SerialName("stream_capability_token") val streamCapabilityToken: String? = null,
     @SerialName("stream_ticket") val streamTicket: String? = null,
-    @SerialName("sse_ticket") val sseTicket: String? = null
-)
+    @SerialName("sse_ticket") val sseTicket: String? = null,
+    @SerialName("is_host") val isHost: Boolean = true
+) {
+    val effectiveStreamToken: String? get() = streamCapabilityToken ?: streamTicket
+}
 
 @Serializable
 data class PartyJoinRequestDto(
     @SerialName("room_id") val roomId: String,
-    val passcode: String = ""
+    val username: String? = null
 )
 
 @Serializable
 data class PartyJoinResponseDto(
     val success: Boolean = true,
     val room: PartyRoomDto? = null,
+    val user: String? = null,
+    val messages: List<PartyMessageDto> = emptyList(),
+    val members: List<PartyMemberDto> = emptyList(),
     @SerialName("member_id") val memberId: String = "",
     @SerialName("member_token") val memberToken: String = "",
+    @SerialName("stream_capability_token") val streamCapabilityToken: String? = null,
     @SerialName("stream_ticket") val streamTicket: String? = null,
-    @SerialName("sse_ticket") val sseTicket: String? = null
-)
+    @SerialName("sse_ticket") val sseTicket: String? = null,
+    @SerialName("is_host") val isHost: Boolean = false
+) {
+    val effectiveStreamToken: String? get() = streamCapabilityToken ?: streamTicket
+}
 
 @Serializable
 data class PartyRoomDto(
@@ -340,7 +353,39 @@ data class PartyRoomDto(
     @SerialName("episode_id") val episodeId: String,
     @SerialName("host_user") val hostUser: String = "",
     @SerialName("current_time") val currentTime: Float = 0f,
-    @SerialName("is_playing") val isPlaying: Boolean = false
+    @SerialName("is_playing") val isPlaying: Boolean = false,
+    @SerialName("is_public") val isPublic: Boolean = false,
+    @SerialName("allow_guest_controls") val allowGuestControls: Boolean = false,
+    @SerialName("member_count") val memberCount: Int = 1,
+    @SerialName("last_sync_timestamp") val lastSyncTimestamp: Long? = 0L
+)
+
+@Serializable
+data class PartyMessageDto(
+    val id: Int = 0,
+    @SerialName("room_id") val roomId: String = "",
+    val username: String = "",
+    val message: String = "",
+    val type: String = "chat",
+    @SerialName("created_at") val createdAt: String = "",
+    val role: String? = "guest",
+    @SerialName("member_id") val memberId: String? = null
+)
+
+@Serializable
+data class PartyMemberDto(
+    @SerialName("member_id") val memberId: String = "",
+    val username: String = "",
+    val role: String = "guest",
+    @SerialName("is_kids") val isKids: Boolean = false,
+    @SerialName("joined_at") val joinedAt: String = ""
+)
+
+@Serializable
+data class PartyPollResponseDto(
+    val success: Boolean = true,
+    val room: PartyRoomDto? = null,
+    val messages: List<PartyMessageDto> = emptyList()
 )
 
 @Serializable
@@ -348,13 +393,16 @@ data class PartySyncRequestDto(
     @SerialName("room_id") val roomId: String,
     @SerialName("current_time") val currentTime: Float,
     @SerialName("is_playing") val isPlaying: Boolean,
-    @SerialName("playback_rate") val playbackRate: Float = 1.0f
+    @SerialName("playback_rate") val playbackRate: Float = 1.0f,
+    val action: String? = null,
+    @SerialName("episode_id") val episodeId: String? = null
 )
 
 @Serializable
 data class PartyMessageRequestDto(
     @SerialName("room_id") val roomId: String,
-    val message: String
+    val message: String,
+    val type: String = "chat"
 )
 
 @Serializable

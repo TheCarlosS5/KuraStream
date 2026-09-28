@@ -48,4 +48,6 @@ diff.patch
 test-results/
 playwright-report/
 .artifacts/
+*.apk
+kurastream_dump.sql
 

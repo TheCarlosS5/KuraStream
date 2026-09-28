@@ -33,6 +33,12 @@ class HomeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<UiState<HomeFeedData>>(UiState.Loading)
     val uiState: StateFlow<UiState<HomeFeedData>> = _uiState.asStateFlow()
 
+    private val _notifications = MutableStateFlow<List<com.kurastream.app.core.network.dto.NotificationItemDto>>(emptyList())
+    val notifications: StateFlow<List<com.kurastream.app.core.network.dto.NotificationItemDto>> = _notifications.asStateFlow()
+
+    private val _unreadCount = MutableStateFlow(0)
+    val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
+
     private var cacheObservationJob: Job? = null
     private var networkRefreshJob: Job? = null
 
@@ -44,6 +50,25 @@ class HomeViewModel @Inject constructor(
 
     init {
         observePreferencesAndInitialize()
+    }
+
+    fun loadNotifications() {
+        viewModelScope.launch {
+            val res = catalogRepository.getNotifications()
+            if (res.isSuccess) {
+                val data = res.getOrThrow()
+                _notifications.value = data.notifications
+                _unreadCount.value = data.unreadCount
+            }
+        }
+    }
+
+    fun markNotificationsSeen() {
+        viewModelScope.launch {
+            catalogRepository.markNotificationsSeen()
+            _unreadCount.value = 0
+            _notifications.update { list -> list.map { it.copy(isRead = true) } }
+        }
     }
 
     private fun observePreferencesAndInitialize() {
@@ -118,6 +143,7 @@ class HomeViewModel @Inject constructor(
                 _uiState.value = UiState.Content(currentContent.copy(isRefreshing = true))
             }
 
+            loadNotifications()
             val catalogResult = catalogRepository.refreshCatalog(serverId, isKids)
             var historyItems = emptyList<WatchHistoryItem>()
             if (username.isNotBlank() && profileId.isNotBlank()) {

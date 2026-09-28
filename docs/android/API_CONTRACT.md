@@ -632,7 +632,7 @@ Este documento define de forma exhaustiva los contratos HTTP/REST, SSE y Streami
 ```json
 {
   "episode_id": "frieren_s01e01",
-  "room_name": "Frieren Noche de Estreno",
+  "name": "Frieren Noche de Estreno",
   "is_public": true
 }
 ```
@@ -643,6 +643,7 @@ Este documento define de forma exhaustiva los contratos HTTP/REST, SSE y Streami
   "room_id": "room_xyz123",
   "member_id": "mem_abc789",
   "member_token": "tok_sec...",
+  "stream_capability_token": "ey...",
   "stream_ticket": "ey...",
   "sse_ticket": "ey..."
 }
@@ -654,8 +655,7 @@ Este documento define de forma exhaustiva los contratos HTTP/REST, SSE y Streami
 - **Request Body:**
 ```json
 {
-  "room_id": "room_xyz123",
-  "passcode": ""
+  "room_id": "room_xyz123"
 }
 ```
 - **Response (200 OK):**
@@ -672,6 +672,7 @@ Este documento define de forma exhaustiva los contratos HTTP/REST, SSE y Streami
   },
   "member_id": "mem_user456",
   "member_token": "tok_...",
+  "stream_capability_token": "ey...",
   "stream_ticket": "ey...",
   "sse_ticket": "ey..."
 }
@@ -702,13 +703,27 @@ Este documento define de forma exhaustiva los contratos HTTP/REST, SSE y Streami
 ```
 - **Response (200 OK):** `{"success": true}`
 
-#### `GET /api/party/stream?room_id={roomId}&sse_ticket={ticket}`
+#### `GET /api/party/stream?room_id={roomId}&ticket={ticket}`
 - **Protocolo:** Server-Sent Events (SSE) `text/event-stream`
 - **Eventos:**
-  - `party_sync`: `{ "current_time": 130.0, "is_playing": true, "updated_by": "calos" }`
-  - `party_message`: `{ "id": 10, "username": "ana", "message": "Hola!", "timestamp": "..." }`
-  - `party_member_join` / `party_member_leave`: actualización de participantes.
-  - `ticket_expiring`: aviso para llamar a `/api/party/refresh-ticket`.
+  - `init`: Inicialización de la sala con datos del host y miembros.
+  - `sync`: `{ "current_time": 130.0, "is_playing": true, "updated_by": "calos" }`
+  - `messages`: Array de `PartyMessageDto` con autor, texto y fecha.
+  - `ping`: Keepalive cada 15 segundos para mantener abierta la conexión SSE en redes móviles.
+  - `room_closed`: La sala ha sido terminada por el anfitrión.
+- **DTO:** `PartySyncEventDto`, `PartyMessageDto`
+
+#### `GET /api/party/poll?room_id={roomId}&last_sync={timestamp}&last_message_id={id}`
+- **Uso:** Fallback automático cuando SSE no está disponible o la conexión se interrumpe.
+- **Response (200 OK):**
+```json
+{
+  "success": true,
+  "room": { ... },
+  "messages": [ ... ]
+}
+```
+- **DTO:** `PartyPollResponseDto`
 
 #### `GET /api/party/public-rooms`
 - **Auth requerida:** No

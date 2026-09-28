@@ -31,18 +31,32 @@ class WatchPartyRepository(
             val res = apiService.createPartyRoom(
                 PartyCreateRequestDto(
                     episodeId = episodeId,
-                    roomName = roomName,
-                    isPublic = isPublic
+                    name = roomName,
+                    isPublic = isPublic,
+                    allowGuestControls = true
                 )
             )
             if (res.success && res.roomId.isNotBlank()) {
+                val room = res.room?.let {
+                    PartyRoom(
+                        id = it.id,
+                        name = it.name,
+                        episodeId = it.episodeId,
+                        hostUser = it.hostUser,
+                        currentTime = it.currentTime,
+                        isPlaying = it.isPlaying,
+                        isPublic = it.isPublic,
+                        memberCount = it.memberCount
+                    )
+                }
                 val session = ActivePartySession(
                     roomId = res.roomId,
                     memberId = res.memberId,
                     memberToken = res.memberToken,
-                    streamTicket = res.streamTicket,
+                    streamTicket = res.effectiveStreamToken,
                     sseTicket = res.sseTicket,
-                    isHost = true
+                    isHost = true,
+                    room = room
                 )
                 Result.success(session)
             } else {
@@ -53,9 +67,9 @@ class WatchPartyRepository(
         }
     }
 
-    suspend fun joinRoom(roomId: String, passcode: String = ""): Result<ActivePartySession> {
+    suspend fun joinRoom(roomId: String, username: String? = null): Result<ActivePartySession> {
         return try {
-            val res = apiService.joinPartyRoom(PartyJoinRequestDto(roomId, passcode))
+            val res = apiService.joinPartyRoom(PartyJoinRequestDto(roomId = roomId, username = username))
             if (res.success && res.room != null) {
                 val room = PartyRoom(
                     id = res.room.id,
@@ -63,15 +77,17 @@ class WatchPartyRepository(
                     episodeId = res.room.episodeId,
                     hostUser = res.room.hostUser,
                     currentTime = res.room.currentTime,
-                    isPlaying = res.room.isPlaying
+                    isPlaying = res.room.isPlaying,
+                    isPublic = res.room.isPublic,
+                    memberCount = res.room.memberCount
                 )
                 val session = ActivePartySession(
                     roomId = res.room.id,
                     memberId = res.memberId,
                     memberToken = res.memberToken,
-                    streamTicket = res.streamTicket,
+                    streamTicket = res.effectiveStreamToken,
                     sseTicket = res.sseTicket,
-                    isHost = false,
+                    isHost = res.isHost,
                     room = room
                 )
                 Result.success(session)
@@ -94,7 +110,9 @@ class WatchPartyRepository(
         session: ActivePartySession,
         currentTime: Float,
         isPlaying: Boolean,
-        rate: Float = 1.0f
+        rate: Float = 1.0f,
+        action: String? = null,
+        episodeId: String? = null
     ) {
         try {
             apiService.syncPartyPlayback(
@@ -104,7 +122,9 @@ class WatchPartyRepository(
                     roomId = session.roomId,
                     currentTime = currentTime,
                     isPlaying = isPlaying,
-                    playbackRate = rate
+                    playbackRate = rate,
+                    action = action,
+                    episodeId = episodeId
                 )
             )
         } catch (_: Exception) {}

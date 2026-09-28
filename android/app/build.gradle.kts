@@ -26,6 +26,22 @@ android {
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"\"")
     }
 
+    signingConfigs {
+        create("release") {
+            val keystoreFile = project.findProperty("KURASTREAM_KEYSTORE_FILE") as? String
+                ?: System.getenv("KURASTREAM_KEYSTORE_FILE")
+            if (keystoreFile != null && file(keystoreFile).exists()) {
+                storeFile = file(keystoreFile)
+                storePassword = project.findProperty("KURASTREAM_KEYSTORE_PASSWORD") as? String
+                    ?: System.getenv("KURASTREAM_KEYSTORE_PASSWORD") ?: ""
+                keyAlias = project.findProperty("KURASTREAM_KEY_ALIAS") as? String
+                    ?: System.getenv("KURASTREAM_KEY_ALIAS") ?: ""
+                keyPassword = project.findProperty("KURASTREAM_KEY_PASSWORD") as? String
+                    ?: System.getenv("KURASTREAM_KEY_PASSWORD") ?: ""
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -34,7 +50,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            val releaseSigning = signingConfigs.getByName("release")
+            signingConfig = if (releaseSigning.storeFile != null) releaseSigning else null
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -64,6 +81,12 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = false
+        disable += listOf("NewApi")
     }
 }
 

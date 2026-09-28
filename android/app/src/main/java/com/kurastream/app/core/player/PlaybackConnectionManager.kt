@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Singleton
 class PlaybackConnectionManager @Inject constructor(
     @ApplicationContext private val context: Context

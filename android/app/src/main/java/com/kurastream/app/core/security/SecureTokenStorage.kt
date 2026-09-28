@@ -1,5 +1,6 @@
 package com.kurastream.app.core.security
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -24,6 +25,7 @@ interface TokenStorage {
  * Tokens are never stored in plain text in SharedPreferences or Room.
  * Provides per-server cryptographic isolation so tokens for server A never leak to server B.
  */
+@SuppressLint("ApplySharedPref")
 class SecureTokenStorage(
     private val context: Context,
     private val activeServerKeyProvider: (() -> String?)? = null

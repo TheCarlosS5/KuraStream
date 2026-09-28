@@ -3,7 +3,6 @@ package com.kurastream.app.feature.party
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kurastream.app.core.model.PartyMessage
-import com.kurastream.app.core.model.PartyRoom
 import com.kurastream.app.core.network.PartyRealtimeEvent
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import com.kurastream.app.core.repository.ActivePartySession
@@ -48,6 +47,16 @@ class WatchPartyViewModel @Inject constructor(
                     is PartyRealtimeEvent.Message -> {
                         _uiState.update { it.copy(messages = it.messages + event.message) }
                     }
+                    is PartyRealtimeEvent.MessagesBatch -> {
+                        _uiState.update { current ->
+                            val existingIds = current.messages.map { it.id }.toSet()
+                            val newOnes = event.messages.filter { it.id !in existingIds }
+                            current.copy(messages = current.messages + newOnes)
+                        }
+                    }
+                    is PartyRealtimeEvent.MembersUpdated -> {
+                        _uiState.update { it.copy(members = event.members) }
+                    }
                     is PartyRealtimeEvent.MemberJoined -> {
                         _uiState.update {
                             if (!it.members.contains(event.username)) it.copy(members = it.members + event.username) else it
@@ -56,8 +65,11 @@ class WatchPartyViewModel @Inject constructor(
                     is PartyRealtimeEvent.MemberLeft -> {
                         _uiState.update { it.copy(members = it.members - event.username) }
                     }
+                    is PartyRealtimeEvent.RoomClosed -> {
+                        _uiState.update { it.copy(errorMessage = "La sala ha sido cerrada por el anfitrión") }
+                    }
                     is PartyRealtimeEvent.ConnectionError -> {
-                        _uiState.update { it.copy(errorMessage = "Problema de conexión con la sala") }
+                        _uiState.update { it.copy(errorMessage = "Problema de conexión con la sala. Reintentando...") }
                     }
                     else -> {}
                 }
@@ -90,7 +102,7 @@ class WatchPartyViewModel @Inject constructor(
 
         _uiState.update { it.copy(isJoiningRoom = true, errorMessage = null) }
         viewModelScope.launch {
-            val res = partyRepository.joinRoom(state.roomIdInput.trim(), state.passcodeInput.trim())
+            val res = partyRepository.joinRoom(state.roomIdInput.trim())
             if (res.isSuccess) {
                 val session = res.getOrThrow()
                 _uiState.update {
