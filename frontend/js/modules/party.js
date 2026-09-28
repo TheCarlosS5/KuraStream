@@ -32,7 +32,7 @@ class PartyManager {
       closed: []
     };
     this.audioContext = null;
-    this.soundsMuted = localStorage.getItem('party_sounds_muted') === 'true';
+    this.soundsMuted = typeof localStorage !== 'undefined' && localStorage.getItem('party_sounds_muted') === 'true';
     this.userBaseRate = 1.0;
     this.sseReconnectTimer = null;
     this.sseRotationTimer = null;

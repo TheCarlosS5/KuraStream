@@ -158,11 +158,30 @@ let speedHoldTimer = null;
 let isSpeedHoldActive = false;
 let previousSpeed = 1.0;
 
+export function detectTrackLang(track) {
+  if (!track) return 'und';
+  const rawLang = String(track.language || track.lang || '').toLowerCase().trim();
+  if (/^(?:es[-_](?:la|419|mx|ar|co|cl|pe|us|uy|ve|ec|gt|cu|bo|do|hn|py|sv|ni|cr|pa|pr)|lat)$/i.test(rawLang)) return 'es-la';
+  if (/^(?:es[-_]es)$/i.test(rawLang)) return 'es';
+  if (/^(?:spa|es|spanish|espa[nñ]ol)$/i.test(rawLang) || rawLang.startsWith('es-') || rawLang.startsWith('es_')) return 'spa';
+  if (/^(?:jpn|ja|ja[-_]jp|japanese)$/i.test(rawLang)) return 'jpn';
+  if (/^(?:eng|en|en[-_](?:us|gb|ca|au|nz)|english)$/i.test(rawLang)) return 'eng';
+  if (rawLang && rawLang !== 'und') return rawLang;
+
+  const title = String(track.title || track.name || track.label || '').toLowerCase();
+  if (/\b(latino|lat|es-la|es-419|hispanoam[eé]rica|mexico|m[eé]xico)\b/i.test(title)) return 'es-la';
+  if (/\b(castellano|espa[nñ]a|spain|es-es)\b/i.test(title)) return 'es';
+  if (/(?:^|[_\s\-\[\(\/])(?:spa|esp|es|spanish|espa[nñ]ol)(?:$|[_\s\-\]\)\/])/i.test(title) || /\b(?:spanish|espa[nñ]ol)\b/i.test(title)) return 'spa';
+  if (/(?:^|[_\s\-\[\(\/])(?:jpn|jap|ja|japanese|japon[eé]s)(?:$|[_\s\-\]\)\/])/i.test(title) || /\b(?:japanese|japon[eé]s)\b/i.test(title)) return 'jpn';
+  if (/(?:^|[_\s\-\[\(\/])(?:eng|en|english|ingl[eé]s)(?:$|[_\s\-\]\)\/])/i.test(title) || /\b(?:english|ingl[eé]s)\b/i.test(title)) return 'eng';
+  return 'und';
+}
+
 export function matchesLanguage(trackLang, prefLang) {
   if (!trackLang || !prefLang) return false;
   const t = String(trackLang).toLowerCase().trim();
   const p = String(prefLang).toLowerCase().trim();
-  if (p === 'default' || p === 'off') return false;
+  if (p === 'default' || p === 'off' || t === 'und') return false;
   if (t === p) return true;
 
   const spanishAliases = ['spa', 'es', 'es-es', 'es-la', 'es-419', 'spanish', 'español', 'castellano', 'lat'];
@@ -365,13 +384,29 @@ export async function initPlayer(rawEpisodeId) {
   const prefAudio = localStorage.getItem('kura_pref_audio_lang') || localStorage.getItem('kurastream_preferred_audio_language') || window.userPreferences?.preferred_audio_language || 'default';
   const prefSub = localStorage.getItem('kura_pref_sub_lang') || localStorage.getItem('kurastream_preferred_subtitle_language') || window.userPreferences?.preferred_subtitle_language || 'default';
 
-  // 1. Resolve Audio Track: user preference -> disposition default -> first track
+  // 1. Resolve Audio Track: direct modal selection -> user preference -> disposition default -> first track
   const audioTracks = parseJsonArray(currentEpisodeData.audio_tracks);
   let chosenAudio = 0;
   if (audioTracks.length > 0) {
     let matchedTrack = null;
-    if (prefAudio !== 'default') {
-      matchedTrack = audioTracks.find(t => matchesLanguage(t.language, prefAudio));
+
+    const directTrackStr = (typeof sessionStorage !== 'undefined') ? sessionStorage.getItem('kura_play_audio_track') : null;
+    const directEp = (typeof sessionStorage !== 'undefined') ? sessionStorage.getItem('kura_play_audio_ep') : null;
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('kura_play_audio_track');
+      sessionStorage.removeItem('kura_play_audio_ep');
+    }
+
+    if (directEp !== null && (String(directEp) === String(currentEpisodeData.id) || decodeURIComponent(String(directEp)) === String(currentEpisodeData.id)) && directTrackStr !== null) {
+      const directNum = parseInt(directTrackStr, 10);
+      matchedTrack = audioTracks.find((t, i) => {
+        const tNum = t.track_number !== undefined ? t.track_number : (t.index !== undefined ? t.index : i);
+        return tNum === directNum || i === directNum;
+      });
+    }
+
+    if (!matchedTrack && prefAudio !== 'default') {
+      matchedTrack = audioTracks.find(t => matchesLanguage(detectTrackLang(t), prefAudio));
     }
     if (!matchedTrack) {
       matchedTrack = audioTracks.find(t => t.disposition?.default || t.is_default);
@@ -379,7 +414,7 @@ export async function initPlayer(rawEpisodeId) {
     if (!matchedTrack) {
       matchedTrack = audioTracks[0];
     }
-    chosenAudio = (matchedTrack.track_number !== undefined) ? matchedTrack.track_number : (matchedTrack.index !== undefined ? matchedTrack.index : 0);
+    chosenAudio = (matchedTrack.track_number !== undefined) ? matchedTrack.track_number : (matchedTrack.index !== undefined ? matchedTrack.index : audioTracks.indexOf(matchedTrack));
   }
   selectedAudioTrackNum = chosenAudio;
 
@@ -1239,9 +1274,12 @@ function setupTracksMenu() {
         selectedAudioTrackNum = parseInt(e.target.getAttribute('data-track'), 10);
 
         // Remember audio language preference across episodes
-        const targetObj = audioTracks.find(t => ((t.track_number !== undefined ? t.track_number : t.index) === selectedAudioTrackNum));
-        if (targetObj && targetObj.language) {
-          localStorage.setItem('kura_pref_audio_lang', targetObj.language.toLowerCase());
+        const targetObj = audioTracks.find((t, i) => ((t.track_number !== undefined ? t.track_number : (t.index !== undefined ? t.index : i)) === selectedAudioTrackNum));
+        if (targetObj) {
+          const detected = detectTrackLang(targetObj);
+          if (detected && detected !== 'und') {
+            localStorage.setItem('kura_pref_audio_lang', detected);
+          }
         }
         
         // Reload stream from current position with new audio track

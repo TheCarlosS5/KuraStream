@@ -627,6 +627,13 @@ export function showEpisodeDetails(episodeId) {
   if (codecEl) codecEl.textContent = ep.video_codec || 'N/A';
   if (sizeEl) sizeEl.textContent = ep.size ? `${(ep.size / (1024 * 1024)).toFixed(1)} MB` : 'N/A';
 
+  // Subtitles are intentionally excluded from this modal view
+  if (subsEl) {
+    subsEl.innerHTML = '';
+  }
+
+  let selectedAudioTrack = 0;
+
   if (audioEl) {
     let audioTracks = [];
     if (ep.audio_tracks) {
@@ -637,40 +644,241 @@ export function showEpisodeDetails(episodeId) {
       }
     }
     if (!Array.isArray(audioTracks)) audioTracks = [];
-    if (audioTracks.length === 0) {
-      audioEl.innerHTML = '<li>Información no disponible</li>';
-    } else {
-      audioEl.innerHTML = audioTracks.map(t => {
-        const title = t.title || `Pista ${t.track_number || 1}`;
-        const lang = t.language ? t.language.toUpperCase() : 'UND';
-        return `<li>${escapeHtml(title)} [${escapeHtml(lang)}]</li>`;
-      }).join('');
-    }
-  }
 
-  if (subsEl) {
-    let subtitleTracks = [];
-    if (ep.subtitle_tracks) {
-      try {
-        subtitleTracks = typeof ep.subtitle_tracks === 'string' ? JSON.parse(ep.subtitle_tracks) : ep.subtitle_tracks;
-      } catch {
-        subtitleTracks = [];
+    const formatAudioTrack = (t, index = 0) => {
+      const trackObj = (t && typeof t === 'object') ? t : {};
+      const rawLang = String(trackObj.language || trackObj.lang || '').toLowerCase().trim();
+      const rawTitle = String(trackObj.title || trackObj.name || trackObj.label || (typeof t === 'string' ? t : '')).trim();
+      const trackNum = trackObj.track_number !== undefined ? trackObj.track_number : (trackObj.index !== undefined ? trackObj.index : index);
+
+      let detectedLang = '';
+      let isLatino = false;
+      let isCastellano = false;
+
+      // Detect language from code
+      if (/^(?:es[-_](?:la|419|mx|ar|co|cl|pe|us|uy|ve|ec|gt|cu|bo|do|hn|py|sv|ni|cr|pa|pr)|lat)$/i.test(rawLang)) {
+        detectedLang = 'es-la';
+        isLatino = true;
+      } else if (/^(?:es[-_]es)$/i.test(rawLang)) {
+        detectedLang = 'es';
+        isCastellano = true;
+      } else if (/^(?:spa|es|spanish|espa[nñ]ol)$/i.test(rawLang) || rawLang.startsWith('es-') || rawLang.startsWith('es_')) {
+        detectedLang = 'spa';
+      } else if (/^(?:jpn|ja|ja[-_]jp|japanese)$/i.test(rawLang)) {
+        detectedLang = 'jpn';
+      } else if (/^(?:eng|en|en[-_](?:us|gb|ca|au|nz)|english)$/i.test(rawLang)) {
+        detectedLang = 'eng';
+      } else if (/^(?:fra|fre|fr|fr[-_](?:fr|ca)|french)$/i.test(rawLang)) {
+        detectedLang = 'fra';
+      } else if (/^(?:deu|ger|de|de[-_](?:de|at|ch)|german)$/i.test(rawLang)) {
+        detectedLang = 'deu';
+      } else if (/^(?:ita|it|it[-_]it|italian)$/i.test(rawLang)) {
+        detectedLang = 'ita';
+      } else if (/^(?:por|pt|pt[-_](?:br|pt)|portuguese)$/i.test(rawLang)) {
+        detectedLang = 'por';
+      } else if (/^(?:kor|ko|ko[-_]kr|korean)$/i.test(rawLang)) {
+        detectedLang = 'kor';
+      } else if (/^(?:zho|chi|zh|zh[-_](?:cn|tw|hk)|chinese)$/i.test(rawLang)) {
+        detectedLang = 'zho';
+      } else if (/^(?:rus|ru|ru[-_]ru|russian)$/i.test(rawLang)) {
+        detectedLang = 'rus';
       }
-    }
-    if (!Array.isArray(subtitleTracks)) subtitleTracks = [];
-    if (subtitleTracks.length === 0) {
-      subsEl.innerHTML = '<li>Sin subtítulos incrustados</li>';
+
+      // Detect language or dialect from track title
+      const titleLower = rawTitle.toLowerCase();
+      if (/\b(latino|lat|es-la|es-419|hispanoam[eé]rica|mexico|m[eé]xico)\b/i.test(titleLower)) {
+        isLatino = true;
+        detectedLang = 'es-la';
+      } else if (/\b(castellano|espa[nñ]a|spain|es-es)\b/i.test(titleLower)) {
+        isCastellano = true;
+        detectedLang = 'es';
+      } else if (!detectedLang || detectedLang === 'und') {
+        if (/(?:^|[_\s\-\[\(\/])(?:spa|esp|es|spanish|espa[nñ]ol)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:spanish|espa[nñ]ol)\b/i.test(titleLower)) {
+          detectedLang = 'spa';
+        } else if (/(?:^|[_\s\-\[\(\/])(?:jpn|jap|ja|japanese|japon[eé]s)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:japanese|japon[eé]s)\b/i.test(titleLower)) {
+          detectedLang = 'jpn';
+        } else if (/(?:^|[_\s\-\[\(\/])(?:eng|en|english|ingl[eé]s)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:english|ingl[eé]s)\b/i.test(titleLower)) {
+          detectedLang = 'eng';
+        } else if (/(?:^|[_\s\-\[\(\/])(?:fra|fre|fr|french|franc[eé]s)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:french|franc[eé]s)\b/i.test(titleLower)) {
+          detectedLang = 'fra';
+        } else if (/(?:^|[_\s\-\[\(\/])(?:deu|ger|de|german|alem[aá]n)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:german|alem[aá]n)\b/i.test(titleLower)) {
+          detectedLang = 'deu';
+        } else if (/(?:^|[_\s\-\[\(\/])(?:ita|it|italian|italiano)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:italian|italiano)\b/i.test(titleLower)) {
+          detectedLang = 'ita';
+        } else if (/(?:^|[_\s\-\[\(\/])(?:por|pt|portuguese|portugu[eé]s)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:portuguese|portugu[eé]s)\b/i.test(titleLower)) {
+          detectedLang = 'por';
+        } else if (/(?:^|[_\s\-\[\(\/])(?:kor|ko|korean|coreano)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:korean|coreano)\b/i.test(titleLower)) {
+          detectedLang = 'kor';
+        } else if (/(?:^|[_\s\-\[\(\/])(?:zho|chi|zh|chinese|chino)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:chinese|chino)\b/i.test(titleLower)) {
+          detectedLang = 'zho';
+        } else if (/(?:^|[_\s\-\[\(\/])(?:rus|ru|russian|ruso)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:russian|ruso)\b/i.test(titleLower)) {
+          detectedLang = 'rus';
+        }
+      }
+
+      let label = '';
+      if (isLatino) {
+        label = 'Español Latino';
+      } else if (isCastellano) {
+        label = 'Español (España)';
+      } else if (detectedLang === 'spa') {
+        label = 'Español';
+      } else if (detectedLang === 'jpn') {
+        label = 'Japonés';
+      } else if (detectedLang === 'eng') {
+        label = 'Inglés';
+      } else if (detectedLang === 'fra') {
+        label = 'Francés';
+      } else if (detectedLang === 'deu') {
+        label = 'Alemán';
+      } else if (detectedLang === 'ita') {
+        label = 'Italiano';
+      } else if (detectedLang === 'por') {
+        label = 'Portugués';
+      } else if (detectedLang === 'kor') {
+        label = 'Coreano';
+      } else if (detectedLang === 'zho') {
+        label = 'Chino';
+      } else if (detectedLang === 'rus') {
+        label = 'Ruso';
+      }
+
+      if (!label) {
+        let clean = rawTitle
+          .replace(/\[[^\]]*\]/g, '')
+          .replace(/\([^)]*\)/g, '')
+          .replace(/\b(?:gaton|erai-raws|subsplease|horriblesubs|judas|ember|asw|puya|crunchyroll|netflix|animetime)\b/gi, '')
+          .replace(/[_\-]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        label = clean || `Pista ${index + 1}`;
+      }
+
+      return {
+        label,
+        lang: detectedLang || rawLang || 'und',
+        trackNum
+      };
+    };
+
+    if (audioTracks.length === 0) {
+      audioEl.innerHTML = '<button type="button" class="detail-pref-pill active" data-track="0" data-lang="default">Audio predeterminado</button>';
+      selectedAudioTrack = 0;
     } else {
-      subsEl.innerHTML = subtitleTracks.map(t => {
-        const title = t.title || `Pista ${t.track_number || 1}`;
-        const lang = t.language ? t.language.toUpperCase() : 'UND';
-        return `<li>${escapeHtml(title)} [${escapeHtml(lang)}]</li>`;
-      }).join('');
+      const processedTracks = audioTracks.map((t, idx) => ({
+        ...formatAudioTrack(t, idx),
+        orig: t,
+        idx
+      }));
+
+      // Disambiguate duplicate labels if any
+      const labelGroups = new Map();
+      processedTracks.forEach(t => {
+        if (!labelGroups.has(t.label)) labelGroups.set(t.label, []);
+        labelGroups.get(t.label).push(t);
+      });
+
+      labelGroups.forEach((group, baseLabel) => {
+        if (group.length > 1) {
+          const channelLabels = group.map(t => {
+            const ch = t.orig?.channels;
+            if (ch === 6) return '5.1';
+            if (ch === 2) return 'Estéreo';
+            if (ch > 2) return `${ch}ch`;
+            return '';
+          });
+          const hasEmptyChannel = channelLabels.some(c => !c);
+          const uniqueChannels = new Set(channelLabels);
+
+          if (!hasEmptyChannel && uniqueChannels.size === group.length) {
+            group.forEach((t, i) => {
+              t.label = `${baseLabel} (${channelLabels[i]})`;
+            });
+          } else {
+            group.forEach((t, i) => {
+              const ch = channelLabels[i];
+              if (ch) {
+                t.label = `${baseLabel} (${ch} ${i + 1})`;
+              } else {
+                t.label = `${baseLabel} (${i + 1})`;
+              }
+            });
+          }
+        }
+      });
+
+      const savedAudioPref = (typeof localStorage !== 'undefined') ? (localStorage.getItem('kura_pref_audio_lang') || localStorage.getItem('kurastream_preferred_audio_language')) : null;
+      const userAudioPref = (typeof window !== 'undefined' && window.userPreferences?.preferred_audio_language) || null;
+      const prefAudio = savedAudioPref || userAudioPref || 'spa';
+
+      const matchesLang = (trackLang, pref) => {
+        if (!trackLang || !pref) return false;
+        const t = String(trackLang).toLowerCase().trim();
+        const p = String(pref).toLowerCase().trim();
+        if (p === 'default' || p === 'off') return false;
+        if (t === p) return true;
+        const spanishAliases = ['spa', 'es', 'es-es', 'es-la', 'es-419', 'spanish', 'español', 'castellano', 'lat'];
+        const englishAliases = ['eng', 'en', 'en-us', 'en-gb', 'english', 'inglés'];
+        const japaneseAliases = ['jpn', 'ja', 'japanese', 'japonés'];
+        if (spanishAliases.includes(p) && spanishAliases.includes(t)) return true;
+        if (englishAliases.includes(p) && englishAliases.includes(t)) return true;
+        if (japaneseAliases.includes(p) && japaneseAliases.includes(t)) return true;
+        return t.startsWith(p) || p.startsWith(t);
+      };
+
+      let activeTrack = processedTracks.find(t => matchesLang(t.lang, prefAudio));
+      if (!activeTrack) {
+        activeTrack = processedTracks.find((t, i) => {
+          const raw = audioTracks[i];
+          return raw && (raw.disposition?.default || raw.is_default);
+        });
+      }
+      if (!activeTrack && processedTracks.length > 0) {
+        activeTrack = processedTracks[0];
+      }
+
+      selectedAudioTrack = activeTrack ? activeTrack.trackNum : 0;
+
+      audioEl.innerHTML = processedTracks.map(info => `
+        <button type="button"
+                class="detail-pref-pill ${info.trackNum === selectedAudioTrack ? 'active' : ''}"
+                data-track="${info.trackNum}"
+                data-lang="${escapeHtmlAttribute(info.lang)}">
+          ${escapeHtml(info.label)}
+        </button>
+      `).join('');
+
+      audioEl.querySelectorAll('.detail-pref-pill').forEach(pill => {
+        pill.onclick = () => {
+          audioEl.querySelectorAll('.detail-pref-pill').forEach(p => p.classList.remove('active'));
+          pill.classList.add('active');
+          const trackNum = parseInt(pill.getAttribute('data-track'), 10);
+          const lang = pill.getAttribute('data-lang');
+          selectedAudioTrack = trackNum;
+          if (lang && lang !== 'und') {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('kura_pref_audio_lang', lang);
+              localStorage.setItem('kurastream_preferred_audio_language', lang);
+            }
+            if (typeof window !== 'undefined' && window.userPreferences) {
+              window.userPreferences.preferred_audio_language = lang;
+            }
+          }
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem('kura_play_audio_track', String(trackNum));
+            sessionStorage.setItem('kura_play_audio_ep', String(ep.id));
+          }
+        };
+      });
     }
   }
 
   if (playBtn) {
     playBtn.onclick = () => {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('kura_play_audio_track', String(selectedAudioTrack));
+        sessionStorage.setItem('kura_play_audio_ep', String(ep.id));
+      }
       if (modal) modal.style.display = 'none';
       location.hash = `#/player/${encodeURIComponent(ep.id)}`;
     };
@@ -683,6 +891,9 @@ export function showEpisodeDetails(episodeId) {
   }
 
   if (modal) {
+    modal.onclick = (e) => {
+      if (e.target === modal) modal.style.display = 'none';
+    };
     modal.style.display = 'flex';
   }
 
@@ -935,7 +1146,7 @@ export async function loadShowDetails(id) {
       const audioTracksMap = new Map();
       const subTracksMap = new Map();
 
-      const formatTrackLang = (code) => {
+      const formatTrackLang = (code, rawTitle = '') => {
         const c = String(code || 'und').toLowerCase();
         const map = {
           'jpn': 'Japonés',
@@ -943,12 +1154,66 @@ export async function loadShowDetails(id) {
           'spa': 'Español',
           'es': 'Español',
           'es-la': 'Español (Latino)',
+          'es-419': 'Español (Latino)',
+          'lat': 'Español (Latino)',
           'eng': 'Inglés',
           'en': 'Inglés',
           'por': 'Portugués',
-          'pt': 'Portugués'
+          'pt': 'Portugués',
+          'fra': 'Francés',
+          'fr': 'Francés',
+          'deu': 'Alemán',
+          'de': 'Alemán',
+          'ita': 'Italiano',
+          'it': 'Italiano',
+          'kor': 'Coreano',
+          'ko': 'Coreano',
+          'zho': 'Chino',
+          'chi': 'Chino',
+          'zh': 'Chino',
+          'rus': 'Ruso',
+          'ru': 'Ruso'
         };
-        return map[c] || c.toUpperCase();
+        const titleLower = String(rawTitle).toLowerCase();
+        if (/\b(latino|lat|es-la|es-419|hispanoam[eé]rica|mexico|m[eé]xico)\b/i.test(titleLower)) return 'Español (Latino)';
+        if (/\b(castellano|espa[nñ]a|spain|es-es)\b/i.test(titleLower)) return 'Español (España)';
+        if (/(?:^|[_\s\-\[\(\/])(?:spa|esp|es|spanish|espa[nñ]ol)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:spanish|espa[nñ]ol)\b/i.test(titleLower)) return 'Español';
+        if (/(?:^|[_\s\-\[\(\/])(?:jpn|jap|ja|japanese|japon[eé]s)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:japanese|japon[eé]s)\b/i.test(titleLower)) return 'Japonés';
+        if (/(?:^|[_\s\-\[\(\/])(?:eng|en|english|ingl[eé]s)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:english|ingl[eé]s)\b/i.test(titleLower)) return 'Inglés';
+        if (/(?:^|[_\s\-\[\(\/])(?:fra|fre|fr|french|franc[eé]s)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:french|franc[eé]s)\b/i.test(titleLower)) return 'Francés';
+        if (/(?:^|[_\s\-\[\(\/])(?:deu|ger|de|german|alem[aá]n)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:german|alem[aá]n)\b/i.test(titleLower)) return 'Alemán';
+        if (/(?:^|[_\s\-\[\(\/])(?:ita|it|italian|italiano)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:italian|italiano)\b/i.test(titleLower)) return 'Italiano';
+        if (/(?:^|[_\s\-\[\(\/])(?:por|pt|portuguese|portugu[eé]s)(?:$|[_\s\-\]\)\/])/i.test(titleLower) || /\b(?:portuguese|portugu[eé]s)\b/i.test(titleLower)) return 'Portugués';
+
+        if (map[c]) return map[c];
+        // Strip release tags if title is provided
+        const clean = String(rawTitle)
+          .replace(/\[[^\]]*\]/g, '')
+          .replace(/\([^)]*\)/g, '')
+          .replace(/\b(?:gaton|erai-raws|subsplease|horriblesubs|judas|ember|asw|puya|crunchyroll|netflix|animetime)\b/gi, '')
+          .replace(/[_\-]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (clean) return clean;
+        return c !== 'und' ? c.toUpperCase() : 'Audio';
+      };
+
+      const inferTrackLangCode = (t) => {
+        let lang = String(t.language || t.lang || 'und').toLowerCase().trim();
+        if (/^(?:es[-_](?:la|419|mx|ar|co|cl|pe|us|uy|ve|ec|gt|cu|bo|do|hn|py|sv|ni|cr|pa|pr)|lat)$/i.test(lang)) return 'es-la';
+        if (/^(?:es[-_]es)$/i.test(lang)) return 'es';
+        if (/^(?:spa|es|spanish|espa[nñ]ol)$/i.test(lang) || lang.startsWith('es-') || lang.startsWith('es_')) return 'spa';
+        if (/^(?:jpn|ja|ja[-_]jp|japanese)$/i.test(lang)) return 'jpn';
+        if (/^(?:eng|en|en[-_](?:us|gb|ca|au|nz)|english)$/i.test(lang)) return 'eng';
+        if (lang === 'und' && t.title) {
+          const tl = String(t.title).toLowerCase();
+          if (/\b(latino|lat|es-la|es-419)\b/i.test(tl)) return 'es-la';
+          if (/\b(castellano|espa[nñ]a|spain|es-es)\b/i.test(tl)) return 'es';
+          if (/(?:^|[_\s\-\[\(\/])(?:spa|esp|es|spanish|espa[nñ]ol)(?:$|[_\s\-\]\)\/])/i.test(tl) || /\b(?:spanish|espa[nñ]ol)\b/i.test(tl)) return 'spa';
+          if (/(?:^|[_\s\-\[\(\/])(?:jpn|jap|ja|japanese|japon[eé]s)(?:$|[_\s\-\]\)\/])/i.test(tl) || /\b(?:japanese|japon[eé]s)\b/i.test(tl)) return 'jpn';
+          if (/(?:^|[_\s\-\[\(\/])(?:eng|en|english|ingl[eé]s)(?:$|[_\s\-\]\)\/])/i.test(tl) || /\b(?:english|ingl[eé]s)\b/i.test(tl)) return 'eng';
+        }
+        return lang;
       };
 
       episodes.forEach(ep => {
@@ -966,17 +1231,17 @@ export async function loadShowDetails(id) {
         }
         if (Array.isArray(audios)) {
           audios.forEach(t => {
-            const lang = (t.language || t.lang || 'und').toLowerCase();
+            const lang = inferTrackLangCode(t);
             if (!audioTracksMap.has(lang)) {
-              audioTracksMap.set(lang, t.title || formatTrackLang(lang));
+              audioTracksMap.set(lang, formatTrackLang(lang, t.title));
             }
           });
         }
         if (Array.isArray(subs)) {
           subs.forEach(t => {
-            const lang = (t.language || t.lang || 'und').toLowerCase();
+            const lang = inferTrackLangCode(t);
             if (!subTracksMap.has(lang)) {
-              subTracksMap.set(lang, t.title || formatTrackLang(lang));
+              subTracksMap.set(lang, formatTrackLang(lang, t.title));
             }
           });
         }

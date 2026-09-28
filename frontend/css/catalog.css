@@ -1309,14 +1309,22 @@
   margin-bottom: 20px;
 }
 
-.ep-detail-tracks-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+.ep-detail-tracks-grid,
+.ep-detail-audio-box {
   margin-bottom: 20px;
   border-top: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
   padding: 15px 0;
+}
+
+.ep-detail-audio-box .ep-detail-track-title {
+  margin-bottom: 10px;
+}
+
+.ep-detail-audio-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .ep-detail-track-list {
