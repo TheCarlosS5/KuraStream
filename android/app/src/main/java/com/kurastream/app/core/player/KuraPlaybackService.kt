@@ -1,25 +1,32 @@
 package com.kurastream.app.core.player
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
-import android.os.Build
-import androidx.core.app.NotificationCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
-import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.kurastream.app.MainActivity
-import com.kurastream.app.R
+import dagger.hilt.android.AndroidEntryPoint
+import okhttp3.OkHttpClient
+import javax.inject.Inject
+import javax.inject.Named
 
+@UnstableApi
+@AndroidEntryPoint
 class KuraPlaybackService : MediaSessionService() {
+
+    @Inject
+    @Named("media")
+    lateinit var mediaOkHttpClient: OkHttpClient
 
     private var mediaSession: MediaSession? = null
     private var player: ExoPlayer? = null
@@ -40,7 +47,12 @@ class KuraPlaybackService : MediaSessionService() {
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
 
+        val httpDataSourceFactory = OkHttpDataSource.Factory(mediaOkHttpClient)
+        val mediaSourceFactory = DefaultMediaSourceFactory(this)
+            .setDataSourceFactory(httpDataSourceFactory)
+
         player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(audioAttributes, true) // Handles audio focus automatically
             .setHandleAudioBecomingNoisy(true)
             .build()

@@ -101,6 +101,15 @@ class CatalogRepository(
         }
     }
 
+    suspend fun getEpisodeDetails(episodeId: String): Result<Episode> {
+        return try {
+            val dto = apiService.getEpisodeDetails(episodeId)
+            Result.success(dto.toModel())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun checkFavorite(showId: String): Result<Boolean> {
         return try {
             val res = apiService.checkFavorite(showId)

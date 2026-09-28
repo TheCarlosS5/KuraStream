@@ -5,12 +5,11 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import com.kurastream.app.core.model.*
-import com.kurastream.app.core.network.ServerUrlResolver
 import com.kurastream.app.core.player.*
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import com.kurastream.app.core.preferences.UserSessionPreferences
@@ -28,7 +27,8 @@ class PlayerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val catalogRepository: CatalogRepository,
     private val historyRepository: HistoryRepository,
-    private val preferencesDataSource: KuraPreferencesDataSource
+    private val preferencesDataSource: KuraPreferencesDataSource,
+    private val playbackConnectionManager: PlaybackConnectionManager
 ) : ViewModel() {
 
     val episodeId: String = checkNotNull(savedStateHandle["episodeId"])
@@ -36,7 +36,10 @@ class PlayerViewModel @Inject constructor(
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
-    private var exoPlayer: ExoPlayer? = null
+    private val _navigationEvents = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val navigationEvents: SharedFlow<String> = _navigationEvents.asSharedFlow()
+
+    private var player: Player? = null
     private var progressTrackingJob: Job? = null
     private var autoHideControlsJob: Job? = null
     private var nextCountdownJob: Job? = null
@@ -45,30 +48,90 @@ class PlayerViewModel @Inject constructor(
     private var userPreferences = UserSessionPreferences()
     private var hasAppliedCodecFallback = false
     private var lastSavedProgress = 0f
+    private var speedBeforeTemporary2x: Float? = null
+
+    val doubleTapSeekSeconds: Int
+        get() = userPreferences.doubleTapSeekSeconds
+
+    private val playerListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            when (playbackState) {
+                Player.STATE_BUFFERING -> {
+                    _playerState.update { it.copy(isBuffering = true) }
+                }
+                Player.STATE_READY -> {
+                    val ep = _playerState.value.episode
+                    val duration = if (ep != null && ep.duration > 0) {
+                        ep.duration
+                    } else {
+                        val playerDur = player?.duration ?: 0L
+                        (playerDur / 1000f).coerceAtLeast(0f)
+                    }
+                    _playerState.update {
+                        it.copy(isBuffering = false, durationSeconds = duration)
+                    }
+                }
+                Player.STATE_ENDED -> {
+                    onPlaybackEnded()
+                }
+                Player.STATE_IDLE -> {}
+            }
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            _playerState.update { it.copy(isPlaying = isPlaying) }
+            if (isPlaying) {
+                startProgressTracker()
+                scheduleControlsAutoHide()
+            } else {
+                stopProgressTracker()
+                saveCurrentProgress()
+            }
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            _playerState.value.episode?.let { handlePlaybackError(error, it) }
+        }
+    }
 
     init {
         viewModelScope.launch {
             userPreferences = preferencesDataSource.preferencesFlow.first()
             baseUrl = userPreferences.activeServerUrl ?: ""
-            loadEpisodeAndInitPlayer()
+
+            playbackConnectionManager.getPlayer { p ->
+                player = p
+                p.addListener(playerListener)
+                viewModelScope.launch {
+                    loadEpisodeAndInitPlayer()
+                }
+            }
         }
     }
 
     private suspend fun loadEpisodeAndInitPlayer() {
         _playerState.update { it.copy(isBuffering = true, errorMessage = null) }
 
-        // Fetch episode details
-        val detailRes = catalogRepository.getShowDetails(episodeId.substringBefore("_s"))
-        var ep = detailRes.getOrNull()?.episodes?.firstOrNull { it.id == episodeId }
-        val show = detailRes.getOrNull()?.show
-
-        if (ep == null) {
-            // Direct query or fallback
-            ep = Episode(id = episodeId, title = "Episodio")
+        // Fetch episode details using GET /api/episodes/{id} directly
+        val epResult = catalogRepository.getEpisodeDetails(episodeId)
+        if (epResult.isFailure) {
+            _playerState.update {
+                it.copy(
+                    isBuffering = false,
+                    errorMessage = "Episodio no encontrado en el servidor: ${epResult.exceptionOrNull()?.message}"
+                )
+            }
+            return
         }
 
-        // Determine next episode
-        val nextEp = detailRes.getOrNull()?.episodes?.let { allEps ->
+        val ep = epResult.getOrThrow()
+
+        // Fetch show details using showId from episode
+        val showResult = if (ep.showId.isNotBlank()) catalogRepository.getShowDetails(ep.showId) else null
+        val show = showResult?.getOrNull()?.show
+
+        // Determine next episode strictly by seasonNumber then episodeNumber
+        val nextEp = showResult?.getOrNull()?.episodes?.let { allEps ->
             val sorted = allEps.sortedWith(compareBy({ it.seasonNumber }, { it.episodeNumber }))
             val idx = sorted.indexOfFirst { it.id == episodeId }
             if (idx >= 0 && idx + 1 < sorted.size) sorted[idx + 1] else null
@@ -113,7 +176,7 @@ class PlayerViewModel @Inject constructor(
         subtitleTrackIndex: Int,
         forceH264: Boolean = false
     ) {
-        exoPlayer?.release()
+        val p = player ?: return
 
         val resolved = StreamResolver.resolvePlaybackStream(
             baseUrl = baseUrl,
@@ -127,71 +190,52 @@ class PlayerViewModel @Inject constructor(
             it.copy(
                 streamStartOffsetSeconds = resolved.streamStartOffsetSeconds,
                 positionSeconds = 0f,
-                absolutePositionSeconds = resolved.streamStartOffsetSeconds
+                absolutePositionSeconds = resolved.streamStartOffsetSeconds,
+                isBuffering = true
             )
         }
 
-        val player = ExoPlayer.Builder(context).build()
-        exoPlayer = player
+        val metadata = MediaMetadata.Builder()
+            .setTitle(episode.title)
+            .setArtist(_playerState.value.show?.title ?: "KuraStream")
+            .setAlbumTitle(_playerState.value.show?.title)
+            .build()
 
-        val mediaItemBuilder = MediaItem.Builder().setUri(resolved.streamUrl)
+        val mediaItemBuilder = MediaItem.Builder()
+            .setUri(resolved.streamUrl)
+            .setMediaMetadata(metadata)
 
-        // Sideload SSA/ASS subtitle track if selected
+        // Sideload subtitle track if selected and not bitmap
         if (subtitleTrackIndex >= 0 && subtitleTrackIndex < episode.subtitleTracks.size) {
             val subTrack = episode.subtitleTracks[subtitleTrackIndex]
-            val subUrl = "$baseUrl/api/subtitles/${episode.id}/${subTrack.index}"
-            val subConfig = MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subUrl))
-                .setMimeType(MimeTypes.TEXT_SSA)
-                .setLanguage(subTrack.language)
-                .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
-                .build()
-            mediaItemBuilder.setSubtitleConfigurations(listOf(subConfig))
+            if (subTrack.isBitmap) {
+                _playerState.update {
+                    it.copy(errorMessage = "Subtítulos bitmap (PGS/VobSub) no son compatibles con el renderizador de texto")
+                }
+            } else {
+                val subUrl = "$baseUrl/api/subtitles/${episode.id}/${subTrack.index}"
+                val mimeType = when (subTrack.format.lowercase()) {
+                    "srt" -> MimeTypes.APPLICATION_SUBRIP
+                    "vtt" -> MimeTypes.TEXT_VTT
+                    else -> MimeTypes.TEXT_SSA
+                }
+                val subConfig = MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subUrl))
+                    .setMimeType(mimeType)
+                    .setLanguage(subTrack.language)
+                    .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
+                    .build()
+                mediaItemBuilder.setSubtitleConfigurations(listOf(subConfig))
+            }
         }
 
-        player.setMediaItem(mediaItemBuilder.build())
-        player.prepare()
+        p.setMediaItem(mediaItemBuilder.build())
+        p.prepare()
 
         if (resolved.requiresInternalSeek) {
-            player.seekTo((resolved.targetSeekPositionSeconds * 1000).toLong())
+            p.seekTo((resolved.targetSeekPositionSeconds * 1000).toLong())
         }
 
-        player.playWhenReady = true
-
-        player.addListener(object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                when (playbackState) {
-                    Player.STATE_BUFFERING -> {
-                        _playerState.update { it.copy(isBuffering = true) }
-                    }
-                    Player.STATE_READY -> {
-                        val duration = if (episode.duration > 0) episode.duration else (player.duration / 1000f).coerceAtLeast(0f)
-                        _playerState.update {
-                            it.copy(isBuffering = false, durationSeconds = duration)
-                        }
-                    }
-                    Player.STATE_ENDED -> {
-                        onPlaybackEnded()
-                    }
-                    Player.STATE_IDLE -> {}
-                }
-            }
-
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                _playerState.update { it.copy(isPlaying = isPlaying) }
-                if (isPlaying) {
-                    startProgressTracker()
-                    scheduleControlsAutoHide()
-                } else {
-                    stopProgressTracker()
-                    saveCurrentProgress()
-                }
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
-                handlePlaybackError(error, episode)
-            }
-        })
-
+        p.playWhenReady = true
         startProgressTracker()
     }
 
@@ -214,9 +258,18 @@ class PlayerViewModel @Inject constructor(
 
         val msg = when (error.errorCode) {
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ->
-                "Error de red al conectar con el servidor multimedia"
-            PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
-                "El servidor devolvió un error de streaming (HTTP ${error.message})"
+                "Error de conexión con el servidor multimedia. Comprueba la red local."
+            PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
+                val causeMsg = error.cause?.message ?: ""
+                when {
+                    causeMsg.contains("401") -> "Sesión expirada o no autorizada para reproducir este flujo."
+                    causeMsg.contains("403") -> "Acceso denegado: contenido restringido para este perfil."
+                    causeMsg.contains("404") -> "El archivo de video no fue encontrado en el servidor."
+                    causeMsg.contains("416") -> "Rango de reproducción inválido."
+                    causeMsg.contains("503") -> "El servidor de transcodificación está ocupado. Reintentando..."
+                    else -> "El servidor devolvió un error de reproducción HTTP ($causeMsg)"
+                }
+            }
             else -> "Error en la reproducción: ${error.localizedMessage ?: "formato no compatible"}"
         }
         _playerState.update { it.copy(isBuffering = false, errorMessage = msg) }
@@ -226,7 +279,7 @@ class PlayerViewModel @Inject constructor(
         progressTrackingJob?.cancel()
         progressTrackingJob = viewModelScope.launch {
             while (isActive) {
-                val p = exoPlayer ?: break
+                val p = player ?: break
                 val posMs = p.currentPosition
                 val offset = _playerState.value.streamStartOffsetSeconds
                 val absPos = StreamResolver.calculateAbsolutePositionSeconds(offset, posMs)
@@ -242,7 +295,7 @@ class PlayerViewModel @Inject constructor(
                     seekToAbsolute(ep.introEnd + 1f)
                 }
 
-                // Auto skip outro if user enabled
+                // Auto skip outro if user enabled and next episode exists
                 if (inOutro && userPreferences.autoSkipOutro && _playerState.value.nextEpisode != null) {
                     playNextEpisode()
                     break
@@ -285,13 +338,13 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun play() {
-        exoPlayer?.play()
+        player?.play()
         _playerState.update { it.copy(playWhenReady = true) }
         scheduleControlsAutoHide()
     }
 
     fun pause() {
-        exoPlayer?.pause()
+        player?.pause()
         _playerState.update { it.copy(playWhenReady = false) }
         showControlsPermanently()
     }
@@ -309,13 +362,11 @@ class PlayerViewModel @Inject constructor(
 
     fun seekToAbsolute(targetSeconds: Float) {
         val ep = _playerState.value.episode ?: return
-        val offset = _playerState.value.streamStartOffsetSeconds
         val isDirect = StreamResolver.canDirectPlay(ep, _playerState.value.selectedAudioTrackIndex)
 
         if (isDirect) {
-            exoPlayer?.seekTo((targetSeconds * 1000).toLong())
+            player?.seekTo((targetSeconds * 1000).toLong())
         } else {
-            // In remux/transcode, if seeking outside buffered window or significant jump, rebuild stream
             setupPlayerInstance(
                 episode = ep,
                 resumePositionSeconds = targetSeconds,
@@ -357,8 +408,21 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        exoPlayer?.setPlaybackSpeed(speed)
+        player?.setPlaybackSpeed(speed)
         _playerState.update { it.copy(playbackSpeed = speed) }
+    }
+
+    fun startTemporary2x() {
+        if (speedBeforeTemporary2x == null) {
+            speedBeforeTemporary2x = _playerState.value.playbackSpeed
+            setPlaybackSpeed(2.0f)
+        }
+    }
+
+    fun stopTemporary2x() {
+        val restore = speedBeforeTemporary2x ?: return
+        speedBeforeTemporary2x = null
+        setPlaybackSpeed(restore)
     }
 
     fun toggleFitMode() {
@@ -368,6 +432,16 @@ class PlayerViewModel @Inject constructor(
             VideoFitMode.STRETCH -> VideoFitMode.FIT
         }
         _playerState.update { it.copy(videoFitMode = next) }
+    }
+
+    fun onScreenTap() {
+        if (_playerState.value.controlsLocked) {
+            // When locked, tapping shows ONLY the unlock button for 3s
+            _playerState.update { it.copy(controlsVisible = true) }
+            scheduleControlsAutoHide()
+        } else {
+            toggleControls()
+        }
     }
 
     fun toggleControls() {
@@ -380,11 +454,11 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun toggleLock() {
-        val locked = !_playerState.value.controlsLocked
+        val nextLocked = !_playerState.value.controlsLocked
         _playerState.update {
             it.copy(
-                controlsLocked = locked,
-                controlsVisible = !locked
+                controlsLocked = nextLocked,
+                controlsVisible = !nextLocked // hide controls immediately when locking
             )
         }
     }
@@ -404,7 +478,8 @@ class PlayerViewModel @Inject constructor(
     fun playNextEpisode() {
         val next = _playerState.value.nextEpisode ?: return
         saveCurrentProgress()
-        // Signal caller via callback or route
+        cancelNextEpisodeCountdown()
+        _navigationEvents.tryEmit(next.id)
     }
 
     private fun onPlaybackEnded() {
@@ -437,7 +512,7 @@ class PlayerViewModel @Inject constructor(
         autoHideControlsJob?.cancel()
         autoHideControlsJob = viewModelScope.launch {
             delay(4000)
-            if (_playerState.value.isPlaying && !_playerState.value.controlsLocked) {
+            if (_playerState.value.isPlaying) {
                 _playerState.update { it.copy(controlsVisible = false) }
             }
         }
@@ -448,13 +523,13 @@ class PlayerViewModel @Inject constructor(
         _playerState.update { it.copy(controlsVisible = true) }
     }
 
-    fun getExoPlayer(): ExoPlayer? = exoPlayer
+    fun getPlayer(): Player? = player
 
     override fun onCleared() {
         saveCurrentProgress()
         stopProgressTracker()
-        exoPlayer?.release()
-        exoPlayer = null
+        player?.removeListener(playerListener)
+        player = null
         super.onCleared()
     }
 }

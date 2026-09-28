@@ -5,17 +5,19 @@ import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.os.Build
+import android.provider.Settings
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,16 +26,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -44,9 +48,12 @@ import androidx.media3.ui.PlayerView
 import com.kurastream.app.R
 import com.kurastream.app.core.designsystem.component.*
 import com.kurastream.app.core.designsystem.theme.*
-import com.kurastream.app.core.model.AudioTrack
-import com.kurastream.app.core.model.SubtitleTrack
 import com.kurastream.app.core.player.VideoFitMode
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -61,6 +68,75 @@ fun PlayerScreen(
 
     var showTracksSheet by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
+
+    // Navigation events from PlayerViewModel (e.g. next episode auto-advance)
+    LaunchedEffect(Unit) {
+        viewModel.navigationEvents.collect { nextEpisodeId ->
+            onNavigateToNextEpisode(nextEpisodeId)
+        }
+    }
+
+    // Gesture HUD overlay state
+    var gestureHudText by remember { mutableStateOf<String?>(null) }
+    var gestureHudIcon by remember { mutableStateOf<ImageVector?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    var hudDismissJob by remember { mutableStateOf<Job?>(null) }
+
+    fun showGestureHud(text: String, icon: ImageVector) {
+        gestureHudText = text
+        gestureHudIcon = icon
+        hudDismissJob?.cancel()
+        hudDismissJob = coroutineScope.launch {
+            delay(1200)
+            gestureHudText = null
+            gestureHudIcon = null
+        }
+    }
+
+    // Brightness adjustment helper
+    fun adjustBrightness(delta: Float) {
+        val activity = context as? Activity ?: return
+        val lp = activity.window.attributes
+        val current = if (lp.screenBrightness < 0f) {
+            try {
+                Settings.System.getInt(
+                    activity.contentResolver,
+                    Settings.System.SCREEN_BRIGHTNESS
+                ) / 255f
+            } catch (_: Exception) {
+                0.5f
+            }
+        } else {
+            lp.screenBrightness
+        }
+        val newBrightness = (current + delta * 1.5f).coerceIn(0.01f, 1.0f)
+        lp.screenBrightness = newBrightness
+        activity.window.attributes = lp
+        showGestureHud("Brillo: ${(newBrightness * 100).toInt()}%", Icons.Default.BrightnessMedium)
+    }
+
+    // Volume adjustment helper
+    var volumeAccumulator by remember { mutableFloatStateOf(0f) }
+    fun adjustVolume(delta: Float) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        volumeAccumulator += delta * 1.5f
+        val step = 1f / maxVol.toFloat()
+        if (abs(volumeAccumulator) >= step) {
+            val steps = (volumeAccumulator / step).toInt()
+            val newVol = (currentVol + steps).coerceIn(0, maxVol)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
+            volumeAccumulator -= steps * step
+            val pct = (newVol.toFloat() / maxVol.toFloat() * 100).toInt()
+            val icon = if (newVol == 0) Icons.Default.VolumeOff else Icons.Default.VolumeUp
+            showGestureHud("Volumen: $pct%", icon)
+        }
+    }
+
+    // Timeline scrubbing local state
+    var isScrubbing by remember { mutableStateOf(false) }
+    var scrubPosition by remember { mutableFloatStateOf(0f) }
 
     // Immersive landscape edge-to-edge
     DisposableEffect(Unit) {
@@ -90,33 +166,105 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .pointerInput(state.controlsLocked) {
-                detectTapGestures(
-                    onTap = { viewModel.toggleControls() },
-                    onDoubleTap = { offset ->
-                        if (!state.controlsLocked) {
-                            val halfWidth = size.width / 2
-                            if (offset.x < halfWidth) {
-                                viewModel.seekRelative(-10f)
-                            } else {
-                                viewModel.seekRelative(10f)
+                if (state.controlsLocked) {
+                    detectTapGestures(
+                        onTap = { viewModel.onScreenTap() }
+                    )
+                    return@pointerInput
+                }
+
+                var lastTapTime = 0L
+                var lastTapPos = Offset.Zero
+
+                coroutineScope {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val startPos = down.position
+                        val startTime = System.currentTimeMillis()
+                        var isVerticalDrag = false
+                        var isHolding = false
+                        val touchSlop = viewConfiguration.touchSlop
+
+                        val holdJob = launch {
+                            delay(450)
+                            if (!isVerticalDrag) {
+                                isHolding = true
+                                viewModel.startTemporary2x()
                             }
                         }
-                    },
-                    onLongPress = {
-                        if (!state.controlsLocked) {
-                            viewModel.setPlaybackSpeed(2.0f)
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.find { it.id == down.id } ?: break
+
+                            if (!change.pressed) {
+                                holdJob.cancel()
+                                if (isHolding) {
+                                    viewModel.stopTemporary2x()
+                                } else if (!isVerticalDrag) {
+                                    val duration = System.currentTimeMillis() - startTime
+                                    if (duration < 350) {
+                                        val timeSinceLast = startTime - lastTapTime
+                                        val dist = (startPos - lastTapPos).getDistance()
+                                        if (timeSinceLast < 300 && dist < 120f) {
+                                            // Double tap detected
+                                            lastTapTime = 0L
+                                            if (startPos.x < size.width / 2) {
+                                                viewModel.seekRelative(-10f)
+                                                showGestureHud("-10s", Icons.Default.Replay10)
+                                            } else {
+                                                viewModel.seekRelative(10f)
+                                                showGestureHud("+10s", Icons.Default.Forward10)
+                                            }
+                                        } else {
+                                            // Single tap candidate
+                                            lastTapTime = startTime
+                                            lastTapPos = startPos
+                                            launch {
+                                                delay(300)
+                                                if (lastTapTime == startTime) {
+                                                    viewModel.onScreenTap()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                break
+                            }
+
+                            val dragY = change.position.y - startPos.y
+                            val dragX = change.position.x - startPos.x
+
+                            if (!isVerticalDrag && abs(dragY) > touchSlop && abs(dragY) > abs(dragX) * 1.3f) {
+                                isVerticalDrag = true
+                                holdJob.cancel()
+                            }
+
+                            if (isVerticalDrag) {
+                                val deltaY = change.positionChange().y
+                                if (startPos.x < size.width * 0.45f) {
+                                    adjustBrightness(-deltaY / size.height)
+                                } else if (startPos.x > size.width * 0.55f) {
+                                    adjustVolume(-deltaY / size.height)
+                                }
+                                change.consume()
+                            }
+                        }
+                        holdJob.cancel()
+                        if (isHolding) {
+                            viewModel.stopTemporary2x()
                         }
                     }
-                )
+                }
             }
     ) {
-        // LAYER 1: SurfaceView / PlayerView (without default controllers)
-        val exoPlayer = viewModel.getExoPlayer()
-        if (exoPlayer != null) {
+        // LAYER 1: SurfaceView / PlayerView via MediaController
+        val player = viewModel.getPlayer()
+        if (player != null) {
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
-                        player = exoPlayer
+                        this.player = player
                         useController = false
                         resizeMode = when (state.videoFitMode) {
                             VideoFitMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -130,7 +278,7 @@ fun PlayerScreen(
                     }
                 },
                 update = { pv ->
-                    pv.player = exoPlayer
+                    pv.player = player
                     pv.resizeMode = when (state.videoFitMode) {
                         VideoFitMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                         VideoFitMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -213,7 +361,7 @@ fun PlayerScreen(
                         }
                     }
 
-                    // Top Action Buttons
+                    // Top Action Buttons: Lock controls
                     IconButton(onClick = viewModel::toggleLock) {
                         Icon(
                             imageVector = Icons.Default.LockOpen,
@@ -249,7 +397,10 @@ fun PlayerScreen(
                 ) {
                     // Rewind 10s
                     IconButton(
-                        onClick = { viewModel.seekRelative(-10f) },
+                        onClick = {
+                            viewModel.seekRelative(-10f)
+                            showGestureHud("-10s", Icons.Default.Replay10)
+                        },
                         modifier = Modifier
                             .size(56.dp)
                             .background(KuraColors.SurfaceRaised.copy(alpha = 0.7f), CircleShape)
@@ -279,7 +430,10 @@ fun PlayerScreen(
 
                     // Forward 10s
                     IconButton(
-                        onClick = { viewModel.seekRelative(10f) },
+                        onClick = {
+                            viewModel.seekRelative(10f)
+                            showGestureHud("+10s", Icons.Default.Forward10)
+                        },
                         modifier = Modifier
                             .size(56.dp)
                             .background(KuraColors.SurfaceRaised.copy(alpha = 0.7f), CircleShape)
@@ -314,7 +468,7 @@ fun PlayerScreen(
                         Spacer(modifier = Modifier.height(KuraDimens.Space2))
                     } else if (state.isInOutro && state.nextEpisode != null) {
                         KuraButton(
-                            onClick = { onNavigateToNextEpisode(state.nextEpisode!!.id) },
+                            onClick = { viewModel.playNextEpisode() },
                             text = stringResource(R.string.next_episode),
                             modifier = Modifier.align(Alignment.End),
                             leadingIcon = {
@@ -324,21 +478,27 @@ fun PlayerScreen(
                         Spacer(modifier = Modifier.height(KuraDimens.Space2))
                     }
 
-                    // Timeline Slider
+                    // Timeline Slider with Smooth Scrubbing
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val currentDisplayPos = if (isScrubbing) scrubPosition else state.absolutePositionSeconds
                         Text(
-                            text = formatTime(state.absolutePositionSeconds),
+                            text = formatTime(currentDisplayPos),
                             style = MaterialTheme.typography.labelSmall,
                             color = KuraColors.TextMain
                         )
 
                         Slider(
-                            value = state.absolutePositionSeconds.coerceIn(0f, state.durationSeconds.coerceAtLeast(1f)),
+                            value = currentDisplayPos.coerceIn(0f, state.durationSeconds.coerceAtLeast(1f)),
                             onValueChange = { targetPos ->
-                                viewModel.seekToAbsolute(targetPos)
+                                isScrubbing = true
+                                scrubPosition = targetPos
+                            },
+                            onValueChangeFinished = {
+                                isScrubbing = false
+                                viewModel.seekToAbsolute(scrubPosition)
                             },
                             valueRange = 0f..state.durationSeconds.coerceAtLeast(1f),
                             modifier = Modifier
@@ -398,7 +558,7 @@ fun PlayerScreen(
 
                         if (state.nextEpisode != null) {
                             TextButton(
-                                onClick = { onNavigateToNextEpisode(state.nextEpisode!!.id) },
+                                onClick = { viewModel.playNextEpisode() },
                                 colors = ButtonDefaults.textButtonColors(contentColor = KuraColors.TextMain)
                             ) {
                                 Text(stringResource(R.string.next_episode), style = MaterialTheme.typography.labelSmall)
@@ -415,7 +575,7 @@ fun PlayerScreen(
             }
         }
 
-        // Lock HUD: Only appears if locked and user taps
+        // Lock HUD: When locked, tapping anywhere reveals this unlock button for 3s
         if (state.controlsLocked && state.controlsVisible) {
             Box(
                 modifier = Modifier
@@ -427,13 +587,75 @@ fun PlayerScreen(
                     onClick = viewModel::toggleLock,
                     modifier = Modifier
                         .size(48.dp)
-                        .background(KuraColors.Background.copy(alpha = 0.8f), CircleShape)
-                        .border(1.dp, KuraColors.Border, CircleShape)
+                        .background(KuraColors.Background.copy(alpha = 0.85f), CircleShape)
+                        .border(1.dp, KuraColors.Primary, CircleShape)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Lock,
-                        contentDescription = "Desbloquear",
+                        contentDescription = "Desbloquear controles",
                         tint = KuraColors.Primary
+                    )
+                }
+            }
+        }
+
+        // Fast Forward 2X Temporary Pill
+        if (state.playbackSpeed > 1.0f && !state.controlsVisible) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 16.dp),
+                shape = CircleShape,
+                color = KuraColors.Primary.copy(alpha = 0.9f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FastForward,
+                        contentDescription = null,
+                        tint = KuraColors.Background,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "${state.playbackSpeed}x",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = KuraColors.Background
+                    )
+                }
+            }
+        }
+
+        // Gesture Feedback HUD
+        if (gestureHudText != null && gestureHudIcon != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(16.dp),
+                shape = KuraShapes.Modal,
+                color = KuraColors.Background.copy(alpha = 0.88f),
+                border = BorderStroke(1.dp, KuraColors.Border)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = gestureHudIcon!!,
+                        contentDescription = null,
+                        tint = KuraColors.Primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Text(
+                        text = gestureHudText!!,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = KuraColors.TextMain
                     )
                 }
             }
@@ -461,7 +683,7 @@ fun PlayerScreen(
                     .padding(KuraDimens.Space6),
                 shape = KuraShapes.Modal,
                 color = KuraColors.Surface,
-                border = androidx.compose.foundation.BorderStroke(1.dp, KuraColors.Danger)
+                border = BorderStroke(1.dp, KuraColors.Danger)
             ) {
                 Column(
                     modifier = Modifier.padding(KuraDimens.Space5),
@@ -490,7 +712,7 @@ fun PlayerScreen(
                     .width(280.dp),
                 shape = KuraShapes.Modal,
                 color = KuraColors.SurfaceRaised,
-                border = androidx.compose.foundation.BorderStroke(1.dp, KuraColors.BorderStrong),
+                border = BorderStroke(1.dp, KuraColors.BorderStrong),
                 tonalElevation = 8.dp
             ) {
                 Column(modifier = Modifier.padding(KuraDimens.Space4)) {
@@ -524,7 +746,7 @@ fun PlayerScreen(
                         }
                         Spacer(modifier = Modifier.width(KuraDimens.Space2))
                         KuraButton(
-                            onClick = { onNavigateToNextEpisode(state.nextEpisode!!.id) },
+                            onClick = { viewModel.playNextEpisode() },
                             text = "Ver ahora"
                         )
                     }
