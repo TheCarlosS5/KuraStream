@@ -480,3 +480,17 @@ data class CommentDto(
     val content: String = "",
     @SerialName("created_at") val createdAt: String = ""
 )
+
+/** GET /api/app/android: what the server offers for download. */
+@Serializable
+data class AppInfoDto(
+    val success: Boolean = true,
+    val available: Boolean = false,
+    val version: String? = null,
+    @SerialName("version_code") val versionCode: Int? = null,
+    val variant: String? = null,
+    val notes: String? = null,
+    val sha256: String? = null,
+    @SerialName("size_bytes") val sizeBytes: Long? = null,
+    @SerialName("download_url") val downloadUrl: String? = null
+)

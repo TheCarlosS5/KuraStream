@@ -14,6 +14,10 @@ interface KuraApiService {
         @Header("X-No-Auth") noAuth: String? = "true"
     ): ServerHealthDto
 
+    /** Public: the build the server offers, used to offer in-app updates. */
+    @GET("api/app/android")
+    suspend fun getAppInfo(): AppInfoDto
+
     // Auth
     @POST("api/login")
     suspend fun login(@Body body: LoginRequestDto): AuthResponseDto

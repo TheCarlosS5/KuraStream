@@ -55,6 +55,13 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val notifications by viewModel.notifications.collectAsState()
     val unreadCount by viewModel.unreadCount.collectAsState()
+    val updateState by viewModel.updateState.collectAsState()
+    UpdateDialog(
+        state = updateState,
+        onUpdate = viewModel::startUpdateDownload,
+        onDismiss = viewModel::dismissUpdate,
+        installIntent = viewModel::installIntent
+    )
 
     var showNotificationsSheet by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -643,5 +650,69 @@ private fun ShowsRail(
                 onClick = { onShowClick(show.id) }
             )
         }
+    }
+}
+
+
+/** Offer, progress and hand-off to the system installer for a newer app build served by the user's server. */
+@Composable
+private fun UpdateDialog(
+    state: UpdateUiState,
+    onUpdate: () -> Unit,
+    onDismiss: () -> Unit,
+    installIntent: (java.io.File) -> android.content.Intent
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    when (state) {
+        UpdateUiState.None -> Unit
+        is UpdateUiState.Available -> AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Actualización disponible") },
+            text = {
+                Text(
+                    "Hay una nueva versión de KuraStream (${state.update.versionName}) en tu servidor." +
+                        (state.update.notes?.let { "\n\n$it" } ?: "")
+                )
+            },
+            confirmButton = { TextButton(onClick = onUpdate) { Text("Actualizar") } },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Más tarde") } }
+        )
+        is UpdateUiState.Downloading -> AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Descargando ${state.update.versionName}") },
+            text = { LinearProgressIndicator(progress = { state.percent / 100f }, modifier = Modifier.fillMaxWidth()) },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+        )
+        is UpdateUiState.Failed -> AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("No se pudo actualizar") },
+            text = { Text(state.message) },
+            confirmButton = { TextButton(onClick = onUpdate) { Text("Reintentar") } },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } }
+        )
+        is UpdateUiState.ReadyToInstall -> AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Lista para instalar") },
+            text = {
+                Text("Descargada y verificada. Android te pedirá confirmar la instalación; si es la primera vez, permite instalar apps desde KuraStream.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (!context.packageManager.canRequestPackageInstalls()) {
+                        // First time: the user must allow this app to install packages, then tap Install again
+                        context.startActivity(
+                            android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                android.net.Uri.parse("package:${context.packageName}")
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } else {
+                        context.startActivity(installIntent(state.file))
+                        onDismiss()
+                    }
+                }) { Text("Instalar") }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+        )
     }
 }

@@ -219,6 +219,15 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideAppUpdateRepository(
+        @ApplicationContext context: Context,
+        apiService: KuraApiService,
+        @Named("media") downloadClient: OkHttpClient
+    ): com.kurastream.app.core.update.AppUpdateRepository =
+        com.kurastream.app.core.update.AppUpdateRepository(context, apiService, downloadClient, com.kurastream.app.BuildConfig.VERSION_CODE)
+
+    @Provides
+    @Singleton
     fun provideServerRepository(
         serverDao: ServerProfileDao,
         preferencesDataSource: KuraPreferencesDataSource,

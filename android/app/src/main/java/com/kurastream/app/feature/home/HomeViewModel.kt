@@ -6,6 +6,9 @@ import com.kurastream.app.core.model.*
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import com.kurastream.app.core.repository.CatalogRepository
 import com.kurastream.app.core.repository.HistoryRepository
+import com.kurastream.app.core.update.AppUpdate
+import com.kurastream.app.core.update.AppUpdateRepository
+import com.kurastream.app.core.update.UpdateDownload
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -13,6 +16,15 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/** The in-app update offer shown over the home screen. */
+sealed interface UpdateUiState {
+    data object None : UpdateUiState
+    data class Available(val update: AppUpdate) : UpdateUiState
+    data class Downloading(val update: AppUpdate, val percent: Int) : UpdateUiState
+    data class ReadyToInstall(val update: AppUpdate, val file: java.io.File) : UpdateUiState
+    data class Failed(val update: AppUpdate, val message: String) : UpdateUiState
+}
 
 data class HomeFeedData(
     val heroShow: Show? = null,
@@ -32,8 +44,13 @@ data class HomeFeedData(
 class HomeViewModel @Inject constructor(
     private val catalogRepository: CatalogRepository,
     private val historyRepository: HistoryRepository,
-    private val preferencesDataSource: KuraPreferencesDataSource
+    private val preferencesDataSource: KuraPreferencesDataSource,
+    private val appUpdateRepository: AppUpdateRepository
 ) : ViewModel() {
+
+    private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.None)
+    val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
+    private var updateJob: Job? = null
 
     private val _uiState = MutableStateFlow<UiState<HomeFeedData>>(UiState.Loading)
     val uiState: StateFlow<UiState<HomeFeedData>> = _uiState.asStateFlow()
@@ -59,6 +76,7 @@ class HomeViewModel @Inject constructor(
 
     init {
         observePreferencesAndInitialize()
+        checkForUpdate()
         // The profile's saved preferences (set on the web or on another phone) apply on this device too.
         viewModelScope.launch {
             historyRepository.getUserPreferences().onSuccess { server ->
@@ -78,6 +96,42 @@ class HomeViewModel @Inject constructor(
                 .collect { refreshContinueWatching() }
         }
     }
+
+    /** Asks the server once per launch whether a newer app is available. Debug builds are a different app id. */
+    private fun checkForUpdate() {
+        if (com.kurastream.app.BuildConfig.DEBUG) return
+        viewModelScope.launch {
+            val update = appUpdateRepository.checkForUpdate() ?: return@launch
+            if (_updateState.value is UpdateUiState.None) _updateState.value = UpdateUiState.Available(update)
+        }
+    }
+
+    fun startUpdateDownload() {
+        val update = when (val s = _updateState.value) {
+            is UpdateUiState.Available -> s.update
+            is UpdateUiState.Failed -> s.update
+            else -> return
+        }
+        updateJob?.cancel()
+        updateJob = viewModelScope.launch {
+            val baseUrl = preferencesDataSource.preferencesFlow.first().activeServerUrl.orEmpty()
+            _updateState.value = UpdateUiState.Downloading(update, 0)
+            appUpdateRepository.download(update, baseUrl).collect { event ->
+                _updateState.value = when (event) {
+                    is UpdateDownload.Progress -> UpdateUiState.Downloading(update, event.percent)
+                    is UpdateDownload.Ready -> UpdateUiState.ReadyToInstall(update, event.file)
+                    is UpdateDownload.Failed -> UpdateUiState.Failed(update, event.message)
+                }
+            }
+        }
+    }
+
+    fun dismissUpdate() {
+        updateJob?.cancel()
+        _updateState.value = UpdateUiState.None
+    }
+
+    fun installIntent(file: java.io.File) = appUpdateRepository.installIntent(file)
 
     fun loadNotifications() {
         viewModelScope.launch {
