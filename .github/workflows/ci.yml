@@ -56,6 +56,7 @@ jobs:
           node tests/ui_review_regressions.mjs
           node tests/test_generate_app_release.mjs
           node tests/test_frontend_build.mjs
+          node tests/ui_admin_health.mjs
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium

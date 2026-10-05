@@ -653,6 +653,20 @@ if (($uri === '/api/admin/scan' || $uri === '/api/admin/repair-library') && $met
     jsonResponse($res);
 }
 
+// Live health of the machine for the admin panel (worker, jobs, backups, disks, ffmpeg, Watch Party viewers, load)
+if ($uri === '/api/admin/system' && $method === 'GET') {
+    AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/JobQueue.php';
+    require_once __DIR__ . '/services/BackupService.php';
+    jsonResponse([
+        'success' => true,
+        'system' => AdminController::systemHealth(),
+        'transcode' => ['active' => TranscodeLimiter::getActiveWorkerCount(), 'max' => TranscodeLimiter::maxWorkers()],
+        'jobs' => JobQueue::recent(8),
+        'backups' => array_slice(BackupService::list(), 0, 10),
+    ]);
+}
+
 // Background jobs (worker.php): status for the admin panel, and database backups
 if ($uri === '/api/admin/jobs' && $method === 'GET') {
     AuthMiddleware::requireAdmin();

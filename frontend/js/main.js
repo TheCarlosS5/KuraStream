@@ -50,6 +50,25 @@ export function escapeHtmlAttribute(value) {
 // has already moved on, so a slow answer for show A can no longer paint over show B.
 let navigationGeneration = 0;
 
+// One catalogue request shared by every view that needs the list (home, genres, "popular", avatar picker): it used
+// to be fetched again, and parsed again, in seven places. Cached for 30 s per signed-in token; the server also
+// answers 304 when nothing changed.
+let catalogLoad = null;
+let catalogLoadedAt = 0;
+let catalogToken = null;
+
+export function loadCatalog({ force = false } = {}) {
+  const token = (typeof AuthManager !== 'undefined' && AuthManager.getToken) ? AuthManager.getToken() : null;
+  const usable = catalogLoad && token === catalogToken && (catalogLoadedAt === 0 || Date.now() - catalogLoadedAt < 30000);
+  if (!force && usable) return catalogLoad;
+  const load = fetchJson('/api/shows').then(data => (Array.isArray(data) ? data : (data.shows || [])));
+  catalogLoad = load;
+  catalogLoadedAt = 0;
+  catalogToken = token;
+  load.then(() => { if (catalogLoad === load) catalogLoadedAt = Date.now(); }, () => { if (catalogLoad === load) catalogLoad = null; });
+  return load;
+}
+
 // Lists (catalogue, history...) come back to where the person left them; every other view starts at the top.
 const scrollPositions = new Map();
 const SCROLL_RESTORED_ROUTES = new Set(['/', '/airing', '/movies', '/my-list', '/history', '/calendar', '/stats']);
@@ -2015,8 +2034,7 @@ export async function loadPopularSidebar(currentShowId) {
   if (!popularSidebar) return;
 
   try {
-    const res = await fetch('/api/shows');
-    const allShows = await res.json();
+    const allShows = await loadCatalog();
     const isTestShow = (s) => {
       const id = String(s.id || '').toLowerCase();
       const title = String(s.title || '').toLowerCase();
@@ -3149,9 +3167,8 @@ async function initCatalogView(filterType = 'all') {
   const generation = navigationGeneration;
 
   try {
-    const data = await fetchJson('/api/shows');
+    let shows = await loadCatalog();
     if (generation !== navigationGeneration) return;
-    let shows = Array.isArray(data) ? data : (data.shows || []);
     if (filterType === 'movie') {
       shows = shows.filter(s => s.media_type === 'movie' || s.type === 'movie');
     }
@@ -3312,9 +3329,8 @@ async function renderGenresView(activeGenre = '') {
 
   let shows = [];
   try {
-    const data = await fetchJson('/api/shows');
+    shows = await loadCatalog();
     if (generation !== navigationGeneration) return;
-    shows = Array.isArray(data) ? data : (data.shows || []);
   } catch (error) {
     if (generation !== navigationGeneration) return;
     renderLoadErrorState(genresGrid, error, 'los géneros', () => renderGenresView(activeGenre));
@@ -3644,9 +3660,7 @@ async function renderLibraryAvatarChoices(grid, onPick) {
   let shows = appState.get ? appState.get('catalog') : null;
   if (!Array.isArray(shows) || shows.length === 0) {
     try {
-      const res = await fetch('/api/shows');
-      const data = await res.json();
-      shows = Array.isArray(data) ? data : (data.shows || []);
+      shows = await loadCatalog();
     } catch {
       shows = [];
     }

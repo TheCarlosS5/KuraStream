@@ -793,3 +793,50 @@
 }
 
 
+
+/* System health card: metric tiles, sub-panels, simple lists */
+.admin-storage-metric-box.is-warn {
+  border-color: var(--rating-color, #fbbf24);
+}
+
+.admin-subpanel-header {
+  margin-top: 22px;
+}
+
+.admin-simple-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 0.88rem;
+}
+
+.admin-simple-item,
+.admin-simple-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-color);
+}
+
+.admin-simple-empty {
+  color: var(--text-muted);
+}
+
+.admin-simple-item.job-failed {
+  border-color: var(--danger-color);
+}
+
+.admin-simple-item.job-running {
+  border-color: var(--accent-color);
+}
+
+#system-worker-badge.is-ok {
+  color: var(--success-color);
+  border-color: var(--success-color);
+}

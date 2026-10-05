@@ -798,6 +798,35 @@
               </div>
             </div>
 
+            <!-- Live system health, database backups and background jobs -->
+            <div class="admin-card" id="admin-system-card">
+              <div class="admin-panel-header">
+                <div class="admin-header-title-group">
+                  <i data-lucide="activity" class="admin-header-icon"></i>
+                  <h3 class="admin-card-title">Salud del Sistema</h3>
+                </div>
+                <span id="system-worker-badge" class="badge">--</span>
+              </div>
+              <div class="admin-storage-grid" id="system-health-grid" aria-live="polite"></div>
+
+              <div class="admin-panel-header admin-subpanel-header">
+                <div class="admin-header-title-group">
+                  <i data-lucide="database" class="admin-header-icon"></i>
+                  <h3 class="admin-card-title">Respaldos de la base de datos</h3>
+                </div>
+                <button type="button" class="btn btn-secondary" id="btn-create-backup"><i data-lucide="download"></i> Crear respaldo ahora</button>
+              </div>
+              <ul class="admin-simple-list" id="backup-list"></ul>
+
+              <div class="admin-panel-header admin-subpanel-header">
+                <div class="admin-header-title-group">
+                  <i data-lucide="list-checks" class="admin-header-icon"></i>
+                  <h3 class="admin-card-title">Trabajos en segundo plano</h3>
+                </div>
+              </div>
+              <ul class="admin-simple-list" id="jobs-list"></ul>
+            </div>
+
             <!-- System Storage & Disk Space Card -->
             <div class="admin-card">
               <div class="admin-panel-header">

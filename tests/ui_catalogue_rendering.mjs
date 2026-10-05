@@ -5,12 +5,12 @@ import vm from 'node:vm';
 // Evaluate the real renderers without starting the app or making API requests.
 const source = fs.readFileSync(new URL('../frontend/js/main.js', import.meta.url), 'utf8');
 assert.ok(!/setProperty\('--accent-(?:color|hover|glow)'/.test(source), 'Artwork must not override semantic action colors');
-const names = ['escapeHtml', 'escapeHtmlAttribute', 'genreLabel', 'showGenreList', 'calendarCardMeta', 'catalogueImageUrl', 'setupCatalogueActions', 'renderBillboardHero', 'renderContinueWatching', 'createShowCardHTML', 'renderEpisodeList', 'showEpisodeDetails', 'loadShowDetails', 'renderLoadErrorState', 'renderMyListView', 'renderHistoryView', 'renderStatsView', 'loadPopularSidebar', 'calendarItems', 'calendarTime', 'renderCalendarDay', 'openRandomAnimeModal'];
+const names = ['escapeHtml', 'escapeHtmlAttribute', 'genreLabel', 'showGenreList', 'calendarCardMeta', 'catalogueImageUrl', 'setupCatalogueActions', 'renderBillboardHero', 'renderContinueWatching', 'createShowCardHTML', 'renderEpisodeList', 'showEpisodeDetails', 'loadShowDetails', 'loadCatalog', 'renderLoadErrorState', 'renderMyListView', 'renderHistoryView', 'renderStatsView', 'loadPopularSidebar', 'calendarItems', 'calendarTime', 'renderCalendarDay', 'openRandomAnimeModal'];
 const context = vm.createContext({ URL, console });
 // core/http.js is an import of main.js; run the real module in the same context.
 vm.runInContext(fs.readFileSync(new URL('../frontend/js/core/http.js', import.meta.url), 'utf8').replace(/^export /gm, ''), context);
 vm.runInContext(fs.readFileSync(new URL('../frontend/js/player/tracks.js', import.meta.url), 'utf8').replace(/^export /gm, ''), context);
-vm.runInContext("var navigationGeneration = 0; var calendarOnlyLibrary = false; var CALENDAR_UNSCHEDULED = 'TBA';", context);
+vm.runInContext("var catalogLoad = null; var catalogLoadedAt = 0; var catalogToken = null; var navigationGeneration = 0; var calendarOnlyLibrary = false; var CALENDAR_UNSCHEDULED = 'TBA';", context);
 for (const name of names) {
   const body = source.match(new RegExp(`(?:export )?(?:async )?function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, 'm'));
   assert.ok(body, `Missing ${name}`);

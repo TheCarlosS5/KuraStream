@@ -141,6 +141,10 @@ try {
     assert($code === 404, 'unknown job');
     [$code] = kura_http($port, 'GET', '/api/admin/jobs');
     assert($code === 401, 'jobs are admin only');
+    [$code, , $sys] = kura_http($port, 'GET', '/api/admin/system', null, $admin);
+    assert($code === 200 && isset($sys['system']['worker'], $sys['transcode']['max'], $sys['jobs'], $sys['backups']), 'admin system endpoint');
+    [$code] = kura_http($port, 'GET', '/api/admin/system');
+    assert($code === 401, 'system health is admin only');
     [$code, , $none] = kura_http($port, 'POST', '/api/admin/shows/no_such_show/sync-seasons', null, $admin);
     assert($code === 404, 'queued season sync still validates the show');
     if (BackupService::isAvailable()) {
