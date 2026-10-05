@@ -414,7 +414,7 @@ export async function deleteShow(id, title) {
   }
 }
 
-const INTRO_SOURCE_LABELS = {
+const TIMING_SOURCE_LABELS = {
   aniskip: 'AniSkip',
   aniskip_checked: 'AniSkip (verificado por audio)',
   audio: 'Detectado por audio',
@@ -429,7 +429,7 @@ function formatTimingClock(seconds) {
 
 /**
  * Openings and endings are found automatically (AniSkip, checked and completed with the audio of
- * the files by the nightly sync), so the editor only shows what each episode has.
+ * the files by scripts/audio_intros_from_pc.py), so the editor only shows what each episode has.
  */
 export function renderEpisodesTimings(show, episodes) {
   const container = document.getElementById('edit-episodes-thumbs-list');
@@ -443,12 +443,17 @@ export function renderEpisodesTimings(show, episodes) {
   container.innerHTML = episodes.map(ep => {
     const hasIntro = ep.intro_start !== null && ep.intro_start !== undefined && ep.intro_end !== null && ep.intro_end !== undefined;
     const hasOutro = ep.outro_start !== null && ep.outro_start !== undefined;
+    const hasOutroEnd = hasOutro && ep.outro_end !== null && ep.outro_end !== undefined;
     const source = ep.intro_source || (hasIntro ? 'manual' : '');
     const intro = hasIntro
       ? `Intro ${formatTimingClock(ep.intro_start)} – ${formatTimingClock(ep.intro_end)}`
       : 'Sin intro detectada';
-    const outro = hasOutro ? ` · Ending ${formatTimingClock(ep.outro_start)}` : '';
-    const sourceLabel = hasIntro ? (INTRO_SOURCE_LABELS[source] || '') : '';
+    const outroSourceLabel = hasOutro ? (TIMING_SOURCE_LABELS[ep.outro_source || source] || '') : '';
+    const scene = hasOutroEnd && Number(ep.duration) - Number(ep.outro_end) >= 30 ? ', escena después' : '';
+    const outro = hasOutro
+      ? ` · Ending ${formatTimingClock(ep.outro_start)}${hasOutroEnd ? ` – ${formatTimingClock(ep.outro_end)}` : ''}${outroSourceLabel || scene ? ` (${outroSourceLabel}${scene})` : ''}`
+      : '';
+    const sourceLabel = hasIntro ? (TIMING_SOURCE_LABELS[source] || '') : '';
     const epLabel = `S${ep.season_number ?? 1}E${ep.episode_number ?? 1}: ${ep.title || 'Episodio ' + (ep.episode_number ?? 1)}`;
 
     return `

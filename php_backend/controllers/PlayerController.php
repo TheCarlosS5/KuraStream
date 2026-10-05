@@ -196,7 +196,7 @@ class PlayerController {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
-        $success = DbHelper::saveEpisodeTimestamps($id, $data);
+        $success = DbHelper::saveEpisodeTimestamps($id, DbHelper::manualTimings($data));
         if (!$success) {
             jsonError('Episodio no encontrado', 404);
         }

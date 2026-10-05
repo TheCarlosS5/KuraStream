@@ -457,7 +457,7 @@ class AdminController {
             jsonError('episode_id requerido', 400);
         }
 
-        DbHelper::saveEpisodeTimestamps($episodeId, $data);
+        DbHelper::saveEpisodeTimestamps($episodeId, DbHelper::manualTimings($data));
         jsonResponse(['success' => true]);
     }
 
@@ -1506,7 +1506,8 @@ class AdminController {
                         'intro_start' => $introStart,
                         'intro_end' => $introEnd,
                         'outro_start' => $outroStart,
-                        'intro_source' => 'manual'
+                        'intro_source' => 'manual',
+                        'outro_source' => 'manual'
                     ]);
                     $appliedCount++;
                 }
@@ -1520,7 +1521,8 @@ class AdminController {
                 'intro_start' => $introStart,
                 'intro_end' => $introEnd,
                 'outro_start' => $outroStart,
-                'intro_source' => 'manual'
+                'intro_source' => 'manual',
+                'outro_source' => 'manual'
             ]);
             $appliedCount = 1;
 
@@ -1532,7 +1534,8 @@ class AdminController {
                             'intro_start' => $introStart,
                             'intro_end' => $introEnd,
                             'outro_start' => $outroStart,
-                            'intro_source' => 'manual'
+                            'intro_source' => 'manual',
+                            'outro_source' => 'manual'
                         ]);
                         $appliedCount++;
                     }

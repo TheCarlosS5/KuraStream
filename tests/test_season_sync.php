@@ -76,15 +76,31 @@ assert(IntroSync::needsLookup(['intro_source' => 'aniskip', 'intro_start' => 70]
 assert(IntroSync::needsLookup(['intro_source' => 'aniskip_none', 'intro_start' => null, 'intro_checked_at' => date('Y-m-d H:i:s', time() - 86400)]) === false, 'A miss is retried later, not every scan');
 assert(IntroSync::needsLookup(['intro_source' => 'aniskip_none', 'intro_start' => null, 'intro_checked_at' => date('Y-m-d H:i:s', time() - 8 * 86400)]) === true, 'A miss is retried after a week');
 
-$t = IntroSync::timingsFromSkip(['duration' => 1422.0, 'intro_source' => null, 'outro_start' => null], ['op' => [70.4, 155.2], 'ed' => [1326.778, 1416.778]]);
-assert($t === ['intro_start' => 70, 'intro_end' => 155, 'outro_start' => 1326, 'outro_end' => 1417, 'intro_source' => 'aniskip'], 'Opening and ending stored');
-$t = IntroSync::timingsFromSkip(['duration' => 1420.0, 'intro_source' => 'aniskip_none', 'outro_start' => 4], ['op' => [0.0, 11.0], 'ed' => [5.0, 95.0]]);
-assert($t['outro_start'] === null && $t['outro_end'] === null, 'An ending in the first half is rejected and the bad one cleared');
-$t = IntroSync::timingsFromSkip(['duration' => 1422.0, 'intro_source' => null, 'outro_start' => null], ['op' => null, 'ed' => [1118.0, 1200.0]]);
-assert($t['outro_start'] === 1118 && $t['outro_end'] === 1200, 'Credits followed by a scene keep their end');
-$t = IntroSync::timingsFromSkip(['duration' => 1422.0, 'intro_source' => null, 'outro_start' => 1300], ['op' => null, 'ed' => [1326.0, 1416.0]]);
-assert($t === ['intro_source' => 'aniskip_none'], 'An outro set by hand is kept; no opening means a miss');
-$t = IntroSync::timingsFromSkip(['duration' => 1422.0, 'intro_source' => 'aniskip', 'intro_start' => 70, 'outro_start' => 1326], ['op' => null, 'ed' => null]);
+$t = IntroSync::timingsFromSkip(['duration' => 1422.0, 'intro_source' => null], ['op' => [70.4, 155.2], 'ed' => [1326.778, 1416.778]]);
+assert($t === ['intro_start' => 70, 'intro_end' => 155, 'intro_source' => 'aniskip'], 'Opening stored (the ending is separate)');
+$t = IntroSync::timingsFromSkip(['duration' => 1422.0, 'intro_source' => 'aniskip', 'intro_start' => 70], ['op' => null, 'ed' => null]);
 assert($t['intro_start'] === null && $t['intro_source'] === 'aniskip_none', 'A forced re-check clears an opening AniSkip no longer has');
+
+// Ending credits: own source, so an audio-corrected opening does not block them.
+$t = IntroSync::outroTimingsFromSkip(['duration' => 1422.0, 'intro_source' => null, 'outro_source' => null], ['op' => null, 'ed' => [1326.778, 1416.778]]);
+assert($t === ['outro_start' => 1326, 'outro_end' => 1417, 'outro_source' => 'aniskip'], 'Ending stored with its end');
+$t = IntroSync::outroTimingsFromSkip(['duration' => 1422.0, 'outro_source' => null], ['op' => null, 'ed' => [1118.0, 1200.0]]);
+assert($t['outro_start'] === 1118 && $t['outro_end'] === 1200, 'Credits followed by a scene keep their end');
+$t = IntroSync::outroTimingsFromSkip(['duration' => 1420.0, 'intro_source' => 'aniskip_none', 'outro_source' => null, 'outro_start' => 4], ['op' => [0.0, 11.0], 'ed' => [5.0, 95.0]]);
+assert($t === ['outro_source' => 'aniskip_none', 'outro_start' => null, 'outro_end' => null], 'An ending in the first half is rejected and the bad one cleared');
+$t = IntroSync::outroTimingsFromSkip(['duration' => 1420.0, 'intro_source' => 'audio', 'outro_source' => null, 'outro_start' => 1300], ['op' => null, 'ed' => null]);
+assert($t['outro_start'] === null, 'An ending stored by an earlier sync goes when AniSkip drops it');
+
+assert(IntroSync::needsOutroLookup(['intro_source' => 'audio', 'intro_start' => 40, 'outro_source' => null, 'outro_start' => 1300]) === true, 'Audio-corrected openings still get their ending');
+assert(IntroSync::needsOutroLookup(['intro_source' => 'aniskip_checked', 'intro_start' => 40, 'outro_source' => null]) === true, 'Checked openings still get their ending');
+assert(IntroSync::needsOutroLookup(['intro_source' => null, 'intro_start' => 80, 'outro_source' => null, 'outro_start' => 1300], true) === false, 'Hand timings from before sources existed are kept');
+assert(IntroSync::needsOutroLookup(['intro_source' => 'manual', 'intro_start' => 80, 'outro_source' => null, 'outro_start' => 1300], true) === false, 'An admin ending is kept');
+assert(IntroSync::needsOutroLookup(['intro_source' => 'manual', 'intro_start' => 80, 'outro_source' => null, 'outro_start' => null]) === true, 'An admin opening alone does not block the ending');
+assert(IntroSync::needsOutroLookup(['outro_source' => 'chapters'], true) === false, 'Chapter endings are kept');
+assert(IntroSync::needsOutroLookup(['outro_source' => 'audio'], true) === false, 'Audio endings are kept even with --force');
+assert(IntroSync::needsOutroLookup(['outro_source' => 'aniskip']) === false, 'An ending is asked once');
+assert(IntroSync::needsOutroLookup(['outro_source' => 'aniskip'], true) === true, 'Force asks again');
+assert(IntroSync::needsOutroLookup(['outro_source' => 'aniskip_none', 'outro_checked_at' => date('Y-m-d H:i:s', time() - 86400)]) === false, 'A missing ending waits');
+assert(IntroSync::needsOutroLookup(['outro_source' => 'aniskip_none', 'outro_checked_at' => date('Y-m-d H:i:s', time() - 8 * 86400)]) === true, 'A missing ending is retried after a week');
 
 echo "✓ Season sync tests passed\n";

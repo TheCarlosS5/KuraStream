@@ -4,6 +4,7 @@ require_once __DIR__ . '/../php_backend/config.php';
 require_once __DIR__ . '/../php_backend/services/AudioIntroDetector.php';
 require_once __DIR__ . '/../php_backend/services/AudioIntroSync.php';
 require_once __DIR__ . '/../php_backend/services/IntroSync.php';
+require_once __DIR__ . '/../php_backend/services/AudioOutroSync.php';
 
 echo "Running audio opening detection Tests...\n";
 
@@ -55,5 +56,14 @@ assert(IntroSync::needsLookup(['intro_source' => 'audio', 'intro_start' => 40], 
 assert(IntroSync::needsLookup(['intro_source' => 'aniskip_checked', 'intro_start' => 40]) === false, 'Checked AniSkip openings are done');
 assert(IntroSync::needsLookup(['intro_source' => 'none', 'intro_start' => null, 'intro_checked_at' => date('Y-m-d H:i:s', time() - 86400)]) === false, 'A recent miss waits');
 assert(IntroSync::needsLookup(['intro_source' => 'none', 'intro_start' => null, 'intro_checked_at' => date('Y-m-d H:i:s', time() - 8 * 86400)]) === true, 'An old miss is retried');
+
+// Ending credits by audio: what is looked for and where.
+assert(AudioOutroSync::wantsAudio(['outro_source' => 'aniskip_none', 'outro_start' => null, 'outro_end' => null]) === true, 'An ending AniSkip lacks is looked for');
+assert(AudioOutroSync::wantsAudio(['outro_source' => 'aniskip', 'outro_start' => 1300, 'outro_end' => 1390]) === false, 'A known ending is only checked');
+assert(AudioOutroSync::wantsAudio(['outro_source' => 'manual', 'outro_start' => null, 'outro_end' => null]) === false, 'An admin decision is kept');
+assert(AudioOutroSync::wantsAudio(['outro_source' => 'none', 'outro_checked_at' => date('Y-m-d H:i:s', time() - 86400)]) === false, 'A recent miss waits');
+assert(AudioOutroSync::wantsAudio(['outro_source' => 'none', 'outro_checked_at' => date('Y-m-d H:i:s', time() - 8 * 86400)]) === true, 'An old miss is retried');
+assert(AudioOutroSync::tailStart(1420.0) === 940.0, 'The last 8 minutes of a regular episode are analysed');
+assert(AudioOutroSync::tailStart(600.0) === 300.0, 'Short episodes: only the second half');
 
 echo "✓ Audio opening detection tests passed\n";

@@ -410,6 +410,17 @@ class DbHelper {
         return $ep;
     }
 
+    /**
+     * Timings typed by an admin: only the timing fields, marked 'manual' so neither the AniSkip
+     * sync nor the audio pass replaces them.
+     */
+    public static function manualTimings(array $data): array {
+        $out = array_intersect_key($data, array_flip(['intro_start', 'intro_end', 'outro_start', 'outro_end', 'chapters']));
+        if (array_key_exists('intro_start', $out) || array_key_exists('intro_end', $out)) $out['intro_source'] = 'manual';
+        if (array_key_exists('outro_start', $out) || array_key_exists('outro_end', $out)) $out['outro_source'] = 'manual';
+        return $out;
+    }
+
     public static function saveEpisodeTimestamps(string $id, array $data): bool {
         $db = Database::getConnection();
         $ep = self::getEpisode($id);
@@ -434,6 +445,10 @@ class DbHelper {
         if (array_key_exists('intro_source', $data)) {
             $sourceSql = ', intro_source = :intro_source, intro_checked_at = CURRENT_TIMESTAMP';
             $params['intro_source'] = $data['intro_source'];
+        }
+        if (array_key_exists('outro_source', $data)) {
+            $sourceSql .= ', outro_source = :outro_source, outro_checked_at = CURRENT_TIMESTAMP';
+            $params['outro_source'] = $data['outro_source'];
         }
         if (array_key_exists('outro_end', $data)) {
             $sourceSql .= ', outro_end = :outro_end';
@@ -592,6 +607,7 @@ class DbHelper {
             'outro_end' => isset($ep['outro_end']) && $ep['outro_end'] !== null ? (float)$ep['outro_end'] : null,
             // Where the timings came from (aniskip, audio, chapters...); shown in the admin editor.
             'intro_source' => $ep['intro_source'] ?? null,
+            'outro_source' => $ep['outro_source'] ?? null,
             'chapters' => $chapters ?: [],
             'created_at' => $ep['created_at'] ?? null,
             'stream_url' => "/api/stream/" . urlencode($ep['id']),

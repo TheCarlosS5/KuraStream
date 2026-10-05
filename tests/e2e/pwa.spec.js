@@ -73,7 +73,7 @@ test.describe('KuraStream PWA and Service Worker Suite', () => {
       if (!('caches' in window)) return { skipped: true };
 
       const oldCacheName = 'kurastream-2026.09.25-modern-platform';
-      const currentCacheName = 'kurastream-2026.10.04-credits';
+      const currentCacheName = 'kurastream-2026.10.04-outros';
 
       // Seed an old stale cache
       const oldCache = await caches.open(oldCacheName);

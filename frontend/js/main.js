@@ -6,7 +6,7 @@
 import { AuthManager } from './core/auth.js';
 import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
-import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.04-credits';
+import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.04-outros';
 import { partyManager } from './modules/party.js';
 import { updateActiveNavHighlight, initHeaderDropdowns, initAdminSidebar, stopAdminPolling } from './modules/navigation.js';
 import { initCardPopovers } from './modules/card_popover_preview.js';
