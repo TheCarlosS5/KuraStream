@@ -170,7 +170,7 @@ jobs:
           node scripts/capture_screenshots.mjs final
 
       - name: Upload UI Audit Screenshots Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: kurastream-ui-screenshots
@@ -305,7 +305,7 @@ jobs:
 
       - name: Upload release APK and metadata
         if: steps.signing.outputs.enabled == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kurastream-android-release
           path: |
