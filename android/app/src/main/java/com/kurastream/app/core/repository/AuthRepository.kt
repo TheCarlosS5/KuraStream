@@ -4,6 +4,7 @@ import com.kurastream.app.core.network.toUserFacingError
 import com.kurastream.app.core.model.Profile
 import com.kurastream.app.core.model.User
 import com.kurastream.app.core.network.KuraApiService
+import com.kurastream.app.core.network.dto.DeleteProfileRequestDto
 import com.kurastream.app.core.network.dto.LoginRequestDto
 import com.kurastream.app.core.network.dto.ProfileDto
 import com.kurastream.app.core.network.dto.RegisterRequestDto
@@ -96,14 +97,31 @@ class AuthRepository(
         }
     }
 
-    suspend fun saveProfile(name: String, color: String, isKids: Boolean, pin: String? = null): Result<Unit> {
+    /**
+     * Creates a profile (id == null) or edits one. [currentPin] is required by the server when the profile already
+     * has a PIN; [removePin] clears it. [avatar] must be the profile's existing photo path so editing does not wipe it.
+     */
+    suspend fun saveProfile(
+        name: String,
+        color: String,
+        isKids: Boolean,
+        pin: String? = null,
+        id: String? = null,
+        avatar: String? = null,
+        currentPin: String? = null,
+        removePin: Boolean = false
+    ): Result<Unit> {
         return try {
             val response = apiService.saveProfile(
                 SaveProfileRequestDto(
+                    id = id,
                     name = name,
                     color = color,
                     isKids = isKids,
-                    pin = pin
+                    pin = pin?.takeIf { it.isNotBlank() },
+                    avatar = avatar,
+                    currentPin = currentPin?.takeIf { it.isNotBlank() },
+                    removePin = removePin
                 )
             )
             if (response.success) {
@@ -111,6 +129,15 @@ class AuthRepository(
             } else {
                 Result.failure(Exception(response.error ?: "No fue posible guardar el perfil"))
             }
+        } catch (e: Exception) {
+            Result.failure(e.toUserFacingError())
+        }
+    }
+
+    suspend fun deleteProfile(id: String, pin: String? = null): Result<Unit> {
+        return try {
+            val response = apiService.deleteProfileWithPin(DeleteProfileRequestDto(id = id, pin = pin?.takeIf { it.isNotBlank() }))
+            if (response.success) Result.success(Unit) else Result.failure(Exception(response.error ?: "No fue posible eliminar el perfil"))
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }

@@ -14,13 +14,33 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** The profile being created (profile == null) or edited. */
+data class ProfileEditorState(
+    val profile: Profile? = null,
+    val name: String = "",
+    val color: String = PROFILE_COLORS.first(),
+    val isKids: Boolean = false,
+    val newPin: String = "",
+    val currentPin: String = "",
+    val removePin: Boolean = false,
+    val confirmDelete: Boolean = false,
+    val isSaving: Boolean = false,
+    val error: String? = null
+) {
+    val isNew: Boolean get() = profile == null
+}
+
+val PROFILE_COLORS = listOf("#818CF8", "#A855F7", "#EC4899", "#EF4444", "#F97316", "#EAB308", "#22C55E", "#06B6D4")
+
 data class ProfileUiState(
     val state: UiState<List<Profile>> = UiState.Loading,
     val selectedProfilePendingPin: Profile? = null,
     val pinInput: String = "",
     val pinError: String? = null,
     val isSelecting: Boolean = false,
-    val mediaBaseUrl: String = ""
+    val mediaBaseUrl: String = "",
+    val manageMode: Boolean = false,
+    val editor: ProfileEditorState? = null
 )
 
 @HiltViewModel
@@ -61,6 +81,10 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun onProfileClicked(profile: Profile, onSelected: (Profile) -> Unit) {
+        if (_uiState.value.manageMode) {
+            startEditProfile(profile)
+            return
+        }
         if (profile.hasPin) {
             _uiState.value = _uiState.value.copy(
                 selectedProfilePendingPin = profile,
@@ -105,6 +129,101 @@ class ProfileViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     isSelecting = false,
                     pinError = result.exceptionOrNull()?.message ?: "PIN incorrecto"
+                )
+            }
+        }
+    }
+
+    fun toggleManageMode() {
+        _uiState.value = _uiState.value.copy(manageMode = !_uiState.value.manageMode, editor = null)
+    }
+
+    fun startCreateProfile() {
+        _uiState.value = _uiState.value.copy(editor = ProfileEditorState())
+    }
+
+    fun startEditProfile(profile: Profile) {
+        _uiState.value = _uiState.value.copy(
+            editor = ProfileEditorState(
+                profile = profile,
+                name = profile.name,
+                color = profile.color.takeIf { c -> PROFILE_COLORS.any { it.equals(c, ignoreCase = true) } } ?: profile.color,
+                isKids = profile.isKids
+            )
+        )
+    }
+
+    fun updateEditor(change: (ProfileEditorState) -> ProfileEditorState) {
+        val current = _uiState.value.editor ?: return
+        _uiState.value = _uiState.value.copy(editor = change(current).copy(error = null))
+    }
+
+    fun dismissEditor() {
+        _uiState.value = _uiState.value.copy(editor = null)
+    }
+
+    /** PINs are 4 to 6 digits on the server; say so here instead of after a round trip. */
+    private fun isValidPin(pin: String) = pin.length in 4..6 && pin.all { it.isDigit() }
+
+    fun saveEditor() {
+        val editor = _uiState.value.editor ?: return
+        val name = editor.name.trim()
+        if (name.isEmpty()) {
+            updateEditor { it.copy(error = "Escribe un nombre para el perfil") }
+            return
+        }
+        if (editor.newPin.isNotEmpty() && !isValidPin(editor.newPin)) {
+            updateEditor { it.copy(error = "El PIN debe tener entre 4 y 6 dígitos") }
+            return
+        }
+        val existing = editor.profile
+        if (existing != null && existing.hasPin && editor.currentPin.isBlank()) {
+            updateEditor { it.copy(error = "Escribe el PIN actual para modificar este perfil") }
+            return
+        }
+        _uiState.value = _uiState.value.copy(editor = editor.copy(isSaving = true, error = null))
+        viewModelScope.launch {
+            val result = authRepository.saveProfile(
+                name = name,
+                color = editor.color,
+                isKids = editor.isKids,
+                pin = editor.newPin,
+                id = existing?.id,
+                avatar = existing?.avatar,
+                currentPin = editor.currentPin,
+                removePin = editor.removePin && editor.newPin.isEmpty()
+            )
+            if (result.isSuccess) {
+                _uiState.value = _uiState.value.copy(editor = null)
+                loadProfiles()
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    editor = editor.copy(isSaving = false, error = result.exceptionOrNull()?.message ?: "No se pudo guardar")
+                )
+            }
+        }
+    }
+
+    fun deleteEditorProfile() {
+        val editor = _uiState.value.editor ?: return
+        val profile = editor.profile ?: return
+        if (!editor.confirmDelete) {
+            updateEditor { it.copy(confirmDelete = true) }
+            return
+        }
+        if (profile.hasPin && editor.currentPin.isBlank()) {
+            updateEditor { it.copy(error = "Escribe el PIN actual para eliminar este perfil") }
+            return
+        }
+        _uiState.value = _uiState.value.copy(editor = editor.copy(isSaving = true, error = null))
+        viewModelScope.launch {
+            val result = authRepository.deleteProfile(profile.id, editor.currentPin)
+            if (result.isSuccess) {
+                _uiState.value = _uiState.value.copy(editor = null)
+                loadProfiles()
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    editor = editor.copy(isSaving = false, error = result.exceptionOrNull()?.message ?: "No se pudo eliminar")
                 )
             }
         }

@@ -88,6 +88,16 @@ data class SaveProfileRequestDto(
     val name: String,
     val color: String = "#818CF8",
     @SerialName("is_kids") val isKids: Boolean = false,
+    val pin: String? = null,
+    /** The server replaces the avatar with whatever arrives, so an edit must send the current one back. */
+    val avatar: String? = null,
+    @SerialName("current_pin") val currentPin: String? = null,
+    @SerialName("remove_pin") val removePin: Boolean = false
+)
+
+@Serializable
+data class DeleteProfileRequestDto(
+    val id: String,
     val pin: String? = null
 )
 

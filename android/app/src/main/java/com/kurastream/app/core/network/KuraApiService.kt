@@ -41,6 +41,10 @@ interface KuraApiService {
     @DELETE("api/profiles/{id}")
     suspend fun deleteProfile(@Path("id") id: String): BaseResponseDto
 
+    /** Same as DELETE, but able to carry the profile's PIN when it has one. */
+    @POST("api/profiles/delete")
+    suspend fun deleteProfileWithPin(@Body body: DeleteProfileRequestDto): BaseResponseDto
+
     // Catalog & Shows
     @GET("api/shows")
     suspend fun getShows(
