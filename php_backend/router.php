@@ -126,6 +126,8 @@ if ($uri === '/api/login' && $method === 'POST') {
 
 if ($uri === '/api/register' && $method === 'POST') {
     RateLimiter::enforce('auth', 10, 300);
+    // Per address; behind a reverse proxy set TRUSTED_PROXIES or every user shares one bucket.
+    RateLimiter::enforce('register', max(1, (int)(getenv('REGISTER_MAX_PER_HOUR') ?: 5)), 3600);
     AuthController::register();
 }
 

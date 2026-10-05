@@ -31,6 +31,8 @@ export default defineConfig({
     stdout: 'pipe',
     stderr: 'pipe',
     env: {
+      // The suites create several accounts per run from the same address.
+      REGISTER_MAX_PER_HOUR: '1000',
       JWT_SECRET: process.env.JWT_SECRET || 'ephemeral_e2e_jwt_secret_32bytes_min_length!',
       DB_HOST: process.env.DB_HOST || '127.0.0.1',
       DB_PORT: process.env.DB_PORT || '3306',

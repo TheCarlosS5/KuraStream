@@ -142,6 +142,8 @@ graph TD
 | `ADMIN_PASS` | Administrative password (plaintext, local development). Placeholders such as `change_me` or `admin` are rejected | None |
 | `ADMIN_PASS_HASH` | Administrative password hash (bcrypt, production) | None |
 | `JWT_SECRET` | Secret key for signing authentication tokens. At least 32 characters (`openssl rand -hex 32`); weak or placeholder values stop the server from starting | Required |
+| `REGISTRATION_MODE` | `open` (default) lets anyone who can reach the server create an account; any other value closes sign-up | `open` |
+| `REGISTER_MAX_PER_HOUR` | New accounts allowed per IP address per hour | `5` |
 | `MEDIA_LIBRARY_PATH` | Absolute path to media storage directory | `./library` |
 | `TMDB_API_KEY` | Optional TMDB v3 API Key for metadata scraping | None |
 | `TMDB_READ_TOKEN` | Optional TMDB v4 API Read Access Token for metadata scraping | None |

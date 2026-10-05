@@ -116,6 +116,13 @@ class AuthController {
     }
 
     public static function register(?array $inputData = null): void {
+        // REGISTRATION_MODE: unset/"open" keeps sign-up public; any other value closes it (a typo must not
+        // silently leave the door open on a server meant to be private).
+        $registrationMode = strtolower(trim((string)getenv('REGISTRATION_MODE')));
+        if ($registrationMode !== '' && $registrationMode !== 'open') {
+            jsonError('El registro de cuentas está deshabilitado en este servidor. Pide al administrador que cree tu cuenta.', 403);
+        }
+
         $data = $inputData !== null ? $inputData : Input::json();
 
         $username = Input::string($data, 'username', 255);
@@ -125,12 +132,21 @@ class AuthController {
             jsonError('Usuario y contraseña requeridos', 400);
         }
 
-        if (strlen($username) < 3 || strlen($username) > 64) {
-            jsonError('El nombre de usuario debe tener entre 3 y 64 caracteres', 400);
+        // Plain, unambiguous names: no spaces, control characters or look-alike Unicode in anything that is
+        // later shown next to comments and in watch-party chat.
+        if (!preg_match('/^[A-Za-z0-9_.-]{3,32}$/', $username)) {
+            jsonError('El nombre de usuario debe tener entre 3 y 32 caracteres: letras, números, punto, guion y guion bajo', 400);
         }
 
-        if (strlen($password) < 8 || strlen($password) > 128) {
-            jsonError('La contraseña debe tener entre 8 y 128 caracteres', 400);
+        // bcrypt only uses the first 72 bytes; accepting more would give a false sense of strength.
+        if (strlen($password) < 8 || strlen($password) > 72) {
+            jsonError('La contraseña debe tener entre 8 y 72 caracteres', 400);
+        }
+
+        // The environment administrator's name is reserved (its login is checked before any database account).
+        $reservedAdmin = (string)getenv('ADMIN_USER');
+        if ($reservedAdmin !== '' && strcasecmp($username, $reservedAdmin) === 0) {
+            jsonError('El nombre de usuario ya está registrado', 409);
         }
 
         $user = DbHelper::registerUser($username, $password, 'user');
