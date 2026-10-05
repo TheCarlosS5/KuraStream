@@ -39,6 +39,11 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      # The E2E specs and test_real_media_pipeline generate their media fixtures with ffmpeg, which the
+      # ubuntu-latest image does not ship.
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Install npm dependencies
         run: npm ci || npm install
 
