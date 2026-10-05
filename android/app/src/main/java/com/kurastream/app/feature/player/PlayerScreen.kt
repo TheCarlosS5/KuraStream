@@ -79,6 +79,7 @@ import androidx.media3.ui.PlayerView
 import com.kurastream.app.R
 import com.kurastream.app.core.designsystem.component.*
 import com.kurastream.app.core.designsystem.theme.*
+import com.kurastream.app.core.player.PipController
 import com.kurastream.app.core.player.VideoFitMode
 import com.kurastream.app.core.player.PlayerOrientationManager
 import com.kurastream.app.core.player.TrackLabel
@@ -247,13 +248,32 @@ fun PlayerScreen(
     }
     LaunchedEffect(state.isPlaying) {
         val activity = context as? Activity
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity != null && activity.supportsPictureInPicture()) {
-            activity.setPictureInPictureParams(
-                PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .setAutoEnterEnabled(state.isPlaying)
-                    .build()
-            )
+        PipController.armed = state.isPlaying
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null && activity.supportsPictureInPicture()) {
+            // Updates the window's buttons too (the play/pause icon follows the state)
+            activity.setPictureInPictureParams(PipController.buildParams(activity, state.isPlaying, state.isPlaying))
+        }
+    }
+    DisposableEffect(Unit) {
+        // Buttons of the PiP window arrive as broadcasts
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: android.content.Intent?) {
+                when (intent?.action) {
+                    PipController.ACTION_BACK -> viewModel.seekRelative(-10f)
+                    PipController.ACTION_FORWARD -> viewModel.seekRelative(10f)
+                    PipController.ACTION_TOGGLE -> viewModel.togglePlayPause()
+                }
+            }
+        }
+        val filter = android.content.IntentFilter().apply {
+            addAction(PipController.ACTION_BACK)
+            addAction(PipController.ACTION_TOGGLE)
+            addAction(PipController.ACTION_FORWARD)
+        }
+        androidx.core.content.ContextCompat.registerReceiver(context, receiver, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose {
+            PipController.armed = false
+            try { context.unregisterReceiver(receiver) } catch (_: IllegalArgumentException) {}
         }
     }
 
@@ -519,9 +539,7 @@ fun PlayerScreen(
                     IconButton(onClick = {
                         val act = context as? Activity
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && act != null && act.supportsPictureInPicture()) {
-                            act.enterPictureInPictureMode(
-                                PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
-                            )
+                            act.enterPictureInPictureMode(PipController.buildParams(act, state.isPlaying, false))
                         }
                     }) {
                         Icon(
