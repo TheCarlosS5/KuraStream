@@ -45,6 +45,14 @@ class PlayerViewModel @Inject constructor(
     private val _navigationEvents = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val navigationEvents: SharedFlow<String> = _navigationEvents.asSharedFlow()
 
+    /** Short notices for the player HUD (e.g. an action the Watch Party does not allow). */
+    private val _hudMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val hudMessages: SharedFlow<String> = _hudMessages.asSharedFlow()
+
+    /** Last room state from the host, used to tell a real end of episode from a stale jump. */
+    private var lastPartySync: PartySyncEvent? = null
+    private var partyChatOpen = false
+
     private var player: Player? = null
     private var progressTrackingJob: Job? = null
     private var autoHideControlsJob: Job? = null
@@ -57,6 +65,24 @@ class PlayerViewModel @Inject constructor(
     private var hasAppliedCodecFallback = false
     private var lastSavedProgress = 0f
     private var speedBeforeTemporary2x: Float? = null
+
+    /** Whether the media item currently loaded is a byte-range direct play (seekable in place). */
+    private var currentStreamIsDirect = true
+    private var introAutoSkipped = false
+    private var creditsAutoSkipped = false
+    private var lastPartySeekAtMs = 0L
+    private var lastHostHeartbeatAtMs = 0L
+    private var isCleared = false
+
+    /** Remux seeks are coalesced: every one restarts ffmpeg on the server. */
+    private var pendingSeekJob: Job? = null
+    private var pendingSeekTarget: Float? = null
+
+    /** "Up next" card: shown with the credits (or the last 20 s); dismissed by "Ver créditos". */
+    private var upNextDismissed = false
+
+    /** Live player handle for the UI; null until the MediaController connects. */
+    val playerFlow: StateFlow<Player?> = playbackConnectionManager.player
 
     val doubleTapSeekSeconds: Int
         get() = userPreferences.doubleTapSeekSeconds
@@ -75,6 +101,7 @@ class PlayerViewModel @Inject constructor(
                         val playerDur = player?.duration ?: 0L
                         (playerDur / 1000f).coerceAtLeast(0f)
                     }
+                    hasRetried503 = false
                     _playerState.update {
                         it.copy(isBuffering = false, durationSeconds = duration)
                     }
@@ -106,9 +133,16 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             userPreferences = preferencesDataSource.preferencesFlow.first()
             baseUrl = userPreferences.activeServerUrl ?: ""
-            _playerState.update { it.copy(doubleTapSeekSeconds = userPreferences.doubleTapSeekSeconds) }
+            _playerState.update {
+                it.copy(
+                    doubleTapSeekSeconds = userPreferences.doubleTapSeekSeconds,
+                    subtitleScale = userPreferences.subtitleScale
+                )
+            }
 
             playbackConnectionManager.getPlayer { p ->
+                // The controller connects asynchronously; the screen may already be gone.
+                if (isCleared) return@getPlayer
                 player = p
                 p.addListener(playerListener)
                 viewModelScope.launch {
@@ -120,10 +154,19 @@ class PlayerViewModel @Inject constructor(
         // Track active Watch Party session
         viewModelScope.launch {
             watchPartyRepository.activeSession.collect { session ->
+                if (session != null && _playerState.value.playbackSpeed != 1f) {
+                    // Everyone in a room plays at 1x (same rule as the web); otherwise guests drift.
+                    speedBeforeTemporary2x = null
+                    setPlaybackSpeed(1f)
+                }
                 _playerState.update {
                     it.copy(
                         isWatchPartyActive = session != null,
-                        watchPartyRoomId = session?.roomId
+                        watchPartyRoomId = session?.roomId,
+                        isPartyHost = session?.isHost == true,
+                        canControlPlayback = session == null || session.isHost || session.room?.allowGuestControls == true,
+                        partyMessages = if (session == null) emptyList() else it.partyMessages,
+                        partyUnreadCount = if (session == null) 0 else it.partyUnreadCount
                     )
                 }
             }
@@ -134,9 +177,15 @@ class PlayerViewModel @Inject constructor(
             watchPartyRepository.realtimeEvents.collect { event ->
                 when (event) {
                     is PartyRealtimeEvent.Sync -> {
+                        lastPartySync = event.sync
                         handlePartySync(event.sync)
                     }
+                    is PartyRealtimeEvent.MessagesBatch -> appendPartyMessages(event.messages)
+                    is PartyRealtimeEvent.Message -> appendPartyMessages(listOf(event.message))
                     is PartyRealtimeEvent.RoomClosed -> {
+                        partyPlaybackContext.clear()
+                        watchPartyRepository.stopListening()
+                        watchPartyRepository.setActiveSession(null)
                         _playerState.update {
                             it.copy(
                                 isWatchPartyActive = false,
@@ -172,18 +221,20 @@ class PlayerViewModel @Inject constructor(
         val showResult = if (ep.showId.isNotBlank()) catalogRepository.getShowDetails(ep.showId) else null
         val show = showResult?.getOrNull()?.show
 
-        // Determine next episode strictly by seasonNumber then episodeNumber
-        val nextEp = showResult?.getOrNull()?.episodes?.let { allEps ->
-            val sorted = allEps.sortedWith(compareBy({ it.seasonNumber }, { it.episodeNumber }))
-            val idx = sorted.indexOfFirst { it.id == episodeId }
-            if (idx >= 0 && idx + 1 < sorted.size) sorted[idx + 1] else null
-        }
+        // Regular seasons in order, specials after them (and never auto-advancing across).
+        val sortedEpisodes = EpisodeOrder.ordered(showResult?.getOrNull()?.episodes.orEmpty())
+        val nextEp = EpisodeOrder.next(sortedEpisodes, episodeId)
 
-        // Check user preferences for initial audio/subtitle tracks
+        // Initial tracks: preferred audio language; subtitles only when the audio is not already in
+        // the viewer's language (a Spanish dub starts without Spanish subtitles).
         val preferredAudioIdx = StreamResolver.findBestAudioTrack(ep.audioTracks, userPreferences.preferredAudioLanguage)
-        val preferredSubIdx = ep.subtitleTracks.indexOfFirst {
-            StreamResolver.normalizeLanguageCode(it.language) == StreamResolver.normalizeLanguageCode(userPreferences.preferredSubtitleLanguage)
-        }
+        val audioLanguage = ep.audioTracks.getOrNull(preferredAudioIdx)
+            ?.let { StreamResolver.trackLanguage(it.language, it.title) } ?: "und"
+        val preferredSubIdx = StreamResolver.chooseSubtitleTrack(
+            ep.subtitleTracks,
+            userPreferences.preferredSubtitleLanguage,
+            audioLanguage
+        )
 
         _playerState.update {
             it.copy(
@@ -195,20 +246,67 @@ class PlayerViewModel @Inject constructor(
                 availableAudioTracks = ep.audioTracks,
                 availableSubtitleTracks = ep.subtitleTracks,
                 chapters = ep.chapters,
-                nextEpisode = nextEp
+                nextEpisode = nextEp,
+                showEpisodes = sortedEpisodes,
+                mediaBaseUrl = baseUrl
             )
         }
 
-        // Fetch user resume progress
-        val progressRes = historyRepository.getCachedHistory(
-            serverId = userPreferences.activeServerId ?: "",
-            username = userPreferences.activeUsername ?: "",
-            profileId = userPreferences.activeProfileId ?: ""
-        ).firstOrNull()?.firstOrNull { it.episodeId == episodeId }
-
-        val resumeSeconds = progressRes?.progressSeconds ?: 0f
+        // Resume point: the server is the source of truth (the local cache is empty on a fresh install
+        // and stale after watching on another device). Finished episodes restart from the beginning.
+        val serverProgress = historyRepository.getProgress(episodeId)
+        val resumeSeconds = if (serverProgress != null) {
+            if (serverProgress.completed) 0f else serverProgress.progressSeconds
+        } else {
+            val cached = historyRepository.getCachedHistory(
+                serverId = userPreferences.activeServerId ?: "",
+                username = userPreferences.activeUsername ?: "",
+                profileId = userPreferences.activeProfileId ?: ""
+            ).firstOrNull()?.firstOrNull { it.episodeId == episodeId }
+            if (cached == null || cached.completed) 0f else cached.progressSeconds
+        }
 
         setupPlayerInstance(ep, resumeSeconds, preferredAudioIdx, preferredSubIdx, initialPlayWhenReady = true)
+        // Offer "start over" only for a meaningful resume point, and never inside a Watch Party
+        // (the room decides the position there).
+        if (resumeSeconds >= RESUME_NOTICE_MIN_SECONDS && watchPartyRepository.activeSession.value == null) {
+            _playerState.update { it.copy(resumedFromSeconds = resumeSeconds) }
+        }
+    }
+
+    /** Remembered across episodes and sessions; 0 restores the subtitle file's own sizes. */
+    fun setSubtitleScale(scale: Float) {
+        _playerState.update { it.copy(subtitleScale = scale) }
+        viewModelScope.launch { preferencesDataSource.setSubtitleScale(scale) }
+    }
+
+    fun restartFromBeginning() {
+        _playerState.update { it.copy(resumedFromSeconds = null) }
+        introAutoSkipped = false
+        creditsAutoSkipped = false
+        seekToAbsolute(0f)
+    }
+
+    fun dismissResumeNotice() {
+        _playerState.update { it.copy(resumedFromSeconds = null) }
+    }
+
+    /** Loads this show's watch progress for the episode panel. */
+    fun loadEpisodeProgress() {
+        val showId = _playerState.value.episode?.showId?.takeIf { it.isNotBlank() } ?: return
+        viewModelScope.launch {
+            val history = historyRepository.refreshHistory(
+                serverId = userPreferences.activeServerId ?: "",
+                username = userPreferences.activeUsername ?: "",
+                profileId = userPreferences.activeProfileId ?: ""
+            ).getOrNull()?.filter { it.showId == showId } ?: return@launch
+            _playerState.update { state ->
+                state.copy(
+                    episodeProgress = history.associate { it.episodeId to it.progressSeconds },
+                    episodeCompleted = history.associate { it.episodeId to it.completed }
+                )
+            }
+        }
     }
 
     private fun setupPlayerInstance(
@@ -220,6 +318,10 @@ class PlayerViewModel @Inject constructor(
         initialPlayWhenReady: Boolean? = null
     ) {
         val p = player ?: return
+        playbackConnectionManager.claim(this)
+        pendingSeekJob?.cancel()
+        pendingSeekJob = null
+        pendingSeekTarget = null
 
         val wasPlaying = initialPlayWhenReady ?: (p.playWhenReady && p.playbackState != Player.STATE_ENDED)
         val currentSpeed = _playerState.value.playbackSpeed
@@ -231,6 +333,8 @@ class PlayerViewModel @Inject constructor(
             selectedAudioTrackIndex = audioTrackIndex,
             forceH264 = forceH264
         )
+
+        currentStreamIsDirect = resolved.isDirectPlay
 
         _playerState.update {
             it.copy(
@@ -259,14 +363,16 @@ class PlayerViewModel @Inject constructor(
                     it.copy(errorMessage = "Subtítulos bitmap (PGS/VobSub) no son compatibles con el renderizador de texto")
                 }
             } else {
-                val subUrl = "$baseUrl/api/subtitles/${episode.id}/${subTrack.index}"
-                val mimeType = when (subTrack.format.lowercase()) {
-                    "srt" -> MimeTypes.APPLICATION_SUBRIP
-                    "vtt" -> MimeTypes.TEXT_VTT
-                    else -> MimeTypes.TEXT_SSA
-                }
+                // /api/subtitles converts every track (embedded, SRT, VTT) to ASS, so the MIME type is
+                // always SSA regardless of the source format.
+                val subUrl = com.kurastream.app.core.network.ServerUrlResolver.buildSubtitleUrl(
+                    baseUrl = baseUrl,
+                    episodeId = episode.id,
+                    trackIndex = StreamResolver.resolveSubtitleTrackBackendParam(episode, subtitleTrackIndex),
+                    startSeconds = resolved.streamStartOffsetSeconds
+                )
                 val subConfig = MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subUrl))
-                    .setMimeType(mimeType)
+                    .setMimeType(MimeTypes.TEXT_SSA)
                     .setLanguage(subTrack.language)
                     .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
                     .build()
@@ -381,6 +487,12 @@ class PlayerViewModel @Inject constructor(
         progressTrackingJob = viewModelScope.launch {
             while (isActive) {
                 val p = player ?: break
+                // While a (re)started remux is loading, currentPosition still reflects the previous item;
+                // combining it with the new offset would produce bogus jumps (and bogus saves/syncs).
+                if (p.playbackState != Player.STATE_READY || pendingSeekTarget != null) {
+                    delay(250)
+                    continue
+                }
                 val posMs = p.currentPosition
                 val offset = _playerState.value.streamStartOffsetSeconds
                 val absPos = StreamResolver.calculateAbsolutePositionSeconds(offset, posMs)
@@ -389,14 +501,27 @@ class PlayerViewModel @Inject constructor(
                 val ep = _playerState.value.episode
                 val inIntro = ep?.introStart != null && ep.introEnd != null &&
                         absPos >= ep.introStart && absPos <= ep.introEnd
-                val inOutro = ep?.outroStart != null && absPos >= ep.outroStart
+                val outroStart = validOutroStart(ep, duration)
+                val credits = creditsWithScene(ep, duration)
+                val inCredits = credits != null && absPos >= credits.first && absPos < credits.second - 1f
+                // With a scene after the credits there is no "outro" to jump over to the next episode.
+                val inOutro = outroStart != null && credits == null && absPos >= outroStart
 
-                // Auto skip intro if user enabled
-                if (inIntro && userPreferences.autoSkipIntro && ep?.introEnd != null) {
+                // Auto skip intro once per episode, so seeking back into the intro is respected
+                if (inIntro && !introAutoSkipped && userPreferences.autoSkipIntro && ep?.introEnd != null) {
+                    introAutoSkipped = true
                     seekToAbsolute(ep.introEnd + 1f)
+                    delay(500)
+                    continue
                 }
 
-                // Auto skip outro if user enabled and next episode exists
+                // Auto skip outro: only the credits when a scene follows them, else to the next episode
+                if (inCredits && !creditsAutoSkipped && userPreferences.autoSkipOutro && credits != null) {
+                    creditsAutoSkipped = true
+                    seekToAbsolute(credits.second)
+                    delay(500)
+                    continue
+                }
                 if (inOutro && userPreferences.autoSkipOutro && _playerState.value.nextEpisode != null) {
                     playNextEpisode()
                     break
@@ -408,13 +533,33 @@ class PlayerViewModel @Inject constructor(
                         absolutePositionSeconds = absPos,
                         bufferedPercentage = p.bufferedPercentage,
                         isInIntro = inIntro,
-                        isInOutro = inOutro
+                        isInOutro = inOutro,
+                        isInCredits = inCredits
                     )
                 }
+
+                updateUpNext(absPos, duration)
 
                 // Periodically save progress every 10 seconds
                 if (kotlin.math.abs(absPos - lastSavedProgress) >= 10f) {
                     saveCurrentProgress()
+                }
+
+                // Host heartbeat: lets late joiners and drifting guests re-align without host action
+                val session = watchPartyRepository.activeSession.value
+                val nowMs = System.currentTimeMillis()
+                if (session != null && session.isHost && p.isPlaying && nowMs - lastHostHeartbeatAtMs >= HOST_HEARTBEAT_MS) {
+                    lastHostHeartbeatAtMs = nowMs
+                    launch {
+                        watchPartyRepository.syncPlayback(
+                            session = session,
+                            currentTime = absPos,
+                            isPlaying = true,
+                            rate = _playerState.value.playbackSpeed,
+                            action = "heartbeat",
+                            episodeId = episodeId
+                        )
+                    }
                 }
 
                 delay(500)
@@ -438,17 +583,109 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    private fun appendPartyMessages(messages: List<PartyMessage>) {
+        if (messages.isEmpty()) return
+        _playerState.update { state ->
+            val known = state.partyMessages.map { it.id }.toHashSet()
+            val fresh = messages.filter { it.id !in known }
+            if (fresh.isEmpty()) return@update state
+            val unreadDelta = if (partyChatOpen) 0 else fresh.count { it.type == "chat" }
+            state.copy(
+                partyMessages = (state.partyMessages + fresh).takeLast(MAX_PARTY_MESSAGES),
+                partyUnreadCount = state.partyUnreadCount + unreadDelta
+            )
+        }
+    }
+
+    fun setPartyChatOpen(open: Boolean) {
+        partyChatOpen = open
+        if (open) _playerState.update { it.copy(partyUnreadCount = 0) }
+    }
+
+    fun sendPartyMessage(text: String) {
+        val message = text.trim()
+        val session = watchPartyRepository.activeSession.value ?: return
+        if (message.isEmpty()) return
+        viewModelScope.launch {
+            if (watchPartyRepository.sendMessage(session, message).isFailure) {
+                _hudMessages.tryEmit("No se pudo enviar el mensaje")
+            }
+        }
+    }
+
+    /** Reactions use the same keys as the web ("flame", "heart", "smile", "sparkles", "thumbs-up"). */
+    fun sendPartyReaction(key: String) {
+        val session = watchPartyRepository.activeSession.value ?: return
+        viewModelScope.launch { watchPartyRepository.sendMessage(session, key, type = "reaction") }
+    }
+
+    /** Guests in a host-only room cannot play, pause or seek for everyone. */
+    private fun ensureCanControl(): Boolean {
+        if (_playerState.value.canControlPlayback) return true
+        _hudMessages.tryEmit("El anfitrión controla la reproducción")
+        return false
+    }
+
+    /** Host, or a guest allowed to drive playback, broadcasts its actions to the room. */
+    private fun broadcastPlayback(action: String, currentTime: Float, isPlaying: Boolean, episodeId: String = this.episodeId) {
+        val session = watchPartyRepository.activeSession.value ?: return
+        if (!session.isHost && session.room?.allowGuestControls != true) return
+        viewModelScope.launch {
+            watchPartyRepository.syncPlayback(
+                session = session,
+                currentTime = currentTime,
+                isPlaying = isPlaying,
+                rate = 1f,
+                action = action,
+                episodeId = episodeId
+            )
+        }
+    }
+
     private fun handlePartySync(sync: PartySyncEvent) {
         val session = watchPartyRepository.activeSession.value ?: return
+        if (session.isHost) return
+
+        // Host moved to another episode: follow them instead of seeking inside the wrong file.
+        val hostEpisode = sync.episodeId
+        if (!hostEpisode.isNullOrBlank() && hostEpisode != episodeId) {
+            saveCurrentProgress()
+            _navigationEvents.tryEmit(hostEpisode)
+            return
+        }
+
         val currentAbs = _playerState.value.absolutePositionSeconds
         val isPlaying = _playerState.value.isPlaying
+        val nowMs = System.currentTimeMillis()
 
-        val decision = WatchPartySyncController.evaluateSync(
+        var decision = WatchPartySyncController.evaluateSync(
             hostEvent = sync,
             clientAbsolutePositionSeconds = currentAbs,
             clientIsPlaying = isPlaying,
-            isClientHost = session.isHost
+            isClientHost = false,
+            nowMs = nowMs,
+            driftToleranceSeconds = if (currentStreamIsDirect) {
+                WatchPartySyncController.DRIFT_TOLERANCE_SECONDS
+            } else {
+                WatchPartySyncController.TRANSCODED_DRIFT_TOLERANCE_SECONDS
+            }
         )
+
+        // Give a just-issued seek time to buffer before judging drift again (avoids seek storms).
+        val isSeek = decision.action == PartySyncAction.SEEK ||
+                decision.action == PartySyncAction.SEEK_AND_PLAY ||
+                decision.action == PartySyncAction.SEEK_AND_PAUSE
+        if (isSeek) {
+            if (nowMs - lastPartySeekAtMs < PARTY_SEEK_COOLDOWN_MS || _playerState.value.isBuffering) {
+                decision = when (decision.action) {
+                    PartySyncAction.SEEK_AND_PLAY -> SyncDecision(if (isPlaying) PartySyncAction.NONE else PartySyncAction.PLAY)
+                    PartySyncAction.SEEK_AND_PAUSE -> SyncDecision(if (isPlaying) PartySyncAction.PAUSE else PartySyncAction.NONE)
+                    else -> SyncDecision(PartySyncAction.NONE)
+                }
+            } else {
+                lastPartySeekAtMs = nowMs
+            }
+        }
 
         when (decision.action) {
             PartySyncAction.NONE -> {}
@@ -473,46 +710,32 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun play(fromPartySync: Boolean = false) {
-        player?.play()
-        _playerState.update { it.copy(playWhenReady = true) }
-        scheduleControlsAutoHide()
-
-        if (!fromPartySync) {
-            val session = watchPartyRepository.activeSession.value
-            if (session != null && session.isHost) {
-                viewModelScope.launch {
-                    watchPartyRepository.syncPlayback(
-                        session = session,
-                        currentTime = _playerState.value.absolutePositionSeconds,
-                        isPlaying = true,
-                        rate = _playerState.value.playbackSpeed,
-                        action = "play",
-                        episodeId = episodeId
-                    )
-                }
-            }
+        if (!fromPartySync && !ensureCanControl()) return
+        // Play after the end starts the episode over (ExoPlayer ignores play() once ended).
+        if (!fromPartySync && player?.playbackState == Player.STATE_ENDED) {
+            upNextDismissed = false
+            seekToAbsolute(0f)
         }
+        player?.play()
+        _playerState.update { it.copy(playWhenReady = true, endScreenVisible = false) }
+        scheduleControlsAutoHide()
+        if (!fromPartySync) broadcastPlayback("play", _playerState.value.absolutePositionSeconds, isPlaying = true)
     }
 
     fun pause(fromPartySync: Boolean = false) {
+        if (!fromPartySync && !ensureCanControl()) return
         player?.pause()
         _playerState.update { it.copy(playWhenReady = false) }
         showControlsPermanently()
+        if (!fromPartySync) broadcastPlayback("pause", _playerState.value.absolutePositionSeconds, isPlaying = false)
+    }
 
-        if (!fromPartySync) {
-            val session = watchPartyRepository.activeSession.value
-            if (session != null && session.isHost) {
-                viewModelScope.launch {
-                    watchPartyRepository.syncPlayback(
-                        session = session,
-                        currentTime = _playerState.value.absolutePositionSeconds,
-                        isPlaying = false,
-                        rate = _playerState.value.playbackSpeed,
-                        action = "pause",
-                        episodeId = episodeId
-                    )
-                }
-            }
+    /** Called when the app goes to the background: the periodic save can be up to 10 s behind. */
+    fun onAppBackgrounded() {
+        val absPos = _playerState.value.absolutePositionSeconds
+        if (absPos > 2f) {
+            lastSavedProgress = absPos
+            historyRepository.saveProgressDetached(episodeId, absPos, _playerState.value.durationSeconds)
         }
     }
 
@@ -521,7 +744,8 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun seekRelative(seconds: Float) {
-        val currentAbs = _playerState.value.absolutePositionSeconds
+        if (!ensureCanControl()) return
+        val currentAbs = pendingSeekTarget ?: _playerState.value.absolutePositionSeconds
         val duration = _playerState.value.durationSeconds
         val target = (currentAbs + seconds).coerceIn(0f, if (duration > 0) duration else Float.MAX_VALUE)
         seekToAbsolute(target)
@@ -533,39 +757,44 @@ class PlayerViewModel @Inject constructor(
         seekRelative(delta)
     }
 
-    fun seekToAbsolute(targetSeconds: Float, fromPartySync: Boolean = false) {
+    fun seekToAbsolute(requestedSeconds: Float, fromPartySync: Boolean = false) {
         val ep = _playerState.value.episode ?: return
-        val isDirect = StreamResolver.canDirectPlay(ep, _playerState.value.selectedAudioTrackIndex)
+        if (!fromPartySync && !ensureCanControl()) return
+        val duration = _playerState.value.durationSeconds
+        // Never seek past the last second: landing on the very end fires "ended" right away.
+        val targetSeconds = if (duration > 0f) requestedSeconds.coerceIn(0f, (duration - 1f).coerceAtLeast(0f)) else requestedSeconds.coerceAtLeast(0f)
+        if (_playerState.value.endScreenVisible && targetSeconds < duration - 1f) {
+            _playerState.update { it.copy(endScreenVisible = false) }
+        }
 
-        if (isDirect) {
+        // Must match what is actually loaded: after a codec fallback or audio switch the stream is a
+        // remux even if the file itself could be direct-played, and seekTo() cannot move inside it.
+        if (currentStreamIsDirect) {
             player?.seekTo((targetSeconds * 1000).toLong())
         } else {
-            setupPlayerInstance(
-                episode = ep,
-                resumePositionSeconds = targetSeconds,
-                audioTrackIndex = _playerState.value.selectedAudioTrackIndex,
-                subtitleTrackIndex = _playerState.value.selectedSubtitleTrackIndex,
-                forceH264 = hasAppliedCodecFallback
-            )
+            // Several quick seeks (double taps, scrubbing) become a single stream restart.
+            pendingSeekTarget = targetSeconds
+            pendingSeekJob?.cancel()
+            pendingSeekJob = viewModelScope.launch {
+                delay(REMUX_SEEK_DEBOUNCE_MS)
+                val target = pendingSeekTarget ?: return@launch
+                pendingSeekJob = null
+                setupPlayerInstance(
+                    episode = ep,
+                    resumePositionSeconds = target,
+                    audioTrackIndex = _playerState.value.selectedAudioTrackIndex,
+                    subtitleTrackIndex = _playerState.value.selectedSubtitleTrackIndex,
+                    forceH264 = hasAppliedCodecFallback
+                )
+            }
+        }
+        if (targetSeconds < upNextTriggerSeconds() - 1f) {
+            upNextDismissed = false
+            if (_playerState.value.upNextVisible) hideUpNext()
         }
         _playerState.update { it.copy(absolutePositionSeconds = targetSeconds) }
         scheduleControlsAutoHide()
-
-        if (!fromPartySync) {
-            val session = watchPartyRepository.activeSession.value
-            if (session != null && session.isHost) {
-                viewModelScope.launch {
-                    watchPartyRepository.syncPlayback(
-                        session = session,
-                        currentTime = targetSeconds,
-                        isPlaying = _playerState.value.isPlaying,
-                        rate = _playerState.value.playbackSpeed,
-                        action = "seek",
-                        episodeId = episodeId
-                    )
-                }
-            }
-        }
+        if (!fromPartySync) broadcastPlayback("seek", targetSeconds, isPlaying = _playerState.value.isPlaying)
     }
 
     fun selectAudioTrack(index: Int) {
@@ -597,11 +826,16 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun setPlaybackSpeed(speed: Float) {
+        if (speed != 1f && watchPartyRepository.activeSession.value != null) {
+            _hudMessages.tryEmit("La velocidad es fija durante un Watch Party")
+            return
+        }
         player?.setPlaybackSpeed(speed)
         _playerState.update { it.copy(playbackSpeed = speed) }
     }
 
     fun startTemporary2x() {
+        if (watchPartyRepository.activeSession.value != null) return
         if (speedBeforeTemporary2x == null) {
             speedBeforeTemporary2x = _playerState.value.playbackSpeed
             setPlaybackSpeed(2.0f)
@@ -656,6 +890,7 @@ class PlayerViewModel @Inject constructor(
         val ep = _playerState.value.episode
         val target = ep?.introEnd
         if (target != null) {
+            introAutoSkipped = true
             seekToAbsolute(target + 1f)
         }
     }
@@ -664,19 +899,52 @@ class PlayerViewModel @Inject constructor(
         playNextEpisode()
     }
 
+    /** Jumps over ending credits to the scene that follows them. */
+    fun skipCredits() {
+        val ep = _playerState.value.episode
+        val credits = creditsWithScene(ep, _playerState.value.durationSeconds) ?: return
+        creditsAutoSkipped = true
+        seekToAbsolute(credits.second)
+    }
+
+    /** Outro mark if plausible: one in the first half of the episode is a bad AniSkip submission. */
+    private fun validOutroStart(ep: Episode?, duration: Float): Float? =
+        ep?.outroStart?.takeIf { duration <= 0f || (it > duration * 0.5f && it < duration - 5f) }
+
+    /** Ending credits with a scene after them (start, end), or null. */
+    private fun creditsWithScene(ep: Episode?, duration: Float): Pair<Float, Float>? {
+        val start = validOutroStart(ep, duration) ?: return null
+        val end = ep?.outroEnd ?: return null
+        if (duration <= 0f || end <= start || duration - end < 30f) return null
+        return start to end
+    }
+
     fun playNextEpisode() {
         val next = _playerState.value.nextEpisode ?: return
+        playEpisode(next.id)
+    }
+
+    /** Switches to another episode of the show (episode panel, next episode, auto-advance). */
+    fun playEpisode(targetEpisodeId: String) {
+        if (targetEpisodeId == episodeId) return
+        val next = _playerState.value.showEpisodes.firstOrNull { it.id == targetEpisodeId }
+            ?: _playerState.value.nextEpisode?.takeIf { it.id == targetEpisodeId }
+            ?: return
+        val session = watchPartyRepository.activeSession.value
+        if (session != null && !session.isHost) {
+            _hudMessages.tryEmit("El anfitrión elige el episodio")
+            return
+        }
         saveCurrentProgress()
         cancelNextEpisodeCountdown()
 
-        val session = watchPartyRepository.activeSession.value
-        if (session != null && session.isHost) {
+        if (session != null) {
             viewModelScope.launch {
                 watchPartyRepository.syncPlayback(
                     session = session,
                     currentTime = 0f,
                     isPlaying = true,
-                    rate = _playerState.value.playbackSpeed,
+                    rate = 1f,
                     action = "change_episode",
                     episodeId = next.id
                 )
@@ -726,29 +994,122 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun onPlaybackEnded() {
+        val duration = _playerState.value.durationSeconds
+        // A guest that ran off the end while the host is still mid-episode re-aligns instead.
+        val session = watchPartyRepository.activeSession.value
+        val hostSync = lastPartySync
+        if (session != null && !session.isHost && hostSync != null && duration > 0f) {
+            val hostAt = WatchPartySyncController.expectedHostPositionSeconds(hostSync, System.currentTimeMillis())
+            if (duration - hostAt > END_GUARD_SECONDS) {
+                seekToAbsolute(hostAt, fromPartySync = true)
+                if (hostSync.isPlaying) play(fromPartySync = true)
+                return
+            }
+        }
+        // A remux can report the end long before the episode does when the connection drops.
+        val position = _playerState.value.absolutePositionSeconds
+        if (!currentStreamIsDirect && duration > 0f && duration - position > END_GUARD_SECONDS) {
+            retryPlayback()
+            return
+        }
+
         saveCurrentProgress()
-        if (_playerState.value.nextEpisode != null && userPreferences.autoPlayNext) {
-            startNextEpisodeCountdown()
+        val next = _playerState.value.nextEpisode
+        if (next != null && canAutoAdvance() && !upNextDismissed) {
+            playNextEpisode()
         } else {
+            nextCountdownJob?.cancel()
+            _playerState.update { it.copy(upNextVisible = false, nextEpisodeCountdown = null, endScreenVisible = true) }
             showControlsPermanently()
         }
     }
 
-    private fun startNextEpisodeCountdown() {
+    /** End screen "Volver a ver". */
+    fun replayEpisode() {
+        upNextDismissed = false
+        introAutoSkipped = false
+        creditsAutoSkipped = false
+        _playerState.update { it.copy(endScreenVisible = false) }
+        seekToAbsolute(0f)
+        play()
+    }
+
+    private fun canAutoAdvance(): Boolean {
+        val session = watchPartyRepository.activeSession.value
+        return userPreferences.autoPlayNext && (session == null || session.isHost)
+    }
+
+    /** Credits start (when the episode has a valid outro mark) or the last 20 seconds. */
+    private fun upNextTriggerSeconds(): Float {
+        val duration = _playerState.value.durationSeconds
+        val ep = _playerState.value.episode
+        // A scene after the credits must not be skipped by the countdown.
+        val outro = validOutroStart(ep, duration)
+        if (outro != null && creditsWithScene(ep, duration) == null) return outro
+        return if (duration > 120f) duration - 20f else Float.MAX_VALUE
+    }
+
+    private fun updateUpNext(absPos: Float, duration: Float) {
+        if (_playerState.value.nextEpisode == null || upNextDismissed || duration <= 0f) return
+        if (absPos >= upNextTriggerSeconds()) {
+            if (!_playerState.value.upNextVisible) showUpNext(absPos, duration)
+        } else if (_playerState.value.upNextVisible) {
+            hideUpNext()
+        }
+    }
+
+    private fun showUpNext(absPos: Float, duration: Float) {
+        _playerState.update { it.copy(upNextVisible = true) }
         nextCountdownJob?.cancel()
+        if (!canAutoAdvance()) return
+        var seconds = minOf(UP_NEXT_COUNTDOWN_SECONDS, kotlin.math.ceil(duration - absPos).toInt().coerceAtLeast(1))
         nextCountdownJob = viewModelScope.launch {
-            for (i in 5 downTo 1) {
-                _playerState.update { it.copy(nextEpisodeCountdown = i) }
+            _playerState.update { it.copy(nextEpisodeCountdown = seconds) }
+            while (seconds > 0) {
                 delay(1000)
+                // The countdown waits while the video is paused.
+                if (player?.isPlaying == true) seconds--
+                _playerState.update { it.copy(nextEpisodeCountdown = seconds) }
             }
-            _playerState.update { it.copy(nextEpisodeCountdown = null) }
             playNextEpisode()
         }
     }
 
-    fun cancelNextEpisodeCountdown() {
+    private fun hideUpNext() {
         nextCountdownJob?.cancel()
-        _playerState.update { it.copy(nextEpisodeCountdown = null) }
+        _playerState.update { it.copy(upNextVisible = false, nextEpisodeCountdown = null) }
+    }
+
+    /** "Ver créditos": hide the card and do not jump to the next episode on its own. */
+    fun cancelNextEpisodeCountdown() {
+        upNextDismissed = true
+        hideUpNext()
+    }
+
+    /** Re-prepares the stream where it failed (a plain seek does not leave the error state). */
+    fun retryPlayback() {
+        val ep = _playerState.value.episode
+        hasRetried503 = false
+        _playerState.update { it.copy(errorMessage = null, isTranscodingBusy = false, retryAfterSeconds = null) }
+        if (ep == null) {
+            viewModelScope.launch { loadEpisodeAndInitPlayer() }
+            return
+        }
+        setupPlayerInstance(
+            episode = ep,
+            resumePositionSeconds = _playerState.value.absolutePositionSeconds,
+            audioTrackIndex = _playerState.value.selectedAudioTrackIndex,
+            subtitleTrackIndex = _playerState.value.selectedSubtitleTrackIndex,
+            forceH264 = hasAppliedCodecFallback,
+            initialPlayWhenReady = true
+        )
+    }
+
+    /** Keeps the controls up while the user is interacting with them (e.g. dragging the seek bar). */
+    fun onUserInteraction() {
+        if (_playerState.value.controlsVisible && !_playerState.value.controlsLocked) {
+            scheduleControlsAutoHide()
+        }
     }
 
     private fun scheduleControlsAutoHide() {
@@ -769,13 +1130,36 @@ class PlayerViewModel @Inject constructor(
     fun getPlayer(): Player? = player
 
     override fun onCleared() {
-        saveCurrentProgress()
+        isCleared = true
+        // viewModelScope is already cancelled here, so the final save must run on a detached scope.
+        val p = player
+        val finalPosition = if (p != null && p.playbackState == Player.STATE_READY) {
+            StreamResolver.calculateAbsolutePositionSeconds(_playerState.value.streamStartOffsetSeconds, p.currentPosition)
+        } else {
+            _playerState.value.absolutePositionSeconds
+        }
+        if (finalPosition > 2f) {
+            historyRepository.saveProgressDetached(episodeId, finalPosition, _playerState.value.durationSeconds)
+        }
         stopProgressTracker()
-        partyPlaybackContext.clear()
+        pendingSeekJob?.cancel()
+        nextCountdownJob?.cancel()
         retry503Job?.cancel()
         retry503Job = null
-        player?.removeListener(playerListener)
+        p?.removeListener(playerListener)
+        // Leaving the player must stop audio, unless the next episode's screen already took over.
+        playbackConnectionManager.stopIfOwner(this)
         player = null
         super.onCleared()
+    }
+
+    private companion object {
+        const val RESUME_NOTICE_MIN_SECONDS = 30f
+        const val PARTY_SEEK_COOLDOWN_MS = 4_000L
+        const val HOST_HEARTBEAT_MS = 10_000L
+        const val REMUX_SEEK_DEBOUNCE_MS = 400L
+        const val UP_NEXT_COUNTDOWN_SECONDS = 10
+        const val END_GUARD_SECONDS = 30f
+        const val MAX_PARTY_MESSAGES = 150
     }
 }

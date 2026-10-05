@@ -15,7 +15,10 @@ data class WatchHistoryItem(
     val showTitle: String = "",
     val thumbnailPath: String = "",
     val posterPath: String = "",
-    val backdropPath: String = ""
+    val backdropPath: String = "",
+    /** "Continuar viendo": the next episode after a finished one (not started yet). */
+    val upNext: Boolean = false,
+    val episodeTitle: String = ""
 ) {
     val progressPercentage: Int
         get() = if (duration > 0f) ((progressSeconds / duration) * 100).toInt().coerceIn(0, 100) else 0

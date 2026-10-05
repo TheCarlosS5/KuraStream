@@ -89,8 +89,8 @@
   font-size: 0.75rem;
   font-weight: 600;
   border-radius: var(--radius-xs);
-  background: var(--surface-raised);
-  border: 1px solid var(--border-color);
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
   color: var(--text-secondary);
 }
 
@@ -186,8 +186,6 @@
   font-size: 0.9rem;
   font-weight: 500;
   box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -265,6 +263,18 @@
   line-height: 1.5;
   margin-bottom: 24px;
   max-width: 380px;
+}
+
+/* Skeleton Loaders */
+.skeleton {
+  background: var(--surface-raised);
+  border-radius: var(--radius-card);
+  /* opacity is GPU/compositor-only; animating background-position repainted every frame */
+  animation: skeleton-loading 1.2s ease-in-out infinite alternate;
+}
+@keyframes skeleton-loading {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
 }
 
 /* Watch Party Modal */
@@ -482,7 +492,7 @@ input:checked + .slider:before {
 
 .stats-grid-container {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 20px;
   margin-bottom: 28px;
 }
@@ -638,6 +648,52 @@ input:checked + .slider:before {
   font-size: 0.8rem;
   color: var(--text-muted);
 }
+
+.history-progress {
+  height: 4px;
+  background: var(--surface-muted);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  margin-top: 8px;
+  width: 100%;
+}
+.history-progress-bar {
+  height: 100%;
+  background: var(--accent-color);
+}
+
+.history-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.history-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.history-remove-btn:hover {
+  color: var(--danger-color);
+  background: rgba(255, 107, 129, 0.1);
+}
+
+.history-remove-btn svg,
+.history-remove-btn i {
+  width: 18px;
+  height: 18px;
+}
+
 
 /* ==================================================== */
 /* NOCTURNAL CINEMATIC: Semantic Form & Modal Classes    */
@@ -1182,11 +1238,10 @@ input:checked + .slider:before {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.88);
+  background: rgba(0, 0, 0, 0.92);
   z-index: 10000;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(8px);
 }
 
 .trailer-modal-dialog {
@@ -1671,3 +1726,507 @@ input:checked + .slider:before {
 
 
 
+
+.settings-select-compact {
+  width: auto;
+  min-width: 150px;
+  flex-shrink: 0;
+}
+
+/* ==================================================== */
+/* ANDROID APP DOWNLOAD (#/app)                         */
+/* Solid surfaces only: no backdrop-filter or looping   */
+/* animations, so it stays cheap on old PCs.            */
+/* ==================================================== */
+
+.app-dl-container {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.app-dl-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 32px;
+  align-items: center;
+  padding: 32px;
+  background: linear-gradient(135deg, var(--accent-soft) 0%, var(--accent-secondary-soft) 100%), var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-md);
+}
+
+.app-dl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-secondary-soft);
+  color: var(--accent-secondary);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.app-dl-badge svg { width: 14px; height: 14px; }
+
+.app-dl-title {
+  font-family: var(--font-title);
+  font-size: 2.2rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text-main);
+  margin: 14px 0 10px;
+}
+
+.app-dl-lead {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1.55;
+  margin: 0 0 24px;
+  max-width: 46ch;
+}
+
+.app-dl-button {
+  min-height: 48px;
+  padding: 0 24px;
+  font-size: 1rem;
+}
+
+.app-dl-card.is-unavailable .app-dl-button {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.app-dl-meta {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.app-dl-card.is-unavailable .app-dl-meta { color: var(--warning-color); }
+
+.app-dl-qr-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 200px;
+  text-align: center;
+}
+
+.app-dl-qr {
+  width: 184px;
+  height: 184px;
+  padding: 8px;
+  background: #ffffff;
+  border-radius: var(--radius-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The global icon rule (base.css) would shrink the QR to 18px and stroke every module. */
+.app-dl-qr svg { width: 100%; height: 100%; display: block; stroke: none; }
+.app-dl-qr:empty { background: var(--surface-raised); }
+.app-dl-card.is-unavailable .app-dl-qr-panel { opacity: 0.5; }
+
+.app-dl-qr-caption {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.app-dl-qr-url {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.app-dl-steps-title {
+  font-family: var(--font-title);
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 36px 0 16px;
+}
+
+.app-dl-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.app-dl-steps li {
+  display: flex;
+  gap: 14px;
+  padding: 18px;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+}
+
+.app-dl-step-num {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-color);
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-dl-steps strong {
+  display: block;
+  color: var(--text-main);
+  font-size: 0.95rem;
+  margin: 4px 0 4px;
+}
+
+.app-dl-steps p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.app-dl-server {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 6px 6px 6px 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.app-dl-server code {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  color: var(--accent-secondary);
+  overflow-wrap: anywhere;
+}
+
+.app-dl-copy .app-dl-copy-done,
+.app-dl-copy[data-state="done"] .app-dl-copy-idle { display: none; }
+.app-dl-copy[data-state="done"] .app-dl-copy-done { display: inline-block; color: var(--success-color); }
+.app-dl-copy[data-state="error"] { color: var(--danger-color); }
+
+/* Entry points */
+.login-app-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.login-app-link:hover { color: var(--accent-secondary); }
+.login-app-link svg { width: 16px; height: 16px; }
+
+.settings-app-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 20px;
+  padding: 18px 20px;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+
+.settings-app-card:hover { border-color: var(--accent-secondary); }
+.settings-app-icon { color: var(--accent-secondary); flex-shrink: 0; }
+.settings-app-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.settings-app-text strong { color: var(--text-main); font-size: 0.95rem; }
+.settings-app-text small { font-size: 0.83rem; }
+
+@media (max-width: 720px) {
+  .app-dl-card {
+    grid-template-columns: 1fr;
+    padding: 24px 20px;
+    gap: 24px;
+  }
+  .app-dl-title { font-size: 1.7rem; }
+  .app-dl-button { width: 100%; justify-content: center; }
+  /* On a phone the QR is pointless: the visitor is already on the device that installs the app. */
+  .app-dl-qr-panel { display: none; }
+  .app-dl-steps { grid-template-columns: 1fr; }
+}
+
+/* Detail: rating/year/status live in the row under the title; the sidebar copy duplicated it. */
+#detail-view .quick-stats {
+  display: none;
+}
+
+.detail-genre-tag {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  padding: 3px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+}
+
+.genre-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.genre-bar-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 180px) 1fr 44px;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.85rem;
+}
+
+.genre-bar-label {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.genre-bar-track {
+  height: 8px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.genre-bar-fill {
+  height: 100%;
+  background: var(--accent-color);
+  border-radius: var(--radius-pill);
+}
+
+.genre-bar-value {
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==================================================== */
+/* PROFILE EDITOR: photo upload/framing, sources, colors */
+/* ==================================================== */
+
+.profile-edit-dialog {
+  max-width: 560px;
+}
+
+.profile-edit-body {
+  gap: 24px;
+}
+
+.profile-avatar-col {
+  align-items: center;
+  flex-shrink: 0;
+  width: 128px;
+}
+
+.profile-avatar-display {
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  font-size: 2.6rem;
+  box-shadow: var(--shadow-md);
+}
+
+.btn-upload-avatar {
+  width: 100%;
+  gap: 6px;
+}
+
+.btn-upload-avatar svg {
+  width: 16px;
+  height: 16px;
+}
+
+.btn-link-subtle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.btn-link-subtle:hover {
+  color: var(--danger-color);
+}
+
+.profile-fields-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.profile-field-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.profile-fields-col .form-checkbox-label {
+  margin: 8px 0 0;
+}
+
+.color-swatches-row {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.color-swatches-row .color-swatch {
+  padding: 0;
+  width: 28px;
+  height: 28px;
+}
+
+.avatar-source-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-pill);
+  align-self: flex-start;
+}
+
+.avatar-source-tab {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.avatar-source-tab.active {
+  background: var(--accent-soft);
+  color: var(--accent-color);
+}
+
+.preset-avatars-grid .preset-avatar-option {
+  padding: 0;
+  background-color: var(--surface-raised);
+}
+
+.library-avatars-grid {
+  max-height: 112px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.avatar-library-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.avatar-cropper {
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.avatar-crop-viewport {
+  position: relative;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--surface-raised);
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.avatar-crop-viewport:active {
+  cursor: grabbing;
+}
+
+.avatar-crop-viewport img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  max-width: none;
+  user-select: none;
+  pointer-events: none;
+}
+
+.avatar-crop-zoom-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 240px;
+  color: var(--text-muted);
+}
+
+.avatar-crop-zoom-row input {
+  flex: 1;
+  accent-color: var(--accent-color);
+}
+
+.avatar-crop-zoom-row svg {
+  width: 16px;
+  height: 16px;
+}
+
+.avatar-crop-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.avatar-cropper .pin-buttons {
+  width: 100%;
+}
+
+@media (max-width: 560px) {
+  .profile-edit-body {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .profile-avatar-col {
+    width: 100%;
+  }
+
+  .btn-upload-avatar {
+    width: auto;
+  }
+}
+
+/* The editor is taller than the other dialogs; keep it inside short/phone viewports. */
+.profile-edit-dialog {
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}

@@ -204,6 +204,99 @@ class PlayerController {
         jsonResponse(['success' => true]);
     }
 
+    /**
+     * Extracted subtitles and fonts are regenerated on demand, so anything untouched for a week
+     * can go. Runs at most once per hour (marker file) to keep requests cheap.
+     */
+    public static function pruneCacheDir(string $dir, int $maxAgeSeconds = 604800, int $everySeconds = 3600): int {
+        $marker = $dir . '/.last_prune';
+        if (is_file($marker) && (time() - (int)@filemtime($marker)) < $everySeconds) {
+            return 0;
+        }
+        @touch($marker);
+        $removed = 0;
+        try {
+            $it = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::CHILD_FIRST
+            );
+            foreach ($it as $file) {
+                $path = $file->getPathname();
+                if ($path === $marker) continue;
+                if ($file->isDir()) {
+                    @rmdir($path); // only succeeds once empty
+                } elseif ((time() - $file->getMTime()) > $maxAgeSeconds && @unlink($path)) {
+                    $removed++;
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('pruneCacheDir failed: ' . $e->getMessage());
+        }
+        return $removed;
+    }
+
+    public static function shiftAssTimestamps(string $ass, float $offset): string {
+        if ($offset <= 0) return $ass;
+
+        $lines = explode("\n", $ass);
+        $result = [];
+        foreach ($lines as $line) {
+            $lineTrim = trim($line);
+            if (str_starts_with($lineTrim, 'Dialogue:')) {
+                if (preg_match('/^Dialogue:\s*([^,]+),([^,]+),([^,]+),(.*)$/', $lineTrim, $matches)) {
+                    $layer = $matches[1];
+                    $startStr = trim($matches[2]);
+                    $endStr = trim($matches[3]);
+                    $rest = $matches[4];
+
+                    $startSec = self::assTimeToSeconds($startStr) - $offset;
+                    $endSec = self::assTimeToSeconds($endStr) - $offset;
+
+                    if ($endSec <= 0) {
+                        continue;
+                    }
+                    if ($startSec < 0) {
+                        $startSec = 0;
+                    }
+
+                    $newStart = self::secondsToAssTime($startSec);
+                    $newEnd = self::secondsToAssTime($endSec);
+
+                    $result[] = "Dialogue: {$layer},{$newStart},{$newEnd},{$rest}";
+                } else {
+                    $result[] = $lineTrim;
+                }
+            } else {
+                // Keep \r formatting if it existed by re-imploding with original array, but explode uses \n
+                // so we just append the original string (minus newline, which explode removed)
+                $result[] = str_replace("\r", "", $line);
+            }
+        }
+        // Use CRLF for ASS if the original used it, but \n is fine for webvtt/ass in most players.
+        // We will just use \n
+        return implode("\n", $result);
+    }
+
+    private static function assTimeToSeconds(string $time): float {
+        $parts = explode(':', $time);
+        if (count($parts) === 3) {
+            $h = (float)$parts[0];
+            $m = (float)$parts[1];
+            $s = (float)$parts[2];
+            return $h * 3600 + $m * 60 + $s;
+        }
+        return 0.0;
+    }
+
+    private static function secondsToAssTime(float $seconds): string {
+        // Round to whole centiseconds first; formatting a float with %05.2f can yield "60.00".
+        $cs = (int)round(max(0.0, $seconds) * 100);
+        $h = intdiv($cs, 360000);
+        $m = intdiv($cs % 360000, 6000);
+        $s = intdiv($cs % 6000, 100);
+        return sprintf("%d:%02d:%02d.%02d", $h, $m, $s, $cs % 100);
+    }
+
     public static function streamSubtitle(string $episodeId, $trackNum = 0): void {
         self::authorizeStreamAccess($episodeId);
         $ep = DbHelper::getEpisode($episodeId);
@@ -243,6 +336,12 @@ class PlayerController {
         if (!is_dir($cacheDir)) {
             @mkdir($cacheDir, 0777, true);
         }
+        self::pruneCacheDir($cacheDir);
+
+        $startOffset = isset($_GET['start']) && is_numeric($_GET['start']) ? (float)$_GET['start'] : 0.0;
+        if (!is_finite($startOffset) || $startOffset < 0) {
+            $startOffset = 0.0;
+        }
 
         // External sidecar subtitle check (.ass, .ssa, .srt, .vtt)
         if ($t && isset($t['source']) && $t['source'] === 'external' && !empty($t['filepath']) && file_exists($t['filepath'])) {
@@ -254,7 +353,8 @@ class PlayerController {
                 @header('Cache-Control: public, max-age=86400');
                 while (ob_get_level()) { ob_end_clean(); }
                 $content = file_get_contents($sidecarPath);
-                readfile($sidecarPath);
+                if ($startOffset > 0) $content = self::shiftAssTimestamps($content, $startOffset);
+                echo $content;
                 if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200, $content);
                 exit();
             } else {
@@ -272,7 +372,8 @@ class PlayerController {
                     @header('Cache-Control: public, max-age=86400');
                     while (ob_get_level()) { ob_end_clean(); }
                     $content = file_get_contents($sidecarCacheFile);
-                    readfile($sidecarCacheFile);
+                    if ($startOffset > 0) $content = self::shiftAssTimestamps($content, $startOffset);
+                    echo $content;
                     if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200, $content);
                     exit();
                 }
@@ -292,7 +393,8 @@ class PlayerController {
 
         if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
             $content = file_get_contents($cacheFile);
-            readfile($cacheFile);
+            if ($startOffset > 0) $content = self::shiftAssTimestamps($content, $startOffset);
+            echo $content;
             if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream cached success", 200, $content);
             exit();
         }
@@ -328,7 +430,8 @@ class PlayerController {
 
         if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
             $content = file_get_contents($cacheFile);
-            readfile($cacheFile);
+            if ($startOffset > 0) $content = self::shiftAssTimestamps($content, $startOffset);
+            echo $content;
             if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200, $content);
         } else {
             @http_response_code(404);
@@ -413,6 +516,11 @@ class PlayerController {
 
             @header('Content-Type: video/mp4');
             @header('Connection: keep-alive');
+            // A live remux has no length and cannot be range-requested. Without no-store the browser
+            // tried to write it into its HTTP cache, failed (ERR_CACHE_WRITE_FAILURE) and treated the
+            // failure as the end of the video.
+            @header('Cache-Control: no-store');
+            @header('Accept-Ranges: none');
             setCorsHeaders();
             @header('X-Content-Type-Options: nosniff');
 
@@ -431,7 +539,10 @@ class PlayerController {
             }
             register_shutdown_function([TranscodeLimiter::class, 'releaseSlot']);
 
-            $cmd = 'ffmpeg -v error -fflags +nobuffer+fastseek -probesize 1M -analyzeduration 1M ';
+            // -readrate paces the remux at 2x real time after a 20 s burst. Unpaced, a stream copy
+            // finished the whole episode in seconds and pushed hundreds of MB at a browser that
+            // cannot seek in it; its media cache gave up and playback "ended" ~35 s in.
+            $cmd = 'ffmpeg -v error -readrate 2 -readrate_initial_burst 20 -fflags +nobuffer+fastseek -probesize 1M -analyzeduration 1M ';
             if ($start > 0) {
                 $startStr = (fmod($start, 1) !== 0.0) ? number_format($start, 3, '.', '') : strval((int)$start);
                 $cmd .= '-ss ' . escapeshellarg($startStr) . ' ';
@@ -511,7 +622,7 @@ class PlayerController {
                 ob_end_clean();
             }
 
-            @ignore_user_abort(false);
+            @ignore_user_abort(true);
 
             // Stream chunks in real-time with managed subprocess lifecycle and timeout
             $descriptors = [
@@ -528,6 +639,7 @@ class PlayerController {
 
                 $streamTimeout = 7200; // 2 hours max per transcode stream
                 $streamStart = time();
+                $stderrTail = '';
 
                 try {
                     while (!feof($pipes[1])) {
@@ -537,6 +649,11 @@ class PlayerController {
                         $read = [$pipes[1]];
                         $write = null;
                         $except = null;
+                        // Drain stderr so a chatty ffmpeg can never block on a full pipe; keep the tail for the log.
+                        $errChunk = @fread($pipes[2], 8192);
+                        if ($errChunk !== false && $errChunk !== '') {
+                            $stderrTail = substr($stderrTail . $errChunk, -2000);
+                        }
                         $numChanged = @stream_select($read, $write, $except, 0, 25000);
                         if ($numChanged > 0) {
                             $buffer = fread($pipes[1], 16384);
@@ -555,6 +672,9 @@ class PlayerController {
                 } finally {
                     @fclose($pipes[1]);
                     @fclose($pipes[2]);
+                    if (trim($stderrTail) !== '') {
+                        error_log('[KuraStream] ffmpeg stream ' . $episodeId . ': ' . trim($stderrTail));
+                    }
 
                     $status = proc_get_status($process);
                     if ($status['running']) {
@@ -591,7 +711,12 @@ class PlayerController {
                 }
             } elseif ($rawStart !== '') {
                 $startRange = intval($rawStart);
-                $endRange = ($rawEnd !== '') ? intval($rawEnd) : ($fileSize - 1);
+                // Answer browsers' open-ended ranges ("bytes=N-") in bounded chunks: they simply request the
+                // next range, and a single playing video no longer holds a server worker for the whole file.
+                // Native players (ExoPlayer on Android) may treat a short answer as end of file, so they get it whole.
+                $isBrowser = str_contains($_SERVER['HTTP_USER_AGENT'] ?? '', 'Mozilla/');
+                $maxChunk = 8 * 1024 * 1024;
+                $endRange = ($rawEnd !== '') ? intval($rawEnd) : ($isBrowser ? min($fileSize - 1, $startRange + $maxChunk - 1) : ($fileSize - 1));
 
                 if ($startRange <= $endRange && $startRange < $fileSize) {
                     $offset = $startRange;
@@ -637,16 +762,20 @@ class PlayerController {
             throw new ExitException("Stream success", $isPartial ? 206 : 200);
         }
 
+        @ignore_user_abort(true);
         $fp = fopen($realPath, 'rb');
         fseek($fp, $offset);
 
         $bufferSize = 1024 * 64; // 64KB chunks
-        while (!feof($fp) && $length > 0) {
+        while (!feof($fp) && $length > 0 && !connection_aborted()) {
             $readSize = min($bufferSize, $length);
             $buffer = fread($fp, $readSize);
+            if ($buffer === false || $buffer === '') {
+                break;
+            }
             echo $buffer;
             flush();
-            $length -= $readSize;
+            $length -= strlen($buffer);
         }
         fclose($fp);
         exit();

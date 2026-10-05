@@ -5,8 +5,9 @@ import vm from 'node:vm';
 // Evaluate the real renderers without starting the app or making API requests.
 const source = fs.readFileSync(new URL('../frontend/js/main.js', import.meta.url), 'utf8');
 assert.ok(!/setProperty\('--accent-(?:color|hover|glow)'/.test(source), 'Artwork must not override semantic action colors');
-const names = ['escapeHtml', 'escapeHtmlAttribute', 'catalogueImageUrl', 'setupCatalogueActions', 'renderBillboardHero', 'renderContinueWatching', 'createShowCardHTML', 'renderEpisodeList', 'showEpisodeDetails', 'loadShowDetails', 'renderMyListView', 'renderHistoryView', 'loadPopularSidebar', 'renderCalendarDay', 'openRandomAnimeModal'];
+const names = ['escapeHtml', 'escapeHtmlAttribute', 'genreLabel', 'showGenreList', 'calendarCardMeta', 'catalogueImageUrl', 'setupCatalogueActions', 'renderBillboardHero', 'renderContinueWatching', 'createShowCardHTML', 'renderEpisodeList', 'showEpisodeDetails', 'loadShowDetails', 'renderMyListView', 'renderHistoryView', 'loadPopularSidebar', 'calendarItems', 'calendarTime', 'renderCalendarDay', 'openRandomAnimeModal'];
 const context = vm.createContext({ URL, console });
+vm.runInContext("var calendarOnlyLibrary = false; var CALENDAR_UNSCHEDULED = 'TBA';", context);
 for (const name of names) {
   const body = source.match(new RegExp(`(?:export )?(?:async )?function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, 'm'));
   assert.ok(body, `Missing ${name}`);
@@ -76,7 +77,7 @@ for (const key of ['detail-cast', 'detail-meta-badges', 'season-tabs']) {
   assert.ok(markup.includes('&lt;script&gt;'), `${key} should retain escaped metadata`);
   assert.ok(!markup.includes('<script>'), `${key} must not inject HTML`);
 }
-context.getUserAndProfile = () => ({ activeUser: 'test', profileName: 'Principal', isGuest: false, token: 'fixture' });
+context.getUserAndProfile = () => ({ activeUser: 'test', profileName: 'Principal', isGuest: false, hasProfile: true, token: 'fixture' });
 context.mylistSortValue = 'recent';
 context.fetch = async () => ({ ok: true, json: async () => [{ ...show, rating: 8.5 }] });
 await context.renderMyListView();

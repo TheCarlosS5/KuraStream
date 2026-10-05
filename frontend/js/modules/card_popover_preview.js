@@ -6,6 +6,8 @@
  * inside horizontal carousel containers or viewport boundaries.
  */
 
+import { iconSvg } from '../core/icons.js';
+
 // Singleton reference and state
 let singletonPopover = null;
 let styleElement = null;
@@ -543,44 +545,19 @@ export function initCardPopovers(containerSelector = document.body, options = {}
         const id = currentMeta?.id;
         if (!id) return;
 
-        const isCurrentlyActive = listBtn.classList.contains('is-active');
-        const nextActive = !isCurrentlyActive;
-        listBtn.classList.toggle('is-active', nextActive);
-
+        const renderListState = (active) => {
+          listBtn.classList.toggle('is-active', active);
+          listBtn.setAttribute('title', active ? 'Quitar de mi lista' : 'Mi Lista');
+          listBtn.setAttribute('aria-label', active ? 'Quitar de mi lista' : 'Mi Lista');
+          listBtn.innerHTML = iconSvg(active ? 'check' : 'plus', { size: 18, strokeWidth: 1.75 });
+        };
+        const wanted = !listBtn.classList.contains('is-active');
+        renderListState(wanted);
         if (typeof options.onList === 'function') {
-          options.onList(id, activeCard, nextActive);
-        } else if (typeof window.toggleFavorite === 'function') {
-          window.toggleFavorite(id);
-        } else if (typeof window.toggleMyList === 'function') {
-          window.toggleMyList(id);
-        } else {
-          const evt = new CustomEvent('kurastream:toggle-list', {
-            bubbles: true,
-            detail: { id, showId: id, isFavorite: nextActive, card: activeCard },
-          });
-          window.dispatchEvent(evt);
-          if (activeCard) activeCard.dispatchEvent(evt);
-        }
-
-        if (nextActive) {
-          listBtn.setAttribute('title', 'Quitar de mi lista');
-          listBtn.setAttribute('aria-label', 'Quitar de mi lista');
-          listBtn.innerHTML = '<i data-lucide="check"></i>';
-        } else {
-          listBtn.setAttribute('title', 'Mi Lista');
-          listBtn.setAttribute('aria-label', 'Mi Lista');
-          listBtn.innerHTML = '<i data-lucide="plus"></i>';
-        }
-
-        if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
-          try {
-            window.lucide.createIcons({
-              root: listBtn,
-              attrs: { 'stroke-width': 1.75 },
-            });
-          } catch {
-            // ignore
-          }
+          listBtn.disabled = true;
+          Promise.resolve(options.onList(id, activeCard, wanted))
+            .then(actual => { if (typeof actual === 'boolean') renderListState(actual); })
+            .finally(() => { listBtn.disabled = false; });
         }
       });
     }

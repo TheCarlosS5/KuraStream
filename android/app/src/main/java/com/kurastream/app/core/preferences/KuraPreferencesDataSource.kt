@@ -20,7 +20,9 @@ data class UserSessionPreferences(
     val preferredAudioLanguage: String = "jpn",
     val preferredSubtitleLanguage: String = "spa",
     val doubleTapSeekSeconds: Int = 10,
-    val reducedMotion: Boolean = false
+    val reducedMotion: Boolean = false,
+    /** Subtitle size multiplier; 0 keeps the sizes embedded in the subtitle file. */
+    val subtitleScale: Float = 0f
 )
 
 class KuraPreferencesDataSource(
@@ -41,6 +43,23 @@ class KuraPreferencesDataSource(
         val PREF_SUB_LANG = stringPreferencesKey("pref_sub_lang")
         val DOUBLE_TAP_SEEK = intPreferencesKey("double_tap_seek")
         val REDUCED_MOTION = booleanPreferencesKey("reduced_motion")
+        val SUBTITLE_SCALE = floatPreferencesKey("subtitle_scale")
+        val DISMISSED_CONTINUE = stringSetPreferencesKey("dismissed_continue")
+    }
+
+    /**
+     * "Quitar de Continuar viendo" entries ("profileId|episodeId"). Keyed by the card's episode, so
+     * the show comes back on its own once the profile watches further.
+     */
+    val dismissedContinueFlow: Flow<Set<String>> = dataStore.data
+        .catch { exception -> if (exception is IOException) emit(emptyPreferences()) else throw exception }
+        .map { prefs -> prefs[Keys.DISMISSED_CONTINUE] ?: emptySet() }
+
+    suspend fun dismissContinueEntry(key: String) {
+        dataStore.edit { prefs ->
+            // Bounded: only the most recent dismissals matter.
+            prefs[Keys.DISMISSED_CONTINUE] = ((prefs[Keys.DISMISSED_CONTINUE] ?: emptySet()) + key).toList().takeLast(200).toSet()
+        }
     }
 
     val preferencesFlow: Flow<UserSessionPreferences> = dataStore.data
@@ -65,7 +84,8 @@ class KuraPreferencesDataSource(
                 preferredAudioLanguage = prefs[Keys.PREF_AUDIO_LANG] ?: "jpn",
                 preferredSubtitleLanguage = prefs[Keys.PREF_SUB_LANG] ?: "spa",
                 doubleTapSeekSeconds = prefs[Keys.DOUBLE_TAP_SEEK] ?: 10,
-                reducedMotion = prefs[Keys.REDUCED_MOTION] ?: false
+                reducedMotion = prefs[Keys.REDUCED_MOTION] ?: false,
+                subtitleScale = prefs[Keys.SUBTITLE_SCALE] ?: 0f
             )
         }
 
@@ -105,6 +125,12 @@ class KuraPreferencesDataSource(
             prefs[Keys.PREF_AUDIO_LANG] = audioLang
             prefs[Keys.PREF_SUB_LANG] = subLang
             prefs[Keys.DOUBLE_TAP_SEEK] = seekSeconds
+        }
+    }
+
+    suspend fun setSubtitleScale(scale: Float) {
+        dataStore.edit { prefs ->
+            prefs[Keys.SUBTITLE_SCALE] = scale
         }
     }
 

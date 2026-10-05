@@ -4,6 +4,7 @@
  */
 
 import { getAuthHeaders, openAdminLoginModal } from './auth.js';
+import { escapeHtml, escapeHtmlAttribute } from '../core/ui.js';
 
 export async function loadStagedImports() {
   const container = document.getElementById('staging-items-list');
@@ -48,14 +49,14 @@ export async function loadStagedImports() {
       <div class="admin-card" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 16px; border-radius: 4px; margin-bottom: 10px;">
         <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; flex-wrap: wrap;">
           <div style="flex: 1; min-width: 280px;">
-            <span class="badge" style="background: rgba(249, 115, 22, 0.15); color: #FB923C; font-size: 0.75rem; margin-bottom: 6px; display: inline-block;">${item.source_info || 'Importación Manual'}</span>
-            <h4 style="margin: 4px 0 8px 0; font-size: 1rem; color: var(--text-main); word-break: break-all;">${item.raw_title}</h4>
-            <small style="color: var(--text-muted); font-size: 0.78rem; display: block; word-break: break-all;">Ruta física: ${item.file_path}</small>
+            <span class="badge" style="background: rgba(249, 115, 22, 0.15); color: #FB923C; font-size: 0.75rem; margin-bottom: 6px; display: inline-block;">${escapeHtml(item.source_info || 'Importación Manual')}</span>
+            <h4 style="margin: 4px 0 8px 0; font-size: 1rem; color: var(--text-main); word-break: break-all;">${escapeHtml(item.raw_title)}</h4>
+            <small style="color: var(--text-muted); font-size: 0.78rem; display: block; word-break: break-all;">Ruta física: ${escapeHtml(item.file_path)}</small>
             
             <div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap;">
               <div style="flex: 2; min-width: 200px;">
                 <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Nombre Limpio para Catálogo:</label>
-                <input type="text" id="stage-title-${item.id}" value="${item.clean_title || ''}" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+                <input type="text" id="stage-title-${item.id}" value="${escapeHtmlAttribute(item.clean_title || '')}" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
               </div>
               <div style="flex: 1; min-width: 80px;">
                 <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Temp:</label>
@@ -151,7 +152,7 @@ export async function deleteStagedItem(id) {
   if (!confirm('¿Seguro que deseas eliminar este archivo descargado de Por Organizar? Se borrará físicamente.')) return;
 
   try {
-    const res = await fetch(`/api/admin/staged/${id}`, {
+    const res = await fetch(`/api/admin/staged/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
     });

@@ -10,6 +10,7 @@ require_once __DIR__ . '/controllers/CalendarController.php';
 require_once __DIR__ . '/controllers/HistoryController.php';
 require_once __DIR__ . '/controllers/AdminController.php';
 require_once __DIR__ . '/controllers/PartyController.php';
+require_once __DIR__ . '/controllers/AppDownloadController.php';
 
 $uri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -77,6 +78,12 @@ $decodedUri = urldecode($uri);
 
 serveStaticFile($frontendDir, $decodedUri);
 
+// The header asks for /library/logo.png (an admin can upload one); without it, serve the bundled
+// KS mark instead of a 404 on every page load.
+if ($decodedUri === '/library/logo.png' && !is_file($libraryDir . '/logo.png')) {
+    serveStaticFile($frontendDir, '/assets/branding/icon-64.png', 'public, max-age=3600');
+}
+
 if (str_starts_with($decodedUri, '/library/')) {
     $rel = substr($decodedUri, strlen('/library/'));
     $ext = strtolower(pathinfo(parse_url($rel, PHP_URL_PATH) ?: $rel, PATHINFO_EXTENSION));
@@ -87,6 +94,10 @@ if (str_starts_with($decodedUri, '/library/')) {
     serveStaticFile($libraryDir, $rel, 'public, max-age=3600');
     serveStaticFile($libraryDir, str_replace('_', ' ', $rel), 'public, max-age=3600');
     serveStaticFile($libraryDir, str_replace(' ', '_', $rel), 'public, max-age=3600');
+    // Preset avatars ship with the repository, which is not the media library when MEDIA_LIBRARY_PATH points elsewhere.
+    if (str_starts_with($rel, 'avatars/presets/')) {
+        serveStaticFile(ROOT_DIR . '/library', $rel, 'public, max-age=86400');
+    }
 }
 
 // API Routes
@@ -132,6 +143,14 @@ if ($uri === '/api/health' && $method === 'GET') {
     jsonResponse($response);
 }
 
+if ($uri === '/api/app/android' && $method === 'GET') {
+    AppDownloadController::info();
+}
+
+if ($uri === '/api/app/android/download' && in_array($method, ['GET', 'HEAD'], true)) {
+    AppDownloadController::download($method);
+}
+
 if ($uri === '/api/debug-log' && $method === 'POST') {
     $env = getenv('APP_ENV') ?: 'production';
     if ($env !== 'development') {
@@ -166,7 +185,7 @@ if ($uri === '/api/profiles/delete' && $method === 'POST') {
     $raw = file_get_contents('php://input');
     $d = json_decode($raw, true) ?: [];
     $profId = $d['id'] ?? ($_GET['id'] ?? '');
-    AuthController::deleteProfile($profId);
+    AuthController::deleteProfile((string)$profId, trim((string)($d['pin'] ?? '')));
 }
 
 if ($uri === '/api/shows' && $method === 'GET') {
@@ -232,6 +251,10 @@ if ($uri === '/api/user/stats' && $method === 'GET') {
 
 if ($uri === '/api/history' && $method === 'GET') {
     HistoryController::getHistory();
+}
+
+if ($uri === '/api/history/continue' && $method === 'GET') {
+    HistoryController::getContinueWatching();
 }
 
 if (preg_match('#^/api/progress/([^/]+)$#', $uri, $m) && $method === 'GET') {
@@ -392,6 +415,10 @@ if ($uri === '/api/admin/episodes/update' && $method === 'POST') {
 if (preg_match('#^/api/admin/shows/([^/]+)/sync-episodes-tmdb$#', $uri, $m) && $method === 'POST') {
     AuthMiddleware::requireAdmin();
     AdminController::syncShowEpisodesTmdb(urldecode($m[1]));
+}
+
+if (preg_match('#^/api/admin/shows/([^/]+)/sync-seasons$#', $uri, $m) && $method === 'POST') {
+    AdminController::syncShowSeasons(urldecode($m[1]));
 }
 
 if ($uri === '/api/comments' && $method === 'GET') {

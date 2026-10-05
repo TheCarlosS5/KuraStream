@@ -26,13 +26,15 @@ export function stopAdminStatsPolling() {
 }
 
 export async function fetchAdminStats() {
-  const statsContainer = document.getElementById('admin-stats-container');
-  if (!statsContainer) return;
+  // Element IDs match the overview markup in index.html (#admin-sub-overview).
+  const statsGrid = document.querySelector('#admin-sub-overview .admin-stats-grid');
+  if (!statsGrid) return;
 
   try {
     const res = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
     if (res.status === 401 || res.status === 403) {
-      statsContainer.innerHTML = `<div class="admin-card" style="text-align: center; padding: 25px;">
+      stopAdminStatsPolling();
+      statsGrid.innerHTML = `<div class="admin-card" style="text-align: center; padding: 25px;">
         <p style="color: #ff5555; font-weight: 600;">Sesión de administrador no autorizada.</p>
         <button type="button" class="btn btn-primary" id="btn-reauth-stats">Iniciar Sesión Administrador</button>
       </div>`;
@@ -43,28 +45,26 @@ export async function fetchAdminStats() {
 
     if (!res.ok) return;
     const data = await res.json();
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
 
-    const showsCountEl = document.getElementById('stat-shows-count');
-    const episodesCountEl = document.getElementById('stat-episodes-count');
-    const librarySizeEl = document.getElementById('stat-library-size');
-    const videoHoursEl = document.getElementById('stat-video-hours');
-    const storagePercentEl = document.getElementById('stat-storage-percent');
-    const storageProgressEl = document.getElementById('stat-storage-progress');
-    const storageDetailsEl = document.getElementById('stat-storage-details');
-
-    if (showsCountEl) showsCountEl.textContent = data.showsCount || 0;
-    if (episodesCountEl) episodesCountEl.textContent = data.episodesCount || 0;
-    if (librarySizeEl) librarySizeEl.textContent = data.librarySizeFormatted || '0 GB';
-    if (videoHoursEl) videoHoursEl.textContent = `${data.totalHours || 0} h`;
+    setText('stat-shows', data.showsCount || 0);
+    setText('stat-episodes', data.episodesCount || 0);
+    setText('stat-size', data.librarySizeFormatted || '0 GB');
+    setText('stat-duration', `${data.totalHours || 0} h`);
+    setText('stat-library-folder-size', data.librarySizeFormatted || '0 GB');
 
     if (data.diskInfo) {
       const disk = data.diskInfo;
-      const pct = disk.usedPercent || 0;
-      if (storagePercentEl) storagePercentEl.textContent = `${pct.toFixed(1)}% USADO`;
-      if (storageProgressEl) storageProgressEl.style.width = `${pct}%`;
-      if (storageDetailsEl) {
-        storageDetailsEl.textContent = `Capacidad Biblioteca: ${data.librarySizeFormatted} | Espacio Usado: ${disk.usedFormatted} | Espacio Libre: ${disk.freeFormatted} | Capacidad Total Disco: ${disk.totalFormatted}`;
-      }
+      const pct = Number(disk.usedPercent) || 0;
+      setText('disk-usage-badge', `${pct.toFixed(1)}% USADO`);
+      setText('stat-disk-used', disk.usedFormatted || '--');
+      setText('stat-disk-free', disk.freeFormatted || '--');
+      setText('stat-disk-total', disk.totalFormatted || '--');
+      const bar = document.getElementById('disk-progress-bar');
+      if (bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
     }
   } catch (err) {
     console.warn('[Admin Status] Stats fetch warning:', err.message);
@@ -72,7 +72,7 @@ export async function fetchAdminStats() {
 }
 
 export async function fetchDisplayStatus() {
-  const badge = document.getElementById('display-power-badge');
+  const badge = document.getElementById('display-status-badge');
   const btnOff = document.getElementById('btn-display-off');
   const btnOn = document.getElementById('btn-display-on');
 

@@ -483,7 +483,7 @@ Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,KURASTREAM SUBTITLE TEST`
     await expect(moreMenu).toBeHidden();
 
     // -------------------------------------------------------------------------
-    // Step 29 & 30: Detect OP/ED in Admin & Apply Timings
+    // Step 29 & 30: The admin editor shows the detected OP/ED (no manual editing)
     // -------------------------------------------------------------------------
     await page.goto('/#/admin');
     await page.waitForLoadState('domcontentloaded');
@@ -493,18 +493,12 @@ Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,KURASTREAM SUBTITLE TEST`
     await page.click(`.btn-edit-media[data-id="${testShowId}"]`);
     await expect(page.locator('#media-edit-modal-overlay')).toBeVisible();
 
-    // Click "Detectar OP/ED" on episode timing card
+    // Read-only summary of the automatic timings
     const epTimingCard = page.locator(`.episode-timing-card[data-ep-id="${testEpId}"]`);
     await expect(epTimingCard).toBeVisible();
-    const btnDetect = epTimingCard.locator('.btn-detect-timings');
-    await btnDetect.click();
-    await expect(epTimingCard.locator('.input-intro-start')).toHaveValue('10');
-    await expect(epTimingCard.locator('.input-intro-end')).toHaveValue('100');
-
-    // Click "Guardar"
-    const btnSave = epTimingCard.locator('.btn-save-timings');
-    await btnSave.click();
-    await expect(epTimingCard.locator('.timing-status-badge')).toContainText('Guardado');
+    await expect(epTimingCard.locator('.timing-summary')).toContainText('Intro 0:10 – 1:40');
+    await expect(epTimingCard.locator('.timing-summary')).toContainText('Ending 22:00');
+    await expect(epTimingCard.locator('input')).toHaveCount(0);
 
     // Close Media Editor
     await page.click('#edit-media-close');
@@ -534,8 +528,7 @@ Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,KURASTREAM SUBTITLE TEST`
     // Reopen editor and verify saved timings are still intact
     await page.click(`.btn-edit-media[data-id="${testShowId}"]`);
     await expect(page.locator('#media-edit-modal-overlay')).toBeVisible();
-    await expect(epTimingCard.locator('.input-intro-start')).toHaveValue('10');
-    await expect(epTimingCard.locator('.input-intro-end')).toHaveValue('100');
-    await expect(epTimingCard.locator('.input-outro-start')).toHaveValue('1320');
+    await expect(epTimingCard.locator('.timing-summary')).toContainText('Intro 0:10 – 1:40');
+    await expect(epTimingCard.locator('.timing-summary')).toContainText('Ending 22:00');
   });
 });

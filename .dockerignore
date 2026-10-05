@@ -12,3 +12,17 @@ node_modules/
 *.tmp
 .DS_Store
 Thumbs.db
+# Secrets, local data and tooling that must never end up in the image
+apikeys.txt
+kurastream_*.sql
+*.apk
+diff.patch
+.tools/
+bin/
+android/
+.artifacts/
+.superpowers/
+.agy-atlas/
+test-results/
+playwright-report/
+scripts/*.py

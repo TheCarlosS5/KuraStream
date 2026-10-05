@@ -16,7 +16,9 @@ data class Profile(
     val color: String = "#818CF8",
     val avatarColor: String = "#818CF8",
     val isKids: Boolean = false,
-    val hasPin: Boolean = false
+    val hasPin: Boolean = false,
+    /** Server-relative photo path (/library/avatars/...), empty when the profile uses its initial. */
+    val avatar: String = ""
 )
 
 data class SessionState(

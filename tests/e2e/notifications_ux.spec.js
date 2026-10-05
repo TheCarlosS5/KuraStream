@@ -60,6 +60,15 @@ test.describe('Notifications UX Contract E2E Suite', () => {
       });
     });
 
+    // Notifications belong to a profile (the API answers 401/403 otherwise), so open the app with a profile session.
+    await page.addInitScript(() => {
+      const b64 = obj => btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const payload = { username: 'notif_e2e', role: 'user', profile_id: 'prof_e2e', profile_name: 'Principal', exp: Math.floor(Date.now() / 1000) + 3600 };
+      localStorage.setItem('kurastream_jwt', `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(payload)}.signature`);
+      localStorage.setItem('kurastream_user', JSON.stringify({ username: 'notif_e2e', role: 'user' }));
+      localStorage.setItem('kurastream_active_profile', JSON.stringify({ id: 'prof_e2e', name: 'Principal', is_kids: false }));
+    });
+
     await page.goto('/');
 
     const trigger = page.locator('#btn-notifications-trigger');

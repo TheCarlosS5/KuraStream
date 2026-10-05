@@ -56,7 +56,8 @@ class WatchPartyViewModel @Inject constructor(
                             val updatedSession = current.activeSession?.copy(room = updatedRoom)
                             current.copy(
                                 activeSession = updatedSession,
-                                lastSync = event.sync
+                                lastSync = event.sync,
+                                errorMessage = null
                             )
                         }
                         partyRepository.updatePlaybackState(
@@ -66,25 +67,25 @@ class WatchPartyViewModel @Inject constructor(
                         )
                     }
                     is PartyRealtimeEvent.Message -> {
-                        _uiState.update { it.copy(messages = it.messages + event.message) }
+                        _uiState.update { it.copy(messages = it.messages + event.message, errorMessage = null) }
                     }
                     is PartyRealtimeEvent.MessagesBatch -> {
                         _uiState.update { current ->
                             val existingIds = current.messages.map { it.id }.toSet()
                             val newOnes = event.messages.filter { it.id !in existingIds }
-                            current.copy(messages = current.messages + newOnes)
+                            current.copy(messages = current.messages + newOnes, errorMessage = null)
                         }
                     }
                     is PartyRealtimeEvent.MembersUpdated -> {
-                        _uiState.update { it.copy(members = event.members) }
+                        _uiState.update { it.copy(members = event.members, errorMessage = null) }
                     }
                     is PartyRealtimeEvent.MemberJoined -> {
                         _uiState.update {
-                            if (!it.members.contains(event.username)) it.copy(members = it.members + event.username) else it
+                            if (!it.members.contains(event.username)) it.copy(members = it.members + event.username, errorMessage = null) else it.copy(errorMessage = null)
                         }
                     }
                     is PartyRealtimeEvent.MemberLeft -> {
-                        _uiState.update { it.copy(members = it.members - event.username) }
+                        _uiState.update { it.copy(members = it.members - event.username, errorMessage = null) }
                     }
                     is PartyRealtimeEvent.RoomClosed -> {
                         partyPlaybackContext.clear()
@@ -97,6 +98,10 @@ class WatchPartyViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun clearError() {
+        _uiState.update { it.copy(errorMessage = null) }
     }
 
     fun onRoomIdChanged(id: String) {
@@ -191,6 +196,14 @@ class WatchPartyViewModel @Inject constructor(
         }
     }
 
+    /** Sends a reaction (icon key shared with the web: flame, heart, smile, sparkles, thumbs-up). */
+    fun sendReaction(key: String) {
+        val session = _uiState.value.activeSession ?: return
+        viewModelScope.launch {
+            partyRepository.sendMessage(session, key, type = "reaction")
+        }
+    }
+
     fun leaveRoom() {
         partyPlaybackContext.clear()
         val session = _uiState.value.activeSession ?: return
@@ -201,7 +214,8 @@ class WatchPartyViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        leaveRoom()
+        // Leaving this screen keeps the room: the session lives in WatchPartyRepository so the
+        // player stays in sync; "Salir" (leaveRoom) is the explicit way out.
         super.onCleared()
     }
 }

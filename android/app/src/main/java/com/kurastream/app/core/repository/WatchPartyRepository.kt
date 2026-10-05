@@ -1,5 +1,6 @@
 package com.kurastream.app.core.repository
 
+import com.kurastream.app.core.network.toUserFacingError
 import com.kurastream.app.core.model.PartyRoom
 import com.kurastream.app.core.network.KuraApiService
 import com.kurastream.app.core.network.PartyRealtimeEvent
@@ -24,6 +25,7 @@ class WatchPartyRepository(
     private val apiService: KuraApiService,
     private val watchPartyClient: WatchPartyClient
 ) {
+
     val realtimeEvents: Flow<PartyRealtimeEvent> = watchPartyClient.events
 
     private val _activeSession = kotlinx.coroutines.flow.MutableStateFlow<ActivePartySession?>(null)
@@ -68,7 +70,8 @@ class WatchPartyRepository(
                         currentTime = it.currentTime,
                         isPlaying = it.isPlaying,
                         isPublic = it.isPublic,
-                        memberCount = it.memberCount
+                        memberCount = it.memberCount,
+                        allowGuestControls = true
                     )
                 }
                 val session = ActivePartySession(
@@ -86,7 +89,7 @@ class WatchPartyRepository(
                 Result.failure(Exception("Error al crear la sala de Watch Party"))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -102,7 +105,8 @@ class WatchPartyRepository(
                     currentTime = res.room.currentTime,
                     isPlaying = res.room.isPlaying,
                     isPublic = res.room.isPublic,
-                    memberCount = res.room.memberCount
+                    memberCount = res.room.memberCount,
+                    allowGuestControls = res.room.allowGuestControls
                 )
                 val session = ActivePartySession(
                     roomId = res.room.id,
@@ -119,7 +123,7 @@ class WatchPartyRepository(
                 Result.failure(Exception("Error al unirse a la sala de Watch Party"))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -160,19 +164,20 @@ class WatchPartyRepository(
         } catch (_: Exception) {}
     }
 
-    suspend fun sendMessage(session: ActivePartySession, text: String): Result<Unit> {
+    suspend fun sendMessage(session: ActivePartySession, text: String, type: String = "chat"): Result<Unit> {
         return try {
             apiService.sendPartyMessage(
                 memberId = session.memberId,
                 memberToken = session.memberToken,
                 body = PartyMessageRequestDto(
                     roomId = session.roomId,
-                    message = text
+                    message = text,
+                    type = type
                 )
             )
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 

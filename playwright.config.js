@@ -24,7 +24,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'php -d upload_max_filesize=4096M -d post_max_size=4096M -d memory_limit=512M -d max_execution_time=600 -d max_input_time=600 -c php.ini -S 127.0.0.1:3000 php_backend/router.php',
+    command: 'node scripts/run-php.mjs -d upload_max_filesize=4096M -d post_max_size=4096M -d memory_limit=512M -d max_execution_time=600 -d max_input_time=600 -c php.ini -S 127.0.0.1:3000 php_backend/router.php',
     url: 'http://127.0.0.1:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 30000,

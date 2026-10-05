@@ -328,7 +328,51 @@ class TmdbScraper {
         return $result;
     }
 
-    public static function downloadFile(string $url, string $destPath, int $maxBytes = 15728640): bool {
+    /**
+     * The seasons TMDB knows for a show: season number => name, overview, poster, air date and
+     * episode count. Empty when TMDB cannot be reached.
+     */
+    public static function getSeasonList(int $tmdbId): array {
+        $details = self::fetch("/tv/{$tmdbId}", ['language' => 'es-ES']);
+        $out = [];
+        foreach ($details['seasons'] ?? [] as $s) {
+            $num = (int)($s['season_number'] ?? -1);
+            if ($num < 0) continue;
+            $out[$num] = [
+                'name' => trim($s['name'] ?? ''),
+                'overview' => trim($s['overview'] ?? ''),
+                'poster_path' => !empty($s['poster_path']) ? 'https://image.tmdb.org/t/p/w780' . $s['poster_path'] : '',
+                'air_date' => $s['air_date'] ?? null,
+                'episode_count' => isset($s['episode_count']) ? (int)$s['episode_count'] : null,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * One season in detail: overview (Spanish only; empty when TMDB has none) and the air date of
+     * each episode, which is what ties TMDB numbering to the MyAnimeList entries of the franchise.
+     */
+    public static function getSeasonDetail(int $tmdbId, int $seasonNumber): ?array {
+        $es = self::fetch("/tv/{$tmdbId}/season/{$seasonNumber}", ['language' => 'es-ES']);
+        if (empty($es)) return null;
+        $overview = trim($es['overview'] ?? '');
+        $airDates = [];
+        foreach ($es['episodes'] ?? [] as $ep) {
+            $num = (int)($ep['episode_number'] ?? -1);
+            if ($num >= 0) $airDates[$num] = $ep['air_date'] ?? null;
+        }
+        ksort($airDates);
+        return [
+            'name' => trim($es['name'] ?? ''),
+            'overview' => $overview,
+            'poster_path' => !empty($es['poster_path']) ? 'https://image.tmdb.org/t/p/w780' . $es['poster_path'] : '',
+            'air_date' => $es['air_date'] ?? null,
+            'episodes' => $airDates,
+        ];
+    }
+
+    public static function downloadFile(string $url, string $destPath, int $maxBytes = 15728640, array $allowedHosts = ['image.tmdb.org']): bool {
         if (empty($url)) return false;
 
         $parsed = parse_url($url);
@@ -337,7 +381,7 @@ class TmdbScraper {
         }
 
         $host = strtolower($parsed['host'] ?? '');
-        if ($host !== 'image.tmdb.org') {
+        if (!in_array($host, $allowedHosts, true)) {
             return false;
         }
 
@@ -386,7 +430,7 @@ class TmdbScraper {
         // Validate effective URL host after redirects
         $effParsed = parse_url($effectiveUrl);
         $effHost = strtolower($effParsed['host'] ?? '');
-        if ($effHost !== 'image.tmdb.org') {
+        if (!in_array($effHost, $allowedHosts, true)) {
             @unlink($tmpFile);
             return false;
         }

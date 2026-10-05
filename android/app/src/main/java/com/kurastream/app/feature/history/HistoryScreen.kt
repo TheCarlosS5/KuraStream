@@ -1,5 +1,6 @@
 package com.kurastream.app.feature.history
 
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
@@ -67,7 +69,7 @@ fun HistoryScreen(
                     KuraErrorView(message = state.message, onRetry = viewModel::loadHistory)
                 }
                 is UiState.Empty -> {
-                    KuraEmptyView(message = state.message)
+                    KuraEmptyView(message = state.message, icon = Icons.Outlined.History)
                 }
                 is UiState.Content, is UiState.Refreshing -> {
                     val items = if (state is UiState.Content) state.data else (state as UiState.Refreshing).currentData
@@ -83,7 +85,9 @@ fun HistoryScreen(
                                 item = item,
                                 thumbnailUrl = thumbUrl,
                                 onClick = { onNavigateToPlayer(item.episodeId) },
-                                onDelete = { viewModel.deleteItem(item.episodeId) }
+                                onDelete = { viewModel.deleteItem(item.episodeId) },
+                                // Rows slide/fade out on delete instead of the list jumping
+                                modifier = Modifier.animateItem()
                             )
                         }
                     }
@@ -119,10 +123,11 @@ private fun HistoryRowItem(
     item: WatchHistoryItem,
     thumbnailUrl: String,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(KuraShapes.Card)
             .background(KuraColors.Surface)
@@ -138,25 +143,26 @@ private fun HistoryRowItem(
                 .background(KuraColors.SurfaceRaised, KuraShapes.Control)
                 .clip(KuraShapes.Control)
         ) {
-            AsyncImage(
+            KuraAsyncImage(
                 model = thumbnailUrl,
                 contentDescription = item.showTitle,
-                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
-            // Progress Bar
+            // Same inset bar as the episode list; finished episodes show it full
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 5.dp)
                     .height(3.dp)
-                    .background(KuraColors.SurfaceHover)
+                    .clip(KuraShapes.Pill)
+                    .background(Color.White.copy(alpha = 0.3f))
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth((item.progressPercentage / 100f).coerceIn(0f, 1f))
-                        .background(KuraColors.Primary)
+                        .fillMaxWidth(if (item.completed) 1f else (item.progressPercentage / 100f).coerceIn(0f, 1f))
+                        .background(if (item.completed) KuraColors.Success else KuraColors.Primary)
                 )
             }
         }
@@ -174,7 +180,7 @@ private fun HistoryRowItem(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "T${item.seasonNumber} E${item.episodeNumber}",
+                text = "T${item.seasonNumber}:E${item.episodeNumber}",
                 style = MaterialTheme.typography.labelSmall,
                 color = KuraColors.TextSecondary
             )

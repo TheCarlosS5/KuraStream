@@ -20,7 +20,7 @@ data class CalendarItem(
 
 @Serializable
 data class NotificationItem(
-    val id: Int,
+    val id: String,
     val title: String,
     val message: String,
     val showId: String? = null,

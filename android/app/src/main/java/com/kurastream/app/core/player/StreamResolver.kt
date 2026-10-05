@@ -2,6 +2,7 @@ package com.kurastream.app.core.player
 
 import com.kurastream.app.core.model.AudioTrack
 import com.kurastream.app.core.model.Episode
+import com.kurastream.app.core.model.SubtitleTrack
 import com.kurastream.app.core.network.ServerUrlResolver
 
 data class ResolvedStream(
@@ -116,24 +117,84 @@ object StreamResolver {
         val targetNorm = normalizeLanguageCode(preferredLanguage)
 
         val match = tracks.indexOfFirst {
-            normalizeLanguageCode(it.language) == targetNorm ||
-                    it.title.contains(preferredLanguage, ignoreCase = true)
+            sameLanguageFamily(trackLanguage(it.language, it.title), targetNorm) ||
+                    (preferredLanguage.length > 2 && it.title.contains(preferredLanguage, ignoreCase = true))
         }
         return if (match >= 0) match else 0
     }
 
     /**
-     * Translates UI track list position to the audio track identifier expected by backend PHP.
-     * PHP matches in order: track_number -> array index -> ffmpeg stream index.
+     * Translates a UI track position to the identifier the server expects. PHP matches
+     * track_number first, then the array position, then the ffmpeg stream index; sending the
+     * stream index for a track_number of 0 (the first track) used to select the *second* track.
+     * track_number is used when the scan numbered the tracks uniquely, the list position otherwise.
      */
     fun resolveAudioTrackBackendParam(episode: Episode, selectedAudioTrackIndex: Int): Int? {
         if (selectedAudioTrackIndex < 0) return null
         val track = episode.audioTracks.getOrNull(selectedAudioTrackIndex) ?: return selectedAudioTrackIndex
+        val numbers = episode.audioTracks.map { it.trackNumber }
+        return if (numbers.toSet().size == numbers.size) track.trackNumber else selectedAudioTrackIndex
+    }
+
+    /** Same rule as [resolveAudioTrackBackendParam] for /api/subtitles/{episode}/{track}. */
+    fun resolveSubtitleTrackBackendParam(episode: Episode, selectedSubtitleTrackIndex: Int): Int {
+        val track = episode.subtitleTracks.getOrNull(selectedSubtitleTrackIndex) ?: return selectedSubtitleTrackIndex
+        val numbers = episode.subtitleTracks.map { it.trackNumber }
+        return if (numbers.toSet().size == numbers.size) track.trackNumber else selectedSubtitleTrackIndex
+    }
+
+    /** Language of a track from its code, or from cues in its title when the code is "und". */
+    fun trackLanguage(language: String, title: String): String {
+        val code = normalizeLanguageCode(language)
+        if (code.isNotBlank() && code != "und") return code
+        val words = titleWords(title)
         return when {
-            track.trackNumber > 0 -> track.trackNumber
-            track.index > 0 -> track.index
-            else -> selectedAudioTrackIndex
+            words.any { it in LATINO_CUES } -> "es-419"
+            words.any { it in SPANISH_CUES } -> "spa"
+            words.any { it in JAPANESE_CUES } -> "jpn"
+            words.any { it in ENGLISH_CUES } -> "eng"
+            else -> "und"
         }
+    }
+
+    private fun titleWords(title: String): Set<String> =
+        title.lowercase().split(Regex("[^a-z0-9ñáéíóú-]+")).filter { it.isNotBlank() }.toSet()
+
+    private val LATINO_CUES = setOf("latino", "lat", "es-la", "es-419", "latam")
+    private val SPANISH_CUES = setOf("spa", "esp", "es", "spanish", "español", "espanol", "castellano")
+    private val JAPANESE_CUES = setOf("jpn", "jap", "ja", "japanese", "japonés", "japones")
+    private val ENGLISH_CUES = setOf("eng", "en", "english", "inglés", "ingles")
+    private val FORCED_CUES = setOf("forced", "forzado", "forzados", "signs", "carteles")
+
+    private fun sameLanguageFamily(a: String, b: String): Boolean {
+        if (a == "und" || b == "und" || a.isBlank() || b.isBlank()) return false
+        val spanish = setOf("spa", "es-419")
+        return a == b || (a in spanish && b in spanish)
+    }
+
+    private fun isForcedSubtitle(track: SubtitleTrack): Boolean =
+        track.isForced || titleWords(track.title).any { it in FORCED_CUES }
+
+    /**
+     * Subtitle track to start with (-1 = off), same rules as the web player: text tracks only;
+     * when the audio already is in the viewer's language (a dub) full subtitles in that language
+     * are skipped and only forced/signs tracks are used; foreign audio falls back to the file's
+     * default track if there is none in the viewer's language.
+     */
+    fun chooseSubtitleTrack(tracks: List<SubtitleTrack>, preferredLanguage: String, audioLanguage: String): Int {
+        val pref = preferredLanguage.trim().lowercase()
+        if (tracks.isEmpty() || pref.isEmpty() || pref == "off") return -1
+        val target = if (pref == "default") "spa" else normalizeLanguageCode(pref)
+        val text = tracks.withIndex().filter { !it.value.isBitmap }
+        val inTarget = text.filter { sameLanguageFamily(trackLanguage(it.value.language, it.value.title), target) }
+        val match = if (sameLanguageFamily(audioLanguage, target)) {
+            inTarget.firstOrNull { isForcedSubtitle(it.value) }
+        } else {
+            inTarget.firstOrNull { !isForcedSubtitle(it.value) }
+                ?: inTarget.firstOrNull()
+                ?: text.firstOrNull { it.value.isDefault && !isForcedSubtitle(it.value) }
+        }
+        return match?.index ?: -1
     }
 
     /**
@@ -158,13 +219,10 @@ object StreamResolver {
     }
 
     /**
-     * Finds next consecutive episode in show (handles S1E12 -> S2E1 automatically).
+     * Next episode of the show (S1E12 -> S2E1; specials only lead to other specials).
      */
-    fun findNextEpisode(currentEpisodeId: String, episodes: List<Episode>): Episode? {
-        val sorted = episodes.sortedWith(compareBy({ it.seasonNumber }, { it.episodeNumber }))
-        val idx = sorted.indexOfFirst { it.id == currentEpisodeId }
-        return if (idx >= 0 && idx + 1 < sorted.size) sorted[idx + 1] else null
-    }
+    fun findNextEpisode(currentEpisodeId: String, episodes: List<Episode>): Episode? =
+        com.kurastream.app.core.model.EpisodeOrder.next(episodes, currentEpisodeId)
 
     /**
      * KuraStream considers an episode completed when 90% or more of its duration has been watched.

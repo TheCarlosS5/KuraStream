@@ -1,7 +1,7 @@
 /**
  * KuraStream v2.0 - Self-Contained In-Browser QR Code Generator
  * Generates pure SVG QR codes without any external network dependencies or APIs.
- * Supports Byte encoding (ISO-8859-1 / UTF-8) with Error Correction Level L/M.
+ * Byte-mode (UTF-8) encoding, error correction level L, versions 1-6 (up to 134 bytes).
  */
 
 // Galois Field GF(256) tables for QR Reed-Solomon
@@ -36,6 +36,8 @@ function rsGeneratorPoly(degree) {
 }
 
 function rsCalculateEcc(data, eccLength) {
+  // rsGeneratorPoly is little-endian (gen[k] multiplies x^k); the division walks it from the
+  // highest power down, skipping the implicit leading 1.
   const gen = rsGeneratorPoly(eccLength);
   const res = new Array(eccLength).fill(0);
   for (let i = 0; i < data.length; i++) {
@@ -43,52 +45,43 @@ function rsCalculateEcc(data, eccLength) {
     res.shift();
     res.push(0);
     for (let j = 0; j < eccLength; j++) {
-      res[j] ^= gfMul(gen[j], factor);
+      res[j] ^= gfMul(gen[eccLength - 1 - j], factor);
     }
   }
   return res;
 }
 
-// Version capacities (byte mode, ECC Level M)
-// V1: 21x21 (14 data bytes, 10 ecc)
-// V2: 25x25 (26 data bytes, 16 ecc)
-// V3: 29x29 (42 data bytes, 26 ecc)
-// V4: 33x33 (62 data bytes, 36 ecc)
-// V5: 37x37 (84 data bytes, 48 ecc)
-// V6: 41x41 (106 data bytes, 64 ecc)
+// Error correction level L (ISO/IEC 18004 table 9). V1-V5 use a single block; V6 splits the data
+// into two equal blocks whose codewords are interleaved.
 const VERSIONS = [
   null,
-  { size: 21, dataBytes: 14, eccBytes: 10, totalBytes: 26, align: [] },
-  { size: 25, dataBytes: 26, eccBytes: 16, totalBytes: 44, align: [6, 18] },
-  { size: 29, dataBytes: 42, eccBytes: 26, totalBytes: 70, align: [6, 22] },
-  { size: 33, dataBytes: 62, eccBytes: 36, totalBytes: 100, align: [6, 26] },
-  { size: 37, dataBytes: 84, eccBytes: 48, totalBytes: 134, align: [6, 30] },
-  { size: 41, dataBytes: 106, eccBytes: 64, totalBytes: 172, align: [6, 34] }
+  { size: 21, blocks: 1, dataPerBlock: 19, eccPerBlock: 7, align: [] },
+  { size: 25, blocks: 1, dataPerBlock: 34, eccPerBlock: 10, align: [6, 18] },
+  { size: 29, blocks: 1, dataPerBlock: 55, eccPerBlock: 15, align: [6, 22] },
+  { size: 33, blocks: 1, dataPerBlock: 80, eccPerBlock: 20, align: [6, 26] },
+  { size: 37, blocks: 1, dataPerBlock: 108, eccPerBlock: 26, align: [6, 30] },
+  { size: 41, blocks: 2, dataPerBlock: 68, eccPerBlock: 18, align: [6, 34] }
 ];
+
+// 15-bit format word for level L (01) with mask 0, BCH-encoded and XORed with 0x5412.
+const FORMAT_BITS_L_MASK0 = 0b111011111000100;
 
 export function createQRCodeMatrix(text) {
   // Encode text as UTF-8 bytes
   const encoder = new TextEncoder();
   const rawBytes = encoder.encode(text);
 
-  // Pick smallest fitting version
-  let version = null;
-  let vNum = 1;
+  // Smallest version that fits mode (4 bits) + 8-bit count + payload; longer text is truncated to V6.
+  let vNum = VERSIONS.length - 1;
   for (let v = 1; v < VERSIONS.length; v++) {
-    if (rawBytes.length + 3 <= VERSIONS[v].dataBytes) {
-      version = VERSIONS[v];
+    if (12 + rawBytes.length * 8 <= VERSIONS[v].blocks * VERSIONS[v].dataPerBlock * 8) {
       vNum = v;
       break;
     }
   }
+  const version = VERSIONS[vNum];
 
-  if (!version) {
-    // If larger than V6, clamp to V6 or truncate
-    vNum = VERSIONS.length - 1;
-    version = VERSIONS[vNum];
-  }
-
-  const dataCap = version.dataBytes;
+  const dataCap = version.blocks * version.dataPerBlock;
   const bitStream = [];
 
   function pushBits(val, len) {
@@ -100,7 +93,7 @@ export function createQRCodeMatrix(text) {
   // Byte mode indicator: 0100
   pushBits(0b0100, 4);
   // Character count indicator (8 bits for V1-V9 in byte mode)
-  const actualLen = Math.min(rawBytes.length, dataCap - 3);
+  const actualLen = Math.min(rawBytes.length, Math.floor((dataCap * 8 - 12) / 8));
   pushBits(actualLen, 8);
 
   // Bytes data
@@ -135,9 +128,21 @@ export function createQRCodeMatrix(text) {
     dataBytes.push(byte);
   }
 
-  // Calculate ECC
-  const ecc = rsCalculateEcc(dataBytes, version.eccBytes);
-  const allCodewords = dataBytes.concat(ecc);
+  // ECC per block, then interleave: data codewords column by column, then ECC the same way.
+  const dataBlocks = [];
+  const eccBlocks = [];
+  for (let b = 0; b < version.blocks; b++) {
+    const block = dataBytes.slice(b * version.dataPerBlock, (b + 1) * version.dataPerBlock);
+    dataBlocks.push(block);
+    eccBlocks.push(rsCalculateEcc(block, version.eccPerBlock));
+  }
+  const allCodewords = [];
+  for (let i = 0; i < version.dataPerBlock; i++) {
+    for (const block of dataBlocks) allCodewords.push(block[i]);
+  }
+  for (let i = 0; i < version.eccPerBlock; i++) {
+    for (const block of eccBlocks) allCodewords.push(block[i]);
+  }
 
   // Initialize matrix
   const N = version.size;
@@ -246,25 +251,17 @@ export function createQRCodeMatrix(text) {
     }
   }
 
-  // Format bits for ECC M + Mask 0: 101010000010010
-  const formatBits = [1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0];
-  // Write format info around top-left
-  const fPosTopLeft = [
-    [8, 0], [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 7], [8, 8],
-    [7, 8], [5, 8], [4, 8], [3, 8], [2, 8], [1, 8], [0, 8]
-  ];
-  for (let i = 0; i < 15; i++) {
-    const [r, c] = fPosTopLeft[i];
-    matrix[r][c] = formatBits[i];
-  }
-
-  // Write format info on other corners
-  for (let i = 0; i < 7; i++) {
-    matrix[N - 1 - i][8] = formatBits[i];
-  }
-  for (let i = 0; i < 8; i++) {
-    matrix[8][N - 8 + i] = formatBits[7 + i];
-  }
+  // Format information; bit i counts from the least significant end.
+  const fmt = i => (FORMAT_BITS_L_MASK0 >> i) & 1;
+  // First copy, around the top-left finder
+  for (let i = 0; i <= 5; i++) matrix[i][8] = fmt(i);
+  matrix[7][8] = fmt(6);
+  matrix[8][8] = fmt(7);
+  matrix[8][7] = fmt(8);
+  for (let i = 9; i < 15; i++) matrix[8][14 - i] = fmt(i);
+  // Second copy, split between the top-right and bottom-left finders
+  for (let i = 0; i < 8; i++) matrix[8][N - 1 - i] = fmt(i);
+  for (let i = 8; i < 15; i++) matrix[N - 15 + i][8] = fmt(i);
 
   return matrix;
 }

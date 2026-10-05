@@ -198,7 +198,6 @@
   box-shadow: var(--shadow-lg);
   display: none;
   z-index: var(--z-overlay);
-  backdrop-filter: blur(16px);
   flex-direction: column;
   gap: 2px;
 }
@@ -253,6 +252,10 @@
 }
 
 /* Header Search */
+.nav-icon-btn.mobile-search-toggle {
+  display: none;
+}
+
 .header-search {
   position: relative;
   width: 190px;
@@ -344,7 +347,6 @@
   display: none;
   flex-direction: column;
   overflow: hidden;
-  backdrop-filter: blur(16px);
 }
 
 .notifications-dropdown.show {
@@ -484,7 +486,6 @@
   padding: 8px 0;
   display: none;
   flex-direction: column;
-  backdrop-filter: blur(16px);
 }
 
 .user-dropdown-card.show {
@@ -525,7 +526,11 @@
 
 /* Views Architecture */
 .views-container {
-  margin-top: var(--header-height);
+  /* --header-offset is the measured header height (navigation.js); it grows when the header wraps. */
+  margin-top: var(--header-offset, var(--header-height));
+  /* Contain child margins: a view's first top margin (profile picker, settings) used to collapse
+     into this one and the content sat flush under the header. */
+  display: flow-root;
   min-height: calc(100vh - var(--header-height));
   position: relative;
 }
@@ -558,12 +563,11 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-card);
   padding: 24px;
-  backdrop-filter: blur(12px);
 }
 
 .view-header h1 {
   font-family: var(--font-title);
-  font-size: 2rem;
+  font-size: 2.4rem;
   font-weight: 800;
   color: var(--text-main);
   margin-bottom: 6px;
@@ -663,9 +667,10 @@
 }
 
 .custom-logo {
-  height: 36px;
+  height: 32px;
   width: auto;
   object-fit: contain;
+  border-radius: var(--radius-control);
 }
 
 .fallback-logo {

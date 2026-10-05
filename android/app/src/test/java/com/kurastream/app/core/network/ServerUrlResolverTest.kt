@@ -105,4 +105,10 @@ class ServerUrlResolverTest {
         assertTrue(url.contains("codec=h264"))
         assertTrue(url.contains("downmix=stereo"))
     }
+
+    @Test
+    fun `buildMediaUrl returns empty for missing artwork instead of the server root`() {
+        assertEquals("", ServerUrlResolver.buildMediaUrl("http://192.168.1.100:3000", ""))
+        assertEquals("", ServerUrlResolver.buildMediaUrl("http://192.168.1.100:3000", "   "))
+    }
 }

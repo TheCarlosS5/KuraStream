@@ -29,8 +29,42 @@ class Database {
                 }
                 jsonError("Database Connection Failed. Please check server logs.", 500);
             }
+            if (!defined('TESTING_MODE')) {
+                self::applyPendingMigrations(self::$pdo);
+            }
         }
         return self::$pdo;
+    }
+
+    /**
+     * Brings the schema up to date after a code update, so new columns exist before any query uses them.
+     * A marker file keyed on the newest migration keeps this to a filesystem check on normal requests.
+     */
+    private static function applyPendingMigrations(PDO $pdo): void {
+        $files = glob(__DIR__ . '/migrations/*.sql') ?: [];
+        if (empty($files)) {
+            return;
+        }
+        sort($files);
+        $latest = basename(end($files));
+        $marker = sys_get_temp_dir() . '/kurastream_schema_' . md5(DB_HOST . '|' . DB_PORT . '|' . DB_NAME) . '.txt';
+        if (@file_get_contents($marker) === $latest) {
+            return;
+        }
+
+        require_once __DIR__ . '/services/MigrationManager.php';
+        // Several server workers can get here at once; only one may run the ALTER statements.
+        $locked = (int)$pdo->query("SELECT GET_LOCK('kurastream_migrations', 30)")->fetchColumn() === 1;
+        try {
+            MigrationManager::runPending($pdo);
+            @file_put_contents($marker, $latest);
+        } catch (Throwable $e) {
+            error_log('KuraStream migration error: ' . $e->getMessage());
+        } finally {
+            if ($locked) {
+                $pdo->query("SELECT RELEASE_LOCK('kurastream_migrations')");
+            }
+        }
     }
 
     public static function initializeSchema(?PDO $customPdo = null): array {
@@ -41,6 +75,26 @@ class Database {
 }
 
 class DbHelper {
+    /**
+     * Runs $work atomically. Joins an already-open transaction instead of nesting
+     * (PDO/MySQL has no nested transactions).
+     */
+    public static function transactional(callable $work) {
+        $db = Database::getConnection();
+        if ($db->inTransaction()) {
+            return $work($db);
+        }
+        $db->beginTransaction();
+        try {
+            $result = $work($db);
+            $db->commit();
+            return $result;
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            throw $e;
+        }
+    }
+
     public static function getShows($type = 'all', $isKids = false): array {
         $db = Database::getConnection();
         $sql = "SELECT * FROM shows";
@@ -129,7 +183,7 @@ class DbHelper {
 
         if ($duration > 0) {
             $progress = max(0.0, min($progress, $duration));
-            if ($completed === null || $progress < ($duration * 0.9)) {
+            if ($completed === null) {
                 $completed = ($progress >= ($duration * 0.9));
             }
         } else {
@@ -221,11 +275,18 @@ class DbHelper {
     }
 
     public static function deleteShow($id): void {
-        $db = Database::getConnection();
-        $db->prepare("DELETE FROM watch_history WHERE episode_id IN (SELECT id FROM episodes WHERE show_id = :id)")->execute(['id' => $id]);
-        $db->prepare("DELETE FROM episodes WHERE show_id = :id")->execute(['id' => $id]);
-        $db->prepare("DELETE FROM favorites WHERE show_id = :id")->execute(['id' => $id]);
-        $db->prepare("DELETE FROM shows WHERE id = :id")->execute(['id' => $id]);
+        // All-or-nothing: a failure halfway used to leave a show without episodes (or orphan favorites).
+        self::transactional(function (PDO $db) use ($id) {
+            $db->prepare("DELETE FROM watch_history WHERE episode_id IN (SELECT id FROM episodes WHERE show_id = :id)")->execute(['id' => $id]);
+            $db->prepare("DELETE FROM episodes WHERE show_id = :id")->execute(['id' => $id]);
+            $db->prepare("DELETE FROM favorites WHERE show_id = :id")->execute(['id' => $id]);
+            try {
+                $db->prepare("DELETE FROM show_seasons WHERE show_id = :id")->execute(['id' => $id]);
+            } catch (Throwable $e) {
+                // Schemas from before migration 010 have no seasons table.
+            }
+            $db->prepare("DELETE FROM shows WHERE id = :id")->execute(['id' => $id]);
+        });
     }
 
     public static function updateShowStatus(string $showId, string $status): bool {
@@ -252,7 +313,8 @@ class DbHelper {
                 'preferred_audio_language' => 'jpn',
                 'preferred_subtitle_language' => 'spa',
                 'audio_boost' => 100,
-                'audio_preset' => 'flat'
+                'audio_preset' => 'flat',
+                'notifications_enabled' => true
             ];
         }
         return [
@@ -261,7 +323,8 @@ class DbHelper {
             'preferred_audio_language' => !empty($row['preferred_audio_language']) ? (string)$row['preferred_audio_language'] : 'jpn',
             'preferred_subtitle_language' => !empty($row['preferred_subtitle_language']) ? (string)$row['preferred_subtitle_language'] : 'spa',
             'audio_boost' => isset($row['audio_boost']) ? (int)$row['audio_boost'] : 100,
-            'audio_preset' => !empty($row['audio_preset']) ? (string)$row['audio_preset'] : 'flat'
+            'audio_preset' => !empty($row['audio_preset']) ? (string)$row['audio_preset'] : 'flat',
+            'notifications_enabled' => array_key_exists('notifications_enabled', $row) ? (bool)$row['notifications_enabled'] : true
         ];
     }
 
@@ -274,17 +337,19 @@ class DbHelper {
         $prefSub = isset($data['preferred_subtitle_language']) ? trim((string)$data['preferred_subtitle_language']) : ($existing['preferred_subtitle_language'] ?? 'spa');
         $audioBoost = isset($data['audio_boost']) ? (int)$data['audio_boost'] : (int)($existing['audio_boost'] ?? 100);
         $audioPreset = isset($data['audio_preset']) ? trim((string)$data['audio_preset']) : ($existing['audio_preset'] ?? 'flat');
+        $notificationsEnabled = isset($data['notifications_enabled']) ? (int)(bool)$data['notifications_enabled'] : (int)$existing['notifications_enabled'];
 
         $stmt = $db->prepare("
-            INSERT INTO user_preferences (username, profile_name, auto_skip_intro, auto_play_next, preferred_audio_language, preferred_subtitle_language, audio_boost, audio_preset)
-            VALUES (:u, :p, :skip, :play, :pref_audio, :pref_sub, :boost, :preset)
+            INSERT INTO user_preferences (username, profile_name, auto_skip_intro, auto_play_next, preferred_audio_language, preferred_subtitle_language, audio_boost, audio_preset, notifications_enabled)
+            VALUES (:u, :p, :skip, :play, :pref_audio, :pref_sub, :boost, :preset, :notif)
             ON DUPLICATE KEY UPDATE 
                 auto_skip_intro = VALUES(auto_skip_intro), 
                 auto_play_next = VALUES(auto_play_next),
                 preferred_audio_language = VALUES(preferred_audio_language),
                 preferred_subtitle_language = VALUES(preferred_subtitle_language),
                 audio_boost = VALUES(audio_boost),
-                audio_preset = VALUES(audio_preset)
+                audio_preset = VALUES(audio_preset),
+                notifications_enabled = VALUES(notifications_enabled)
         ");
         $stmt->execute([
             'u' => $username,
@@ -294,7 +359,8 @@ class DbHelper {
             'pref_audio' => $prefAudio,
             'pref_sub' => $prefSub,
             'boost' => $audioBoost,
-            'preset' => $audioPreset
+            'preset' => $audioPreset,
+            'notif' => $notificationsEnabled
         ]);
     }
 
@@ -356,23 +422,111 @@ class DbHelper {
         $chapters = array_key_exists('chapters', $data) ? $data['chapters'] : ($ep['chapters'] ?? []);
         $chaptersJson = is_array($chapters) ? json_encode($chapters) : $chapters;
 
+        $params = [
+            'id' => $ep['id'],
+            'intro_start' => $introStart,
+            'intro_end' => $introEnd,
+            'outro_start' => $outroStart,
+            'chapters' => $chaptersJson
+        ];
+        // Only touched when the caller says where the timings came from (older schemas lack the columns).
+        $sourceSql = '';
+        if (array_key_exists('intro_source', $data)) {
+            $sourceSql = ', intro_source = :intro_source, intro_checked_at = CURRENT_TIMESTAMP';
+            $params['intro_source'] = $data['intro_source'];
+        }
+        if (array_key_exists('outro_end', $data)) {
+            $sourceSql .= ', outro_end = :outro_end';
+            $params['outro_end'] = $data['outro_end'] !== null ? (int)$data['outro_end'] : null;
+        }
+
         $stmt = $db->prepare("
             UPDATE episodes
             SET intro_start = :intro_start,
                 intro_end = :intro_end,
                 outro_start = :outro_start,
-                chapters = :chapters
+                chapters = :chapters{$sourceSql}
             WHERE id = :id
         ");
 
-        $stmt->execute([
-            'id' => $id,
-            'intro_start' => $introStart,
-            'intro_end' => $introEnd,
-            'outro_start' => $outroStart,
-            'chapters' => $chaptersJson
-        ]);
+        $stmt->execute($params);
         return true;
+    }
+
+    /** Seasons of a show with their own artwork, regular seasons in order and specials last. */
+    public static function getShowSeasons(string $showId): array {
+        $db = Database::getConnection();
+        try {
+            $stmt = $db->prepare("SELECT * FROM show_seasons WHERE show_id = :id");
+            $stmt->execute(['id' => $showId]);
+            $rows = $stmt->fetchAll();
+        } catch (Throwable $e) {
+            return [];
+        }
+        usort($rows, fn($a, $b) => [(int)$a['season_number'] <= 0 ? 1 : 0, (int)$a['season_number']]
+            <=> [(int)$b['season_number'] <= 0 ? 1 : 0, (int)$b['season_number']]);
+        return $rows;
+    }
+
+    public static function getShowSeason(string $showId, int $season): ?array {
+        foreach (self::getShowSeasons($showId) as $row) {
+            if ((int)$row['season_number'] === $season) return $row;
+        }
+        return null;
+    }
+
+    public static function saveShowSeason(array $row): void {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            INSERT INTO show_seasons (show_id, season_number, name, title, synopsis, year, air_date, episode_count, status, poster_path, backdrop_path, anilist_id, mal_id, mal_map, synced_at)
+            VALUES (:show_id, :season_number, :name, :title, :synopsis, :year, :air_date, :episode_count, :status, :poster_path, :backdrop_path, :anilist_id, :mal_id, :mal_map, CURRENT_TIMESTAMP)
+            ON DUPLICATE KEY UPDATE
+                name = VALUES(name),
+                title = VALUES(title),
+                synopsis = VALUES(synopsis),
+                year = VALUES(year),
+                air_date = VALUES(air_date),
+                episode_count = VALUES(episode_count),
+                status = VALUES(status),
+                poster_path = VALUES(poster_path),
+                backdrop_path = VALUES(backdrop_path),
+                anilist_id = VALUES(anilist_id),
+                mal_id = VALUES(mal_id),
+                mal_map = VALUES(mal_map),
+                synced_at = CURRENT_TIMESTAMP
+        ");
+        $stmt->execute([
+            'show_id' => $row['show_id'],
+            'season_number' => (int)$row['season_number'],
+            'name' => $row['name'] ?? '',
+            'title' => $row['title'] ?? '',
+            'synopsis' => $row['synopsis'] ?? '',
+            'year' => $row['year'] ?? null,
+            'air_date' => !empty($row['air_date']) ? $row['air_date'] : null,
+            'episode_count' => $row['episode_count'] ?? null,
+            'status' => $row['status'] ?? null,
+            'poster_path' => $row['poster_path'] ?? '',
+            'backdrop_path' => $row['backdrop_path'] ?? '',
+            'anilist_id' => $row['anilist_id'] ?? null,
+            'mal_id' => $row['mal_id'] ?? null,
+            'mal_map' => json_encode($row['mal_map'] ?? [])
+        ]);
+    }
+
+    public static function serializeSeasonForClient(array $row): array {
+        return [
+            'season_number' => (int)$row['season_number'],
+            'name' => $row['name'] ?? '',
+            'title' => $row['title'] ?? '',
+            'synopsis' => $row['synopsis'] ?? '',
+            'year' => isset($row['year']) && $row['year'] !== null ? (int)$row['year'] : null,
+            'episode_count' => isset($row['episode_count']) && $row['episode_count'] !== null ? (int)$row['episode_count'] : null,
+            'status' => $row['status'] ?? null,
+            'poster_path' => $row['poster_path'] ?? '',
+            'backdrop_path' => $row['backdrop_path'] ?? '',
+            'mal_id' => isset($row['mal_id']) && $row['mal_id'] !== null ? (int)$row['mal_id'] : null,
+            'anilist_id' => isset($row['anilist_id']) && $row['anilist_id'] !== null ? (int)$row['anilist_id'] : null
+        ];
     }
 
     public static function updateEpisodeDetails(string $epId, string $title, ?string $synopsis = null): bool {
@@ -434,6 +588,10 @@ class DbHelper {
             'intro_start' => isset($ep['intro_start']) && $ep['intro_start'] !== null ? (float)$ep['intro_start'] : null,
             'intro_end' => isset($ep['intro_end']) && $ep['intro_end'] !== null ? (float)$ep['intro_end'] : null,
             'outro_start' => isset($ep['outro_start']) && $ep['outro_start'] !== null ? (float)$ep['outro_start'] : null,
+            // End of the ending credits; a scene may follow it (null: credits run to the end).
+            'outro_end' => isset($ep['outro_end']) && $ep['outro_end'] !== null ? (float)$ep['outro_end'] : null,
+            // Where the timings came from (aniskip, audio, chapters...); shown in the admin editor.
+            'intro_source' => $ep['intro_source'] ?? null,
             'chapters' => $chapters ?: [],
             'created_at' => $ep['created_at'] ?? null,
             'stream_url' => "/api/stream/" . urlencode($ep['id']),
@@ -813,6 +971,8 @@ class DbHelper {
         $hasPin = !empty($profile['pin']);
         unset($profile['pin']);
         $profile['has_pin'] = $hasPin;
+        // Raw rows carry is_kids as 0/1; typed clients (the Android app) require a JSON boolean.
+        $profile['is_kids'] = (bool)($profile['is_kids'] ?? false);
         return $profile;
     }
 
@@ -898,20 +1058,29 @@ class DbHelper {
             jsonError('Ya existe un perfil con ese nombre para este usuario', 409);
         }
 
-        $avatar = $data['avatar'] ?? ($data['avatar_image'] ?? '');
-        if (!empty($avatar) && str_starts_with($avatar, 'data:image/')) {
-            $parts = explode(',', $avatar);
-            $dataBin = base64_decode(end($parts));
-            if ($dataBin !== false) {
-                $avatarDir = ROOT_DIR . '/library/avatars/uploads';
-                if (!is_dir($avatarDir)) {
-                    @mkdir($avatarDir, 0777, true);
-                }
-                $cleanUser = preg_replace('/[^a-zA-Z0-9_-]/', '', $username);
-                $filename = 'avatar_' . $cleanUser . '_' . substr(bin2hex(random_bytes(6)), 0, 8) . '.jpg';
-                @file_put_contents($avatarDir . '/' . $filename, $dataBin);
-                $avatar = '/library/avatars/uploads/' . $filename;
+        $avatar = (string)($data['avatar'] ?? ($data['avatar_image'] ?? ''));
+        if ($avatar !== '' && str_starts_with($avatar, 'data:')) {
+            $parts = explode(',', $avatar, 2);
+            $dataBin = base64_decode($parts[1] ?? '', true);
+            // Only raster images are stored: an SVG (or anything else) served from /library would be
+            // same-origin active content.
+            $imageInfo = ($dataBin !== false && strlen($dataBin) <= 5 * 1024 * 1024) ? @getimagesizefromstring($dataBin) : false;
+            $extensions = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_GIF => 'gif', IMAGETYPE_WEBP => 'webp'];
+            if ($imageInfo === false || !isset($extensions[$imageInfo[2]])) {
+                jsonError('El avatar debe ser una imagen JPG, PNG, GIF o WebP de hasta 5 MB', 400);
             }
+            $avatarDir = LIBRARY_DIR . '/avatars/uploads';
+            if (!is_dir($avatarDir)) {
+                @mkdir($avatarDir, 0775, true);
+            }
+            $cleanUser = preg_replace('/[^a-zA-Z0-9_-]/', '', $username);
+            $filename = 'avatar_' . $cleanUser . '_' . bin2hex(random_bytes(6)) . '.' . $extensions[$imageInfo[2]];
+            if (@file_put_contents($avatarDir . '/' . $filename, $dataBin) === false) {
+                jsonError('No se pudo guardar el avatar', 500);
+            }
+            $avatar = '/library/avatars/uploads/' . $filename;
+        } elseif ($avatar !== '' && !str_starts_with($avatar, '/library/avatars/') && !preg_match('#^https?://#i', $avatar)) {
+            $avatar = '';
         }
 
         $color = $data['avatar_color'] ?? $data['color'] ?? '#a855f7';
@@ -923,6 +1092,11 @@ class DbHelper {
             $pinHash = password_hash($rawPin, PASSWORD_BCRYPT);
         } elseif (!empty($data['remove_pin'])) {
             $pinHash = '';
+        }
+
+        // History, favorites and preferences are keyed by profile name, so a rename must carry them along.
+        if ($existing && ($existing['name'] ?? '') !== $name) {
+            self::moveProfileData($username, (string)$existing['name'], $name);
         }
 
         $stmt = $db->prepare("
@@ -945,6 +1119,11 @@ class DbHelper {
             'p' => $pinHash
         ]);
 
+        // A replaced upload would otherwise stay in /library/avatars/uploads forever.
+        if ($existing && ($existing['avatar'] ?? '') !== $avatar) {
+            self::deleteUploadedAvatar((string)($existing['avatar'] ?? ''));
+        }
+
         return self::sanitizeProfileForClient([
             'id' => $id,
             'username' => $username,
@@ -958,7 +1137,39 @@ class DbHelper {
         ]);
     }
 
-    public static function deleteUserProfile(string $username, string $id): bool {
+    /** Tables whose rows belong to a profile through (username, profile_name). Comments stay as authored. */
+    private const PROFILE_DATA_TABLES = ['watch_history', 'favorites', 'user_preferences'];
+
+    private static function moveProfileData(string $username, string $oldName, string $newName): void {
+        // A rename must move history, favorites and preferences together or not at all.
+        self::transactional(function (PDO $db) use ($username, $oldName, $newName) {
+            foreach (self::PROFILE_DATA_TABLES as $table) {
+                // Rows left under the new name by a previously deleted profile would collide with the primary key.
+                $db->prepare("DELETE FROM {$table} WHERE username = :u AND profile_name = :new")
+                    ->execute(['u' => $username, 'new' => $newName]);
+                $db->prepare("UPDATE {$table} SET profile_name = :new WHERE username = :u AND profile_name = :old")
+                    ->execute(['u' => $username, 'new' => $newName, 'old' => $oldName]);
+            }
+        });
+    }
+
+    /** Removes a profile photo uploaded by a user; presets and external URLs are left alone. */
+    private static function deleteUploadedAvatar(string $avatarUrl): void {
+        $prefix = '/library/avatars/uploads/';
+        if (!str_starts_with($avatarUrl, $prefix)) {
+            return;
+        }
+        $file = basename($avatarUrl);
+        if ($file === '' || !preg_match('/^avatar_[A-Za-z0-9_-]+\.(?:jpg|png|gif|webp)$/', $file)) {
+            return;
+        }
+        $path = LIBRARY_DIR . '/avatars/uploads/' . $file;
+        if (is_file($path)) {
+            @unlink($path);
+        }
+    }
+
+    public static function deleteUserProfile(string $username, string $id, string $pin = ''): bool {
         $db = Database::getConnection();
         $checkStmt = $db->prepare("SELECT * FROM user_profiles WHERE id = :id");
         $checkStmt->execute(['id' => $id]);
@@ -973,9 +1184,24 @@ class DbHelper {
         if (($existing['name'] ?? '') === 'Principal') {
             jsonError('No se puede eliminar el perfil principal', 400);
         }
+        if (!empty($existing['pin']) && ($pin === '' || !password_verify($pin, $existing['pin']))) {
+            jsonError('PIN actual requerido o incorrecto para eliminar este perfil', 403);
+        }
 
-        $stmt = $db->prepare("DELETE FROM user_profiles WHERE username = :u AND id = :id");
-        return $stmt->execute(['u' => $username, 'id' => $id]);
+        $deleted = self::transactional(function (PDO $db) use ($username, $id, $existing) {
+            $stmt = $db->prepare("DELETE FROM user_profiles WHERE username = :u AND id = :id");
+            $deleted = $stmt->execute(['u' => $username, 'id' => $id]);
+            // Otherwise a new profile created later with the same name would inherit this one's history.
+            foreach (self::PROFILE_DATA_TABLES as $table) {
+                $db->prepare("DELETE FROM {$table} WHERE username = :u AND profile_name = :p")
+                    ->execute(['u' => $username, 'p' => $existing['name']]);
+            }
+            return $deleted;
+        });
+        if ($deleted) {
+            self::deleteUploadedAvatar((string)($existing['avatar'] ?? ''));
+        }
+        return $deleted;
     }
 
     public static function getComments(string $showId): array {
@@ -1084,6 +1310,9 @@ class DbHelper {
         $row['is_public'] = (bool)$row['is_public'];
         $row['allow_guest_controls'] = (bool)$row['allow_guest_controls'];
         $row['participants_count'] = (int)$row['participants_count'];
+        // Clients extrapolate the host position from last_sync_timestamp; this lets them measure
+        // against the server clock instead of their own (the home server often runs without NTP).
+        $row['server_time_ms'] = (int)(microtime(true) * 1000);
 
         return $row;
     }

@@ -86,7 +86,8 @@ object AppModule {
     @Singleton
     fun provideOkHttpClient(
         tokenStorage: TokenStorage,
-        preferencesDataSource: KuraPreferencesDataSource
+        preferencesDataSource: KuraPreferencesDataSource,
+        sessionEvents: SessionEvents
     ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.NONE // Never log bearer tokens or video streams in release/logcat
@@ -98,7 +99,7 @@ object AppModule {
             }
         }
 
-        val authInterceptor = AuthInterceptor(tokenStorage) {
+        val authInterceptor = AuthInterceptor(tokenStorage, sessionEvents::notifyUnauthorized) {
             runBlocking {
                 val prefs = preferencesDataSource.preferencesFlow.firstOrNull()
                 Pair(prefs?.activeServerId, prefs?.activeServerUrl)

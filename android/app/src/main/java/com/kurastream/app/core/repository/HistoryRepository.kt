@@ -1,5 +1,6 @@
 package com.kurastream.app.core.repository
 
+import com.kurastream.app.core.network.toUserFacingError
 import com.kurastream.app.core.database.CachedHistoryEntity
 import com.kurastream.app.core.database.HistoryDao
 import com.kurastream.app.core.model.*
@@ -7,8 +8,16 @@ import com.kurastream.app.core.network.KuraApiService
 import com.kurastream.app.core.network.dto.HistoryItemDto
 import com.kurastream.app.core.network.dto.SaveProgressRequestDto
 import com.kurastream.app.core.network.dto.UserPreferencesDto
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 class HistoryRepository(
     private val apiService: KuraApiService,
@@ -27,7 +36,65 @@ class HistoryRepository(
             historyDao.replaceHistory(serverId, username, profileId, entities)
             Result.success(entities.map { it.toModel() })
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
+        }
+    }
+
+    /** Outlives screens/ViewModels so the last position is still written when the player is closed. */
+    private val detachedScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _progressSaved = MutableSharedFlow<String>(extraBufferCapacity = 8)
+
+    /**
+     * Episode ids whose progress just reached the server. "Continuar viendo" refreshes on this
+     * instead of a fixed delay: the player's final save used to land after Home had already
+     * re-fetched, so the row looked like nothing had been saved.
+     */
+    val progressSaved: SharedFlow<String> = _progressSaved.asSharedFlow()
+
+    /** Fire-and-forget save that survives the caller, retried a few times on network errors. */
+    fun saveProgressDetached(episodeId: String, progressSeconds: Float, durationSeconds: Float) {
+        detachedScope.launch {
+            for (attempt in 0 until SAVE_ATTEMPTS) {
+                if (saveProgress(episodeId, progressSeconds, durationSeconds).isSuccess) return@launch
+                delay(SAVE_RETRY_BASE_MS * (attempt + 1))
+            }
+        }
+    }
+
+    /** One entry per show, computed by the server (in progress, or the next episode). */
+    suspend fun getContinueWatching(): Result<List<WatchHistoryItem>> {
+        return try {
+            Result.success(apiService.getContinueWatching().map { dto ->
+                WatchHistoryItem(
+                    episodeId = dto.episodeId,
+                    showId = dto.showId ?: "",
+                    seasonNumber = dto.seasonNumber ?: 1,
+                    episodeNumber = dto.episodeNumber ?: 1,
+                    progressSeconds = dto.progressSeconds ?: 0f,
+                    duration = dto.duration ?: 0f,
+                    completed = false,
+                    updatedAt = dto.updatedAt ?: "",
+                    showTitle = dto.showTitle ?: "",
+                    thumbnailPath = dto.thumbnailPath ?: "",
+                    posterPath = dto.posterPath ?: "",
+                    backdropPath = dto.backdropPath ?: "",
+                    upNext = dto.upNext ?: false,
+                    episodeTitle = dto.episodeTitle ?: ""
+                )
+            })
+        } catch (e: Exception) {
+            Result.failure(e.toUserFacingError())
+        }
+    }
+
+    /** Server-side resume point for the active profile; null when it can't be fetched. */
+    suspend fun getProgress(episodeId: String): ProgressInfo? {
+        return try {
+            val res = apiService.getProgress(episodeId)
+            ProgressInfo(res.progress, res.completed, res.duration)
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -39,9 +106,10 @@ class HistoryRepository(
                 duration = durationSeconds
             )
             apiService.saveProgress(episodeId, body)
+            _progressSaved.tryEmit(episodeId)
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -51,7 +119,7 @@ class HistoryRepository(
             historyDao.deleteHistoryItem(serverId, username, profileId, episodeId)
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -61,7 +129,7 @@ class HistoryRepository(
             historyDao.clearHistory(serverId, username, profileId)
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -81,7 +149,7 @@ class HistoryRepository(
             }
             Result.success(Pair(items, res.unreadCount))
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -90,7 +158,7 @@ class HistoryRepository(
             apiService.markNotificationsSeen()
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -108,7 +176,7 @@ class HistoryRepository(
             } ?: UserStats()
             Result.success(stats)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -127,7 +195,7 @@ class HistoryRepository(
             } ?: UserPreferences()
             Result.success(prefs)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -144,7 +212,7 @@ class HistoryRepository(
             apiService.saveUserPreferences(dto)
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -183,3 +251,12 @@ class HistoryRepository(
         backdropPath = backdropPath
     )
 }
+
+private const val SAVE_ATTEMPTS = 3
+private const val SAVE_RETRY_BASE_MS = 1_500L
+
+data class ProgressInfo(
+    val progressSeconds: Float,
+    val completed: Boolean,
+    val durationSeconds: Float
+)

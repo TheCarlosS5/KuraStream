@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -78,7 +80,7 @@ fun ExploreScreen(
                             IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
-                                    contentDescription = "Limpiar",
+                                    contentDescription = stringResource(R.string.clear_search),
                                     tint = KuraColors.TextSecondary
                                 )
                             }
@@ -123,12 +125,12 @@ fun ExploreScreen(
                 Tab(
                     selected = uiState.activeTab == ExploreTab.CATALOG,
                     onClick = { viewModel.setTab(ExploreTab.CATALOG) },
-                    text = { Text("Catálogo", fontWeight = FontWeight.SemiBold) }
+                    text = { Text(stringResource(R.string.catalog), fontWeight = FontWeight.SemiBold) }
                 )
                 Tab(
                     selected = uiState.activeTab == ExploreTab.CALENDAR,
                     onClick = { viewModel.setTab(ExploreTab.CALENDAR) },
-                    text = { Text("Calendario Semanal", fontWeight = FontWeight.SemiBold) }
+                    text = { Text(stringResource(R.string.weekly_calendar), fontWeight = FontWeight.SemiBold) }
                 )
             }
 
@@ -258,25 +260,57 @@ fun ExploreScreen(
                             }
                             is UiState.Content, is UiState.Refreshing -> {
                                 val schedule = if (state is UiState.Content) state.data else (state as UiState.Refreshing).currentData
-                                val daysOrder = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+                                // Only airing titles come from the server; TBA = airing library shows
+                                // whose weekday is unknown while the server is offline.
+                                val daysOrder = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "TBA")
+                                val todayKey = remember {
+                                    java.time.LocalDate.now().dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH)
+                                }
+                                var onlyLibrary by rememberSaveable { mutableStateOf(false) }
+                                val visibleDays = daysOrder.map { day ->
+                                    day to (schedule[day].orEmpty()).filter { !onlyLibrary || it.inLibrary }
+                                }.filter { it.second.isNotEmpty() }
 
                                 LazyColumn(
                                     modifier = Modifier.fillMaxSize(),
                                     contentPadding = PaddingValues(KuraDimens.Space4),
                                     verticalArrangement = Arrangement.spacedBy(KuraDimens.Space4)
                                 ) {
-                                    daysOrder.forEach { dayKey ->
-                                        val items = schedule[dayKey] ?: emptyList()
-                                        if (items.isNotEmpty()) {
-                                            item {
-                                                CalendarDaySection(
-                                                    dayName = translateDayName(dayKey),
-                                                    items = items,
-                                                    onItemClick = { item ->
-                                                        item.libraryShowId?.let(onNavigateToShowDetail)
-                                                    }
-                                                )
-                                            }
+                                    item {
+                                        FilterChip(
+                                            selected = onlyLibrary,
+                                            onClick = { onlyLibrary = !onlyLibrary },
+                                            label = { Text("Solo mi biblioteca") },
+                                            leadingIcon = if (onlyLibrary) {
+                                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                            } else null,
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = KuraColors.PrimarySoft,
+                                                selectedLabelColor = KuraColors.Primary,
+                                                containerColor = KuraColors.SurfaceRaised,
+                                                labelColor = KuraColors.TextSecondary
+                                            )
+                                        )
+                                    }
+                                    if (visibleDays.isEmpty()) {
+                                        item {
+                                            Text(
+                                                text = if (onlyLibrary) "Ningún anime de tu biblioteca se emite esta semana" else "No hay emisiones programadas esta semana",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = KuraColors.TextMuted
+                                            )
+                                        }
+                                    }
+                                    visibleDays.forEach { (dayKey, items) ->
+                                        item(key = dayKey) {
+                                            CalendarDaySection(
+                                                dayName = translateDayName(dayKey) + if (dayKey == todayKey) " · Hoy" else "",
+                                                items = items,
+                                                baseUrl = uiState.baseUrl,
+                                                onItemClick = { item ->
+                                                    item.libraryShowId?.let(onNavigateToShowDetail)
+                                                }
+                                            )
                                         }
                                     }
                                 }
@@ -289,42 +323,60 @@ fun ExploreScreen(
     }
 }
 
+/** One day as a compact table: hour, title (+ episode / studio) and library status per row. */
 @Composable
 private fun CalendarDaySection(
     dayName: String,
     items: List<CalendarItem>,
+    baseUrl: String,
     onItemClick: (CalendarItem) -> Unit
 ) {
+    val timeFormat = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = dayName,
-            style = MaterialTheme.typography.titleLarge,
-            color = KuraColors.Secondary,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = KuraDimens.Space2)
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = KuraDimens.Space2)) {
+            Text(
+                text = dayName,
+                style = MaterialTheme.typography.titleLarge,
+                color = KuraColors.Secondary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "${items.size}",
+                style = MaterialTheme.typography.labelMedium,
+                color = KuraColors.TextMuted
+            )
+        }
 
         Column(
-            verticalArrangement = Arrangement.spacedBy(KuraDimens.Space2)
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(KuraShapes.Card)
+                .background(KuraColors.Surface)
+                .border(1.dp, KuraColors.Border, KuraShapes.Card)
         ) {
-            items.forEach { item ->
+            items.forEachIndexed { index, item ->
+                if (index > 0) HorizontalDivider(color = KuraColors.Border.copy(alpha = 0.5f))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(KuraShapes.Card)
-                        .background(KuraColors.Surface)
-                        .border(1.dp, KuraColors.Border, KuraShapes.Card)
-                        .clickable { onItemClick(item) }
-                        .padding(KuraDimens.Space3),
+                        .clickable(enabled = item.libraryShowId != null) { onItemClick(item) }
+                        .padding(horizontal = KuraDimens.Space3, vertical = KuraDimens.Space2),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Text(
+                        text = if (item.airingAt > 0L) timeFormat.format(java.util.Date(item.airingAt * 1000)) else "—",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        color = KuraColors.TextMain,
+                        modifier = Modifier.width(52.dp)
+                    )
                     if (item.coverImage.isNotBlank()) {
-                        AsyncImage(
-                            model = item.coverImage,
+                        KuraAsyncImage(
+                            model = ServerUrlResolver.buildMediaUrl(baseUrl, item.coverImage),
                             contentDescription = item.title,
-                            contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .size(width = 48.dp, height = 68.dp)
+                                .size(width = 34.dp, height = 48.dp)
                                 .clip(KuraShapes.Small)
                         )
                         Spacer(modifier = Modifier.width(KuraDimens.Space3))
@@ -332,21 +384,28 @@ private fun CalendarDaySection(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = item.title,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             color = KuraColors.TextMain,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Episodio ${item.episode} • ${item.studio}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = KuraColors.TextSecondary
-                        )
-                        if (item.inLibrary) {
-                            Spacer(modifier = Modifier.height(2.dp))
-                            KuraBadge(text = "En tu biblioteca", isAccent = true)
+                        val meta = listOfNotNull(
+                            item.episode.takeIf { it > 0 }?.let { "Episodio $it" },
+                            item.studio.takeIf { it.isNotBlank() }
+                        ).joinToString(" • ")
+                        if (meta.isNotEmpty()) {
+                            Text(
+                                text = meta,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = KuraColors.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
+                    }
+                    if (item.inLibrary) {
+                        Spacer(modifier = Modifier.width(KuraDimens.Space2))
+                        KuraBadge(text = "En tu biblioteca", isAccent = true)
                     }
                 }
             }
@@ -362,5 +421,6 @@ private fun translateDayName(day: String): String = when (day.lowercase()) {
     "friday" -> "Viernes"
     "saturday" -> "Sábado"
     "sunday" -> "Domingo"
+    "tba" -> "Por confirmar"
     else -> day
 }

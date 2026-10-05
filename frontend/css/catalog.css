@@ -9,19 +9,166 @@
   position: relative;
   width: 100%;
   margin-bottom: 32px;
+  border-radius: var(--radius-card);
+  overflow: hidden;
 }
 
+/* Slides share one grid cell, so the hero keeps the height of the tallest one. */
 .hero-carousel-wrapper {
-  position: relative;
+  display: grid;
   width: 100%;
 }
 
+.hero-carousel-wrapper > .billboard-hero {
+  grid-area: 1 / 1;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.8s ease, visibility 0s linear 0.8s;
+}
+
+.hero-carousel-wrapper > .billboard-hero.is-active {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.8s ease, visibility 0s;
+  z-index: 1;
+}
+
+.hero-carousel-wrapper > .billboard-hero .billboard-hero-content {
+  transform: translateY(14px);
+  opacity: 0;
+  transition: transform 0.7s ease 0.15s, opacity 0.7s ease 0.15s;
+}
+
+.hero-carousel-wrapper > .billboard-hero.is-active .billboard-hero-content {
+  transform: none;
+  opacity: 1;
+}
+
 .carousel-nav-btn {
-  display: none; /* Single hero presentation; carousel chevrons hidden */
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-top: -24px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background: rgba(8, 10, 16, 0.6);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.carousel-nav-btn.prev { left: 16px; }
+.carousel-nav-btn.next { right: 16px; }
+
+.carousel-nav-btn:hover {
+  background: var(--accent-color);
+  color: #080A10;
+}
+
+.hero-carousel-container.has-multiple .carousel-nav-btn {
+  display: inline-flex;
+}
+
+.hero-carousel-container:hover .carousel-nav-btn,
+.carousel-nav-btn:focus-visible {
+  opacity: 1;
 }
 
 .carousel-indicators {
-  display: none;
+  position: absolute;
+  right: 4%;
+  bottom: 28px;
+  z-index: 3;
+  display: flex;
+  gap: 8px;
+}
+
+.hero-dot {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.hero-dot::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.hero-dot-fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 4px;
+  width: 0;
+  margin-top: -2px;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.hero-dot.is-active .hero-dot-fill {
+  animation-name: hero-dot-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.hero-carousel-container.is-paused .hero-dot.is-active .hero-dot-fill {
+  animation-play-state: paused;
+}
+
+@keyframes hero-dot-progress {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+html.perf-lite .hero-dot.is-active .hero-dot-fill {
+  animation: none;
+  width: 100%;
+}
+
+html.perf-lite .hero-carousel-wrapper > .billboard-hero,
+html.perf-lite .hero-carousel-wrapper > .billboard-hero .billboard-hero-content {
+  transition-duration: 0.3s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-carousel-wrapper > .billboard-hero,
+  .hero-carousel-wrapper > .billboard-hero .billboard-hero-content {
+    transition: none;
+  }
+
+  .hero-dot.is-active .hero-dot-fill {
+    animation: none;
+    width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .carousel-indicators {
+    left: 14px;
+    right: auto;
+    bottom: 12px;
+  }
+
+  .hero-dot {
+    width: 22px;
+  }
 }
 
 .billboard-hero {
@@ -88,28 +235,74 @@
   color: var(--text-main);
 }
 
+/* Three groups (airing chip, rating · year, genre chips) with clear air between them; every
+   group wraps on its own so a long genre list never runs off narrow phones. */
 .billboard-hero-badges {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 10px 16px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
+}
+
+.billboard-hero-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.billboard-hero-meta .badge-rating {
+  gap: 5px;
+  font-size: 0.9rem;
+}
+
+.billboard-hero-meta .badge-rating svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.billboard-hero-meta .badge-year {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.billboard-hero-meta .badge-year::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
 }
 
 .billboard-genres {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .billboard-genre-tag {
-  padding: 3px 10px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-xs);
-  font-size: 0.75rem;
+  padding: 4px 12px;
+  background: rgba(20, 24, 36, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-pill);
+  font-size: 0.78rem;
   font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
   color: var(--text-secondary);
+}
+
+@media (max-width: 600px) {
+  .billboard-hero-badges { gap: 8px 12px; }
+  .billboard-genres { gap: 6px; }
+  .billboard-genre-tag { padding: 3px 10px; font-size: 0.74rem; }
 }
 
 .billboard-hero-synopsis,
@@ -133,6 +326,7 @@
 }
 
 .btn-billboard-play {
+  gap: 8px;
   background: var(--accent-color);
   color: #080A10;
   font-weight: 800;
@@ -157,6 +351,7 @@
 }
 
 .btn-billboard-info {
+  gap: 8px;
   background: var(--surface-raised);
   color: var(--text-main);
   font-weight: 600;
@@ -165,8 +360,6 @@
   border: 1px solid var(--border-color);
   display: inline-flex;
   align-items: center;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   cursor: pointer;
   font-size: 0.95rem;
   font-family: var(--font-title);
@@ -206,7 +399,6 @@
   background: var(--surface-color);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-card);
-  backdrop-filter: blur(12px);
 }
 
 .catalog-toolbar-inner {
@@ -335,9 +527,8 @@
 }
 
 .show-card:hover {
-  transform: translateY(-5px) scale(1.025);
+  transform: translateY(-4px) scale(1.03);
   border-color: var(--accent-color);
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.7), 0 0 16px var(--accent-soft);
   z-index: 5;
 }
 
@@ -350,11 +541,13 @@
   background: var(--surface-raised);
 }
 
-.show-card-poster {
+.show-card-poster,
+.card-img-wrapper > img {
   width: 100%;
   height: 100%;
   aspect-ratio: 2 / 3;
   object-fit: cover;
+  object-position: center top;
   display: block;
 }
 
@@ -378,7 +571,7 @@
 .card-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
   font-size: 0.75rem;
   color: var(--text-muted);
 }
@@ -387,7 +580,7 @@
   position: absolute;
   top: 8px;
   left: 8px;
-  background: rgba(8, 10, 16, 0.88);
+  background: rgba(8, 10, 16, 0.92);
   border: 1px solid rgba(77, 212, 167, 0.35);
   color: var(--success-color);
   font-size: 0.68rem;
@@ -397,7 +590,6 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  backdrop-filter: blur(6px);
 }
 
 .airing-pulse-dot {
@@ -409,6 +601,32 @@
   animation: pulseGlow 1.8s infinite;
 }
 
+/* On posters the badge sits bottom-left: top-left belongs to the "% visto" indicator and
+   top-right to the rating, so it never covers either. */
+.card-img-wrapper .badge-airing-neon {
+  top: auto;
+  bottom: 12px;
+  z-index: 2;
+}
+
+/* In the hero it is one more chip in the badge row, not an overlay. */
+.billboard-hero-badges .badge-airing-neon {
+  position: static;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 0.72rem;
+  gap: 6px;
+  letter-spacing: 0.04em;
+}
+
+/* One infinite animation per airing card (dozens on screen) forced a style recalc + repaint
+   every frame: ~35 fps -> ~59 fps when scrolling on a slow PC. Cards get a static glowing dot;
+   the single indicator in the nav keeps pulsing. */
+.badge-airing-neon .airing-pulse-dot {
+  animation: none;
+  box-shadow: 0 0 6px var(--success-color);
+}
+
 @keyframes pulseGlow {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.85); }
@@ -418,8 +636,7 @@
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgba(8, 10, 16, 0.88);
-  backdrop-filter: blur(6px);
+  background: rgba(8, 10, 16, 0.92);
   padding: 3px 6px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--border-color);
@@ -495,20 +712,33 @@
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(8, 10, 16, 0.85);
+  background: rgba(8, 10, 16, 0.9);
   border: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
   transition: all var(--transition-fast);
-  backdrop-filter: blur(6px);
   color: var(--accent-color);
 }
 
 .continue-watching-card:hover .continue-watching-play-btn {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1);
+}
+
+.continue-watching-next-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--accent-color);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .continue-watching-progress-bar,
@@ -616,7 +846,8 @@
   position: relative;
   z-index: 5;
   display: grid;
-  grid-template-columns: 260px 1fr 280px;
+  /* minmax(0, …): a bare 1fr has an auto minimum and grows to the poster's natural width */
+  grid-template-columns: 260px minmax(0, 1fr) 280px;
   gap: 36px;
   align-items: start;
 }
@@ -744,6 +975,184 @@
   border-color: var(--accent-color);
 }
 
+.season-tabs[hidden] {
+  display: none;
+}
+
+/* Multi-season shows: one poster per season, in watch order, instead of the pill tabs. */
+.detail-season-eyebrow {
+  margin: 0 0 -12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent-color);
+}
+
+.season-strip {
+  margin-bottom: 28px;
+}
+
+.season-strip-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.season-strip-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.season-strip-row {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding: 4px 2px 10px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+.season-tab.season-card {
+  flex: 0 0 132px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-align: left;
+  scroll-snap-align: start;
+}
+
+.season-card-poster {
+  position: relative;
+  display: block;
+  aspect-ratio: 2 / 3;
+  margin-bottom: 4px;
+  overflow: hidden;
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-card);
+  background: var(--surface-color);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.season-card-poster img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.season-tab.season-card:hover .season-card-poster {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+}
+
+.season-tab.season-card:hover .season-card-poster img,
+.season-tab.season-card.active .season-card-poster img {
+  opacity: 1;
+}
+
+.season-tab.season-card.active {
+  background: none;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.season-tab.season-card.active .season-card-poster {
+  border-color: var(--accent-color);
+  box-shadow: 0 6px 20px var(--accent-glow);
+}
+
+.season-tab.season-card:focus-visible {
+  outline: none;
+}
+
+.season-tab.season-card:focus-visible .season-card-poster {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 3px;
+}
+
+.season-card-order {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: rgba(8, 10, 16, 0.85);
+  color: var(--text-main);
+  font-family: var(--font-title);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.season-tab.season-card.active .season-card-order {
+  background: var(--accent-color);
+  color: #080A10;
+}
+
+.season-card-done {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--success-color);
+  color: #080A10;
+}
+
+.season-card-done svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 3;
+}
+
+.season-card-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.season-card-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent-color);
+}
+
+.season-card-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: inherit;
+}
+
+.season-card-meta {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+@media (max-width: 600px) {
+  .season-strip-row { gap: 12px; }
+  .season-tab.season-card { flex-basis: 104px; }
+  .season-card-name { font-size: 0.8rem; }
+}
+
 .episodes-list {
   display: flex;
   flex-direction: column;
@@ -798,6 +1207,7 @@
 }
 
 .episode-number {
+  white-space: nowrap;
   font-weight: 700;
   font-size: 0.85rem;
   color: var(--accent-color);
@@ -983,7 +1393,7 @@
 /* Responsive Show Detail */
 @media (max-width: 1200px) {
   .detail-main-layout {
-    grid-template-columns: 240px 1fr;
+    grid-template-columns: 240px minmax(0, 1fr);
   }
   .detail-popular-sidebar {
     grid-column: span 2;
@@ -992,10 +1402,22 @@
 
 @media (max-width: 768px) {
   .detail-main-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .detail-popular-sidebar {
     grid-column: span 1;
+  }
+  .detail-sidebar {
+    align-items: center;
+  }
+  .detail-poster {
+    max-width: 220px;
+  }
+  .detail-sidebar .quick-stats {
+    justify-content: center;
+  }
+  .detail-sidebar .detail-btn-action {
+    width: 100%;
   }
 }
 
@@ -1090,76 +1512,253 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Calendar Schedule Grid & Cards */
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 20px;
+/* Calendar: weekly airing table */
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
 }
 
-.calendar-show-card {
+.calendar-toolbar .day-picker-container {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.day-tab-count {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.day-tab.active .day-tab-count {
+  background: rgba(8, 10, 16, 0.18);
+  color: inherit;
+}
+
+.day-tab.is-today:not(.active) {
+  border-color: var(--accent-color);
+  color: var(--text-main);
+}
+
+.calendar-library-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.calendar-library-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-color);
+}
+
+.calendar-table-wrap {
   background: var(--surface-color);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-card);
   overflow: hidden;
-  position: relative;
-  transition: transform var(--transition-fast), border-color var(--transition-fast);
 }
 
-.calendar-show-card:hover {
-  transform: translateY(-3px);
-  border-color: var(--accent-color);
+.calendar-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
 }
 
-.calendar-card-img-wrap {
-  height: 160px;
-  position: relative;
-  overflow: hidden;
+.calendar-table th {
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-family: var(--font-title);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.calendar-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  vertical-align: middle;
+}
+
+.calendar-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.calendar-table tbody tr {
+  transition: background var(--transition-fast);
+}
+
+.calendar-table tbody tr.is-linked {
+  cursor: pointer;
+}
+
+.calendar-table tbody tr:hover {
+  background: var(--surface-hover);
+}
+
+.calendar-table tbody tr.is-aired td {
+  opacity: 0.62;
+}
+
+.calendar-col-time { width: 92px; }
+.calendar-col-episode { width: 118px; }
+.calendar-cell-episode { white-space: nowrap; }
+.calendar-col-studio { width: 22%; }
+.calendar-col-status { width: 150px; }
+
+.calendar-time {
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-title-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.calendar-title-cell img {
+  flex-shrink: 0;
+  width: 36px;
+  height: 52px;
+  border-radius: var(--radius-xs);
+  object-fit: cover;
   background: var(--surface-raised);
 }
 
-.calendar-card-img-wrap img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.calendar-title-text {
+  min-width: 0;
 }
 
-.calendar-airing-pill {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: var(--success-color);
-  color: #080A10;
-  font-family: var(--font-title);
-  font-size: 0.7rem;
-  font-weight: 800;
-  padding: 3px 8px;
-  border-radius: var(--radius-pill);
-  z-index: 3;
-  display: flex;
+.calendar-title-text strong,
+.calendar-title-text a {
+  display: block;
+  overflow: hidden;
+  color: var(--text-main);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-title-text small {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-status {
+  display: inline-flex;
   align-items: center;
   gap: 4px;
-  box-shadow: 0 0 10px rgba(77, 212, 167, 0.4);
-}
-
-.calendar-card-body {
-  padding: 14px;
-}
-
-.calendar-card-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin: 0 0 6px 0;
-  color: var(--text-main);
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-title);
+  font-size: 0.72rem;
+  font-weight: 700;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.calendar-card-meta {
-  font-size: 0.8rem;
+.calendar-status svg,
+.calendar-status i {
+  width: 12px;
+  height: 12px;
+}
+
+.calendar-status.is-library {
+  background: rgba(77, 212, 167, 0.14);
+  color: var(--success-color);
+}
+
+.calendar-status.is-external {
+  background: var(--surface-raised);
   color: var(--text-muted);
-  margin: 0;
+}
+
+.calendar-note {
+  margin: var(--space-3) 0 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 760px) {
+  .calendar-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .calendar-library-toggle {
+    align-self: flex-start;
+  }
+
+  /* Rows become compact two-line entries on phones. */
+  .calendar-table thead {
+    display: none;
+  }
+
+  .calendar-table,
+  .calendar-table tbody {
+    display: block;
+  }
+
+  .calendar-table tbody tr {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    grid-template-areas:
+      "time title"
+      "time meta";
+    column-gap: var(--space-3);
+    row-gap: 2px;
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .calendar-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .calendar-table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .calendar-table td.calendar-cell-time { grid-area: time; align-self: center; }
+  .calendar-table td.calendar-cell-title { grid-area: title; }
+  .calendar-table td.calendar-cell-studio { display: none; }
+  .calendar-table td.calendar-cell-episode,
+  .calendar-table td.calendar-cell-status {
+    grid-area: meta;
+    font-size: 0.78rem;
+  }
+
+  .calendar-table td.calendar-cell-episode { justify-self: start; }
+  .calendar-table td.calendar-cell-status { justify-self: end; }
 }
 
 /* ==================================================== */
@@ -1349,3 +1948,34 @@
 }
 
 
+
+.catalog-filter-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 16px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Room for the carousel arrows (desktop) and the indicators (phones). */
+@media (min-width: 1025px) {
+  .hero-carousel-container.has-multiple .billboard-hero {
+    padding-left: calc(4% + 56px);
+    padding-right: calc(4% + 56px);
+  }
+}
+
+@media (max-width: 1024px) {
+  .hero-carousel-container.has-multiple .carousel-nav-btn {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .hero-carousel-container.has-multiple .billboard-hero {
+    padding-bottom: 46px;
+  }
+}

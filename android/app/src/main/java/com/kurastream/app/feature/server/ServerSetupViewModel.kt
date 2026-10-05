@@ -100,7 +100,9 @@ class ServerSetupViewModel @Inject constructor(
                     }
                 }
             } else {
-                val ex = testResult.exceptionOrNull()
+                // Heuristics look at the transport error underneath the user-facing wrapper.
+                val wrapped = testResult.exceptionOrNull()
+                val ex = (wrapped as? com.kurastream.app.core.network.UserFacingException)?.cause ?: wrapped
                 val message = when {
                     ex?.message?.contains("Failed to connect", ignoreCase = true) == true ->
                         "Conexión rechazada. Comprueba que KuraStream esté ejecutándose y el puerto sea correcto."
@@ -108,7 +110,7 @@ class ServerSetupViewModel @Inject constructor(
                         "Tiempo de espera agotado. Verifica la red o la dirección IP del servidor."
                     ex?.message?.contains("SSL", ignoreCase = true) == true ->
                         "Error de certificado SSL/TLS. Comprueba la configuración segura del servidor."
-                    else -> ex?.message ?: "No fue posible comunicarse con KuraStream en esta dirección."
+                    else -> wrapped?.message ?: "No fue posible comunicarse con KuraStream en esta dirección."
                 }
                 _uiState.update { it.copy(isTesting = false, errorMessage = message) }
             }
@@ -145,6 +147,15 @@ class ServerSetupViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * /api/health payload signature ("status" healthy/degraded + "php_version"). A bare "success"
+     * match also hits routers, NAS panels and other LAN services.
+     */
+    private fun isKuraStreamHealthPayload(body: String): Boolean {
+        return body.contains("\"php_version\"") &&
+                (body.contains("\"healthy\"") || body.contains("\"degraded\""))
     }
 
     private fun getLocalSubnetPrefix(): String? {
@@ -206,9 +217,10 @@ class ServerSetupViewModel @Inject constructor(
                             try {
                                 val req = okhttp3.Request.Builder().url(url).get().build()
                                 client.newCall(req).execute().use { resp ->
-                                    if (resp.isSuccessful) {
+                                    // 503 = KuraStream up with its DB down: still the right server to pick.
+                                    if (resp.isSuccessful || resp.code == 503) {
                                         val body = resp.body?.string() ?: ""
-                                        if (body.contains("healthy") || body.contains("kurastream", ignoreCase = true) || body.contains("success")) {
+                                        if (isKuraStreamHealthPayload(body)) {
                                             foundUrl = "http://$target"
                                         }
                                     }

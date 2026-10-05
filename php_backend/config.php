@@ -50,6 +50,13 @@ define('JWT_SECRET', $jwtSecret);
 define('PASSWORD_SALT', getenv('PASSWORD_SALT') ?: 'kurasalt');
 
 define('ROOT_DIR', dirname(__DIR__));
+
+// Local time zone for user-facing dates (calendar weekdays). PHP defaults to UTC, which files
+// shows airing after 19:00 in the Americas under the next day.
+$appTimezone = getenv('APP_TIMEZONE') ?: '';
+if ($appTimezone !== '' && in_array($appTimezone, timezone_identifiers_list(), true)) {
+    date_default_timezone_set($appTimezone);
+}
 $trustedProxies = getenv('TRUSTED_PROXIES') ?: '';
 define('TRUSTED_PROXIES', array_filter(array_map('trim', explode(',', $trustedProxies))));
 

@@ -55,6 +55,7 @@
     <string name="season">Temporada %1$d</string>
     <string name="skip_intro">Saltar intro</string>
     <string name="skip_outro">Saltar outro</string>
+    <string name="skip_credits">Saltar créditos</string>
     <string name="next_episode">Siguiente episodio</string>
     <string name="playing_next_in">Reproduciendo siguiente en %1$d s…</string>
     <string name="cancel">Cancelar</string>
@@ -85,4 +86,17 @@
     <string name="clear_history_confirm">¿Estás seguro de que deseas borrar todo tu historial de visualización?</string>
     <string name="diagnostics">Diagnósticos</string>
     <string name="about">Acerca de KuraStream</string>
+    
+    <!-- Explore -->
+    <string name="catalog">Catálogo</string>
+    <string name="weekly_calendar">Calendario Semanal</string>
+    <string name="clear_search">Limpiar</string>
+
+    <!-- Detail -->
+    <string name="back">Volver</string>
+    <string name="favorite">Favorito</string>
+    <string name="airing">En Emisión</string>
+    <string name="finished">Finalizado</string>
+    <string name="seasons">Temporadas</string>
+    <string name="watched">Visto</string>
 </resources>

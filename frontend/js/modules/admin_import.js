@@ -5,6 +5,7 @@
  */
 
 import { getAuthHeaders } from './auth.js';
+import { escapeHtml, escapeHtmlAttribute } from '../core/ui.js';
 
 let stagedFiles = [];
 
@@ -166,7 +167,7 @@ function updateSelectedFilesUI() {
       row.style.borderBottom = '1px solid rgba(255,255,255,0.06)';
 
       row.innerHTML = `
-        <span style="flex: 1; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.name}">${item.name}</span>
+        <span style="flex: 1; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtmlAttribute(item.name)}">${escapeHtml(item.name)}</span>
         <label style="font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
           T: <input type="number" min="1" value="${item.season}" style="width: 50px; padding: 2px 4px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); background: #0c0f17; color: #fff;" data-idx="${idx}" class="bulk-season-input">
         </label>
@@ -256,9 +257,9 @@ export async function searchTmdbWizard() {
         card.innerHTML = `
           <img src="${posterUrl}" style="width: 50px; height: 75px; object-fit: cover; border-radius: 4px;" onerror="this.src='/api/placeholder-poster'">
           <div style="flex: 1; min-width: 0;">
-            <div style="font-weight: 600; color: #fff; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${title}</div>
-            <div style="font-size: 0.8rem; color: var(--text-muted);">${year ? year + ' · ' : ''}ID: ${item.id}</div>
-            <p style="font-size: 0.78rem; color: var(--text-muted); margin: 4px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.overview || ''}</p>
+            <div style="font-weight: 600; color: #fff; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(title)}</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(year ? year + ' · ' : '')}ID: ${escapeHtml(String(item.id))}</div>
+            <p style="font-size: 0.78rem; color: var(--text-muted); margin: 4px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(item.overview || '')}</p>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" style="flex-shrink: 0;">Seleccionar</button>
         `;
@@ -340,7 +341,6 @@ async function handleFormSubmit(e) {
   const titleVal = document.getElementById('import-title')?.value.trim();
   const typeVal = document.getElementById('import-type')?.value || 'anime';
   const tmdbIdVal = document.getElementById('import-tmdb')?.value.trim();
-  const introStartVal = document.getElementById('import-intro-start')?.value.trim();
   const filePathVal = document.getElementById('import-filepath')?.value.trim();
 
   if (!titleVal) {
@@ -378,7 +378,6 @@ async function handleFormSubmit(e) {
         formData.append('seasonNumber', item.season);
         formData.append('episodeNumber', item.episode);
         if (tmdbIdVal) formData.append('tmdbId', tmdbIdVal);
-        if (introStartVal) formData.append('introStart', introStartVal);
 
         await uploadWithProgress(formData, {
           onProgress: (pct, loadedMB, totalMB) => {
@@ -404,7 +403,6 @@ async function handleFormSubmit(e) {
       formData.append('seasonNumber', seasonVal);
       formData.append('episodeNumber', epVal);
       if (tmdbIdVal) formData.append('tmdbId', tmdbIdVal);
-      if (introStartVal) formData.append('introStart', introStartVal);
 
       if (statusText) statusText.textContent = 'Importando y analizando con FFprobe...';
       await uploadWithProgress(formData, {

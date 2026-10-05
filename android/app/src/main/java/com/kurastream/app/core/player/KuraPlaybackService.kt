@@ -1,11 +1,7 @@
 package com.kurastream.app.core.player
 
 import android.app.PendingIntent
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.media.AudioManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
@@ -31,14 +27,6 @@ class KuraPlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var player: ExoPlayer? = null
 
-    private val noisyReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
-                player?.pause()
-            }
-        }
-    }
-
     override fun onCreate() {
         super.onCreate()
 
@@ -54,7 +42,9 @@ class KuraPlaybackService : MediaSessionService() {
         player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(audioAttributes, true) // Handles audio focus automatically
-            .setHandleAudioBecomingNoisy(true)
+            .setHandleAudioBecomingNoisy(true) // Pauses when headphones are unplugged
+            // Keeps Wi-Fi awake while streaming from the home server with the screen off / in PiP
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
         val sessionActivityPendingIntent = PendingIntent.getActivity(
@@ -67,22 +57,22 @@ class KuraPlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, player!!)
             .setSessionActivity(sessionActivityPendingIntent)
             .build()
-
-        registerReceiver(
-            noisyReceiver,
-            IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-        )
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
     }
 
-    override fun onDestroy() {
-        try {
-            unregisterReceiver(noisyReceiver)
-        } catch (_: Exception) {}
+    /** Swiping the app away leaves no video surface, so playback (and the FFmpeg stream) must end. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        player?.run {
+            stop()
+            clearMediaItems()
+        }
+        stopSelf()
+    }
 
+    override fun onDestroy() {
         mediaSession?.run {
             player.release()
             release()

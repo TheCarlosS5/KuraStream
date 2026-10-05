@@ -429,13 +429,14 @@ export function initAudioEnhancer(videoElement, options = {}) {
         // Ignore
       }
 
-      if (videoElement) {
-        mediaSourceCache.delete(videoElement);
-      }
-
-      if (audioCtx && audioCtx.state !== 'closed') {
+      // A <video> routed through createMediaElementSource stays bound to that AudioContext for
+      // its whole life. The player reuses the same element across episodes, so closing the
+      // context (or dropping the cache) would leave the next episode silent and make the next
+      // createMediaElementSource throw. Keep both alive and fall back to a straight passthrough;
+      // the next init picks the cached pair up again.
+      if (sourceNode && audioCtx && audioCtx.state !== 'closed') {
         try {
-          audioCtx.close().catch(() => {});
+          sourceNode.connect(audioCtx.destination);
         } catch {
           // Ignore
         }

@@ -2,6 +2,7 @@ package com.kurastream.app.core.player
 
 import com.kurastream.app.core.model.AudioTrack
 import com.kurastream.app.core.model.Episode
+import com.kurastream.app.core.model.SubtitleTrack
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -179,24 +180,85 @@ class StreamResolverTest {
     }
 
     @Test
-    fun `resolveAudioTrackBackendParam prefers trackNumber over index and falls back to UI index`() {
+    fun `audio param is the track_number even when it is 0 and the stream index is not`() {
+        // Real scan data (Mushoku Tensei): Spanish is track_number 0 / stream index 1, Japanese 1 / 2.
+        // Sending the stream index for the first track used to select Japanese for both choices.
+        val ep = Episode(
+            id = "ep1",
+            container = "mkv",
+            audioTracks = listOf(
+                AudioTrack(index = 1, trackNumber = 0, title = "GATON", language = "spa"),
+                AudioTrack(index = 2, trackNumber = 1, title = "GATON", language = "jpn")
+            )
+        )
+        assertEquals(0, StreamResolver.resolveAudioTrackBackendParam(ep, 0))
+        assertEquals(1, StreamResolver.resolveAudioTrackBackendParam(ep, 1))
+        assertTrue(StreamResolver.resolvePlaybackStream("http://h", ep, 0f, 0).streamUrl.contains("audio=0"))
+    }
+
+    @Test
+    fun `audio param falls back to the list position when track numbers are not unique`() {
         val ep = Episode(
             id = "ep1",
             audioTracks = listOf(
-                AudioTrack(index = 10, trackNumber = 2, title = "Spanish", language = "spa"),
-                AudioTrack(index = 11, trackNumber = 0, title = "Japanese", language = "jpn"),
-                AudioTrack(index = 0, trackNumber = 0, title = "English", language = "eng")
+                AudioTrack(index = 10, trackNumber = 0, language = "spa"),
+                AudioTrack(index = 11, trackNumber = 0, language = "jpn")
             )
         )
-
-        // When trackNumber > 0, returns trackNumber
-        assertEquals(2, StreamResolver.resolveAudioTrackBackendParam(ep, 0))
-        // When trackNumber == 0 but index > 0, returns index
-        assertEquals(11, StreamResolver.resolveAudioTrackBackendParam(ep, 1))
-        // When both == 0, returns UI index
-        assertEquals(2, StreamResolver.resolveAudioTrackBackendParam(ep, 2))
-        // When out of bounds, returns UI index
+        assertEquals(1, StreamResolver.resolveAudioTrackBackendParam(ep, 1))
         assertEquals(99, StreamResolver.resolveAudioTrackBackendParam(ep, 99))
     }
-}
 
+    @Test
+    fun `subtitle param uses track_number like the web player`() {
+        val ep = Episode(
+            id = "ep1",
+            subtitleTracks = listOf(
+                SubtitleTrack(index = 3, trackNumber = 0, language = "spa"),
+                SubtitleTrack(index = 4, trackNumber = 1, language = "eng")
+            )
+        )
+        assertEquals(0, StreamResolver.resolveSubtitleTrackBackendParam(ep, 0))
+        assertEquals(1, StreamResolver.resolveSubtitleTrackBackendParam(ep, 1))
+    }
+
+    @Test
+    fun `dubbed audio starts without subtitles in the same language`() {
+        val subs = listOf(
+            SubtitleTrack(index = 3, trackNumber = 0, title = "GATON", language = "spa", isDefault = true),
+            SubtitleTrack(index = 4, trackNumber = 1, title = "GATON", language = "eng")
+        )
+        assertEquals(-1, StreamResolver.chooseSubtitleTrack(subs, "spa", "spa"))
+        assertEquals(0, StreamResolver.chooseSubtitleTrack(subs, "spa", "jpn"))
+        assertEquals(-1, StreamResolver.chooseSubtitleTrack(subs, "", "jpn"))
+    }
+
+    @Test
+    fun `dubbed audio still uses a forced signs track`() {
+        val subs = listOf(
+            SubtitleTrack(index = 3, trackNumber = 0, title = "Completos", language = "spa"),
+            SubtitleTrack(index = 4, trackNumber = 1, title = "Carteles", language = "spa")
+        )
+        assertEquals(1, StreamResolver.chooseSubtitleTrack(subs, "spa", "es-419"))
+    }
+
+    @Test
+    fun `untagged tracks are recognised from release titles`() {
+        assertEquals("spa", StreamResolver.trackLanguage("und", "GATON [SPA]"))
+        assertEquals("es-419", StreamResolver.trackLanguage("und", "Español Latino"))
+        assertEquals("jpn", StreamResolver.trackLanguage("", "Japanese"))
+        assertEquals("und", StreamResolver.trackLanguage("und", "Pista 1"))
+    }
+
+    @Test
+    fun `track labels use language names instead of release tags`() {
+        val labels = TrackLabels.audio(
+            listOf(
+                AudioTrack(index = 1, trackNumber = 0, title = "GATON", language = "spa"),
+                AudioTrack(index = 2, trackNumber = 1, title = "GATON", language = "jpn")
+            )
+        )
+        assertEquals(listOf("Español", "Japonés"), labels.map { it.label })
+        assertTrue(labels.all { it.detail.isEmpty() })
+    }
+}

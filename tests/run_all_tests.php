@@ -6,6 +6,11 @@
 // Registered test suites list
 $tests = [
     'test_admin_auth_contract.php',
+    'test_app_download.php',
+    'test_continue_watching.php',
+    'test_season_sync.php',
+    'test_audio_intro.php',
+    'test_calendar_airing_only.php',
     'test_audit_release_hardening.php',
     'test_auto_skip_db.php',
     'test_cinematic_pack.php',
@@ -31,6 +36,8 @@ $tests = [
     'test_migration_005_to_006.php',
     'test_party_kids_restriction.php',
     'test_party_profile_switch_security.php',
+    'test_subtitle_offset.php',
+    'test_backend_hardening_round2.php',
 ];
 
 $testFiles = !empty($tests)
@@ -89,7 +96,9 @@ foreach ($testFiles as $idx => $file) {
     $num = $idx + 1;
     echo "[$num/$total] Running $name... ";
 
-    $cmd = escapeshellarg($phpBin) . $phpExtensionArgs . ' ' . escapeshellarg($file);
+    // The suites rely on assert(); production php.ini files disable it (zend.assertions=-1), which would
+    // make every test pass without checking anything.
+    $cmd = escapeshellarg($phpBin) . $phpExtensionArgs . ' -d zend.assertions=1 -d assert.exception=1 ' . escapeshellarg($file);
     $output = [];
     $returnCode = 0;
     exec($cmd . ' 2>&1', $output, $returnCode);

@@ -1,5 +1,6 @@
 package com.kurastream.app.core.repository
 
+import com.kurastream.app.core.network.toUserFacingError
 import com.kurastream.app.core.database.ServerProfileDao
 import com.kurastream.app.core.database.ServerProfileEntity
 import com.kurastream.app.core.model.ServerProfile
@@ -27,8 +28,20 @@ class ServerRepository(
             } else {
                 Result.failure(Exception("Servidor degradado: ${health.database}"))
             }
+        } catch (e: retrofit2.HttpException) {
+            // /api/health answers 503 when PHP is up but MySQL is not: say so instead of a generic 503.
+            if (e.code() == 503) {
+                Result.failure(
+                    com.kurastream.app.core.network.UserFacingException(
+                        "KuraStream responde, pero su base de datos no está disponible. Revisa MySQL/MariaDB en el servidor.",
+                        e
+                    )
+                )
+            } else {
+                Result.failure(e.toUserFacingError())
+            }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 

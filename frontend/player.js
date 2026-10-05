@@ -1,3182 +1,2391 @@
-// player.js - Custom VLC-style video player logic with SubtitlesOctopus integration
+/**
+ * KuraStream web player.
+ *
+ * One playback session at a time (initPlayer / destroyPlayer). Two stream modes:
+ *  - direct: MP4/WebM with H.264 and the default audio track, served with HTTP ranges, so the
+ *    <video> element seeks natively and its currentTime is the episode time;
+ *  - remux: everything else goes through ffmpeg (/api/stream/:id?audio=&start=). That stream starts
+ *    at `start` and cannot be range-seeked, so the episode time is offset + video.currentTime and a
+ *    seek outside the buffered window restarts the stream at the new position.
+ */
 import { partyManager } from './js/modules/party.js';
 import { initScrubPreview } from './js/modules/player_scrub_preview.js';
-import { openTracksModal } from './js/modules/player_tracks_modal.js';
+import { openTracksModal, closeTracksModal, isTracksModalOpen } from './js/modules/player_tracks_modal.js';
 import { initAudioEnhancer } from './js/modules/player_audio_enhancer.js';
-import { initShortcutsHud } from './js/modules/player_shortcuts_hud.js';
-import { initSmartSkip } from './js/modules/player_smart_skip.js';
 import { renderQRCodeToElement } from './js/features/player/qr_generator.js';
 import { AuthManager } from './js/core/auth.js';
+import { escapeHtml } from './js/core/ui.js';
+import { iconSvg, setIcon, hydrateIcons } from './js/core/icons.js';
+import {
+  parseTrackList, trackNumber, detectTrackLang, matchesLanguage, labelTracks,
+  chooseAudioTrack, chooseSubtitleTrack, isBitmapSubtitle
+} from './js/player/tracks.js';
 
-function escapeHtml(str) {
-  if (typeof str !== 'string') return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
+export { detectTrackLang, matchesLanguage };
 
-function parseJsonArray(val) {
-  if (!val) return [];
-  if (Array.isArray(val)) return val;
-  if (typeof val === 'object') return Object.values(val);
-  if (typeof val === 'string') {
-    try {
-      const parsed = JSON.parse(val);
-      if (Array.isArray(parsed)) return parsed;
-      if (parsed && typeof parsed === 'object') return Object.values(parsed);
-    } catch (e) {
-      return [];
-    }
-  }
-  return [];
-}
+const SEEK_STEP = 10;
+const CONTROLS_HIDE_MS = 3000;
+const PROGRESS_SAVE_MS = 10000;
+const REMUX_SEEK_DEBOUNCE_MS = 350;
+const STALL_RELOAD_MS = 20000;
+const MAX_STREAM_RETRIES = 3;
+const UP_NEXT_COUNTDOWN = 10;
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const BOOSTS = [100, 125, 150, 175, 200];
+const DIRECT_CONTAINERS = ['mp4', 'webm', 'm4v'];
+// The stream endpoint only serves H.264 without ffmpeg; anything else is remuxed/transcoded.
+const DIRECT_CODECS = ['', 'h264', 'avc1', 'avc'];
 
-let video = null;
-let container = null;
-let controlsOverlay = null;
-let playPauseBtn = null;
-let centerPlayBtn = null;
-let progressCurrent = null;
-let progressBuffered = null;
-let progressHover = null;
-let progressTooltip = null;
-let progressBar = null;
-let progressHandle = null;
-let timeCurrent = null;
-let timeDuration = null;
-let muteBtn = null;
-let volumeSlider = null;
-let speedBtn = null;
-let nextEpBtn = null;
-let fileInfoBtn = null;
-let fileInfoModal = null;
-let fileInfoBody = null;
-let fileInfoClose = null;
-let fullscreenBtn = null;
-let pipBtn = null;
-let skipIntroBtn = null;
-let skipOutroBtn = null;
-let watchCreditsBtn = null;
-let outroOverlayContainer = null;
-let countdownOverlay = null;
-let scrubPreviewInstance = null;
-let audioEnhancerInstance = null;
-let shortcutsHudInstance = null;
-let smartSkipInstance = null;
+// -------------------------------------------------------------------------------------------
+// Pure helpers (exported for the router, the watch-party modal and tests)
+// -------------------------------------------------------------------------------------------
 
-function setLucideIcon(elementId, iconName) {
-  const el = document.getElementById(elementId);
-  if (!el) return;
-  const i = document.createElement('i');
-  i.setAttribute('data-lucide', iconName);
-  i.id = elementId;
-  el.replaceWith(i);
-  if (typeof lucide !== 'undefined') lucide.createIcons();
-}
-
-// Helper to extract show ID safely without breaking on movies or shows with _S in name
+/** Show id of an episode id ("Show_S1_E2" -> "Show", "Film_movie" -> "Film"). */
 export function getShowIdFromEpisodeId(epId) {
   if (!epId) return '';
   return String(epId).replace(/_movie$/i, '').replace(/_S\d+_E\d+$/i, '');
 }
 
-// QR Share elements
-let hideControlsTimeout = null;
-let qrShareBtn = null;
-let qrShareModal = null;
-let qrShareClose = null;
-let qrImage = null;
-let qrUrlText = null;
-let handleKeyboard = null;
-let handleFullscreenChange = null;
-let currentEpisodeId = null;
-let currentEpisodeData = null;
-let currentShowData = null;
-let nextEpisodeId = null;
-let selectedAudioTrackNum = 0;
-let selectedSubtitleTrackNum = -1; // -1 = Off
-let currentStreamStartOffset = 0;
-let outroDismissed = false;
-let hasSkippedIntroForCurrentEpisode = false;
-let hasSkippedOutroForCurrentEpisode = false;
+export function showApiUrl(showId) {
+  return `/api/shows/${encodeURIComponent(showId)}`;
+}
 
-let nextEpisodeData = null;
-let nextEpisodeDismissed = false;
-let nextEpisodeNavigated = false;
-let handleTouchStart = null;
-let lastTapTime = 0;
-let lastTapX = 0;
-let lastTapY = 0;
-let handleVisibilityChange = null;
+function playerHash(episodeId) {
+  return `#/player/${encodeURIComponent(episodeId)}`;
+}
 
-let ambilightCanvas = null;
-let ambilightCtx = null;
-let ambilightInterval = null;
-let ambilightActive = false;
-let ambilightToggleBtn = null;
-let countdownAutoplayInterval = null;
+function showHash(episodeId) {
+  const showId = getShowIdFromEpisodeId(episodeId);
+  return showId ? `#/show/${encodeURIComponent(showId)}` : '#/';
+}
 
-// SubtitlesOctopus Instance
-let octopusInstance = null;
-let subtitleMetadataAbortController = null;
-let isSubtitlesLoadingScript = false;
-const subtitleContentCache = new Map();
-const fontsCache = new Map();
+/** Whether the server will answer this episode/audio pick with a plain ranged file. */
+export function isDirectPlayable(ep, audioTrackNum = 0) {
+  if (!ep) return false;
+  const path = String(ep.filepath || ep.filename || '');
+  const ext = String(ep.container || (path.includes('.') ? path.split('.').pop() : '')).toLowerCase();
+  if (!DIRECT_CONTAINERS.includes(ext)) return false;
+  if (!DIRECT_CODECS.includes(String(ep.video_codec || '').toLowerCase())) return false;
+  const audioTracks = parseTrackList(ep.audio_tracks);
+  return Number(audioTrackNum) <= 0 || audioTracks.length <= 1;
+}
 
-function preloadSubtitles(episodeId, tracks) {
-  if (!episodeId || !Array.isArray(tracks) || tracks.length === 0) return;
-  const token = AuthManager.getToken();
-  const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-  tracks.forEach(t => {
-    const num = (t.track_number !== undefined) ? t.track_number : (t.index !== undefined ? t.index : 0);
-    const key = `${episodeId}_${num}`;
-    if (subtitleContentCache.has(key)) return;
-    let url = `/api/subtitles/${encodeURIComponent(episodeId)}/${num}`;
-    if (token) url += `?token=${encodeURIComponent(token)}`;
-    fetch(url, { headers })
-      .then(res => res.ok ? res.text() : null)
-      .then(content => {
-        if (content) subtitleContentCache.set(key, content);
-      })
-      .catch(() => {});
+export function formatTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
+  const total = Math.floor(seconds);
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hrs > 0) return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+export function formatChapterTime(seconds) {
+  if (!Number.isFinite(Number(seconds))) return '00:00';
+  const total = Math.floor(Number(seconds));
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hrs > 0) return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+/**
+ * Playback order of a show: regular seasons first (S1E1, S1E2 ... S2E1), specials (season 0)
+ * after them. "Next episode" never rolls from the last regular episode into the specials.
+ */
+export function orderEpisodes(episodes) {
+  const num = (v, fallback) => (Number.isFinite(parseInt(v, 10)) ? parseInt(v, 10) : fallback);
+  return [...(episodes || [])].sort((a, b) => {
+    const sa = num(a.season_number, 1);
+    const sb = num(b.season_number, 1);
+    if ((sa === 0) !== (sb === 0)) return sa === 0 ? 1 : -1;
+    if (sa !== sb) return sa - sb;
+    return num(a.episode_number, 0) - num(b.episode_number, 0);
   });
 }
 
-// Progress Save Interval
-let progressSaveInterval = null;
-let lastSavedTime = 0;
-let isDraggingProgress = false;
-
-// Active state tracker for keyboard inputs
-let isPlayerActive = false;
-let playerAbortController = null;
-let isControlsVisible = false;
-let speedHoldTimer = null;
-let isSpeedHoldActive = false;
-let previousSpeed = 1.0;
-
-export function detectTrackLang(track) {
-  if (!track) return 'und';
-  const rawLang = String(track.language || track.lang || '').toLowerCase().trim();
-  if (/^(?:es[-_](?:la|419|mx|ar|co|cl|pe|us|uy|ve|ec|gt|cu|bo|do|hn|py|sv|ni|cr|pa|pr)|lat)$/i.test(rawLang)) return 'es-la';
-  if (/^(?:es[-_]es)$/i.test(rawLang)) return 'es';
-  if (/^(?:spa|es|spanish|espa[nñ]ol)$/i.test(rawLang) || rawLang.startsWith('es-') || rawLang.startsWith('es_')) return 'spa';
-  if (/^(?:jpn|ja|ja[-_]jp|japanese)$/i.test(rawLang)) return 'jpn';
-  if (/^(?:eng|en|en[-_](?:us|gb|ca|au|nz)|english)$/i.test(rawLang)) return 'eng';
-  if (rawLang && rawLang !== 'und') return rawLang;
-
-  const title = String(track.title || track.name || track.label || '').toLowerCase();
-  if (/\b(latino|lat|es-la|es-419|hispanoam[eé]rica|mexico|m[eé]xico)\b/i.test(title)) return 'es-la';
-  if (/\b(castellano|espa[nñ]a|spain|es-es)\b/i.test(title)) return 'es';
-  if (/(?:^|[_\s\-\[\(\/])(?:spa|esp|es|spanish|espa[nñ]ol)(?:$|[_\s\-\]\)\/])/i.test(title) || /\b(?:spanish|espa[nñ]ol)\b/i.test(title)) return 'spa';
-  if (/(?:^|[_\s\-\[\(\/])(?:jpn|jap|ja|japanese|japon[eé]s)(?:$|[_\s\-\]\)\/])/i.test(title) || /\b(?:japanese|japon[eé]s)\b/i.test(title)) return 'jpn';
-  if (/(?:^|[_\s\-\[\(\/])(?:eng|en|english|ingl[eé]s)(?:$|[_\s\-\]\)\/])/i.test(title) || /\b(?:english|ingl[eé]s)\b/i.test(title)) return 'eng';
-  return 'und';
+export function findAdjacentEpisodes(episodes, episodeId) {
+  const ordered = orderEpisodes(episodes);
+  const index = ordered.findIndex(ep => ep.id === episodeId);
+  if (index === -1) return { previous: null, next: null };
+  const current = ordered[index];
+  const isSpecial = parseInt(current.season_number, 10) === 0;
+  const sameGroup = ep => ep && (parseInt(ep.season_number, 10) === 0) === isSpecial;
+  const next = sameGroup(ordered[index + 1]) ? ordered[index + 1] : null;
+  const previous = sameGroup(ordered[index - 1]) ? ordered[index - 1] : null;
+  return { previous, next };
 }
 
-export function matchesLanguage(trackLang, prefLang) {
-  if (!trackLang || !prefLang) return false;
-  const t = String(trackLang).toLowerCase().trim();
-  const p = String(prefLang).toLowerCase().trim();
-  if (p === 'default' || p === 'off' || t === 'und') return false;
-  if (t === p) return true;
-
-  const spanishAliases = ['spa', 'es', 'es-es', 'es-la', 'es-419', 'spanish', 'español', 'castellano', 'lat'];
-  const englishAliases = ['eng', 'en', 'en-us', 'en-gb', 'english', 'inglés'];
-  const japaneseAliases = ['jpn', 'ja', 'japanese', 'japonés'];
-
-  if (spanishAliases.includes(p) && spanishAliases.includes(t)) return true;
-  if (englishAliases.includes(p) && englishAliases.includes(t)) return true;
-  if (japaneseAliases.includes(p) && japaneseAliases.includes(t)) return true;
-
-  return t.startsWith(p) || p.startsWith(t);
+function episodeLabel(ep) {
+  if (!ep) return '';
+  const season = parseInt(ep.season_number, 10);
+  const number = ep.episode_number;
+  if (season === 0) return `Especial ${number}`;
+  return season ? `T${season} · E${number}` : `Episodio ${number}`;
 }
 
-export function isDirectPlayable(ep, audioTrackNum = 0) {
-  if (!ep) return false;
-  if (ep.direct_playable === false) return false;
-  const container = (ep.container || '').toLowerCase();
-  const pathOrName = ep.filepath || ep.filename || ep.id || '';
-  const ext = container || (pathOrName.includes('.') ? pathOrName.split('.').pop().toLowerCase() : '');
-  const isDirectContainer = ['mp4', 'webm', 'm4v'].includes(ext) || ep.direct_playable === true;
-  const codec = (ep.video_codec || '').toLowerCase();
-  const isDirectCodec = !codec || ['h264', 'avc1', 'avc', 'vp8', 'vp9', 'av1'].includes(codec);
-  const audioTracks = parseJsonArray(ep.audio_tracks);
-  const isDefaultAudio = audioTrackNum <= 0 || audioTracks.length <= 1;
-  return isDirectContainer && isDirectCodec && isDefaultAudio;
-}
-
-export async function initPlayer(rawEpisodeId) {
-  // Router and party callers supply decoded IDs, not a hash or query string.
-  const episodeId = String(rawEpisodeId || '');
-  currentEpisodeId = episodeId;
-  selectedAudioTrackNum = 0;
-  selectedSubtitleTrackNum = -1;
-  isPlayerActive = true;
-
-  if (typeof playerAbortController !== 'undefined' && playerAbortController) {
-    playerAbortController.abort();
-    playerAbortController = null;
-  }
-  if (typeof AbortController !== 'undefined') {
-    playerAbortController = new AbortController();
-  }
-
-  // Cache DOM elements
-  video = document.getElementById('video-element');
-  container = document.getElementById('player-container');
-  controlsOverlay = document.getElementById('player-controls-overlay');
-  playPauseBtn = document.getElementById('play-pause-btn');
-  centerPlayBtn = document.getElementById('center-play-pause-btn');
-  progressCurrent = document.getElementById('player-progress-current');
-  progressBuffered = document.getElementById('player-progress-buffered');
-  progressHover = document.getElementById('player-progress-hover');
-  progressTooltip = document.getElementById('player-progress-tooltip');
-  progressBar = document.getElementById('player-progress-bar');
-  progressHandle = document.getElementById('player-progress-handle');
-  timeCurrent = document.getElementById('player-time-current');
-  timeDuration = document.getElementById('player-time-duration');
-  muteBtn = document.getElementById('mute-btn');
-  volumeSlider = document.getElementById('volume-slider');
-  speedBtn = document.getElementById('player-speed-btn') || document.getElementById('speed-btn');
-  nextEpBtn = document.getElementById('next-ep-btn');
-  fileInfoBtn = document.getElementById('file-info-btn');
-  fileInfoModal = document.getElementById('file-info-modal');
-  fileInfoBody = document.getElementById('file-info-body');
-  fileInfoClose = document.getElementById('file-info-close');
-  fullscreenBtn = document.getElementById('fullscreen-btn');
-  pipBtn = document.getElementById('player-pip-btn') || document.getElementById('pip-btn');
-  skipIntroBtn = document.getElementById('skipIntroBtn') || document.getElementById('skip-intro-btn');
-  skipOutroBtn = document.getElementById('skip-outro-btn');
-  watchCreditsBtn = document.getElementById('watch-credits-btn');
-  outroOverlayContainer = document.getElementById('outro-overlay-container');
-  countdownOverlay = document.getElementById('autoplay-countdown-overlay');
-  ambilightToggleBtn = document.getElementById('ambilight-toggle-btn');
-  ambilightCanvas = document.getElementById('ambient-canvas') || document.getElementById('player-ambilight-canvas');
-  if (ambilightCanvas) {
-    ambilightCanvas.id = 'ambient-canvas';
-  }
-
-  // Immediately bind back button so user can always navigate back
-  const backBtn = document.getElementById('player-back-btn');
-  if (backBtn) {
-    backBtn.onclick = () => {
-      const showId = getShowIdFromEpisodeId(currentEpisodeId);
-      location.hash = showId ? `#/show/${encodeURIComponent(showId)}` : '#/';
-    };
-  }
-
-  // Reset state
-  lastSavedTime = 0;
-  currentStreamStartOffset = 0;
-  if (video) {
-    video.currentTime = 0;
-  }
-  if (timeCurrent) timeCurrent.textContent = '0:00';
-  if (progressCurrent) progressCurrent.style.width = '0%';
-  if (progressHandle) progressHandle.style.left = '0%';
-  if (progressTooltip) progressTooltip.style.display = 'none';
-  if (progressSaveInterval) clearInterval(progressSaveInterval);
-
-  qrShareBtn = document.getElementById('qr-share-btn');
-  qrShareModal = document.getElementById('qr-share-modal');
-  qrShareClose = document.getElementById('qr-share-close');
-  qrImage = document.getElementById('qr-image');
-  qrUrlText = document.getElementById('qr-url-text');
-  
-  outroDismissed = false;
-
-  // Load episode metadata
+function readPref(key, fallback = null) {
   try {
-    let rawShowId = getShowIdFromEpisodeId(episodeId);
-    let res = await fetch(`/api/shows/${encodeURIComponent(rawShowId)}`);
-    let data = null;
-    if (res.ok) {
-      try { data = await res.json(); } catch {}
+    const value = localStorage.getItem(key);
+    return value === null ? fallback : value;
+  } catch {
+    return fallback;
+  }
+}
+
+function writePref(key, value) {
+  try { localStorage.setItem(key, String(value)); } catch { /* storage blocked */ }
+}
+
+function prefersAutoSkipIntro() {
+  const pref = window.userPreferences && window.userPreferences.auto_skip_intro;
+  if (pref !== undefined && pref !== null) return pref === true || pref === 1 || pref === '1' || pref === 'true';
+  return readPref('kurastream_auto_skip_intro') === 'true';
+}
+
+function prefersAutoPlayNext() {
+  const pref = window.userPreferences && window.userPreferences.auto_play_next;
+  if (pref !== undefined && pref !== null) return !(pref === false || pref === 0 || pref === '0' || pref === 'false');
+  return readPref('kurastream_auto_play_next') !== 'false';
+}
+
+function isPerfLite() {
+  return document.documentElement.classList.contains('perf-lite');
+}
+
+// -------------------------------------------------------------------------------------------
+// Session state
+// -------------------------------------------------------------------------------------------
+
+let currentEpisodeId = null;
+let playerInitGeneration = 0;
+
+const S = {
+  active: false,
+  abort: null,
+  episode: null,
+  show: null,
+  episodes: [],
+  next: null,
+  previous: null,
+  duration: 0,
+  audioTrack: 0,
+  subtitleTrack: -1,
+  lastSubtitleTrack: -1,
+  direct: true,
+  offset: 0,
+  pendingSeek: null,
+  seekTimer: null,
+  retries: 0,
+  stallTimer: null,
+  retryTimer: null,
+  internalReloadUntil: 0,
+  hideTimer: null,
+  saveTimer: null,
+  lastSavedAt: -1,
+  introSkipped: false,
+  creditsSkipped: false,
+  upNext: { shown: false, dismissed: false, navigating: false, seconds: 0, timer: null },
+  endedShown: false,
+  hold: { timer: null, active: false, previousRate: 1 },
+  tap: { lastTime: 0, lastX: 0, streakUntil: 0, streakSide: null, streakTotal: 0, downAt: 0, downX: 0, downY: 0, pointerType: '' },
+  hudTimer: null,
+  feedbackTimers: {},
+  toastTimer: null,
+  resumeTimer: null,
+  octopus: null,
+  subtitleRequest: 0,
+  audioEnhancer: null,
+  scrubPreview: null,
+  ambilightTimer: null,
+  dragging: false,
+  lastKnownTime: 0,
+  partyHandlers: null,
+  seenMessageIds: new Set(),
+  heartbeatTimer: null
+};
+
+const els = {};
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+function cacheElements() {
+  [
+    'player-container', 'video-element', 'subtitles-container', 'player-controls-overlay', 'player-loader', 'player-loader-text',
+    'player-back-btn', 'player-show-title', 'player-episode-title', 'center-play-pause-btn', 'center-play-icon',
+    'center-rewind-btn', 'center-forward-btn', 'player-progress-bar', 'player-progress-buffered', 'player-progress-hover',
+    'player-progress-current', 'player-progress-handle', 'player-progress-tooltip', 'player-time-current',
+    'player-time-duration', 'play-pause-btn', 'play-icon', 'rewind-btn', 'forward-btn', 'mute-btn', 'volume-icon',
+    'volume-slider', 'next-ep-btn', 'episodes-btn', 'player-tracks-btn', 'more-options-btn', 'more-options-menu',
+    'more-options-dropdown', 'player-party-btn', 'player-pip-btn', 'fullscreen-btn', 'fullscreen-icon', 'player-hud',
+    'player-seek-feedback-left', 'player-seek-feedback-right', 'skip-intro-btn', 'skip-intro-label', 'up-next-card', 'up-next-thumb',
+    'up-next-title', 'up-next-meta', 'up-next-count', 'up-next-ring', 'up-next-play', 'up-next-dismiss',
+    'player-end-screen', 'player-end-title', 'player-end-next', 'player-end-replay', 'player-end-back',
+    'player-resume-toast', 'player-resume-text', 'player-resume-restart', 'player-error-overlay', 'player-error-title',
+    'player-error-message', 'player-error-retry-btn', 'player-error-back-btn', 'player-episodes-panel',
+    'player-episodes-seasons', 'player-episodes-list', 'player-episodes-close', 'file-info-modal', 'file-info-body',
+    'file-info-close', 'qr-share-modal', 'qr-share-close', 'qr-image', 'qr-url-text', 'player-shortcuts-modal',
+    'player-shortcuts-close', 'player-ambilight-canvas', 'menu-pip-btn', 'menu-ambilight-btn', 'menu-qr-btn',
+    'menu-file-info-btn', 'menu-shortcuts-btn', 'player-party-sidebar', 'party-messages-container', 'party-chat-input',
+    'party-input-form', 'party-btn-close-sidebar', 'party-sound-toggle', 'party-sound-icon', 'party-btn-copy-code',
+    'party-btn-copy-cta', 'party-room-code-display', 'party-btn-leave', 'party-header-title', 'party-host-badge',
+    'player-toast'
+  ].forEach(id => { els[id] = $(id); });
+  els.container = els['player-container'];
+  els.video = els['video-element'];
+}
+
+/** Episode currently loaded in the player, or null when the player view is not active. */
+export function getActiveEpisodeId() {
+  return S.active ? currentEpisodeId : null;
+}
+
+function listen(target, type, handler, options = {}) {
+  if (!target) return;
+  target.addEventListener(type, handler, { ...options, signal: S.abort.signal });
+}
+
+// -------------------------------------------------------------------------------------------
+// Time & stream helpers
+// -------------------------------------------------------------------------------------------
+
+function absoluteTime() {
+  const video = els.video;
+  if (!video) return 0;
+  return S.offset + (video.currentTime || 0);
+}
+
+function displayTime() {
+  return S.pendingSeek !== null ? S.pendingSeek : absoluteTime();
+}
+
+function episodeDuration() {
+  const fromMeta = Number(S.episode && S.episode.duration) || 0;
+  if (fromMeta > 0) return fromMeta;
+  const video = els.video;
+  return video && Number.isFinite(video.duration) ? S.offset + video.duration : 0;
+}
+
+function formatStart(seconds) {
+  return String(Math.round(seconds * 1000) / 1000);
+}
+
+function buildStreamUrl(startAt) {
+  const params = new URLSearchParams();
+  if (!S.direct) {
+    params.set('audio', String(S.audioTrack));
+    if (startAt > 0) params.set('start', formatStart(startAt));
+  }
+  if (partyManager.streamCapabilityToken) params.set('ticket', partyManager.streamCapabilityToken);
+  const token = AuthManager.getToken();
+  if (token) params.set('token', token);
+  const query = params.toString();
+  return `/api/stream/${encodeURIComponent(currentEpisodeId)}${query ? `?${query}` : ''}`;
+}
+
+function canControlPlayback(showNotice = true) {
+  if (partyManager.isInRoom() && !partyManager.canControlPlayback()) {
+    if (showNotice) showHud('crown', 'Solo el anfitrión controla la reproducción');
+    return false;
+  }
+  return true;
+}
+
+function sendPartySync(action) {
+  if (!partyManager.isInRoom() || Date.now() < S.internalReloadUntil) return;
+  partyManager.sendPlaybackSync(!els.video.paused, displayTime(), currentEpisodeId, action);
+}
+
+/**
+ * (Re)starts the stream at an episode position. Direct streams seek in place when the file is
+ * already loaded; remuxed streams restart ffmpeg at `startAt`.
+ */
+function loadStream(startAt = 0, { autoplay = null } = {}) {
+  const video = els.video;
+  if (!video || !S.episode) return;
+  const shouldPlay = autoplay === null ? !video.paused : autoplay;
+  const duration = episodeDuration();
+  startAt = Math.max(0, duration > 0 ? Math.min(startAt, Math.max(0, duration - 1)) : startAt);
+
+  S.direct = isDirectPlayable(S.episode, S.audioTrack);
+  const currentSrc = video.getAttribute('src') || '';
+  const directLoaded = S.direct && currentSrc && !currentSrc.includes('start=') && !currentSrc.includes('audio=') && video.readyState >= 1;
+
+  hideError();
+  if (directLoaded) {
+    video.currentTime = startAt;
+  } else {
+    S.offset = S.direct ? 0 : startAt;
+    S.internalReloadUntil = Date.now() + 1500;
+    setLoading(true);
+    video.src = buildStreamUrl(startAt);
+    video.load();
+    if (S.direct && startAt > 0) {
+      listen(video, 'loadedmetadata', () => { video.currentTime = startAt; }, { once: true });
     }
-
-    if (!data || (!data.show && !data.id && !data.title)) {
-      const altShowId = rawShowId.includes('_') ? rawShowId.replace(/_/g, ' ') : rawShowId.replace(/ /g, '_');
-      res = await fetch(`/api/shows/${encodeURIComponent(altShowId)}`);
-      if (res.ok) {
-        try { data = await res.json(); } catch {}
-      }
+    if (S.scrubPreview && S.direct) S.scrubPreview.updateSource(buildStreamUrl(0));
+  }
+  video.playbackRate = currentBaseRate();
+  syncSubtitleClock();
+  if (shouldPlay) {
+    const attempt = video.play();
+    if (attempt && typeof attempt.catch === 'function') {
+      attempt.catch(() => updatePlayState());
     }
+  }
+  S.lastKnownTime = startAt;
+  renderProgress(startAt);
+}
 
-    currentShowData = data ? (data.show || data) : null;
-    const episodesList = Array.isArray(data?.episodes) ? data.episodes : (currentShowData?.episodes || []);
-    if (!currentEpisodeData) {
-      currentEpisodeData = episodesList.find(e => 
-        e.id === episodeId || 
-        decodeURIComponent(e.id) === episodeId ||
-        e.id === rawEpisodeId ||
-        e.id.toLowerCase() === episodeId.toLowerCase()
-      );
-    }
+/** Seeks to an absolute episode time, coalescing rapid remux seeks into one stream restart. */
+function seekTo(target, { notify = true } = {}) {
+  const video = els.video;
+  if (!video || !S.episode) return;
+  const duration = episodeDuration();
+  target = Math.max(0, duration > 0 ? Math.min(target, duration - 0.5) : target);
+  hideEndScreen();
+  if (target < upNextTriggerTime() - 1) {
+    if (S.upNext.shown) hideUpNext();
+    S.upNext.dismissed = false;
+  }
+  S.lastKnownTime = target;
 
-    if (!currentEpisodeData && episodesList.length > 0) {
-      const match = episodeId.match(/_S(\d+)_E(\d+)$/i);
-      if (match) {
-        const sNum = parseInt(match[1], 10);
-        const eNum = parseInt(match[2], 10);
-        currentEpisodeData = episodesList.find(e => 
-          parseInt(e.season_number, 10) === sNum && 
-          parseInt(e.episode_number, 10) === eNum
-        );
-      }
-    }
-
-    if (!currentEpisodeData) {
-      try {
-        const epRes = await fetch(`/api/episodes/${encodeURIComponent(episodeId)}`);
-        if (epRes && epRes.ok) {
-          currentEpisodeData = await epRes.json();
-        }
-      } catch (err) {}
-    }
-
-    if (!currentEpisodeData) throw new Error('Episode not found: ' + episodeId);
-    
-    // Sort episodes by Season and Episode number to support season transitions (e.g. S1E12 -> S2E1) and gap handling
-    const sortedEpisodes = [...episodesList].sort((a, b) => {
-      const sDiff = (parseInt(a.season_number, 10) || 1) - (parseInt(b.season_number, 10) || 1);
-      if (sDiff !== 0) return sDiff;
-      return (parseInt(a.episode_number, 10) || 1) - (parseInt(b.episode_number, 10) || 1);
-    });
-
-    const currentIdx = sortedEpisodes.findIndex(e => e.id === episodeId || decodeURIComponent(e.id) === episodeId);
-    if (currentIdx !== -1 && currentIdx + 1 < sortedEpisodes.length) {
-      nextEpisodeData = sortedEpisodes[currentIdx + 1];
-      nextEpisodeId = nextEpisodeData.id;
-    } else {
-      nextEpisodeData = null;
-      nextEpisodeId = null;
-    }
-
-    outroDismissed = false;
-    nextEpisodeDismissed = false;
-    nextEpisodeNavigated = false;
-    hideNextEpisodeCard();
-    hasSkippedIntroForCurrentEpisode = false;
-    hasSkippedOutroForCurrentEpisode = false;
-
-    const showTitleEl = document.getElementById('player-show-title');
-    const epTitleEl = document.getElementById('player-episode-title');
-    if (showTitleEl) showTitleEl.textContent = currentShowData.title || '';
-    if (epTitleEl) epTitleEl.textContent = `${currentEpisodeData.season_number ? `Temporada ${currentEpisodeData.season_number} • ` : ''}Capítulo ${currentEpisodeData.episode_number}: ${currentEpisodeData.title || ''}`;
-    
-    updateMediaSession();
-    renderChapterTicks(currentEpisodeData);
-    renderChaptersDropdown(currentEpisodeData);
-  } catch (e) {
-    console.error(e);
-    if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
-      window.showToast('Error al cargar datos del reproductor: ' + (e.message || e), 'error');
-    }
-    location.hash = '#/';
+  if (S.direct) {
+    video.currentTime = target;
+    renderProgress(target);
+    if (notify) sendPartySync('seek');
     return;
   }
 
-  // Resolve Audio and Subtitle track preferences (pre-playback selection first, then profile defaults)
-  const prefAudio = localStorage.getItem('kura_pref_audio_lang') || localStorage.getItem('kurastream_preferred_audio_language') || window.userPreferences?.preferred_audio_language || 'default';
-  const prefSub = localStorage.getItem('kura_pref_sub_lang') || localStorage.getItem('kurastream_preferred_subtitle_language') || window.userPreferences?.preferred_subtitle_language || 'default';
-
-  // 1. Resolve Audio Track: direct modal selection -> user preference -> disposition default -> first track
-  const audioTracks = parseJsonArray(currentEpisodeData.audio_tracks);
-  let chosenAudio = 0;
-  if (audioTracks.length > 0) {
-    let matchedTrack = null;
-
-    const directTrackStr = (typeof sessionStorage !== 'undefined') ? sessionStorage.getItem('kura_play_audio_track') : null;
-    const directEp = (typeof sessionStorage !== 'undefined') ? sessionStorage.getItem('kura_play_audio_ep') : null;
-    if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.removeItem('kura_play_audio_track');
-      sessionStorage.removeItem('kura_play_audio_ep');
-    }
-
-    if (directEp !== null && (String(directEp) === String(currentEpisodeData.id) || decodeURIComponent(String(directEp)) === String(currentEpisodeData.id)) && directTrackStr !== null) {
-      const directNum = parseInt(directTrackStr, 10);
-      matchedTrack = audioTracks.find((t, i) => {
-        const tNum = t.track_number !== undefined ? t.track_number : (t.index !== undefined ? t.index : i);
-        return tNum === directNum || i === directNum;
-      });
-    }
-
-    if (!matchedTrack && prefAudio !== 'default') {
-      matchedTrack = audioTracks.find(t => matchesLanguage(detectTrackLang(t), prefAudio));
-    }
-    if (!matchedTrack) {
-      matchedTrack = audioTracks.find(t => t.disposition?.default || t.is_default);
-    }
-    if (!matchedTrack) {
-      matchedTrack = audioTracks[0];
-    }
-    chosenAudio = (matchedTrack.track_number !== undefined) ? matchedTrack.track_number : (matchedTrack.index !== undefined ? matchedTrack.index : audioTracks.indexOf(matchedTrack));
-  }
-  selectedAudioTrackNum = chosenAudio;
-
-  // 2. Resolve Subtitle Track: text subtitles only, avoiding bitmap codecs
-  const subTracks = parseJsonArray(currentEpisodeData.subtitle_tracks);
-  const isBitmapSub = (t) => Boolean(t.is_bitmap) || ['hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle'].includes((t.codec || '').toLowerCase());
-  const textSubTracks = subTracks.filter(t => !isBitmapSub(t));
-  let chosenSub = -1;
-  if (prefSub === 'off') {
-    chosenSub = -1;
-  } else if (prefSub !== 'default' && textSubTracks.length > 0) {
-    const match = textSubTracks.find(t => matchesLanguage(t.language, prefSub));
-    if (match) {
-      chosenSub = (match.track_number !== undefined) ? match.track_number : (match.index !== undefined ? match.index : 0);
-    } else {
-      const defaultSub = textSubTracks.find(t => t.disposition?.default || t.is_default) || textSubTracks[0];
-      chosenSub = (defaultSub.track_number !== undefined) ? defaultSub.track_number : (defaultSub.index !== undefined ? defaultSub.index : 0);
-    }
-  } else if (prefSub === 'default' && textSubTracks.length > 0) {
-    const defaultSub = textSubTracks.find(t => t.disposition?.default || t.is_default) || textSubTracks[0];
-    chosenSub = (defaultSub.track_number !== undefined) ? defaultSub.track_number : (defaultSub.index !== undefined ? defaultSub.index : 0);
-  }
-  selectedSubtitleTrackNum = chosenSub;
-
-  // Preload subtitle tracks in the background
-  preloadSubtitles(currentEpisodeId, textSubTracks);
-
-  // Set up menus for Audio and Subtitles
-  setupTracksMenu();
-
-  // Load progress from URL if shared via QR, otherwise from backend
-  let startProgress = 0;
-  const hashParts = window.location.hash.split('?');
-  let urlTime = null;
-  if (hashParts.length > 1) {
-    const params = new URLSearchParams(hashParts[1]);
-    const tVal = parseFloat(params.get('t'));
-    if (!isNaN(tVal) && tVal > 0) {
-      urlTime = tVal;
-    }
+  // Remux: a target inside what is already downloaded can be reached without restarting ffmpeg.
+  const relative = target - S.offset;
+  if (relative >= 0 && isBufferedAndSeekable(relative)) {
+    video.currentTime = relative;
+    renderProgress(target);
+    if (notify) sendPartySync('seek');
+    return;
   }
 
-  if (urlTime !== null && urlTime > 0) {
-    startProgress = urlTime;
-    console.log(`Starting playback from shared QR timestamp: ${startProgress} seconds`);
-  } else {
-    try {
-      let activeUser = 'guest';
-      let token = AuthManager.getToken();
-      const user = AuthManager.getUser();
-      if (user && user.username) {
-        activeUser = user.username;
-      }
-
-      const isGuest = !token || activeUser === 'guest';
-      if (isGuest) {
-        // Read local-only guest progress
-        try {
-          const guestProg = JSON.parse(localStorage.getItem('kura_guest_progress') || '{}');
-          if (guestProg[episodeId] && !guestProg[episodeId].completed) {
-            const p = parseFloat(guestProg[episodeId].progress);
-            if (!isNaN(p) && p >= 3) {
-              startProgress = p;
-            }
-          }
-        } catch(e) {}
-      } else {
-        const activeProfile = AuthManager.getActiveProfile();
-        const profileName = (activeProfile && activeProfile.name) ? activeProfile.name : 'Principal';
-        const headers = {};
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-
-        const progressRes = await fetch(`/api/progress/${encodeURIComponent(episodeId)}?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
-        if (progressRes.ok) {
-          const progressData = await progressRes.json();
-          if (progressData && !progressData.completed) {
-            const p = parseFloat(progressData.progress);
-            if (!isNaN(p) && p >= 3) {
-              startProgress = p;
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("Could not load watch progress:", e);
+  S.pendingSeek = target;
+  renderProgress(target);
+  clearTimeout(S.seekTimer);
+  S.seekTimer = setTimeout(() => {
+    const finalTarget = S.pendingSeek;
+    S.pendingSeek = null;
+    if (finalTarget === null || !S.active) return;
+    loadStream(finalTarget);
+    if (notify) {
+      S.internalReloadUntil = 0;
+      sendPartySync('seek');
+      S.internalReloadUntil = Date.now() + 1500;
     }
-  }
-
-  if (!startProgress || isNaN(startProgress) || startProgress < 3) {
-    startProgress = 0;
-  }
-
-  if (startProgress === 0) {
-    currentStreamStartOffset = 0;
-    if (video) video.currentTime = 0;
-    if (timeCurrent) timeCurrent.textContent = '0:00';
-    if (progressCurrent) progressCurrent.style.width = '0%';
-    if (progressHandle) progressHandle.style.left = '0%';
-  }
-
-  // Set up event listeners FIRST so all controls are active
-  setupPlayerEventListeners();
-
-  // Load video source
-  loadVideoStream(startProgress);
-
-  // Setup Ambilight
-  setupAmbilight();
-
-  // Initialize Timeline Seek Scrub Preview
-  if (progressBar && video) {
-    if (scrubPreviewInstance) scrubPreviewInstance.destroy();
-    const isDirectPlayable = !!(currentEpisodeData && (currentEpisodeData.direct_playable || currentEpisodeData.container === 'mp4' || currentEpisodeData.container === 'webm'));
-    scrubPreviewInstance = initScrubPreview(progressBar, video, {
-      canDirectPlay: isDirectPlayable,
-      duration: currentEpisodeData ? currentEpisodeData.duration : null
-    });
-  }
-
-  // Initialize Ultra-Cinematic Pro Modules
-  if (video) {
-    if (!audioEnhancerInstance) {
-      audioEnhancerInstance = initAudioEnhancer(video);
-    }
-
-    if (!shortcutsHudInstance) {
-      shortcutsHudInstance = initShortcutsHud(video, container, {
-        audioEnhancer: audioEnhancerInstance,
-        onSeekRelative: (seconds) => {
-          seekRelative(seconds);
-          triggerControlsActivity();
-        },
-        onSeekPercent: (pct) => {
-          const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video ? video.duration : 1) || 1;
-          const targetTime = pct * duration;
-          loadVideoStream(targetTime);
-          triggerControlsActivity();
-        },
-        onVolumeChange: (vol, muted) => {
-          if (volumeSlider) volumeSlider.value = muted ? 0 : vol;
-          updateVolumeIcon(muted ? 0 : vol);
-        },
-        onMuteToggle: (muted) => {
-          updateVolumeIcon(muted ? 0 : (video ? video.volume : 1));
-        },
-        onToggleFullscreen: () => {
-          toggleFullscreen();
-        },
-        onPlaybackRateChange: (rate) => {
-          const speedBtnEl = document.getElementById('speed-btn');
-          if (speedBtnEl) speedBtnEl.textContent = `${rate}x`;
-          document.querySelectorAll('.speed-opt').forEach(o => {
-            o.classList.toggle('active', o.getAttribute('data-speed') === String(rate));
-          });
-        },
-        onEscape: () => {
-          const moreMenu = document.getElementById('more-options-menu');
-          if (moreMenu && moreMenu.classList.contains('show')) {
-            moreMenu.classList.remove('show');
-            return;
-          }
-          if (document.fullscreenElement) {
-            document.exitFullscreen();
-          } else {
-            location.hash = `#/show/${encodeURIComponent(getShowIdFromEpisodeId(currentEpisodeId))}`;
-          }
-        },
-        onNextEpisode: () => {
-          if (nextEpisodeId) {
-            showVideoToast('Siguiente episodio');
-            location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
-          } else {
-            showVideoToast('No hay más episodios');
-          }
-        }
-      });
-    }
-
-    const isAutoSkip = window.userPreferences?.auto_skip_intro === true || 
-                       window.userPreferences?.auto_skip_intro === 'true' ||
-                       localStorage.getItem('kurastream_auto_skip_intro') === 'true';
-
-    const isAutoPlayNext = window.userPreferences?.auto_play_next !== false && 
-                           window.userPreferences?.auto_play_next !== 'false' &&
-                           localStorage.getItem('kurastream_auto_play_next') !== 'false';
-
-    if (!smartSkipInstance) {
-      smartSkipInstance = initSmartSkip(video, container, {
-        introStart: currentEpisodeData ? currentEpisodeData.intro_start : null,
-        introEnd: currentEpisodeData ? currentEpisodeData.intro_end : null,
-        outroStart: currentEpisodeData ? currentEpisodeData.outro_start : null,
-        autoSkip: isAutoSkip,
-        onSkip: (targetTime) => {
-          if (typeof targetTime === 'number' && targetTime > 0) {
-            loadVideoStream(targetTime);
-          }
-          showVideoToast("Intro omitida");
-        },
-        onPlayNext: () => {
-          if (nextEpisodeId && isAutoPlayNext) {
-            location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
-          }
-        }
-      });
-    } else if (currentEpisodeData) {
-      smartSkipInstance.setTimingIntervals({
-        introStart: currentEpisodeData.intro_start,
-        introEnd: currentEpisodeData.intro_end,
-        outroStart: currentEpisodeData.outro_start
-      });
-    }
-  }
-
-  // Reset controls timer
-  triggerControlsActivity();
-  
-  // Volume restore
-  const savedVolume = localStorage.getItem('playerVolume');
-  if (savedVolume !== null) {
-    const vol = parseFloat(savedVolume);
-    if (!isNaN(vol)) {
-      video.volume = vol;
-      video.muted = vol === 0;
-      volumeSlider.value = vol;
-      updateVolumeIcon(vol);
-    }
-  }
-
-  // Playback speed restore
-  const savedSpeed = localStorage.getItem('kura_playback_speed') || '1';
-  const speedBtnEl = document.getElementById('speed-btn');
-  if (speedBtnEl) {
-    speedBtnEl.textContent = `${savedSpeed}x`;
-    document.querySelectorAll('.speed-opt').forEach(o => {
-      if (o.getAttribute('data-speed') === savedSpeed) {
-        o.classList.add('active');
-      } else {
-        o.classList.remove('active');
-      }
-    });
-  }
-
-  // Periodic Progress Saving
-  if (progressSaveInterval) clearInterval(progressSaveInterval);
-  progressSaveInterval = setInterval(() => {
-    saveWatchProgress();
-  }, 5000);
-
-  if (typeof lucide !== 'undefined') lucide.createIcons();
+  }, REMUX_SEEK_DEBOUNCE_MS);
 }
 
-function showLoader() {
-  const loader = document.getElementById('player-loader');
-  if (loader) loader.style.display = 'flex';
-  if (centerPlayBtn) centerPlayBtn.style.display = 'none';
+function seekBy(delta) {
+  seekTo(displayTime() + delta);
 }
 
-function hideLoader() {
-  const loader = document.getElementById('player-loader');
-  if (loader) loader.style.display = 'none';
-  if (video && video.paused && centerPlayBtn) {
-    centerPlayBtn.style.display = 'flex';
-  }
-}
-
-function loadVideoStream(startTime = 0) {
-  const wasPaused = video ? video.paused : false;
-  const direct = isDirectPlayable(currentEpisodeData, selectedAudioTrackNum);
-  currentStreamStartOffset = direct ? 0 : startTime;
-  if (startTime === 0) {
-    if (video) video.currentTime = 0;
-    if (timeCurrent) timeCurrent.textContent = '0:00';
-    if (progressCurrent) progressCurrent.style.width = '0%';
-    if (progressHandle) progressHandle.style.left = '0%';
-  }
-  if (octopusInstance) {
-    octopusInstance.timeOffset = currentStreamStartOffset;
-  }
-  if (smartSkipInstance && currentEpisodeData) {
-    smartSkipInstance.setTimingIntervals({
-      introStart: currentEpisodeData.intro_start,
-      introEnd: currentEpisodeData.intro_end,
-      outroStart: currentEpisodeData.outro_start
-    });
-  }
-  
-  // Show glowing buffer loader on stream start
-  showLoader();
-
-  let baseStreamUrl = `/api/stream/${encodeURIComponent(currentEpisodeId)}`;
-  let streamUrl = direct ? baseStreamUrl : `${baseStreamUrl}?audio=${selectedAudioTrackNum}`;
-  if (!direct && startTime > 0) {
-    streamUrl += `&start=${startTime}`;
-  }
-  if (partyManager && partyManager.streamCapabilityToken) {
-    streamUrl += (streamUrl.includes('?') ? '&' : '?') + `ticket=${encodeURIComponent(partyManager.streamCapabilityToken)}`;
-  }
-  const authToken = AuthManager.getToken();
-  if (authToken) {
-    streamUrl += (streamUrl.includes('?') ? '&' : '?') + `token=${encodeURIComponent(authToken)}`;
-  }
-  
-  const currentSrc = (video && (video.getAttribute('src') || video.src)) || '';
-  const isSameDirectStream = direct && currentSrc.includes(baseStreamUrl) && !currentSrc.includes('&start=') && !currentSrc.includes('?start=');
-
-  if (isSameDirectStream) {
-    // Native HTML5 seek for Direct Play streams without resetting video.src
-    video.currentTime = startTime;
-    hideLoader();
-  } else {
-    video.src = streamUrl;
-    video.load();
-    if (direct && startTime > 0) {
-      video.addEventListener('loadedmetadata', () => {
-        video.currentTime = startTime;
-      }, { once: true });
-    } else {
-      video.addEventListener('loadedmetadata', () => {
-        video.currentTime = 0;
-      }, { once: true });
+function isBufferedAndSeekable(time) {
+  const video = els.video;
+  const inRanges = ranges => {
+    for (let i = 0; i < ranges.length; i++) {
+      if (time >= ranges.start(i) && time <= ranges.end(i) - 0.5) return true;
     }
-  }
-
-  if (scrubPreviewInstance && typeof scrubPreviewInstance.updateSource === 'function') {
-    scrubPreviewInstance.updateSource(direct ? baseStreamUrl : streamUrl);
-  }
-  
-  // Set playback speed state
-  const currentSpeed = speedBtn ? (parseFloat(speedBtn.textContent) || 1.0) : 1.0;
-  video.playbackRate = currentSpeed;
-
-  if (!wasPaused) {
-    video.play().catch(e => {
-      setLucideIcon('play-icon', 'play');
-      setLucideIcon('center-play-icon', 'play');
-      if (centerPlayBtn) centerPlayBtn.style.display = 'flex';
-    });
-  } else {
-    setLucideIcon('play-icon', 'play');
-    setLucideIcon('center-play-icon', 'play');
-    if (centerPlayBtn) centerPlayBtn.style.display = 'flex';
-  }
-
-  // Reinitialize Subtitles if selected and not yet initialized
-  if (selectedSubtitleTrackNum !== -1) {
-    if (!octopusInstance) {
-      initSubtitles(selectedSubtitleTrackNum);
-    } else {
-      octopusInstance.timeOffset = currentStreamStartOffset;
-      if (typeof octopusInstance.setCurrentTime === 'function' && video) {
-        octopusInstance.setCurrentTime((video.currentTime || 0) + currentStreamStartOffset);
-      }
-    }
-  }
-
-  if (partyManager && partyManager.isInRoom()) {
-    partyManager.sendPlaybackSync(!wasPaused, startTime, currentEpisodeId, 'seek');
-  }
-}
-
-function saveWatchProgress(force = false) {
-  if (!video) return;
-  
-  const currentStreamSrc = video.src;
-  if (!currentStreamSrc || currentStreamSrc.startsWith('blob:')) return;
-  
-  let startOffset = 0;
+    return false;
+  };
   try {
-    const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-    startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-  } catch(e) {}
-  
-  const totalWatched = startOffset + (video.currentTime || 0);
-  const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 0);
-  
-  // Only save if forced or progress moved significantly
-  if (force || Math.abs(totalWatched - lastSavedTime) >= 3 || (duration > 0 && totalWatched >= duration - 5)) {
-    lastSavedTime = totalWatched;
-    let activeUser = 'guest';
-    let token = AuthManager.getToken();
-    const user = AuthManager.getUser();
-    if (user && user.username) {
-      activeUser = user.username;
-    }
+    return inRanges(video.buffered) && inRanges(video.seekable);
+  } catch {
+    return false;
+  }
+}
 
-    const isGuest = !token || activeUser === 'guest';
-    if (isGuest) {
-      try {
-        const guestProg = JSON.parse(localStorage.getItem('kura_guest_progress') || '{}');
-        guestProg[currentEpisodeId] = {
-          progress: totalWatched,
-          duration: duration,
-          completed: duration > 0 && totalWatched >= (duration - 30),
-          updated_at: Date.now()
-        };
-        localStorage.setItem('kura_guest_progress', JSON.stringify(guestProg));
-      } catch(e) {}
+function currentBaseRate() {
+  if (partyManager.isInRoom()) return 1;
+  const rate = parseFloat(readPref('kura_playback_speed', '1'));
+  return SPEEDS.includes(rate) ? rate : 1;
+}
+
+function setPlaybackRate(rate) {
+  if (partyManager.isInRoom()) {
+    showHud('users', 'La velocidad es fija durante un Watch Party');
+    return;
+  }
+  writePref('kura_playback_speed', rate);
+  els.video.playbackRate = rate;
+  syncSettingsMenu();
+  showHud('gauge', `${rate}x`);
+}
+
+// -------------------------------------------------------------------------------------------
+// Rendering
+// -------------------------------------------------------------------------------------------
+
+function setLoading(on, text = '') {
+  const loader = els['player-loader'];
+  if (!loader) return;
+  loader.hidden = !on;
+  if (els['player-loader-text']) els['player-loader-text'].textContent = text;
+  els.container.classList.toggle('is-loading', on);
+}
+
+function updatePlayState() {
+  const video = els.video;
+  if (!video) return;
+  const playing = !video.paused && !video.ended;
+  setIcon(els['play-icon'], playing ? 'pause' : 'play');
+  setIcon(els['center-play-icon'], playing ? 'pause' : 'play');
+  const label = playing ? 'Pausar' : 'Reproducir';
+  els['play-pause-btn']?.setAttribute('aria-label', label);
+  els['play-pause-btn']?.setAttribute('data-tip', `${label} (K)`);
+  els['center-play-pause-btn']?.setAttribute('aria-label', label);
+  els.container.classList.toggle('is-paused', !playing);
+  if ('mediaSession' in navigator) {
+    try { navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'; } catch { /* unsupported */ }
+  }
+}
+
+function renderProgress(time = displayTime()) {
+  const duration = episodeDuration();
+  const pct = duration > 0 ? Math.min(100, Math.max(0, (time / duration) * 100)) : 0;
+  if (!S.dragging) {
+    if (els['player-progress-current']) els['player-progress-current'].style.width = `${pct}%`;
+    if (els['player-progress-handle']) els['player-progress-handle'].style.left = `${pct}%`;
+    if (els['player-time-current']) els['player-time-current'].textContent = formatTime(time);
+  }
+  if (els['player-time-duration']) els['player-time-duration'].textContent = formatTime(duration);
+  const bar = els['player-progress-bar'];
+  if (bar) {
+    bar.setAttribute('aria-valuemax', String(Math.round(duration)));
+    bar.setAttribute('aria-valuenow', String(Math.round(time)));
+    bar.setAttribute('aria-valuetext', `${formatTime(time)} de ${formatTime(duration)}`);
+  }
+}
+
+function renderBuffered() {
+  const video = els.video;
+  const fill = els['player-progress-buffered'];
+  if (!video || !fill) return;
+  const duration = episodeDuration();
+  if (duration <= 0) return;
+  let end = 0;
+  try {
+    const ranges = video.buffered;
+    for (let i = 0; i < ranges.length; i++) {
+      if (ranges.start(i) <= video.currentTime + 0.5 && video.currentTime <= ranges.end(i)) {
+        end = ranges.end(i);
+        break;
+      }
+    }
+  } catch { /* no buffer yet */ }
+  fill.style.width = `${Math.min(100, ((S.offset + end) / duration) * 100)}%`;
+}
+
+function renderVolume() {
+  const video = els.video;
+  const slider = els['volume-slider'];
+  const level = video.muted ? 0 : video.volume;
+  if (slider) {
+    slider.value = String(level);
+    slider.style.setProperty('--fill', `${Math.round(level * 100)}%`);
+  }
+  setIcon(els['volume-icon'], level === 0 ? 'volume-x' : (level < 0.5 ? 'volume-1' : 'volume-2'));
+  els['mute-btn']?.setAttribute('aria-label', level === 0 ? 'Activar sonido' : 'Silenciar');
+}
+
+function setVolume(level, { muted = level <= 0 } = {}) {
+  const video = els.video;
+  level = Math.max(0, Math.min(1, Math.round(level * 100) / 100));
+  if (level > 0) video.volume = level;
+  video.muted = muted;
+  if (level > 0) writePref('playerVolume', level);
+  writePref('kura_player_muted', video.muted ? '1' : '0');
+  renderVolume();
+}
+
+function renderTitles() {
+  const ep = S.episode;
+  const show = S.show || {};
+  if (els['player-show-title']) els['player-show-title'].textContent = show.title || '';
+  if (els['player-episode-title']) {
+    const parts = [];
+    if (show.media_type !== 'movie') parts.push(episodeLabel(ep));
+    if (ep.title) parts.push(ep.title);
+    els['player-episode-title'].textContent = parts.join(' · ');
+  }
+  document.title = `${show.title || 'KuraStream'}${ep.title ? ` - ${ep.title}` : ''} | KuraStream`;
+}
+
+function renderChapterTicks() {
+  const bar = els['player-progress-bar'];
+  if (!bar || !S.episode) return;
+  bar.querySelectorAll('.seekbar-chapter-tick').forEach(tick => tick.remove());
+  const duration = episodeDuration();
+  if (duration <= 0) return;
+  const track = bar.querySelector('.player-progress-track') || bar;
+  chapterMarks().forEach(mark => {
+    const tick = document.createElement('div');
+    tick.className = 'seekbar-chapter-tick';
+    tick.style.left = `${(mark.time / duration) * 100}%`;
+    tick.title = `${formatChapterTime(mark.time)} · ${mark.title}`;
+    track.appendChild(tick);
+  });
+}
+
+function chapterMarks() {
+  const ep = S.episode;
+  const duration = episodeDuration();
+  let chapters = ep.chapters;
+  if (typeof chapters === 'string') {
+    try { chapters = JSON.parse(chapters); } catch { chapters = []; }
+  }
+  const marks = [];
+  if (Array.isArray(chapters) && chapters.length) {
+    chapters.forEach(ch => {
+      const start = Number(ch.start);
+      if (Number.isFinite(start) && start > 0 && start < duration) marks.push({ time: start, title: ch.title || 'Capítulo' });
+    });
+    return marks;
+  }
+  const intro = introWindow();
+  if (intro) {
+    if (intro.start > 0) marks.push({ time: intro.start, title: 'Intro' });
+    marks.push({ time: intro.end, title: 'Episodio' });
+  }
+  const outro = Number(ep.outro_start);
+  if (Number.isFinite(outro) && outro > 0 && outro < duration) marks.push({ time: outro, title: 'Créditos' });
+  return marks;
+}
+
+function introWindow() {
+  const ep = S.episode;
+  if (!ep) return null;
+  const start = Number(ep.intro_start);
+  if (ep.intro_start === null || ep.intro_start === undefined || !Number.isFinite(start)) return null;
+  const endRaw = Number(ep.intro_end);
+  const end = ep.intro_end !== null && ep.intro_end !== undefined && Number.isFinite(endRaw) && endRaw > start ? endRaw : start + 90;
+  return { start, end };
+}
+
+// -------------------------------------------------------------------------------------------
+// HUD, toasts, seek feedback
+// -------------------------------------------------------------------------------------------
+
+function showHud(icon, label) {
+  const hud = els['player-hud'];
+  if (!hud) return;
+  hud.querySelector('.player-hud-icon').innerHTML = icon ? iconSvg(icon, { size: 22 }) : '';
+  hud.querySelector('.player-hud-label').textContent = label || '';
+  hud.classList.remove('is-visible');
+  void hud.offsetWidth;
+  hud.classList.add('is-visible');
+  clearTimeout(S.hudTimer);
+  S.hudTimer = setTimeout(() => hud.classList.remove('is-visible'), 900);
+}
+
+function showToast(message, duration = 3000) {
+  const toast = els['player-toast'];
+  if (!toast) return;
+  toast.textContent = message;
+  toast.classList.add('is-visible');
+  clearTimeout(S.toastTimer);
+  S.toastTimer = setTimeout(() => toast.classList.remove('is-visible'), duration);
+}
+
+function showSeekFeedback(side, label) {
+  const el = els[`player-seek-feedback-${side}`];
+  if (!el) return;
+  el.querySelector('.player-seek-feedback-icon').innerHTML = iconSvg(side === 'left' ? 'rewind' : 'fast-forward', { size: 28 });
+  el.querySelector('.player-seek-feedback-label').textContent = label;
+  el.classList.remove('is-visible');
+  void el.offsetWidth;
+  el.classList.add('is-visible');
+  clearTimeout(S.feedbackTimers[side]);
+  S.feedbackTimers[side] = setTimeout(() => el.classList.remove('is-visible'), 650);
+}
+
+// -------------------------------------------------------------------------------------------
+// Controls visibility
+// -------------------------------------------------------------------------------------------
+
+function overlayOpen() {
+  return Boolean(
+    els['more-options-menu']?.classList.contains('show') ||
+    isTracksModalOpen() ||
+    (els['player-episodes-panel'] && !els['player-episodes-panel'].hidden) ||
+    (els['file-info-modal'] && !els['file-info-modal'].hidden) ||
+    (els['qr-share-modal'] && !els['qr-share-modal'].hidden) ||
+    (els['player-shortcuts-modal'] && !els['player-shortcuts-modal'].hidden)
+  );
+}
+
+function showControls() {
+  if (!els.container) return;
+  els.container.classList.remove('controls-hidden');
+  scheduleHideControls();
+}
+
+function scheduleHideControls() {
+  clearTimeout(S.hideTimer);
+  const video = els.video;
+  if (!video || video.paused || S.dragging) return;
+  S.hideTimer = setTimeout(() => {
+    if (!S.active || els.video.paused || overlayOpen() || S.dragging || els.container.matches('.is-pointer-on-controls')) {
+      scheduleHideControls();
       return;
     }
+    els.container.classList.add('controls-hidden');
+  }, CONTROLS_HIDE_MS);
+}
 
-    const activeProfile = AuthManager.getActiveProfile();
-    const profileName = (activeProfile && activeProfile.name) ? activeProfile.name : 'Principal';
-    
-    const headers = { 'Content-Type': 'application/json' };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+function hideControlsNow() {
+  if (els.video.paused || overlayOpen()) return;
+  clearTimeout(S.hideTimer);
+  els.container.classList.add('controls-hidden');
+}
 
-    fetch(`/api/progress/${encodeURIComponent(currentEpisodeId)}`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        progress: totalWatched,
-        progress_seconds: totalWatched,
-        duration: duration,
-        username: activeUser,
-        profile_name: profileName
-      })
-    }).catch(err => console.warn('Failed to save watch progress:', err));
+// -------------------------------------------------------------------------------------------
+// Playback actions
+// -------------------------------------------------------------------------------------------
+
+function togglePlay() {
+  const video = els.video;
+  if (!video || !canControlPlayback()) return;
+  hideEndScreen();
+  if (video.paused || video.ended) {
+    const attempt = video.play();
+    if (attempt && typeof attempt.catch === 'function') attempt.catch(() => updatePlayState());
+  } else {
+    video.pause();
+  }
+  showControls();
+}
+
+function toggleMute() {
+  const video = els.video;
+  if (video.muted || video.volume === 0) {
+    const restored = parseFloat(readPref('playerVolume', '1')) || 1;
+    setVolume(restored, { muted: false });
+    showHud('volume-2', `${Math.round(restored * 100)}%`);
+  } else {
+    setVolume(video.volume, { muted: true });
+    showHud('volume-x', 'Silenciado');
   }
 }
 
-// SubtitlesOctopus WASM Renderer
-function initSubtitles(trackNum) {
-  if (trackNum === -1) {
-    if (octopusInstance) {
-      if (typeof octopusInstance.freeTrack === 'function') {
-        try {
-          octopusInstance.freeTrack();
-        } catch (e) {
-          console.warn('Error freeing subtitle track:', e);
-        }
-      }
-      if (octopusInstance.ctx && octopusInstance.canvas) {
-        try {
-          octopusInstance.ctx.clearRect(0, 0, octopusInstance.canvas.width, octopusInstance.canvas.height);
-        } catch (e) {}
-      }
-      if (octopusInstance.canvasParent) {
-        octopusInstance.canvasParent.style.display = 'none';
-      }
+function changeVolume(delta) {
+  const video = els.video;
+  const base = video.muted ? 0 : video.volume;
+  const next = Math.max(0, Math.min(1, base + delta));
+  setVolume(next);
+  showHud(next === 0 ? 'volume-x' : (next < 0.5 ? 'volume-1' : 'volume-2'), `${Math.round(next * 100)}%`);
+}
+
+function isFullscreen() {
+  return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+function toggleFullscreen() {
+  const container = els.container;
+  if (!isFullscreen()) {
+    const request = container.requestFullscreen || container.webkitRequestFullscreen;
+    if (!request) {
+      // iPhone Safari only allows the native <video> player to go fullscreen.
+      if (typeof els.video.webkitEnterFullscreen === 'function') els.video.webkitEnterFullscreen();
+      return;
     }
+    Promise.resolve(request.call(container)).then(() => {
+      if (screen.orientation && screen.orientation.lock && window.matchMedia('(pointer: coarse)').matches) {
+        screen.orientation.lock('landscape').catch(() => {});
+      }
+    }).catch(() => {});
+  } else {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) Promise.resolve(exit.call(document)).catch(() => {});
+    if (screen.orientation && screen.orientation.unlock) {
+      try { screen.orientation.unlock(); } catch { /* not locked */ }
+    }
+  }
+}
+
+function renderFullscreenState() {
+  const on = isFullscreen();
+  setIcon(els['fullscreen-icon'], on ? 'minimize' : 'maximize');
+  els['fullscreen-btn']?.setAttribute('aria-label', on ? 'Salir de pantalla completa' : 'Pantalla completa');
+  els['fullscreen-btn']?.setAttribute('data-tip', on ? 'Salir de pantalla completa (F)' : 'Pantalla completa (F)');
+}
+
+async function togglePictureInPicture() {
+  const video = els.video;
+  closeSettingsMenu();
+  try {
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture();
+    } else if (document.pictureInPictureEnabled && !video.disablePictureInPicture) {
+      await video.requestPictureInPicture();
+    } else if (typeof video.webkitSetPresentationMode === 'function') {
+      video.webkitSetPresentationMode(video.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture');
+    }
+  } catch {
+    showToast('Tu navegador no permitió abrir la ventana flotante.');
+  }
+}
+
+function goToEpisode(episode) {
+  if (!episode) return;
+  S.upNext.navigating = true;
+  location.hash = playerHash(episode.id);
+}
+
+function playNextEpisode() {
+  if (!S.next) {
+    showHud('list-video', 'No hay más episodios');
     return;
   }
-  
-  // SubtitlesOctopus library must be loaded in the page
-  if (typeof SubtitlesOctopus === 'undefined') {
-    if (isSubtitlesLoadingScript) return;
-    isSubtitlesLoadingScript = true;
+  if (partyManager.isInRoom() && !partyManager.isHost()) {
+    showHud('crown', 'El anfitrión elige el episodio');
+    return;
+  }
+  goToEpisode(S.next);
+}
+
+function leavePlayer() {
+  location.hash = showHash(currentEpisodeId);
+}
+
+// -------------------------------------------------------------------------------------------
+// Subtitles (SubtitlesOctopus / libass in a worker)
+// -------------------------------------------------------------------------------------------
+
+function loadOctopusScript() {
+  if (typeof window.SubtitlesOctopus !== 'undefined') return Promise.resolve();
+  if (loadOctopusScript.promise) return loadOctopusScript.promise;
+  loadOctopusScript.promise = new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = '/vendor/subtitles-octopus/subtitles-octopus.js';
-    script.onload = () => {
-      isSubtitlesLoadingScript = false;
-      startOctopusInstance(selectedSubtitleTrackNum);
-    };
+    script.onload = () => resolve();
     script.onerror = () => {
-      isSubtitlesLoadingScript = false;
-      console.warn('SubtitlesOctopus script failed to load.');
+      loadOctopusScript.promise = null;
+      reject(new Error('No se pudo cargar el motor de subtítulos'));
     };
     document.body.appendChild(script);
-  } else {
-    startOctopusInstance(trackNum);
+  });
+  return loadOctopusScript.promise;
+}
+
+const subtitleCache = new Map();
+const fontCache = new Map();
+
+function authHeaders() {
+  const token = AuthManager.getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function fetchSubtitle(episodeId, track) {
+  const key = `${episodeId}|${track}`;
+  if (subtitleCache.has(key)) return subtitleCache.get(key);
+  const params = new URLSearchParams();
+  const token = AuthManager.getToken();
+  if (token) params.set('token', token);
+  if (partyManager.streamCapabilityToken) params.set('ticket', partyManager.streamCapabilityToken);
+  const res = await fetch(`/api/subtitles/${encodeURIComponent(episodeId)}/${track}?${params}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  subtitleCache.set(key, text);
+  return text;
+}
+
+async function fetchFonts(episodeId) {
+  if (fontCache.has(episodeId)) return fontCache.get(episodeId);
+  let fonts = [];
+  try {
+    const res = await fetch(`/api/episodes/${encodeURIComponent(episodeId)}/fonts`, { headers: authHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      fonts = (Array.isArray(data.fonts) ? data.fonts : []).map(font => (typeof font === 'string'
+        ? `/api/episodes/${encodeURIComponent(episodeId)}/fonts/${encodeURIComponent(font)}`
+        : font.url || `/api/episodes/${encodeURIComponent(episodeId)}/fonts/${encodeURIComponent(font.name)}`));
+    }
+  } catch { /* fall back to the default font */ }
+  fontCache.set(episodeId, fonts);
+  return fonts;
+}
+
+function syncSubtitleClock() {
+  if (!S.octopus) return;
+  S.octopus.timeOffset = S.offset;
+  if (typeof S.octopus.setCurrentTime === 'function' && els.video) {
+    try { S.octopus.setCurrentTime((els.video.currentTime || 0) + S.offset); } catch { /* worker not ready */ }
   }
 }
 
-async function startOctopusInstance(trackNum) {
-  if (trackNum === -1) {
-    if (octopusInstance) {
-      if (typeof octopusInstance.freeTrack === 'function') {
-        try { octopusInstance.freeTrack(); } catch (e) {}
-      }
-      if (octopusInstance.ctx && octopusInstance.canvas) {
-        try { octopusInstance.ctx.clearRect(0, 0, octopusInstance.canvas.width, octopusInstance.canvas.height); } catch (e) {}
-      }
-      if (octopusInstance.canvasParent) {
-        octopusInstance.canvasParent.style.display = 'none';
-      }
-    }
+function hideSubtitles() {
+  if (!S.octopus) return;
+  try { S.octopus.freeTrack(); } catch { /* nothing loaded */ }
+  if (S.octopus.canvasParent) S.octopus.canvasParent.style.display = 'none';
+}
+
+async function applySubtitleTrack(track) {
+  const request = ++S.subtitleRequest;
+  if (track === -1) {
+    hideSubtitles();
     return;
   }
-
-  if (subtitleMetadataAbortController) {
-    subtitleMetadataAbortController.abort();
-    subtitleMetadataAbortController = null;
-  }
-
-  // If the video hasn't loaded metadata yet (dimensions are 0), delay initialization
-  if (!video || !video.videoWidth || !video.videoHeight) {
-    console.log("Video metadata not loaded yet. Delaying SubtitlesOctopus initialization...");
-    subtitleMetadataAbortController = new AbortController();
-    video.addEventListener('loadedmetadata', () => {
-      subtitleMetadataAbortController = null;
-      startOctopusInstance(trackNum);
-    }, { once: true, signal: subtitleMetadataAbortController.signal });
-    return;
-  }
-
+  const episodeId = currentEpisodeId;
   try {
-    const cacheKey = `${currentEpisodeId}_${trackNum}`;
-    let subContent = subtitleContentCache.get(cacheKey);
-
-    if (!subContent) {
-      let subFetchUrl = `/api/subtitles/${encodeURIComponent(currentEpisodeId)}/${trackNum}`;
-      const subAuthToken = AuthManager.getToken();
-      if (subAuthToken) {
-        subFetchUrl += `?token=${encodeURIComponent(subAuthToken)}`;
-      }
-      if (partyManager && partyManager.streamCapabilityToken) {
-        subFetchUrl += (subFetchUrl.includes('?') ? '&' : '?') + `ticket=${encodeURIComponent(partyManager.streamCapabilityToken)}`;
-      }
-      const headers = {};
-      if (subAuthToken) headers['Authorization'] = `Bearer ${subAuthToken}`;
-      const subRes = await fetch(subFetchUrl, { headers });
-      if (!subRes.ok) throw new Error(`HTTP ${subRes.status}`);
-      subContent = await subRes.text();
-      subtitleContentCache.set(cacheKey, subContent);
-    }
-
-    if (trackNum !== selectedSubtitleTrackNum) return; // Discard if user changed track while fetching
-
-    const wasPlaying = video && !video.paused;
-
-    // Hot-swap subtitle track on existing instance without disrupting playback
-    if (octopusInstance) {
-      if (octopusInstance.canvasParent) {
-        octopusInstance.canvasParent.style.display = '';
-      }
-      octopusInstance.timeOffset = currentStreamStartOffset;
-      if (typeof octopusInstance.setTrack === 'function') {
-        octopusInstance.setTrack(subContent);
-      }
-      if (wasPlaying && typeof octopusInstance.setIsPaused === 'function') {
-        octopusInstance.setIsPaused(false, (video.currentTime || 0) + currentStreamStartOffset);
-      }
-      if (wasPlaying && video.paused) {
-        video.play().catch(() => {});
-      }
+    const [content] = await Promise.all([fetchSubtitle(episodeId, track), loadOctopusScript()]);
+    if (request !== S.subtitleRequest || !S.active || episodeId !== currentEpisodeId) return;
+    if (S.octopus) {
+      if (S.octopus.canvasParent) S.octopus.canvasParent.style.display = '';
+      S.octopus.setTrack(content);
+      syncSubtitleClock();
       return;
     }
-
-    let fontUrls = fontsCache.get(currentEpisodeId) || [];
-    if (currentEpisodeId && fontUrls.length === 0) {
-      try {
-        const fontAuth = AuthManager.getToken();
-        const fHeaders = fontAuth ? { 'Authorization': `Bearer ${fontAuth}` } : {};
-        const fontsRes = await fetch(`/api/episodes/${encodeURIComponent(currentEpisodeId)}/fonts`, { headers: fHeaders });
-        if (fontsRes.ok) {
-          const fontsData = await fontsRes.json();
-          if (fontsData && Array.isArray(fontsData.fonts)) {
-            fontUrls = fontsData.fonts.map(f => {
-              if (typeof f === 'string') return `/api/episodes/${encodeURIComponent(currentEpisodeId)}/fonts/${encodeURIComponent(f)}`;
-              return f.url || `/api/episodes/${encodeURIComponent(currentEpisodeId)}/fonts/${encodeURIComponent(f.name)}`;
-            });
-            fontsCache.set(currentEpisodeId, fontUrls);
-          }
-        }
-      } catch {
-        // Fallback without embedded fonts
-      }
+    const video = els.video;
+    if (!video.videoWidth) {
+      await new Promise(resolve => listen(video, 'loadedmetadata', resolve, { once: true }));
+      if (request !== S.subtitleRequest || !S.active) return;
     }
-
-    if (trackNum !== selectedSubtitleTrackNum) return; // Discard if user changed track while fetching
-
-    const subContainer = document.getElementById('subtitles-container');
-    if (subContainer) subContainer.innerHTML = '';
-    console.log(`Initializing SubtitlesOctopus with video dimensions: ${video.videoWidth}x${video.videoHeight} for track ${trackNum}, offset: ${currentStreamStartOffset}s`);
-    octopusInstance = new SubtitlesOctopus({
-      video: video,
-      subContent: subContent,
+    const fonts = await fetchFonts(episodeId);
+    if (request !== S.subtitleRequest || !S.active) return;
+    const container = els['subtitles-container'];
+    container.innerHTML = '';
+    S.octopus = new window.SubtitlesOctopus({
+      video,
+      subContent: content,
       workerUrl: '/vendor/subtitles-octopus/subtitles-octopus-worker.js',
       legacyWorkerUrl: '/vendor/subtitles-octopus/subtitles-octopus-worker-legacy.js',
       fallbackFont: '/vendor/subtitles-octopus/default.ttf',
-      fonts: fontUrls,
-      timeOffset: currentStreamStartOffset,
-      targetFps: 60,
+      fonts,
+      timeOffset: S.offset,
+      targetFps: isPerfLite() ? 24 : 30,
       renderMode: 'wasm-blend',
-      container: subContainer,
-      onError: (err) => {
-        console.error('SubtitlesOctopus critical error:', err);
-      }
+      container,
+      onError: err => console.warn('[Player] Subtítulos:', err)
     });
-
-    if (wasPlaying && typeof octopusInstance.setIsPaused === 'function') {
-      octopusInstance.setIsPaused(false, (video.currentTime || 0) + currentStreamStartOffset);
-    }
-    if (wasPlaying && video.paused) {
-      video.play().catch(() => {});
-    }
   } catch (err) {
-    console.error('Failed to launch SubtitlesOctopus WASM worker:', err);
+    if (request === S.subtitleRequest) showToast('No se pudieron cargar los subtítulos.');
+    console.warn('[Player] Subtitle load failed:', err);
   }
 }
 
 function destroySubtitles() {
-  if (subtitleMetadataAbortController) {
-    subtitleMetadataAbortController.abort();
-    subtitleMetadataAbortController = null;
+  S.subtitleRequest++;
+  if (S.octopus) {
+    try { S.octopus.dispose(); } catch { /* already gone */ }
+    S.octopus = null;
   }
-  if (octopusInstance) {
-    try {
-      octopusInstance.dispose();
-    } catch (e) {
-      console.warn('Error disposing subtitles:', e);
+  if (els['subtitles-container']) els['subtitles-container'].innerHTML = '';
+}
+
+function selectSubtitle(track, { remember = true } = {}) {
+  S.subtitleTrack = track;
+  if (track !== -1) S.lastSubtitleTrack = track;
+  if (remember) {
+    if (track === -1) {
+      writePref('kura_pref_sub_lang', 'off');
+    } else {
+      const info = parseTrackList(S.episode.subtitle_tracks).find((t, i) => trackNumber(t, i) === track);
+      const lang = detectTrackLang(info);
+      if (lang && lang !== 'und') writePref('kura_pref_sub_lang', lang);
     }
-    octopusInstance = null;
   }
+  applySubtitleTrack(track);
+}
+
+function cycleSubtitles() {
+  const tracks = labelTracks(parseTrackList(S.episode.subtitle_tracks), 'subtitle').filter(t => !t.bitmap);
+  if (!tracks.length) {
+    showHud('captions-off', 'Este episodio no tiene subtítulos');
+    return;
+  }
+  if (S.subtitleTrack === -1) {
+    const target = tracks.find(t => t.number === S.lastSubtitleTrack) || tracks[0];
+    selectSubtitle(target.number);
+    showHud('captions', target.label);
+  } else {
+    selectSubtitle(-1);
+    showHud('captions-off', 'Subtítulos desactivados');
+  }
+}
+
+function selectAudio(track) {
+  if (track === S.audioTrack) return;
+  S.audioTrack = track;
+  const info = parseTrackList(S.episode.audio_tracks).find((t, i) => trackNumber(t, i) === track);
+  const lang = detectTrackLang(info);
+  if (lang && lang !== 'und') writePref('kura_pref_audio_lang', lang);
+  loadStream(displayTime(), { autoplay: !els.video.paused });
+}
+
+function openTracks() {
+  if (!S.episode) return;
+  hideResumeToast();
+  closeSettingsMenu();
+  closeEpisodesPanel();
+  openTracksModal({
+    container: els.container,
+    audioTracks: labelTracks(parseTrackList(S.episode.audio_tracks), 'audio'),
+    subtitleTracks: labelTracks(parseTrackList(S.episode.subtitle_tracks), 'subtitle'),
+    currentAudio: S.audioTrack,
+    currentSubtitle: S.subtitleTrack,
+    onSelectAudio: selectAudio,
+    onSelectSubtitle: track => selectSubtitle(track),
+    onClose: () => { els['player-tracks-btn']?.focus({ preventScroll: true }); showControls(); }
+  });
+}
+
+// -------------------------------------------------------------------------------------------
+// Settings menu (speed, audio boost, EQ, PiP, ambient light, QR, file info, shortcuts)
+// -------------------------------------------------------------------------------------------
+
+function openSettingsMenu() {
+  closeTracksModal();
+  closeEpisodesPanel();
+  hideResumeToast();
+  syncSettingsMenu();
+  els.container.classList.add('is-menu-open');
+  els['more-options-menu']?.classList.add('show');
+  els['more-options-dropdown']?.classList.add('active');
+  els['more-options-btn']?.setAttribute('aria-expanded', 'true');
+  showControls();
+}
+
+function closeSettingsMenu() {
+  els.container?.classList.remove('is-menu-open');
+  els['more-options-menu']?.classList.remove('show');
+  els['more-options-dropdown']?.classList.remove('active');
+  els['more-options-btn']?.setAttribute('aria-expanded', 'false');
+}
+
+function syncSettingsMenu() {
+  const menu = els['more-options-menu'];
+  if (!menu) return;
+  const rate = els.video ? els.video.playbackRate : 1;
+  menu.querySelectorAll('.speed-opt').forEach(opt => opt.classList.toggle('active', Number(opt.dataset.speed) === currentBaseRateShown(rate)));
+  const boost = Math.round((S.audioEnhancer ? S.audioEnhancer.getGain() : Number(readPref('kura_audio_boost', '100')) / 100) * 100);
+  menu.querySelectorAll('.boost-opt').forEach(opt => opt.classList.toggle('active', Number(opt.dataset.boost) === boost));
+  const preset = S.audioEnhancer ? S.audioEnhancer.getCurrentPreset() : readPref('kura_audio_preset', 'flat');
+  menu.querySelectorAll('.preset-opt').forEach(opt => opt.classList.toggle('active', opt.dataset.preset === preset));
+  els['menu-ambilight-btn']?.classList.toggle('is-on', readPref('kura_ambilight') === 'true');
+  els['menu-ambilight-btn']?.setAttribute('aria-checked', String(readPref('kura_ambilight') === 'true'));
+  const speedGroup = menu.querySelector('#speed-options-group');
+  if (speedGroup) speedGroup.classList.toggle('is-disabled', partyManager.isInRoom());
+}
+
+function currentBaseRateShown(rate) {
+  return SPEEDS.reduce((best, value) => (Math.abs(value - rate) < Math.abs(best - rate) ? value : best), 1);
+}
+
+/** Web Audio graph is created only when a boost/EQ is actually used (it costs CPU on every frame). */
+function ensureAudioEnhancer() {
+  if (!S.audioEnhancer) {
+    S.audioEnhancer = initAudioEnhancer(els.video, {
+      gain: Number(readPref('kura_audio_boost', '100')) / 100,
+      preset: readPref('kura_audio_preset', 'flat')
+    });
+  }
+  return S.audioEnhancer;
+}
+
+function setAudioBoost(percent) {
+  const enhancer = ensureAudioEnhancer();
+  enhancer.setGain(percent / 100);
+  writePref('kura_audio_boost', percent);
+  syncSettingsMenu();
+  showHud('volume-2', `Volumen ${percent}%`);
+  if (!enhancer.isSupported() && percent > 100) showToast('Tu navegador no permite subir el volumen por encima del 100%.');
+}
+
+function setAudioPreset(preset, label) {
+  ensureAudioEnhancer().setPreset(preset);
+  writePref('kura_audio_preset', preset);
+  syncSettingsMenu();
+  showHud('audio-lines', `Ecualizador: ${label}`);
+}
+
+function toggleAmbilight() {
+  const on = readPref('kura_ambilight') !== 'true';
+  writePref('kura_ambilight', on);
+  syncSettingsMenu();
+  applyAmbilight();
+  showHud('sparkles', on ? 'Luz ambiental activada' : 'Luz ambiental desactivada');
+}
+
+function applyAmbilight() {
+  const canvas = els['player-ambilight-canvas'];
+  const on = readPref('kura_ambilight') === 'true' && !isPerfLite();
+  clearInterval(S.ambilightTimer);
+  S.ambilightTimer = null;
+  if (!canvas) return;
+  canvas.classList.toggle('active', on);
+  if (!on) return;
+  canvas.width = 32;
+  canvas.height = 18;
+  const ctx = canvas.getContext('2d', { alpha: false });
+  S.ambilightTimer = setInterval(() => {
+    const video = els.video;
+    if (!video || video.paused || document.hidden || video.readyState < 2) return;
+    try { ctx.drawImage(video, 0, 0, canvas.width, canvas.height); } catch { /* frame not ready */ }
+  }, 300);
+}
+
+function showFileInfo() {
+  closeSettingsMenu();
+  const ep = S.episode;
+  const audio = labelTracks(parseTrackList(ep.audio_tracks), 'audio').map(t => t.label).join(', ') || 'Predeterminado';
+  const subs = labelTracks(parseTrackList(ep.subtitle_tracks), 'subtitle').map(t => t.label).join(', ') || 'Ninguno';
+  const size = Number(ep.size) > 0 ? `${(Number(ep.size) / (1024 ** 3)).toFixed(2)} GB` : 'N/D';
+  const rows = [
+    ['Resolución', ep.resolution || 'N/D'],
+    ['Video', String(ep.video_codec || 'N/D').toUpperCase()],
+    ['Cuadros por segundo', Number(ep.fps) > 0 ? Number(ep.fps).toFixed(3) : 'N/D'],
+    ['Contenedor', String(ep.container || 'N/D').toUpperCase()],
+    ['Modo de reproducción', S.direct ? 'Directa (sin conversión)' : 'Remux en el servidor'],
+    ['Tamaño', size],
+    ['Duración', formatTime(episodeDuration())],
+    ['Audio', audio],
+    ['Subtítulos', subs]
+  ];
+  els['file-info-body'].innerHTML = rows.map(([label, value]) => `
+    <div class="info-item"><span class="info-label">${escapeHtml(label)}</span><span class="info-val">${escapeHtml(value)}</span></div>
+  `).join('');
+  els['file-info-modal'].hidden = false;
+}
+
+function showQrShare() {
+  closeSettingsMenu();
+  const url = `${window.location.origin}/${playerHash(currentEpisodeId)}?t=${Math.floor(displayTime())}`;
+  if (els['qr-url-text']) els['qr-url-text'].textContent = url;
+  if (els['qr-image']) renderQRCodeToElement(els['qr-image'], url, 200);
+  els['qr-share-modal'].hidden = false;
+}
+
+function toggleShortcuts(force) {
+  const modal = els['player-shortcuts-modal'];
+  if (!modal) return;
+  const open = force !== undefined ? force : modal.hidden;
+  closeSettingsMenu();
+  modal.hidden = !open;
+  if (open) {
+    if (els.video && !els.video.paused) els.video.pause();
+    els['player-shortcuts-close']?.focus({ preventScroll: true });
+  }
+}
+
+// -------------------------------------------------------------------------------------------
+// Episodes panel
+// -------------------------------------------------------------------------------------------
+
+function openEpisodesPanel() {
+  const panel = els['player-episodes-panel'];
+  if (!panel || !S.episodes.length) return;
+  hideResumeToast();
+  closeSettingsMenu();
+  closeTracksModal();
+  const currentSeason = parseInt(S.episode.season_number, 10) || 0;
+  renderEpisodesPanel(currentSeason);
+  panel.hidden = false;
+  requestAnimationFrame(() => {
+    panel.classList.add('is-open');
+    const current = panel.querySelector('.player-episode-item.is-current');
+    if (current) current.scrollIntoView({ block: 'center' });
+  });
+}
+
+function closeEpisodesPanel() {
+  const panel = els['player-episodes-panel'];
+  if (!panel || panel.hidden) return;
+  panel.classList.remove('is-open');
+  panel.hidden = true;
+}
+
+function renderEpisodesPanel(season) {
+  const seasons = [...new Set(orderEpisodes(S.episodes).map(ep => parseInt(ep.season_number, 10) || 0))];
+  const tabs = els['player-episodes-seasons'];
+  if (tabs) {
+    tabs.innerHTML = seasons.length > 1 ? seasons.map(num => `
+      <button type="button" class="player-season-tab${num === season ? ' active' : ''}" data-season="${num}">${num === 0 ? 'Especiales' : `Temporada ${num}`}</button>
+    `).join('') : '';
+    tabs.hidden = seasons.length <= 1;
+  }
+  const list = els['player-episodes-list'];
+  const items = orderEpisodes(S.episodes).filter(ep => (parseInt(ep.season_number, 10) || 0) === season);
+  list.innerHTML = items.map(ep => {
+    const thumb = ep.thumbnail_path ? escapeHtml(ep.thumbnail_path) : '/assets/illustrations/backdrop_placeholder.svg';
+    const isCurrent = ep.id === currentEpisodeId;
+    const minutes = Math.round((Number(ep.duration) || 0) / 60);
+    return `
+      <button type="button" class="player-episode-item${isCurrent ? ' is-current' : ''}" data-episode-id="${escapeHtml(ep.id)}">
+        <span class="player-episode-thumb"><img src="${thumb}" alt="" loading="lazy" data-fallback-src="/assets/illustrations/backdrop_placeholder.svg">${isCurrent ? `<span class="player-episode-now">${iconSvg('audio-lines', { size: 14 })} Viendo</span>` : ''}</span>
+        <span class="player-episode-info">
+          <span class="player-episode-number">${escapeHtml(episodeLabel(ep))}${minutes ? ` · ${minutes} min` : ''}</span>
+          <span class="player-episode-name">${escapeHtml(ep.title || `Episodio ${ep.episode_number}`)}</span>
+        </span>
+      </button>`;
+  }).join('');
+}
+
+// -------------------------------------------------------------------------------------------
+// Skip intro, up next, end screen
+// -------------------------------------------------------------------------------------------
+
+/**
+ * Ending credits with a scene after them (common in anime): {start, end} or null. Without one the
+ * credits run to the end and the up-next card covers them.
+ */
+function creditsWithScene() {
+  const ep = S.episode;
+  if (!ep || ep.outro_start === null || ep.outro_start === undefined || ep.outro_end === null || ep.outro_end === undefined) return null;
+  const start = Number(ep.outro_start);
+  const end = Number(ep.outro_end);
+  const duration = episodeDuration();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || !(duration > 0)) return null;
+  if (start < duration * 0.5 || end <= start || duration - end < 30) return null;
+  return { start, end };
+}
+
+function upNextTriggerTime() {
+  const duration = episodeDuration();
+  const outro = Number(S.episode && S.episode.outro_start);
+  // A scene after the credits must not be skipped by the countdown.
+  if (!creditsWithScene() && Number.isFinite(outro) && outro > duration * 0.5 && outro < duration - 5) return outro;
+  return duration > 120 ? duration - 20 : Infinity;
+}
+
+function updateSkipIntro(time) {
+  const button = els['skip-intro-btn'];
+  const intro = introWindow();
+  const credits = creditsWithScene();
+  if (!button) return;
+  const inIntro = Boolean(intro) && time >= intro.start && time < intro.end - 1;
+  const inCredits = Boolean(credits) && time >= credits.start && time < credits.end - 1;
+  if (inIntro && prefersAutoSkipIntro() && !S.introSkipped && canControlPlayback(false)) {
+    S.introSkipped = true;
+    seekTo(intro.end);
+    showHud('skip-forward', 'Intro omitida');
+    button.hidden = true;
+    return;
+  }
+  if (inCredits && prefersAutoSkipIntro() && !S.creditsSkipped && canControlPlayback(false)) {
+    S.creditsSkipped = true;
+    seekTo(credits.end);
+    showHud('skip-forward', 'Créditos omitidos');
+    button.hidden = true;
+    return;
+  }
+  if (!inIntro && intro && time < intro.start) S.introSkipped = false;
+  if (!inCredits && credits && time < credits.start) S.creditsSkipped = false;
+  if (els['skip-intro-label']) els['skip-intro-label'].textContent = inCredits ? 'Omitir créditos' : 'Omitir intro';
+  button.hidden = !(inIntro || inCredits);
+}
+
+function skipIntro() {
+  if (!canControlPlayback()) return;
+  const time = absoluteTime();
+  const credits = creditsWithScene();
+  if (credits && time >= credits.start && time < credits.end) {
+    S.creditsSkipped = true;
+    els['skip-intro-btn'].hidden = true;
+    seekTo(credits.end);
+    return;
+  }
+  const intro = introWindow();
+  if (!intro) return;
+  S.introSkipped = true;
+  els['skip-intro-btn'].hidden = true;
+  seekTo(intro.end);
+}
+
+function updateUpNext(time) {
+  if (!S.next || S.upNext.dismissed || S.upNext.navigating) return;
+  const trigger = upNextTriggerTime();
+  if (time >= trigger) {
+    if (!S.upNext.shown) showUpNext(time);
+  } else if (S.upNext.shown) {
+    hideUpNext();
+  }
+}
+
+function canAutoAdvance() {
+  return prefersAutoPlayNext() && (!partyManager.isInRoom() || partyManager.isHost());
+}
+
+function showUpNext(time) {
+  const card = els['up-next-card'];
+  if (!card) return;
+  const next = S.next;
+  S.upNext.shown = true;
+  const remaining = Math.max(1, Math.ceil(episodeDuration() - time));
+  S.upNext.seconds = Math.min(UP_NEXT_COUNTDOWN, remaining);
+  const autoplay = canAutoAdvance();
+
+  const thumb = els['up-next-thumb'];
+  if (thumb) {
+    thumb.src = next.thumbnail_path || (S.show && S.show.backdrop_path) || '/assets/illustrations/backdrop_placeholder.svg';
+  }
+  els['up-next-title'].textContent = next.title || `Episodio ${next.episode_number}`;
+  els['up-next-meta'].textContent = episodeLabel(next);
+  card.classList.toggle('has-countdown', autoplay);
+  els['up-next-dismiss'].textContent = autoplay ? 'Ver créditos' : 'Cerrar';
+  card.hidden = false;
+  requestAnimationFrame(() => card.classList.add('is-visible'));
+
+  clearInterval(S.upNext.timer);
+  if (autoplay) {
+    renderUpNextCountdown();
+    S.upNext.timer = setInterval(() => {
+      if (!S.active) return;
+      if (els.video.paused) return;
+      S.upNext.seconds -= 1;
+      renderUpNextCountdown();
+      if (S.upNext.seconds <= 0) {
+        clearInterval(S.upNext.timer);
+        goToEpisode(S.next);
+      }
+    }, 1000);
+  }
+}
+
+function renderUpNextCountdown() {
+  if (els['up-next-count']) els['up-next-count'].textContent = String(Math.max(0, S.upNext.seconds));
+  const ring = els['up-next-ring'];
+  if (ring) ring.style.setProperty('--progress', String(1 - Math.max(0, S.upNext.seconds) / UP_NEXT_COUNTDOWN));
+}
+
+function hideUpNext({ dismiss = false } = {}) {
+  const card = els['up-next-card'];
+  clearInterval(S.upNext.timer);
+  S.upNext.timer = null;
+  S.upNext.shown = false;
+  if (dismiss) S.upNext.dismissed = true;
+  if (card) {
+    card.classList.remove('is-visible');
+    card.hidden = true;
+  }
+}
+
+function showEndScreen() {
+  const screen = els['player-end-screen'];
+  if (!screen) return;
+  S.endedShown = true;
+  hideUpNext();
+  els['player-end-title'].textContent = S.next ? 'Has terminado este episodio' : (S.show && S.show.media_type === 'movie' ? 'Fin de la película' : 'Has llegado al final de la serie');
+  els['player-end-next'].hidden = !S.next;
+  if (S.next) els['player-end-next'].querySelector('span').textContent = `Siguiente: ${episodeLabel(S.next)}`;
+  screen.hidden = false;
+  showControls();
+}
+
+function hideEndScreen() {
+  if (!S.endedShown) return;
+  S.endedShown = false;
+  els['player-end-screen'].hidden = true;
+}
+
+// -------------------------------------------------------------------------------------------
+// Progress persistence
+// -------------------------------------------------------------------------------------------
+
+function progressIdentity() {
+  const token = AuthManager.getToken();
+  const user = AuthManager.getUser();
+  const profile = AuthManager.getActiveProfile();
+  return {
+    token,
+    username: user && user.username ? user.username : 'guest',
+    profileName: profile && profile.name ? profile.name : 'Principal',
+    isGuest: !token || !user
+  };
+}
+
+function saveProgress(force = false) {
+  const video = els.video;
+  if (!video || !S.episode || !currentEpisodeId || !video.getAttribute('src')) return;
+  if (S.pendingSeek !== null) return;
+  const time = absoluteTime();
+  const duration = episodeDuration();
+  if (!force && Math.abs(time - S.lastSavedAt) < 5) return;
+  if (time < 1 && !force) return;
+  S.lastSavedAt = time;
+  const who = progressIdentity();
+
+  if (who.isGuest) {
+    try {
+      const all = JSON.parse(readPref('kura_guest_progress', '{}') || '{}');
+      all[currentEpisodeId] = { progress: time, duration, completed: duration > 0 && time >= duration - 30, updated_at: Date.now() };
+      writePref('kura_guest_progress', JSON.stringify(all));
+    } catch { /* storage full */ }
+    return;
+  }
+
+  fetch(`/api/progress/${encodeURIComponent(currentEpisodeId)}`, {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${who.token}` },
+    body: JSON.stringify({
+      progress: time,
+      progress_seconds: time,
+      duration,
+      username: who.username,
+      profile_name: who.profileName
+    })
+  }).catch(() => { /* retried on the next tick */ });
+}
+
+async function loadResumePosition(episodeId) {
+  const hashQuery = window.location.hash.split('?')[1];
+  if (hashQuery) {
+    const shared = parseFloat(new URLSearchParams(hashQuery).get('t'));
+    if (Number.isFinite(shared) && shared > 0) return { time: shared, source: 'link' };
+  }
+  const who = progressIdentity();
+  try {
+    if (who.isGuest) {
+      const saved = JSON.parse(readPref('kura_guest_progress', '{}') || '{}')[episodeId];
+      if (saved && !saved.completed) return { time: Number(saved.progress) || 0, source: 'history' };
+      return { time: 0, source: 'start' };
+    }
+    const params = new URLSearchParams({ username: who.username, profile_name: who.profileName });
+    const res = await fetch(`/api/progress/${encodeURIComponent(episodeId)}?${params}`, { headers: authHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && !data.completed) return { time: Number(data.progress) || 0, source: 'history' };
+    }
+  } catch { /* start from the beginning */ }
+  return { time: 0, source: 'start' };
+}
+
+function showResumeToast(time) {
+  const toast = els['player-resume-toast'];
+  if (!toast) return;
+  els['player-resume-text'].textContent = `Continuando desde ${formatTime(time)}`;
+  toast.hidden = false;
+  requestAnimationFrame(() => toast.classList.add('is-visible'));
+  clearTimeout(S.resumeTimer);
+  S.resumeTimer = setTimeout(hideResumeToast, 7000);
+}
+
+function hideResumeToast() {
+  const toast = els['player-resume-toast'];
+  clearTimeout(S.resumeTimer);
+  if (!toast) return;
+  toast.classList.remove('is-visible');
+  toast.hidden = true;
+}
+
+// -------------------------------------------------------------------------------------------
+// Errors & recovery
+// -------------------------------------------------------------------------------------------
+
+function hideError() {
+  if (els['player-error-overlay']) els['player-error-overlay'].hidden = true;
+}
+
+function showError(title, message, { action = 'retry' } = {}) {
+  setLoading(false);
+  const overlay = els['player-error-overlay'];
+  if (!overlay) return;
+  els['player-error-title'].textContent = title;
+  els['player-error-message'].textContent = message;
+  const retry = els['player-error-retry-btn'];
+  if (action === 'login') {
+    retry.innerHTML = `${iconSvg('log-in', { size: 18 })} Iniciar sesión`;
+    retry.onclick = () => {
+      if (typeof window.openAuthModal === 'function') window.openAuthModal('login');
+    };
+  } else if (action === 'profile') {
+    retry.innerHTML = `${iconSvg('users', { size: 18 })} Elegir perfil`;
+    retry.onclick = () => { location.hash = '#/profiles'; };
+  } else {
+    retry.innerHTML = `${iconSvg('refresh-cw', { size: 18 })} Reintentar`;
+    retry.onclick = () => {
+      S.retries = 0;
+      loadStream(S.lastKnownTime, { autoplay: true });
+    };
+  }
+  overlay.hidden = false;
+  showControls();
+}
+
+function scheduleStreamRetry(reason) {
+  clearTimeout(S.retryTimer);
+  if (S.retries >= MAX_STREAM_RETRIES) {
+    showError('No se pudo reproducir', reason || 'El servidor no respondió. Comprueba la conexión con KuraStream e inténtalo de nuevo.');
+    return;
+  }
+  S.retries += 1;
+  const delay = 1500 * (2 ** (S.retries - 1));
+  setLoading(true, 'Reconectando…');
+  S.retryTimer = setTimeout(() => {
+    if (S.active) loadStream(S.lastKnownTime, { autoplay: true });
+  }, delay);
+}
+
+function handleVideoError() {
+  const video = els.video;
+  if (!video.getAttribute('src')) return;
+  if (!AuthManager.getToken()) {
+    showError('Inicia sesión para ver', 'Necesitas una cuenta de KuraStream para reproducir este contenido.', { action: 'login' });
+    return;
+  }
+  if (!AuthManager.isAdmin() && !AuthManager.getActiveProfile()) {
+    showError('Elige un perfil', 'Selecciona quién está viendo para guardar tu progreso.', { action: 'profile' });
+    return;
+  }
+  scheduleStreamRetry();
+}
+
+function armStallWatchdog() {
+  clearTimeout(S.stallTimer);
+  S.stallTimer = setTimeout(() => {
+    const video = els.video;
+    if (!S.active || video.paused || video.readyState >= 3) return;
+    // A remux that stopped delivering data never recovers on its own; restart it where it froze.
+    scheduleStreamRetry('La transmisión se detuvo y no se pudo recuperar.');
+  }, STALL_RELOAD_MS);
+}
+
+function clearStallWatchdog() {
+  clearTimeout(S.stallTimer);
+  S.stallTimer = null;
+}
+
+// -------------------------------------------------------------------------------------------
+// Media session (hardware keys, lock screen, Android notification)
+// -------------------------------------------------------------------------------------------
+
+function setupMediaSession() {
+  if (!('mediaSession' in navigator) || !S.episode) return;
+  const show = S.show || {};
+  const art = S.episode.thumbnail_path || show.poster_path || show.backdrop_path;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: S.episode.title || episodeLabel(S.episode),
+      artist: show.title || 'KuraStream',
+      album: episodeLabel(S.episode),
+      artwork: art ? [{ src: art, sizes: '512x512' }] : []
+    });
+    const handlers = {
+      play: () => { if (canControlPlayback()) els.video.play().catch(() => {}); },
+      pause: () => { if (canControlPlayback()) els.video.pause(); },
+      seekbackward: () => { if (canControlPlayback()) seekBy(-SEEK_STEP); },
+      seekforward: () => { if (canControlPlayback()) seekBy(SEEK_STEP); },
+      seekto: details => { if (canControlPlayback() && Number.isFinite(details.seekTime)) seekTo(details.seekTime); },
+      nexttrack: S.next ? () => playNextEpisode() : null,
+      previoustrack: S.previous ? () => goToEpisode(S.previous) : null
+    };
+    Object.entries(handlers).forEach(([action, handler]) => {
+      try { navigator.mediaSession.setActionHandler(action, handler); } catch { /* unsupported action */ }
+    });
+  } catch { /* MediaMetadata unsupported */ }
+}
+
+function updateMediaPosition() {
+  if (!('mediaSession' in navigator) || typeof navigator.mediaSession.setPositionState !== 'function') return;
+  const duration = episodeDuration();
+  if (!(duration > 0)) return;
+  try {
+    navigator.mediaSession.setPositionState({
+      duration,
+      playbackRate: els.video.playbackRate || 1,
+      position: Math.min(duration, Math.max(0, displayTime()))
+    });
+  } catch { /* invalid state while seeking */ }
+}
+
+function clearMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  ['play', 'pause', 'seekbackward', 'seekforward', 'seekto', 'nexttrack', 'previoustrack'].forEach(action => {
+    try { navigator.mediaSession.setActionHandler(action, null); } catch { /* unsupported */ }
+  });
+  try { navigator.mediaSession.metadata = null; } catch { /* unsupported */ }
+}
+
+// -------------------------------------------------------------------------------------------
+// Event wiring
+// -------------------------------------------------------------------------------------------
+
+function bindVideoEvents() {
+  const video = els.video;
+  listen(video, 'loadstart', () => setLoading(true));
+  listen(video, 'waiting', () => { setLoading(true); armStallWatchdog(); });
+  listen(video, 'stalled', () => { if (!video.paused) armStallWatchdog(); });
+  listen(video, 'seeking', () => setLoading(true));
+  listen(video, 'seeked', () => setLoading(false));
+  listen(video, 'canplay', () => { setLoading(false); clearStallWatchdog(); });
+  listen(video, 'playing', () => {
+    setLoading(false);
+    clearStallWatchdog();
+    S.retries = 0;
+    hideError();
+  });
+  listen(video, 'loadedmetadata', () => {
+    if (!(Number(S.episode.duration) > 0) && Number.isFinite(video.duration)) renderChapterTicks();
+    renderProgress();
+  });
+  listen(video, 'play', () => {
+    updatePlayState();
+    hideEndScreen();
+    scheduleHideControls();
+    sendPartySync('play');
+  });
+  listen(video, 'pause', () => {
+    updatePlayState();
+    showControls();
+    saveProgress(true);
+    sendPartySync('pause');
+  });
+  listen(video, 'timeupdate', () => {
+    if (S.pendingSeek !== null) return;
+    const time = absoluteTime();
+    if (video.readyState >= 2) S.lastKnownTime = time;
+    renderProgress(time);
+    renderBuffered();
+    updateSkipIntro(time);
+    updateUpNext(time);
+  });
+  listen(video, 'progress', renderBuffered);
+  listen(video, 'ratechange', syncSettingsMenu);
+  listen(video, 'volumechange', renderVolume);
+  listen(video, 'error', handleVideoError);
+  listen(video, 'ended', () => {
+    const position = absoluteTime();
+    const duration = Number(S.episode.duration) || 0;
+    // A remux can report "ended" long before the episode does when the connection drops.
+    if (!S.direct && duration > 0 && duration - position > 30) {
+      scheduleStreamRetry('Se perdió la conexión con el video.');
+      return;
+    }
+    // A guest that ran off the end while the host is still mid-episode (stale room state) re-aligns
+    // instead of showing the end screen.
+    if (partyManager.isInRoom() && !partyManager.isHost() && duration > 0) {
+      const hostAt = partyManager.roomPositionNow();
+      if (duration - hostAt > 30) {
+        loadStream(hostAt, { autoplay: Boolean(partyManager.activeRoom && partyManager.activeRoom.is_playing) });
+        return;
+      }
+    }
+    saveProgress(true);
+    updatePlayState();
+    if (S.upNext.navigating) return;
+    if (S.next && canAutoAdvance() && !S.upNext.dismissed) {
+      goToEpisode(S.next);
+    } else {
+      showEndScreen();
+    }
+  });
+}
+
+function bindControls() {
+  const on = (id, handler) => listen(els[id], 'click', event => {
+    event.stopPropagation();
+    // A mouse click leaves focus on the button and Space would press it again instead of pausing.
+    if (event.detail > 0 && event.currentTarget instanceof HTMLElement) event.currentTarget.blur();
+    handler(event);
+  });
+
+  on('player-back-btn', leavePlayer);
+  on('play-pause-btn', togglePlay);
+  on('center-play-pause-btn', togglePlay);
+  on('rewind-btn', () => { if (canControlPlayback()) { seekBy(-SEEK_STEP); showSeekFeedback('left', '-10 s'); } });
+  on('forward-btn', () => { if (canControlPlayback()) { seekBy(SEEK_STEP); showSeekFeedback('right', '+10 s'); } });
+  on('center-rewind-btn', () => { if (canControlPlayback()) { seekBy(-SEEK_STEP); showSeekFeedback('left', '-10 s'); } });
+  on('center-forward-btn', () => { if (canControlPlayback()) { seekBy(SEEK_STEP); showSeekFeedback('right', '+10 s'); } });
+  on('mute-btn', toggleMute);
+  on('next-ep-btn', playNextEpisode);
+  on('episodes-btn', () => {
+    if (els['player-episodes-panel'] && !els['player-episodes-panel'].hidden) closeEpisodesPanel();
+    else openEpisodesPanel();
+  });
+  on('player-episodes-close', closeEpisodesPanel);
+  on('player-tracks-btn', openTracks);
+  on('more-options-btn', () => {
+    if (els['more-options-menu']?.classList.contains('show')) closeSettingsMenu();
+    else openSettingsMenu();
+  });
+  on('fullscreen-btn', toggleFullscreen);
+  on('player-pip-btn', togglePictureInPicture);
+  on('menu-pip-btn', togglePictureInPicture);
+  on('menu-ambilight-btn', toggleAmbilight);
+  on('menu-qr-btn', showQrShare);
+  on('menu-file-info-btn', showFileInfo);
+  on('menu-shortcuts-btn', () => toggleShortcuts(true));
+  on('file-info-close', () => { els['file-info-modal'].hidden = true; });
+  on('qr-share-close', () => { els['qr-share-modal'].hidden = true; });
+  on('player-shortcuts-close', () => toggleShortcuts(false));
+  on('skip-intro-btn', skipIntro);
+  on('up-next-play', () => goToEpisode(S.next));
+  on('up-next-dismiss', () => hideUpNext({ dismiss: true }));
+  on('player-end-next', () => goToEpisode(S.next));
+  on('player-end-replay', () => { hideEndScreen(); S.upNext.dismissed = false; loadStream(0, { autoplay: true }); });
+  on('player-end-back', leavePlayer);
+  on('player-error-back-btn', leavePlayer);
+  on('player-resume-restart', () => {
+    hideResumeToast();
+    S.introSkipped = false;
+    S.creditsSkipped = false;
+    seekTo(0);
+  });
+
+  listen(els['player-shortcuts-modal'], 'click', event => {
+    if (event.target === els['player-shortcuts-modal']) toggleShortcuts(false);
+  });
+  listen(els['player-episodes-seasons'], 'click', event => {
+    const tab = event.target.closest('.player-season-tab');
+    if (tab) renderEpisodesPanel(parseInt(tab.dataset.season, 10) || 0);
+  });
+  listen(els['player-episodes-list'], 'click', event => {
+    const item = event.target.closest('.player-episode-item');
+    if (!item) return;
+    const episode = S.episodes.find(ep => ep.id === item.dataset.episodeId);
+    if (!episode || episode.id === currentEpisodeId) {
+      closeEpisodesPanel();
+      return;
+    }
+    if (partyManager.isInRoom() && !partyManager.isHost()) {
+      showHud('crown', 'El anfitrión elige el episodio');
+      return;
+    }
+    goToEpisode(episode);
+  });
+
+  const menu = els['more-options-menu'];
+  listen(menu, 'click', event => {
+    event.stopPropagation();
+    const speed = event.target.closest('.speed-opt');
+    const boost = event.target.closest('.boost-opt');
+    const preset = event.target.closest('.preset-opt');
+    if (speed) setPlaybackRate(Number(speed.dataset.speed));
+    else if (boost) setAudioBoost(Number(boost.dataset.boost));
+    else if (preset) setAudioPreset(preset.dataset.preset, preset.textContent.trim());
+  });
+
+  // Clicking anywhere else closes the settings menu.
+  listen(document, 'click', event => {
+    if (!els['more-options-menu']?.classList.contains('show')) return;
+    if (event.target.closest('#more-options-dropdown')) return;
+    closeSettingsMenu();
+  });
+
+  // Volume slider
+  const slider = els['volume-slider'];
+  listen(slider, 'input', () => setVolume(Number(slider.value)));
+  listen(slider, 'click', event => event.stopPropagation());
+
+  // Keep controls up while the pointer rests on them.
+  const bars = els.container.querySelectorAll('.player-top-bar, .player-bottom-bar, .player-more-menu, .player-panel');
+  bars.forEach(bar => {
+    listen(bar, 'pointerenter', () => els.container.classList.add('is-pointer-on-controls'));
+    listen(bar, 'pointerleave', () => els.container.classList.remove('is-pointer-on-controls'));
+  });
+
+  listen(els.container, 'pointermove', event => {
+    if (event.pointerType === 'mouse') showControls();
+  });
+  listen(els.container, 'mouseleave', () => {
+    els.container.classList.remove('is-pointer-on-controls');
+    hideControlsNow();
+  });
+
+  listen(document, 'fullscreenchange', renderFullscreenState);
+  listen(document, 'webkitfullscreenchange', renderFullscreenState);
+
+  // Persist progress when the tab is hidden or closed (the periodic save alone loses up to 10 s).
+  listen(document, 'visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveProgress(true);
+  });
+  listen(window, 'pagehide', () => saveProgress(true));
+}
+
+/** Timeline: click, drag (mouse and touch) and keyboard on the focused slider. */
+function bindTimeline() {
+  const bar = els['player-progress-bar'];
+  if (!bar) return;
+  const tooltip = els['player-progress-tooltip'];
+
+  const positionAt = clientX => {
+    const rect = bar.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (clientX - rect.left) / (rect.width || 1)));
+  };
+  const preview = ratio => {
+    const time = ratio * episodeDuration();
+    if (els['player-progress-hover']) els['player-progress-hover'].style.width = `${ratio * 100}%`;
+    if (tooltip && !S.scrubPreview) {
+      tooltip.textContent = formatTime(time);
+      tooltip.style.left = `${ratio * 100}%`;
+      tooltip.classList.add('is-visible');
+    }
+    return time;
+  };
+
+  let dragRatio = 0;
+  listen(bar, 'pointerdown', event => {
+    if (event.button !== 0 && event.pointerType === 'mouse') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!canControlPlayback()) return;
+    S.dragging = true;
+    bar.setPointerCapture(event.pointerId);
+    bar.classList.add('is-dragging');
+    dragRatio = positionAt(event.clientX);
+    const time = preview(dragRatio);
+    els['player-progress-current'].style.width = `${dragRatio * 100}%`;
+    els['player-progress-handle'].style.left = `${dragRatio * 100}%`;
+    els['player-time-current'].textContent = formatTime(time);
+    showControls();
+  });
+  listen(bar, 'pointermove', event => {
+    const ratio = positionAt(event.clientX);
+    preview(ratio);
+    if (!S.dragging) return;
+    dragRatio = ratio;
+    els['player-progress-current'].style.width = `${ratio * 100}%`;
+    els['player-progress-handle'].style.left = `${ratio * 100}%`;
+    els['player-time-current'].textContent = formatTime(ratio * episodeDuration());
+  });
+  const finish = event => {
+    if (!S.dragging) return;
+    S.dragging = false;
+    bar.classList.remove('is-dragging');
+    try { bar.releasePointerCapture(event.pointerId); } catch { /* already released */ }
+    seekTo(dragRatio * episodeDuration());
+    scheduleHideControls();
+  };
+  listen(bar, 'pointerup', finish);
+  listen(bar, 'pointercancel', finish);
+  listen(bar, 'pointerleave', () => {
+    if (S.dragging) return;
+    if (els['player-progress-hover']) els['player-progress-hover'].style.width = '0%';
+    tooltip?.classList.remove('is-visible');
+  });
+  listen(bar, 'click', event => event.stopPropagation());
+  listen(bar, 'keydown', event => {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      // Handled by the global shortcut handler (it shows the HUD); just keep focus here.
+      return;
+    }
+    if (event.key === 'Home') { event.preventDefault(); seekTo(0); }
+    if (event.key === 'End') { event.preventDefault(); seekTo(episodeDuration() - 5); }
+  });
+}
+
+/**
+ * Taps and clicks on the picture:
+ *  - mouse: click toggles play, double click toggles fullscreen, hold = 2x speed;
+ *  - touch: tap shows/hides the controls, double tap on the sides seeks (keeps seeking on
+ *    further quick taps), hold = 2x speed.
+ */
+function bindSurfaceGestures() {
+  const surface = els.video;
+  const holdStart = () => {
+    if (partyManager.isInRoom() || els.video.paused) return;
+    S.hold.active = true;
+    S.hold.previousRate = els.video.playbackRate;
+    els.video.playbackRate = 2;
+    els.container.classList.add('is-speed-hold');
+    showHud('fast-forward', '2x');
+  };
+  const holdEnd = () => {
+    clearTimeout(S.hold.timer);
+    if (!S.hold.active) return false;
+    S.hold.active = false;
+    els.video.playbackRate = S.hold.previousRate || currentBaseRate();
+    els.container.classList.remove('is-speed-hold');
+    return true;
+  };
+
+  listen(surface, 'pointerdown', event => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    S.tap.downAt = Date.now();
+    S.tap.downX = event.clientX;
+    S.tap.downY = event.clientY;
+    S.tap.pointerType = event.pointerType;
+    clearTimeout(S.hold.timer);
+    S.hold.timer = setTimeout(holdStart, 550);
+  });
+  listen(surface, 'pointermove', event => {
+    if (Math.hypot(event.clientX - S.tap.downX, event.clientY - S.tap.downY) > 24) clearTimeout(S.hold.timer);
+  });
+  listen(surface, 'pointercancel', holdEnd);
+  listen(surface, 'contextmenu', event => { if (S.hold.active) event.preventDefault(); });
+  listen(surface, 'pointerup', event => {
+    const wasHold = holdEnd();
+    if (wasHold) return;
+    if (Math.hypot(event.clientX - S.tap.downX, event.clientY - S.tap.downY) > 24) return;
+    if (overlayOpen()) {
+      closeSettingsMenu();
+      closeEpisodesPanel();
+      return;
+    }
+    if (event.pointerType === 'mouse') {
+      togglePlay();
+      return;
+    }
+    handleTouchTap(event);
+  });
+  listen(surface, 'dblclick', event => {
+    if (S.tap.pointerType !== 'mouse') return;
+    event.preventDefault();
+    toggleFullscreen();
+  });
+}
+
+function handleTouchTap(event) {
+  const now = Date.now();
+  const rect = els.container.getBoundingClientRect();
+  const ratio = (event.clientX - rect.left) / rect.width;
+  const side = ratio < 0.35 ? 'left' : (ratio > 0.65 ? 'right' : null);
+
+  const continuingStreak = side && S.tap.streakSide === side && now < S.tap.streakUntil;
+  const isDoubleTap = side && now - S.tap.lastTime < 300 && Math.abs(event.clientX - S.tap.lastX) < 90;
+
+  if ((continuingStreak || isDoubleTap) && canControlPlayback()) {
+    if (!continuingStreak) S.tap.streakTotal = 0;
+    const delta = side === 'left' ? -SEEK_STEP : SEEK_STEP;
+    S.tap.streakTotal += delta;
+    S.tap.streakSide = side;
+    S.tap.streakUntil = now + 700;
+    S.tap.lastTime = 0;
+    seekBy(delta);
+    showSeekFeedback(side, `${S.tap.streakTotal > 0 ? '+' : ''}${S.tap.streakTotal} s`);
+    return;
+  }
+
+  S.tap.lastTime = now;
+  S.tap.lastX = event.clientX;
+  S.tap.streakSide = null;
+  if (els.container.classList.contains('controls-hidden')) {
+    showControls();
+  } else if (!els.video.paused) {
+    hideControlsNow();
+  }
+}
+
+function isTypingTarget(target) {
+  if (!target) return false;
+  const tag = (target.tagName || '').toUpperCase();
+  return target.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' ||
+    (tag === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes(String(target.type).toLowerCase()));
+}
+
+function handleKeydown(event) {
+  if (!S.active || event.defaultPrevented) return;
+  if (event.key === 'Escape') {
+    if (closeTopOverlay()) {
+      event.preventDefault();
+      return;
+    }
+    if (isFullscreen()) return; // the browser leaves fullscreen itself
+    event.preventDefault();
+    leavePlayer();
+    return;
+  }
+  if (isTypingTarget(event.target) || event.ctrlKey || event.altKey || event.metaKey) return;
+  // Let buttons and the track list react to Space/Enter themselves.
+  const focusedButton = event.target && event.target.closest && event.target.closest('button, [role="radio"]');
+  if (focusedButton && (event.key === 'Enter' || event.key === ' ') && focusedButton !== els['play-pause-btn']) return;
+  if (isTracksModalOpen() && ['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const handled = () => { event.preventDefault(); showControls(); };
+
+  switch (key) {
+    case ' ':
+    case 'k':
+      handled();
+      togglePlay();
+      if (canControlPlayback(false)) showHud(els.video.paused ? 'pause' : 'play', els.video.paused ? 'Pausa' : 'Reproducir');
+      return;
+    case 'ArrowLeft':
+    case 'j':
+      handled();
+      if (!canControlPlayback()) return;
+      seekBy(-SEEK_STEP);
+      showHud('rewind', '-10s');
+      return;
+    case 'ArrowRight':
+    case 'l':
+      handled();
+      if (!canControlPlayback()) return;
+      seekBy(SEEK_STEP);
+      showHud('fast-forward', '+10s');
+      return;
+    case 'ArrowUp':
+      handled();
+      changeVolume(0.05);
+      return;
+    case 'ArrowDown':
+      handled();
+      changeVolume(-0.05);
+      return;
+    case 'm':
+      handled();
+      toggleMute();
+      return;
+    case 'f':
+      handled();
+      toggleFullscreen();
+      return;
+    case 'c':
+      handled();
+      cycleSubtitles();
+      return;
+    case 'n':
+      handled();
+      playNextEpisode();
+      return;
+    case 'b': {
+      handled();
+      const current = Math.round((S.audioEnhancer ? S.audioEnhancer.getGain() : 1) * 100);
+      const next = BOOSTS[(BOOSTS.indexOf(current) + 1) % BOOSTS.length];
+      setAudioBoost(next);
+      return;
+    }
+    case 's':
+    case '>':
+    case '<': {
+      handled();
+      const index = SPEEDS.indexOf(currentBaseRateShown(els.video.playbackRate));
+      const nextIndex = key === '<' ? Math.max(0, index - 1) : (key === '>' ? Math.min(SPEEDS.length - 1, index + 1) : (index + 1) % SPEEDS.length);
+      setPlaybackRate(SPEEDS[nextIndex]);
+      return;
+    }
+    case '?':
+    case 'h':
+      handled();
+      toggleShortcuts();
+      return;
+    case 'Home':
+      handled();
+      if (canControlPlayback()) seekTo(0);
+      return;
+    case 'End':
+      handled();
+      if (canControlPlayback()) seekTo(episodeDuration() - 5);
+      return;
+    default:
+      if (/^[0-9]$/.test(key)) {
+        handled();
+        if (!canControlPlayback()) return;
+        const pct = Number(key) / 10;
+        seekTo(pct * episodeDuration());
+        showHud('skip-forward', `${Math.round(pct * 100)}%`);
+      }
+  }
+}
+
+function closeTopOverlay() {
+  if (els['player-shortcuts-modal'] && !els['player-shortcuts-modal'].hidden) { toggleShortcuts(false); return true; }
+  if (isTracksModalOpen()) { closeTracksModal(); return true; }
+  if (els['more-options-menu']?.classList.contains('show')) { closeSettingsMenu(); return true; }
+  if (els['player-episodes-panel'] && !els['player-episodes-panel'].hidden) { closeEpisodesPanel(); return true; }
+  if (els['file-info-modal'] && !els['file-info-modal'].hidden) { els['file-info-modal'].hidden = true; return true; }
+  if (els['qr-share-modal'] && !els['qr-share-modal'].hidden) { els['qr-share-modal'].hidden = true; return true; }
+  return false;
+}
+
+// -------------------------------------------------------------------------------------------
+// Watch party
+// -------------------------------------------------------------------------------------------
+
+const REACTIONS = {
+  flame: 'flame', heart: 'heart', smile: 'smile', sparkles: 'sparkles', 'thumbs-up': 'thumbs-up'
+};
+
+function renderPartyMessage(msg) {
+  const container = els['party-messages-container'];
+  if (!container || !msg || msg.type === 'reaction') return;
+  if (msg.id !== undefined && msg.id !== null) {
+    if (S.seenMessageIds.has(msg.id)) return;
+    S.seenMessageIds.add(msg.id);
+  }
+  const item = document.createElement('div');
+  if (msg.type === 'system') {
+    item.className = 'party-msg-item is-system';
+    item.textContent = msg.message || '';
+  } else {
+    const name = msg.username || 'Invitado';
+    const isHost = partyManager.activeRoom && name === partyManager.activeRoom.host_user;
+    const isMine = name === partyManager.currentUser.username;
+    const time = new Date(msg.created_at ? String(msg.created_at).replace(' ', 'T') : Date.now());
+    const clock = Number.isNaN(time.getTime()) ? '' : time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    item.className = `party-msg-item${isMine ? ' is-mine' : ''}`;
+    item.innerHTML = `
+      <span class="party-msg-avatar" style="background:${escapeHtml(partyManager.getRandomColor(name))}">${escapeHtml(name.charAt(0).toUpperCase())}</span>
+      <div class="party-msg-content">
+        <div class="party-msg-meta"><span class="party-msg-author">${escapeHtml(name)}</span>${isHost ? `<span class="party-msg-host">${iconSvg('crown', { size: 12 })}</span>` : ''}<span class="party-msg-time">${escapeHtml(clock)}</span></div>
+        <div class="party-msg-bubble">${escapeHtml(msg.message || '')}</div>
+      </div>`;
+  }
+  container.appendChild(item);
+  while (container.children.length > 150) container.removeChild(container.firstChild);
+  container.scrollTop = container.scrollHeight;
+}
+
+function renderPartyRoom(room) {
+  if (!room) return;
+  if (els['player-party-sidebar']) els['player-party-sidebar'].hidden = false;
+  els.container.classList.add('has-party');
+  if (els['party-header-title']) els['party-header-title'].textContent = room.name || 'Watch Party';
+  if (els['party-room-code-display']) els['party-room-code-display'].textContent = room.id;
+  if (els['party-host-badge']) {
+    els['party-host-badge'].innerHTML = partyManager.isHost()
+      ? `${iconSvg('crown', { size: 13 })} Anfitrión`
+      : `${iconSvg('crown', { size: 13 })} ${escapeHtml(room.host_user || 'Anfitrión')}`;
+  }
+  setIcon(els['party-sound-icon'], partyManager.soundsMuted ? 'volume-x' : 'volume-2', { size: 16 });
+}
+
+function bindParty() {
+  const sidebar = els['player-party-sidebar'];
+  const copyInvite = event => {
+    event.stopPropagation();
+    if (!partyManager.activeRoom) return;
+    const roomId = partyManager.activeRoom.id;
+    const url = `${window.location.origin}/#/party/${encodeURIComponent(roomId)}`;
+    const done = () => showToast(`Enlace de invitación copiado (${roomId})`);
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(done).catch(() => showToast(`Código de sala: ${roomId}`, 5000));
+    } else {
+      showToast(`Código de sala: ${roomId}`, 5000);
+    }
+  };
+
+  listen(els['player-party-btn'], 'click', event => {
+    event.stopPropagation();
+    if (!partyManager.isInRoom()) {
+      if (typeof window.openWatchPartyModal === 'function') window.openWatchPartyModal('create');
+      return;
+    }
+    sidebar.hidden = !sidebar.hidden;
+    els.container.classList.toggle('has-party', !sidebar.hidden);
+  });
+  listen(els['party-btn-close-sidebar'], 'click', event => {
+    event.stopPropagation();
+    sidebar.hidden = true;
+    els.container.classList.remove('has-party');
+  });
+  listen(els['party-sound-toggle'], 'click', event => {
+    event.stopPropagation();
+    partyManager.toggleSounds();
+    setIcon(els['party-sound-icon'], partyManager.soundsMuted ? 'volume-x' : 'volume-2', { size: 16 });
+  });
+  listen(els['party-btn-copy-code'], 'click', copyInvite);
+  listen(els['party-btn-copy-cta'], 'click', copyInvite);
+  listen(els['party-room-code-display'], 'click', copyInvite);
+  listen(els['party-btn-leave'], 'click', async event => {
+    event.stopPropagation();
+    if (!window.confirm('¿Salir del Watch Party?')) return;
+    await partyManager.leaveRoom();
+  });
+  listen(els['party-input-form'], 'submit', event => {
+    event.preventDefault();
+    const text = els['party-chat-input'].value.trim();
+    if (!text) return;
+    els['party-chat-input'].value = '';
+    partyManager.sendMessage(text).catch(() => showToast('No se pudo enviar el mensaje.'));
+  });
+  els.container.querySelectorAll('.party-reaction-btn').forEach(button => {
+    listen(button, 'click', event => {
+      event.stopPropagation();
+      const reaction = button.dataset.reaction;
+      if (REACTIONS[reaction]) partyManager.sendReaction(reaction);
+    });
+  });
+
+  const handlers = {
+    sync: room => {
+      if (!room || !S.active) return;
+      renderPartyRoom(room);
+      if (room.episode_id && room.episode_id !== currentEpisodeId) {
+        if (!partyManager.isHost()) {
+          showToast('El anfitrión cambió de episodio');
+          location.hash = playerHash(room.episode_id);
+        }
+        return;
+      }
+      partyManager.applyRemotePlaybackToVideo(els.video, {
+        offset: S.offset,
+        isDirect: S.direct,
+        seekAbsolute: time => loadStream(time, { autoplay: Boolean(room.is_playing) })
+      });
+    },
+    message: renderPartyMessage,
+    closed: () => {
+      if (sidebar) sidebar.hidden = true;
+      els.container.classList.remove('has-party');
+      els.video.playbackRate = currentBaseRate();
+      clearInterval(S.heartbeatTimer);
+      showToast('Saliste del Watch Party');
+    }
+  };
+  Object.entries(handlers).forEach(([event, handler]) => partyManager.on(event, handler));
+  S.partyHandlers = handlers;
+
+  if (partyManager.isInRoom()) renderPartyRoom(partyManager.activeRoom);
+  else if (sidebar) sidebar.hidden = true;
+
+  // The host keeps the room clock fresh so late joiners and drift correction have a recent anchor.
+  clearInterval(S.heartbeatTimer);
+  S.heartbeatTimer = setInterval(() => {
+    if (S.active && partyManager.isInRoom() && partyManager.isHost() && !els.video.paused) sendPartySync('heartbeat');
+  }, 10000);
+}
+
+function unbindParty() {
+  clearInterval(S.heartbeatTimer);
+  S.heartbeatTimer = null;
+  if (!S.partyHandlers) return;
+  Object.entries(S.partyHandlers).forEach(([event, handler]) => partyManager.off(event, handler));
+  S.partyHandlers = null;
+}
+
+// -------------------------------------------------------------------------------------------
+// Lifecycle
+// -------------------------------------------------------------------------------------------
+
+async function fetchShowWithEpisodes(episodeId) {
+  const showId = getShowIdFromEpisodeId(episodeId);
+  const res = await fetch(showApiUrl(showId));
+  if (!res.ok) throw new Error(res.status === 404 ? 'Este título ya no está en la biblioteca.' : `Error ${res.status} al cargar el título.`);
+  const data = await res.json();
+  const show = data.show || data;
+  const episodes = Array.isArray(data.episodes) ? data.episodes : (Array.isArray(show.episodes) ? show.episodes : []);
+  let episode = episodes.find(ep => ep.id === episodeId);
+  if (!episode) {
+    const epRes = await fetch(`/api/episodes/${encodeURIComponent(episodeId)}`);
+    if (epRes.ok) episode = await epRes.json();
+  }
+  if (!episode) throw new Error('No encontramos este episodio.');
+  return { show, episodes, episode };
+}
+
+function resetUi() {
+  hideError();
+  hideUpNext();
+  hideEndScreen();
+  hideResumeToast();
+  closeSettingsMenu();
+  closeEpisodesPanel();
+  closeTracksModal();
+  if (els['skip-intro-btn']) els['skip-intro-btn'].hidden = true;
+  if (els['file-info-modal']) els['file-info-modal'].hidden = true;
+  if (els['qr-share-modal']) els['qr-share-modal'].hidden = true;
+  if (els['player-shortcuts-modal']) els['player-shortcuts-modal'].hidden = true;
+  if (els['player-progress-buffered']) els['player-progress-buffered'].style.width = '0%';
+  if (els['player-episodes-list']) els['player-episodes-list'].innerHTML = '';
+  if (els['party-messages-container'] && !partyManager.isInRoom()) els['party-messages-container'].innerHTML = '';
+  els.container.classList.remove('controls-hidden', 'is-speed-hold', 'is-pointer-on-controls');
+  els['player-progress-bar']?.querySelectorAll('.seekbar-chapter-tick').forEach(t => t.remove());
+  renderProgress(0);
+}
+
+function initStaticIcons() {
+  const icons = {
+    'player-back-btn': 'arrow-left',
+    'center-rewind-btn': 'rotate-ccw',
+    'center-forward-btn': 'rotate-cw',
+    'rewind-btn': 'rotate-ccw',
+    'forward-btn': 'rotate-cw',
+    'episodes-btn': 'list-video',
+    'player-tracks-btn': 'subtitles',
+    'more-options-btn': 'settings',
+    'player-party-btn': 'users',
+    'player-pip-btn': 'picture-in-picture-2'
+  };
+  Object.entries(icons).forEach(([id, name]) => {
+    const button = els[id];
+    if (!button) return;
+    let slot = button.querySelector('.player-btn-icon');
+    if (!slot) {
+      slot = document.createElement('span');
+      slot.className = 'player-btn-icon';
+      button.prepend(slot);
+    }
+    setIcon(slot, name);
+  });
+  const nextIcon = els['next-ep-btn']?.querySelector('.player-btn-icon');
+  setIcon(nextIcon, 'skip-forward');
+  hydrateIcons(els.container);
+}
+
+export async function initPlayer(rawEpisodeId) {
+  const episodeId = String(rawEpisodeId || '');
+  if (S.active) destroyPlayer();
+  const generation = ++playerInitGeneration;
+  currentEpisodeId = episodeId;
+
+  cacheElements();
+  if (!els.video || !els.container) return;
+  S.active = true;
+  S.abort = new AbortController();
+  S.episode = null;
+  S.retries = 0;
+  S.lastSavedAt = -1;
+  S.introSkipped = false;
+  S.creditsSkipped = false;
+  S.pendingSeek = null;
+  S.upNext = { shown: false, dismissed: false, navigating: false, seconds: 0, timer: null };
+  S.endedShown = false;
+  S.seenMessageIds = new Set();
+
+  resetUi();
+  initStaticIcons();
+  setLoading(true);
+  if (els['player-show-title']) els['player-show-title'].textContent = '';
+  if (els['player-episode-title']) els['player-episode-title'].textContent = 'Cargando…';
+
+  let loaded;
+  try {
+    loaded = await fetchShowWithEpisodes(episodeId);
+  } catch (err) {
+    if (generation !== playerInitGeneration) return;
+    showError('No se pudo abrir el episodio', err.message || 'Inténtalo de nuevo.', { action: 'retry' });
+    els['player-error-retry-btn'].onclick = () => initPlayer(episodeId);
+    return;
+  }
+  if (generation !== playerInitGeneration || !S.active) return;
+
+  S.show = loaded.show;
+  S.episodes = loaded.episodes.length ? loaded.episodes : [loaded.episode];
+  S.episode = loaded.episode;
+  S.duration = Number(S.episode.duration) || 0;
+  const adjacent = findAdjacentEpisodes(S.episodes, episodeId);
+  S.next = adjacent.next;
+  S.previous = adjacent.previous;
+
+  // Tracks: explicit pick from the episode modal, then the profile/language preferences.
+  const audioTracks = parseTrackList(S.episode.audio_tracks);
+  let explicitAudio = null;
+  try {
+    if (sessionStorage.getItem('kura_play_audio_ep') === episodeId) explicitAudio = sessionStorage.getItem('kura_play_audio_track');
+    sessionStorage.removeItem('kura_play_audio_ep');
+    sessionStorage.removeItem('kura_play_audio_track');
+  } catch { /* storage blocked */ }
+  const prefs = window.userPreferences || {};
+  const prefAudio = readPref('kura_pref_audio_lang') || prefs.preferred_audio_language || 'default';
+  const prefSub = readPref('kura_pref_sub_lang') || prefs.preferred_subtitle_language || 'default';
+  S.audioTrack = chooseAudioTrack(audioTracks, { explicit: explicitAudio, preferred: prefAudio });
+  const audioInfo = audioTracks.find((t, i) => trackNumber(t, i) === S.audioTrack);
+  const subtitleTracks = parseTrackList(S.episode.subtitle_tracks);
+  S.subtitleTrack = chooseSubtitleTrack(subtitleTracks, { preferred: prefSub, audioLang: detectTrackLang(audioInfo) });
+  S.lastSubtitleTrack = S.subtitleTrack !== -1 ? S.subtitleTrack : (subtitleTracks.filter(t => !isBitmapSubtitle(t)).map((t, i) => trackNumber(t, i))[0] ?? -1);
+  S.direct = isDirectPlayable(S.episode, S.audioTrack);
+
+  renderTitles();
+  renderChapterTicks();
+  if (els['next-ep-btn']) els['next-ep-btn'].hidden = !S.next;
+  if (els['episodes-btn']) els['episodes-btn'].hidden = S.episodes.length < 2;
+  const pipSupported = document.pictureInPictureEnabled || typeof els.video.webkitSetPresentationMode === 'function';
+  if (els['menu-pip-btn']) els['menu-pip-btn'].hidden = !pipSupported;
+  if (els['player-pip-btn']) els['player-pip-btn'].hidden = !pipSupported;
+  if (els['menu-ambilight-btn']) els['menu-ambilight-btn'].hidden = isPerfLite();
+
+  // Volume and speed survive between sessions.
+  const savedVolume = parseFloat(readPref('playerVolume', '1'));
+  els.video.volume = Number.isFinite(savedVolume) && savedVolume > 0 ? Math.min(1, savedVolume) : 1;
+  els.video.muted = readPref('kura_player_muted') === '1';
+  renderVolume();
+  renderFullscreenState();
+  updatePlayState();
+
+  bindVideoEvents();
+  bindControls();
+  bindTimeline();
+  bindSurfaceGestures();
+  listen(document, 'keydown', handleKeydown);
+  bindParty();
+
+  // Boost / EQ chosen in Ajustes apply from the first frame; otherwise no Web Audio graph is built.
+  if (Number(readPref('kura_audio_boost', '100')) !== 100 || readPref('kura_audio_preset', 'flat') !== 'flat') ensureAudioEnhancer();
+
+  if (S.direct && window.matchMedia('(hover: hover)').matches) {
+    S.scrubPreview = initScrubPreview(els['player-progress-bar'], els.video, { canDirectPlay: true, duration: S.duration, src: buildStreamUrl(0) });
+  } else {
+    S.scrubPreview = null;
+  }
+
+  setupMediaSession();
+  applyAmbilight();
+
+  const resume = await loadResumePosition(episodeId);
+  if (generation !== playerInitGeneration || !S.active) return;
+  let start = resume.time >= 10 && (!S.duration || resume.time < S.duration - 30) ? resume.time : 0;
+  if (resume.source === 'link') start = resume.time;
+
+  // A watch-party guest starts where the room is.
+  if (partyManager.isInRoom() && !partyManager.isHost() && partyManager.activeRoom && partyManager.activeRoom.episode_id === episodeId) {
+    start = partyManager.roomPositionNow();
+    if (S.duration > 0) start = Math.min(start, Math.max(0, S.duration - 5));
+  }
+
+  const autoplay = !partyManager.isInRoom() || partyManager.isHost() || Boolean(partyManager.activeRoom && partyManager.activeRoom.is_playing);
+  loadStream(start, { autoplay });
+  if (start > 0 && resume.source === 'history' && !partyManager.isInRoom()) showResumeToast(start);
+  if (S.subtitleTrack !== -1) applySubtitleTrack(S.subtitleTrack);
+
+  if (partyManager.isInRoom() && partyManager.isHost() && partyManager.activeRoom && partyManager.activeRoom.episode_id !== episodeId) {
+    partyManager.sendPlaybackSync(true, start, episodeId, 'episode_change');
+  }
+
+  clearInterval(S.saveTimer);
+  S.saveTimer = setInterval(() => {
+    if (!els.video.paused) {
+      saveProgress();
+      updateMediaPosition();
+    }
+  }, PROGRESS_SAVE_MS);
+
+  showControls();
 }
 
 export function destroyPlayer() {
-  isPlayerActive = false;
-  currentStreamStartOffset = 0;
-  clearTimeout(hideControlsTimeout);
-  hideControlsTimeout = null;
-  document.body.style.cursor = '';
-  if (container) container.classList.remove('hide-cursor');
+  if (!S.active && !S.abort) return;
+  saveProgress(true);
+  S.active = false;
+  playerInitGeneration++;
+  if (S.abort) S.abort.abort();
+  S.abort = null;
 
-  if (typeof playerAbortController !== 'undefined' && playerAbortController) {
-    playerAbortController.abort();
-    playerAbortController = null;
-  }
-  if (typeof speedHoldTimer !== 'undefined' && speedHoldTimer) {
-    clearTimeout(speedHoldTimer);
-    speedHoldTimer = null;
-  }
-  if (typeof isSpeedHoldActive !== 'undefined') {
-    isSpeedHoldActive = false;
-  }
-  hideSpeedPill();
-  const speedPill = document.getElementById('speed-accelerator-pill');
-  if (speedPill && speedPill.parentElement) {
-    speedPill.parentElement.removeChild(speedPill);
-  }
-  const speedBtn = document.getElementById('player-speed-btn') || document.getElementById('speed-btn');
-  if (speedBtn) {
-    delete speedBtn.dataset.menuBound;
-  }
-  const speedMenu = document.getElementById('player-speed-menu');
-  if (speedMenu && speedMenu.parentElement) {
-    speedMenu.parentElement.removeChild(speedMenu);
-  }
-  const lockBtn = document.getElementById('btn-lock-controls');
-  if (lockBtn && lockBtn.parentElement) {
-    lockBtn.parentElement.removeChild(lockBtn);
-  }
-  const lockPill = document.querySelector('.player-lock-pill');
-  if (lockPill && lockPill.parentElement) {
-    lockPill.parentElement.removeChild(lockPill);
-  }
+  [S.seekTimer, S.hideTimer, S.retryTimer, S.stallTimer, S.hudTimer, S.toastTimer, S.resumeTimer, S.hold.timer]
+    .forEach(timer => clearTimeout(timer));
+  clearInterval(S.saveTimer);
+  clearInterval(S.upNext.timer);
+  clearInterval(S.ambilightTimer);
+  S.saveTimer = S.ambilightTimer = null;
+  S.pendingSeek = null;
+  S.dragging = false;
+  S.hold.active = false;
 
-  // Save progress before destroying
-  saveWatchProgress(true);
-
-  if (progressSaveInterval) {
-    clearInterval(progressSaveInterval);
-    progressSaveInterval = null;
-  }
-
+  unbindParty();
   destroySubtitles();
-  stopAmbilightLoop();
+  closeTracksModal();
+  if (S.scrubPreview) {
+    S.scrubPreview.destroy();
+    S.scrubPreview = null;
+  }
+  if (S.audioEnhancer) {
+    S.audioEnhancer.destroy();
+    S.audioEnhancer = null;
+  }
+  clearMediaSession();
 
-  if (scrubPreviewInstance) {
-    scrubPreviewInstance.destroy();
-    scrubPreviewInstance = null;
-  }
-  if (audioEnhancerInstance) {
-    audioEnhancerInstance.destroy();
-    audioEnhancerInstance = null;
-  }
-  if (shortcutsHudInstance) {
-    shortcutsHudInstance.destroy();
-    shortcutsHudInstance = null;
-  }
-  if (smartSkipInstance) {
-    smartSkipInstance.destroy();
-    smartSkipInstance = null;
-  }
-
+  const video = els.video;
   if (video) {
     video.pause();
-    video.ontimeupdate = null;
-    video.onprogress = null;
-    video.onended = null;
-    video.onplay = null;
-    video.onpause = null;
-    video.onerror = null;
-    video.onloadedmetadata = null;
     video.removeAttribute('src');
     video.load();
-    video = null;
+    video.playbackRate = 1;
   }
-
-  if (container) {
-    container.onmousemove = null;
-    container.onmouseleave = null;
+  if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
+  if (els.container) {
+    els.container.classList.remove('controls-hidden', 'is-loading', 'is-speed-hold', 'has-party', 'is-pointer-on-controls');
   }
-
-  // Clean up timers and intervals
-  if (countdownAutoplayInterval) {
-    clearInterval(countdownAutoplayInterval);
-    countdownAutoplayInterval = null;
-  }
-  if (seekDebounceTimer) {
-    clearTimeout(seekDebounceTimer);
-    seekDebounceTimer = null;
-  }
-  pendingSeekTarget = null;
-
-  // Clean up next episode card and touch listeners
-  hideNextEpisodeCard();
-  nextEpisodeDismissed = false;
-  nextEpisodeNavigated = false;
-  if (handleVisibilityChange) {
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-    handleVisibilityChange = null;
-  }
-  if (container && handleTouchStart) {
-    container.removeEventListener('touchstart', handleTouchStart);
-    handleTouchStart = null;
-  }
-  if ('mediaSession' in navigator) {
-    try {
-      navigator.mediaSession.setActionHandler('play', null);
-      navigator.mediaSession.setActionHandler('pause', null);
-      navigator.mediaSession.setActionHandler('seekbackward', null);
-      navigator.mediaSession.setActionHandler('seekforward', null);
-      navigator.mediaSession.setActionHandler('nexttrack', null);
-      navigator.mediaSession.metadata = null;
-    } catch (e) {}
-  }
-
-  // Hide overlays
-  if (countdownOverlay) countdownOverlay.style.display = 'none';
-  if (outroOverlayContainer) outroOverlayContainer.style.display = 'none';
-  if (fileInfoModal) fileInfoModal.style.display = 'none';
-  if (qrShareModal) qrShareModal.style.display = 'none';
-  const errorOverlay = document.getElementById('player-error-overlay');
-  if (errorOverlay) errorOverlay.style.display = 'none';
-
-  // Clear QR DOM elements
-  qrShareBtn = null;
-  qrShareModal = null;
-  qrShareClose = null;
-  qrImage = null;
-  qrUrlText = null;
-
-  // Clean up global listeners
-  if (handleKeyboard) {
-    document.removeEventListener('keydown', handleKeyboard);
-    handleKeyboard = null;
-  }
-  if (handleFullscreenChange) {
-    document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    handleFullscreenChange = null;
-  }
-
-  // Clean up Pro modules and options menu
-  const moreMenu = document.getElementById('more-options-menu');
-  if (moreMenu) moreMenu.classList.remove('show');
-  const moreDropdown = document.getElementById('more-options-dropdown');
-  if (moreDropdown) moreDropdown.classList.remove('active');
-
-  if (audioEnhancerInstance) {
-    audioEnhancerInstance.destroy();
-    audioEnhancerInstance = null;
-  }
-  if (shortcutsHudInstance) {
-    shortcutsHudInstance.destroy();
-    shortcutsHudInstance = null;
-  }
-  if (smartSkipInstance) {
-    smartSkipInstance.destroy();
-    smartSkipInstance = null;
-  }
-  if (scrubPreviewInstance && typeof scrubPreviewInstance.destroy === 'function') {
-    scrubPreviewInstance.destroy();
-    scrubPreviewInstance = null;
-  }
-
-  // Restore custom cursor elements back to body if they were inside fullscreen element
-  const dot = document.getElementById('custom-cursor-dot');
-  const ring = document.getElementById('custom-cursor-ring');
-  if (dot && dot.parentElement !== document.body) {
-    document.body.appendChild(dot);
-  }
-  if (ring && ring.parentElement !== document.body) {
-    document.body.appendChild(ring);
-  }
-}
-
-function setupTracksMenu() {
-  const playerTracksBtn = document.getElementById('player-tracks-btn');
-  if (playerTracksBtn) {
-    playerTracksBtn.onclick = () => {
-      const audioTracks = parseJsonArray(currentEpisodeData.audio_tracks);
-      const subTracks = parseJsonArray(currentEpisodeData.subtitle_tracks);
-      openTracksModal({
-        audioTracks,
-        subtitleTracks: subTracks,
-        currentAudioIndex: selectedAudioTrackNum,
-        currentSubtitleIndex: selectedSubtitleTrackNum,
-        onSelectAudio: (trackNum) => {
-          selectedAudioTrackNum = trackNum;
-          const targetObj = audioTracks.find(t => ((t.track_number !== undefined ? t.track_number : t.index) === selectedAudioTrackNum));
-          if (targetObj && targetObj.language) {
-            localStorage.setItem('kura_pref_audio_lang', targetObj.language.toLowerCase());
-          }
-          const currentStreamSrc = video.src;
-          let startOffset = 0;
-          try {
-            const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-            startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-          } catch(e) {}
-          const currentPos = startOffset + (video.currentTime || 0);
-          loadVideoStream(currentPos);
-        },
-        onSelectSubtitle: (trackNum) => {
-          selectedSubtitleTrackNum = trackNum;
-          if (selectedSubtitleTrackNum === -1) {
-            localStorage.setItem('kura_pref_sub_lang', 'off');
-          } else {
-            const targetSub = subTracks.find(t => ((t.track_number !== undefined ? t.track_number : t.index) === selectedSubtitleTrackNum));
-            if (targetSub && targetSub.language) {
-              localStorage.setItem('kura_pref_sub_lang', targetSub.language.toLowerCase());
-            }
-          }
-          initSubtitles(selectedSubtitleTrackNum);
-        }
-      });
-    };
-  }
-  const audioMenu = document.getElementById('audio-menu-list');
-  const subMenu = document.getElementById('subtitle-menu-list');
-  
-  const audioTracks = parseJsonArray(currentEpisodeData.audio_tracks);
-  const subTracks = parseJsonArray(currentEpisodeData.subtitle_tracks);
-
-  // Setup Audio Track menu
-  if (audioTracks.length === 0) {
-    audioMenu.innerHTML = `<button class="active">Audio por defecto</button>`;
-  } else {
-    audioMenu.innerHTML = audioTracks.map((t, idx) => {
-      const num = t.track_number !== undefined ? t.track_number : (t.index !== undefined ? t.index : idx);
-      const activeClass = num === selectedAudioTrackNum ? 'class="active"' : '';
-      const lang = (t.language || 'und').toUpperCase();
-      const title = t.title ? `${t.title} ` : '';
-      const codec = t.codec ? `- ${t.codec.toUpperCase()} ` : '';
-      const channels = t.channels === 2 ? 'Estéreo' : (t.channels ? `${t.channels}ch` : '');
-      const name = `${idx + 1}. ${title}(${lang}) ${codec}${channels}`.trim();
-      return `<button ${activeClass} data-track="${num}">${name}</button>`;
-    }).join('');
-
-    // Bind Audio Track selection
-    audioMenu.querySelectorAll('button').forEach(btn => {
-      btn.onclick = (e) => {
-        audioMenu.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-        selectedAudioTrackNum = parseInt(e.target.getAttribute('data-track'), 10);
-
-        // Remember audio language preference across episodes
-        const targetObj = audioTracks.find((t, i) => ((t.track_number !== undefined ? t.track_number : (t.index !== undefined ? t.index : i)) === selectedAudioTrackNum));
-        if (targetObj) {
-          const detected = detectTrackLang(targetObj);
-          if (detected && detected !== 'und') {
-            localStorage.setItem('kura_pref_audio_lang', detected);
-          }
-        }
-        
-        // Reload stream from current position with new audio track
-        const currentStreamSrc = video.src;
-        let startOffset = 0;
-        try {
-          const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-          startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-        } catch(e) {}
-        const currentPos = startOffset + (video.currentTime || 0);
-        
-        loadVideoStream(currentPos);
-      };
-    });
-  }
-
-  // Setup Subtitle Track menu
-  const subOffActive = selectedSubtitleTrackNum === -1 ? 'class="active"' : '';
-  let subMenuHtml = `<button ${subOffActive} data-track="-1">Desactivados</button>`;
-  
-  if (subTracks.length > 0) {
-    subMenuHtml += subTracks.map((t, idx) => {
-      const num = t.track_number !== undefined ? t.track_number : (t.index !== undefined ? t.index : idx);
-      const activeClass = num === selectedSubtitleTrackNum ? 'class="active"' : '';
-      const lang = (t.language || 'und').toUpperCase();
-      const title = t.title ? `${t.title} ` : '';
-      const codec = t.codec ? `- ${t.codec.toUpperCase()}` : '';
-      const name = `${idx + 1}. ${title}(${lang}) ${codec}`.trim();
-      return `<button ${activeClass} data-track="${num}">${name}</button>`;
-    }).join('');
-  }
-  
-  subMenu.innerHTML = subMenuHtml;
-
-  // Bind Subtitle selection
-  subMenu.querySelectorAll('button').forEach(btn => {
-    btn.onclick = (e) => {
-      subMenu.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-      e.target.classList.add('active');
-      selectedSubtitleTrackNum = parseInt(e.target.getAttribute('data-track'), 10);
-      
-      // Remember subtitle preference across episodes
-      if (selectedSubtitleTrackNum === -1) {
-        localStorage.setItem('kura_pref_sub_lang', 'off');
-      } else {
-        const targetSub = subTracks.find(t => ((t.track_number !== undefined ? t.track_number : t.index) === selectedSubtitleTrackNum));
-        if (targetSub && targetSub.language) {
-          localStorage.setItem('kura_pref_sub_lang', targetSub.language.toLowerCase());
-        }
-      }
-
-      initSubtitles(selectedSubtitleTrackNum);
-    };
-  });
-}
-
-function setupPlayerEventListeners() {
-  // Play/Pause toggling
-  const togglePlay = () => {
-    if (!video) return;
-    if (video.paused) {
-      const playPromise = video.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(err => {
-          console.warn("Video play was prevented:", err);
-          setLucideIcon('play-icon', 'play');
-          setLucideIcon('center-play-icon', 'play');
-          if (centerPlayBtn) centerPlayBtn.style.display = 'flex';
-        });
-      }
-    } else {
-      video.pause();
-    }
-    triggerControlsActivity();
-  };
-
-  // Buffer Loader Event Listeners
-  video.onloadstart = showLoader;
-  video.onwaiting = showLoader;
-  video.onseeking = showLoader;
-  video.onseeked = hideLoader;
-  video.oncanplay = hideLoader;
-  video.onplaying = hideLoader;
-
-  video.onerror = () => {
-    hideLoader();
-    console.warn("Video element error occurred:", video.error);
-    const authToken = AuthManager.getToken();
-    if (!authToken) {
-      showPlayerErrorOverlay("Debes iniciar sesión para reproducir este contenido.");
-      const retryBtn = document.getElementById('player-error-retry-btn');
-      if (retryBtn) {
-        retryBtn.innerHTML = '<i data-lucide="log-in"></i> Iniciar Sesión';
-        retryBtn.onclick = () => {
-          const loginTrigger = document.getElementById('btn-login-trigger');
-          if (loginTrigger) loginTrigger.click();
-        };
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-      }
-      return;
-    }
-    const role = AuthManager.getRole();
-    const activeProfile = AuthManager.getActiveProfile();
-    if (role !== 'admin' && !activeProfile) {
-      showPlayerErrorOverlay("Debes seleccionar un perfil para reproducir este contenido.");
-      const retryBtn = document.getElementById('player-error-retry-btn');
-      if (retryBtn) {
-        retryBtn.innerHTML = '<i data-lucide="user"></i> Elegir Perfil';
-        retryBtn.onclick = () => {
-          window.location.hash = '#/profiles';
-        };
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-      }
-      return;
-    }
-    showPlayerErrorOverlay("Error de reproducción. ¿Reintentar?");
-  };
-
-  video.onplay = () => {
-    hideLoader();
-    setLucideIcon('play-icon', 'pause');
-    setLucideIcon('center-play-icon', 'pause');
-    if (centerPlayBtn) centerPlayBtn.style.display = 'none';
-    if (ambilightActive) {
-      startAmbilightLoop();
-    }
-    updateMediaSession();
-    if (speedBtn) {
-      const currentSpeed = parseFloat(speedBtn.textContent) || 1.0;
-      if (video && video.playbackRate !== currentSpeed) {
-        video.playbackRate = currentSpeed;
-      }
-    }
-
-    if (partyManager && partyManager.isInRoom()) {
-      const currentPos = currentStreamStartOffset + (video.currentTime || 0);
-      partyManager.sendPlaybackSync(true, currentPos, currentEpisodeId, 'play');
-    }
-  };
-
-  video.onloadedmetadata = () => {
-    hideLoader();
-    if (speedBtn) {
-      const currentSpeed = parseFloat(speedBtn.textContent) || 1.0;
-      video.playbackRate = currentSpeed;
-    }
-    if (currentEpisodeData) {
-      renderChapterTicks(currentEpisodeData);
-      renderChaptersDropdown(currentEpisodeData);
-    }
-  };
-
-  video.onpause = () => {
-    setLucideIcon('play-icon', 'play');
-    setLucideIcon('center-play-icon', 'play');
-    stopAmbilightLoop();
-    
-    const loader = document.getElementById('player-loader');
-    const isBuffering = loader && loader.style.display !== 'none';
-    if (!isBuffering && centerPlayBtn) {
-      centerPlayBtn.style.display = 'flex';
-    }
-    saveWatchProgress();
-
-    if (partyManager && partyManager.isInRoom()) {
-      const currentPos = currentStreamStartOffset + (video.currentTime || 0);
-      partyManager.sendPlaybackSync(false, currentPos, currentEpisodeId, 'pause');
-    }
-  };
-
-  playPauseBtn.onclick = togglePlay;
-  centerPlayBtn.onclick = togglePlay;
-  
-  // Click on video canvas to toggle play
-  video.onclick = (e) => {
-    if (typeof isSpeedHoldActive !== 'undefined' && isSpeedHoldActive) return;
-    if (e.target.tagName === 'VIDEO') {
-      togglePlay();
-    }
-  };
-
-  // Keyboard controls are handled centrally by shortcutsHudInstance (with HUD overlay and audio booster integration)
-  if (handleKeyboard) {
-    document.removeEventListener('keydown', handleKeyboard);
-    handleKeyboard = null;
-  }
-
-  // Fullscreen change listener
-  if (handleFullscreenChange) {
-    document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }
-  handleFullscreenChange = () => {
-    const isFs = !!document.fullscreenElement;
-    setLucideIcon('fullscreen-icon', isFs ? 'minimize' : 'maximize');
-    showVideoToast(isFs ? 'Pantalla Completa' : 'Ventana');
-    
-    const dot = document.getElementById('custom-cursor-dot');
-    const ring = document.getElementById('custom-cursor-ring');
-
-    if (document.fullscreenElement) {
-      if (dot && ring) {
-        document.fullscreenElement.appendChild(dot);
-        document.fullscreenElement.appendChild(ring);
-      }
-    } else {
-      if (dot && ring) {
-        document.body.appendChild(dot);
-        document.body.appendChild(ring);
-      }
-    }
-  };
-  document.addEventListener('fullscreenchange', handleFullscreenChange, playerAbortController ? { signal: playerAbortController.signal } : undefined);
-
-  // Time Updates & Progress scrubber
-  video.ontimeupdate = () => {
-    if (!video || isDraggingProgress) return;
-    
-    const currentStreamSrc = video.src;
-    const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-    const startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-    
-    const totalCurrentTime = startOffset + video.currentTime;
-    
-    // Duration is taken from ffprobe (more reliable than browser during copy streams)
-    const duration = currentEpisodeData.duration || video.duration || 1;
-
-    timeCurrent.textContent = formatTime(totalCurrentTime);
-    timeDuration.textContent = formatTime(duration);
-
-    const progressPercent = (totalCurrentTime / duration) * 100;
-    progressCurrent.style.width = `${progressPercent}%`;
-    progressHandle.style.left = `${progressPercent}%`;
-
-    updateBufferTrack();
-
-    // Auto-Skip and Skip Overlay logic (deferred to smartSkipInstance when active)
-    if (!smartSkipInstance) {
-      const isAutoSkip = window.userPreferences?.auto_skip_intro === true || 
-                         window.userPreferences?.auto_skip_intro === 'true' ||
-                         localStorage.getItem('kurastream_auto_skip_intro') === 'true';
-
-      const introStart = currentEpisodeData.intro_start;
-      const introEnd = currentEpisodeData.intro_end;
-      const effectiveIntroEnd = (introEnd !== null && introEnd !== undefined) ? introEnd : ((introStart !== null && introStart !== undefined) ? introStart + 90 : null);
-      
-      if (introStart !== null && introStart !== undefined && effectiveIntroEnd !== null) {
-        if (totalCurrentTime < introStart) {
-          hasSkippedIntroForCurrentEpisode = false;
-        }
-        if (totalCurrentTime >= introStart && totalCurrentTime < effectiveIntroEnd) {
-          if (isAutoSkip) {
-            if (!hasSkippedIntroForCurrentEpisode) {
-              hasSkippedIntroForCurrentEpisode = true;
-              if (skipIntroBtn) skipIntroBtn.style.display = 'none';
-              if (introEnd !== null && introEnd !== undefined) {
-                loadVideoStream(introEnd);
-              } else {
-                seekRelative(90);
-              }
-              showVideoToast("Intro saltada automáticamente");
-            }
-          } else {
-            if (skipIntroBtn) skipIntroBtn.style.display = 'block';
-          }
-        } else {
-          if (skipIntroBtn) skipIntroBtn.style.display = 'none';
-        }
-      } else {
-        if (skipIntroBtn) skipIntroBtn.style.display = 'none';
-      }
-    } else {
-      if (skipIntroBtn) skipIntroBtn.style.display = 'none';
-    }
-
-    // Outro skipper overlay logic (Next Episode and Credits container)
-    const rawOutroStart = currentEpisodeData ? currentEpisodeData.outro_start : null;
-    const outroStart = parseFloat(rawOutroStart);
-    const isValidOutro = !isNaN(outroStart) && outroStart > 60 && duration > 0 && outroStart < (duration - 5);
-
-    if (isValidOutro && totalCurrentTime >= outroStart) {
-      const isAutoSkip = window.userPreferences?.auto_skip_intro === true || 
-                         window.userPreferences?.auto_skip_intro === 'true' ||
-                         localStorage.getItem('kurastream_auto_skip_intro') === 'true';
-
-      if (isAutoSkip && !hasSkippedOutroForCurrentEpisode) {
-        hasSkippedOutroForCurrentEpisode = true;
-        showVideoToast("Outro saltado automáticamente");
-        loadVideoStream(Math.max(0, duration - 1));
-      }
-      if (nextEpisodeId && !outroDismissed) {
-        if (outroOverlayContainer) outroOverlayContainer.style.display = 'flex';
-      } else {
-        if (outroOverlayContainer) outroOverlayContainer.style.display = 'none';
-      }
-    } else {
-      if (outroOverlayContainer) outroOverlayContainer.style.display = 'none';
-    }
-
-    // Next Episode Countdown Overlay Card (when duration - totalCurrentTime <= 25 and next episode exists and auto-play-next enabled)
-    const isAutoPlayNext = window.userPreferences?.auto_play_next !== false && 
-                           window.userPreferences?.auto_play_next !== 'false' &&
-                           localStorage.getItem('kurastream_auto_play_next') !== 'false';
-
-    const remainingTime = duration - totalCurrentTime;
-    if (isAutoPlayNext && nextEpisodeId && !nextEpisodeDismissed && !nextEpisodeNavigated && remainingTime <= 25 && remainingTime > 0) {
-      showNextEpisodeCard(Math.max(1, Math.ceil(remainingTime)));
-      if (remainingTime <= 0.8 && !nextEpisodeNavigated) {
-        nextEpisodeNavigated = true;
-        hideNextEpisodeCard();
-        location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
-      }
-    } else if (remainingTime > 25 && !nextEpisodeDismissed) {
-      hideNextEpisodeCard();
-    }
-  };
-
-  // Buffer range updates (Sombra / Rastro de carga)
-  const updateBufferTrack = () => {
-    if (!video || !progressBuffered) return;
-    try {
-      const currentStreamSrc = video.src || '';
-      let startOffset = 0;
-      if (currentStreamSrc) {
-        const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-        startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-      }
-      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
-
-      let bufferedEnd = 0;
-      if (video.buffered && video.buffered.length > 0) {
-        for (let i = 0; i < video.buffered.length; i++) {
-          if (video.buffered.start(i) <= video.currentTime && video.currentTime <= video.buffered.end(i)) {
-            bufferedEnd = video.buffered.end(i);
-            break;
-          }
-        }
-        if (bufferedEnd === 0) {
-          bufferedEnd = video.buffered.end(video.buffered.length - 1);
-        }
-      }
-
-      const totalBuffered = startOffset + bufferedEnd;
-      const bufferedPercent = Math.min(100, Math.max(0, (totalBuffered / duration) * 100));
-      progressBuffered.style.width = `${bufferedPercent}%`;
-    } catch(e) {}
-  };
-
-  video.onprogress = updateBufferTrack;
-
-  // Video Ending Logic (Countdown)
-  video.onended = () => {
-    if (!video) return;
-    saveWatchProgress(true);
-    const isAutoPlayNext = window.userPreferences?.auto_play_next !== false && 
-                           window.userPreferences?.auto_play_next !== 'false' &&
-                           localStorage.getItem('kurastream_auto_play_next') !== 'false';
-    if (nextEpisodeId && isAutoPlayNext) {
-      triggerCountdownAutoplay();
-    } else {
-      location.hash = `#/show/${encodeURIComponent(getShowIdFromEpisodeId(currentEpisodeId))}`;
-    }
-  };
-
-  // Scrubbing Timeline event listeners
-  let justHandledDragSeek = false;
-  let dragTargetTime = null;
-
-  const getTimelineClickPos = (e) => {
-    if (!progressBar) return 0;
-    const rect = progressBar.getBoundingClientRect();
-    let clientX = null;
-    if (e.touches && e.touches.length > 0 && typeof e.touches[0].clientX === 'number') {
-      clientX = e.touches[0].clientX;
-    } else if (e.changedTouches && e.changedTouches.length > 0 && typeof e.changedTouches[0].clientX === 'number') {
-      clientX = e.changedTouches[0].clientX;
-    } else if (typeof e.clientX === 'number') {
-      clientX = e.clientX;
-    }
-    if (clientX === null || isNaN(clientX)) return 0;
-    const width = rect.width > 0 ? rect.width : (progressBar.offsetWidth || 1);
-    const pos = (clientX - rect.left) / width;
-    return Math.max(0, Math.min(1, isNaN(pos) ? 0 : pos));
-  };
-
-  // Hover Ghost Scrubber and Timestamp Tooltip
-  if (progressBar) {
-    progressBar.onmousedown = (e) => {
-      e.preventDefault();
-      isDraggingProgress = true;
-      updateProgressOnDrag(e);
-      triggerControlsActivity();
-    };
-
-    progressBar.ontouchstart = (e) => {
-      isDraggingProgress = true;
-      updateProgressOnDrag(e);
-      triggerControlsActivity();
-    };
-
-    progressBar.onclick = (e) => {
-      if (justHandledDragSeek) return;
-      const pos = getTimelineClickPos(e);
-      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video ? video.duration : 1) || 1;
-      const targetTime = pos * duration;
-      loadVideoStream(targetTime);
-      triggerControlsActivity();
-    };
-
-    progressBar.onmousemove = (e) => {
-      const pos = getTimelineClickPos(e);
-      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video ? video.duration : 1) || 1;
-      const hoverTime = pos * duration;
-
-      if (progressHover) {
-        progressHover.style.width = `${pos * 100}%`;
-      }
-
-      if (progressTooltip && !scrubPreviewInstance && progressTooltip.style.display !== 'none') {
-        progressTooltip.style.left = `${pos * 100}%`;
-        progressTooltip.textContent = formatTime(hoverTime);
-        progressTooltip.style.opacity = '1';
-      }
-
-      if (isDraggingProgress) {
-        updateProgressOnDrag(e);
-      }
-    };
-
-    progressBar.onmouseleave = () => {
-      if (!isDraggingProgress) {
-        if (progressHover) progressHover.style.width = '0%';
-        if (progressTooltip) progressTooltip.style.opacity = '0';
-      }
-    };
-  }
-
-  const handleGlobalMouseMove = (e) => {
-    if (isDraggingProgress) {
-      updateProgressOnDrag(e);
-      triggerControlsActivity();
-    }
-  };
-
-  window.addEventListener('mousemove', handleGlobalMouseMove, playerAbortController ? { signal: playerAbortController.signal } : undefined);
-  window.addEventListener('touchmove', (e) => {
-    if (isDraggingProgress) e.preventDefault();
-    handleGlobalMouseMove(e);
-  }, playerAbortController ? { passive: false, signal: playerAbortController.signal } : { passive: false });
-
-  const handleGlobalMouseUp = () => {
-    if (isDraggingProgress) {
-      isDraggingProgress = false;
-      justHandledDragSeek = true;
-      setTimeout(() => {
-        justHandledDragSeek = false;
-      }, 100);
-      if (progressTooltip) {
-        progressTooltip.style.opacity = '0';
-      }
-      
-      const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video ? video.duration : 1) || 1;
-      let targetTime = dragTargetTime;
-      if (targetTime === null || isNaN(targetTime)) {
-        const percent = parseFloat(progressCurrent ? progressCurrent.style.width : 0) / 100;
-        targetTime = !isNaN(percent) ? percent * duration : 0;
-      }
-      dragTargetTime = null;
-      
-      loadVideoStream(targetTime);
-      triggerControlsActivity();
-    }
-  };
-  window.addEventListener('mouseup', handleGlobalMouseUp, playerAbortController ? { signal: playerAbortController.signal } : undefined);
-  window.addEventListener('touchend', handleGlobalMouseUp, playerAbortController ? { signal: playerAbortController.signal } : undefined);
-
-  function updateProgressOnDrag(e) {
-    const pos = getTimelineClickPos(e);
-    if (progressCurrent) progressCurrent.style.width = `${pos * 100}%`;
-    if (progressHandle) progressHandle.style.left = `${pos * 100}%`;
-    if (progressHover) progressHover.style.width = `${pos * 100}%`;
-    
-    const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video ? video.duration : 1) || 1;
-    dragTargetTime = pos * duration;
-    if (timeCurrent) timeCurrent.textContent = formatTime(dragTargetTime);
-  }
-
-  // Volume slider control
-  volumeSlider.oninput = (e) => {
-    const vol = parseFloat(e.target.value);
-    video.volume = vol;
-    video.muted = vol === 0;
-    updateVolumeIcon(vol);
-    localStorage.setItem('playerVolume', vol);
-    triggerControlsActivity();
-  };
-
-  muteBtn.onclick = () => {
-    if (video.muted) {
-      video.muted = false;
-      const vol = parseFloat(volumeSlider.value) || 1.0;
-      video.volume = vol;
-      updateVolumeIcon(vol);
-    } else {
-      video.muted = true;
-      updateVolumeIcon(0);
-    }
-    triggerControlsActivity();
-  };
-
-  // Playback Speed Selector options
-  document.querySelectorAll('.speed-opt').forEach(opt => {
-    opt.onclick = (e) => {
-      e.stopPropagation();
-      document.querySelectorAll('.speed-opt').forEach(o => o.classList.remove('active'));
-      const btn = e.currentTarget;
-      btn.classList.add('active');
-      const rate = parseFloat(btn.getAttribute('data-speed'));
-      if (video) video.playbackRate = rate;
-      if (speedBtn) speedBtn.textContent = `${rate}x`;
-      localStorage.setItem('kura_playback_speed', rate);
-      showVideoToast(`Velocidad: ${rate}x`);
-      triggerControlsActivity();
-    };
-  });
-
-  // Audio Boost (100% - 200%)
-  document.querySelectorAll('.boost-opt').forEach(opt => {
-    opt.onclick = (e) => {
-      e.stopPropagation();
-      document.querySelectorAll('.boost-opt').forEach(b => b.classList.remove('active'));
-      const btn = e.currentTarget;
-      btn.classList.add('active');
-      const boostVal = parseInt(btn.getAttribute('data-boost'), 10) || 100;
-      const gainMult = boostVal / 100;
-      if (audioEnhancerInstance) {
-        audioEnhancerInstance.setGain(gainMult);
-      }
-      showVideoToast(`Audio Boost: ${boostVal}%`);
-      triggerControlsActivity();
-    };
-  });
-
-  // Equalizer presets (Plano, Voces, Nocturno, Bass Boost)
-  document.querySelectorAll('.preset-opt').forEach(opt => {
-    opt.onclick = (e) => {
-      e.stopPropagation();
-      document.querySelectorAll('.preset-opt').forEach(b => b.classList.remove('active'));
-      const btn = e.currentTarget;
-      btn.classList.add('active');
-      const presetId = btn.getAttribute('data-preset') || 'flat';
-      if (audioEnhancerInstance) {
-        audioEnhancerInstance.setPreset(presetId);
-      }
-      const label = btn.textContent.trim();
-      showVideoToast(`Ecualizador: ${label}`);
-      triggerControlsActivity();
-    };
-  });
-
-  // Next Episode button
-  if (nextEpisodeId) {
-    nextEpBtn.style.display = 'flex';
-    nextEpBtn.onclick = () => {
-      location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
-    };
-  } else {
-    nextEpBtn.style.display = 'none';
-  }
-
-  // Fullscreen controller
-  fullscreenBtn.onclick = toggleFullscreen;
-
-  // Picture-in-Picture controller
-  const handlePipToggle = async (e) => {
-    if (e) e.stopPropagation();
-    document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
-    document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-        showVideoToast('PiP Desactivado');
-      } else if (document.pictureInPictureEnabled) {
-        await video.requestPictureInPicture();
-        showVideoToast('PiP Activado');
-      } else if (video && video.webkitSupportsPresentationMode && typeof video.webkitSetPresentationMode === 'function') {
-        const nextMode = video.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture';
-        video.webkitSetPresentationMode(nextMode);
-        showVideoToast(nextMode === 'picture-in-picture' ? 'PiP Activado' : 'PiP Desactivado');
-      }
-    } catch (err) {
-      console.error("Failed to toggle Picture-in-Picture:", err);
-    }
-  };
-
-  const menuPipBtn = document.getElementById('menu-pip-btn');
-  if (menuPipBtn) menuPipBtn.onclick = handlePipToggle;
-  if (pipBtn) pipBtn.onclick = handlePipToggle;
-
-  // Picture-in-Picture browser support check
-  const isPipSupported = !!(
-    document.pictureInPictureEnabled ||
-    (video && video.webkitSupportsPresentationMode && typeof video.webkitSetPresentationMode === 'function')
-  );
-  if (!isPipSupported) {
-    if (menuPipBtn) menuPipBtn.style.display = 'none';
-    if (pipBtn) pipBtn.style.display = 'none';
-  }
-
-  const menuAmbilightBtn = document.getElementById('menu-ambilight-btn');
-  if (menuAmbilightBtn && ambilightToggleBtn) {
-    menuAmbilightBtn.onclick = (e) => {
-      if (e) e.stopPropagation();
-      ambilightToggleBtn.click();
-      document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
-      document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
-    };
-  }
-
-  // Technical file info overlay modal toggles
-  const handleFileInfoToggle = (e) => {
-    if (e) e.stopPropagation();
-    document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
-    document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
-    if (!fileInfoModal) return;
-    if (fileInfoModal.style.display === 'none') {
-      showTechnicalModal();
-    } else {
-      fileInfoModal.style.display = 'none';
-    }
-    triggerControlsActivity();
-  };
-
-  const menuFileInfoBtn = document.getElementById('menu-file-info-btn');
-  if (menuFileInfoBtn) menuFileInfoBtn.onclick = handleFileInfoToggle;
-  if (fileInfoBtn) fileInfoBtn.onclick = handleFileInfoToggle;
-
-  if (fileInfoClose) {
-    fileInfoClose.onclick = () => {
-      if (fileInfoModal) fileInfoModal.style.display = 'none';
-    };
-  }
-
-  // QR Share overlay modal toggles
-  const handleQRToggle = (e) => {
-    if (e) e.stopPropagation();
-    document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
-    document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
-    if (!qrShareModal) return;
-    if (qrShareModal.style.display === 'none') {
-      showQRModal();
-    } else {
-      qrShareModal.style.display = 'none';
-    }
-    triggerControlsActivity();
-  };
-
-  const menuQrBtn = document.getElementById('menu-qr-btn');
-  if (menuQrBtn) menuQrBtn.onclick = handleQRToggle;
-  if (qrShareBtn) qrShareBtn.onclick = handleQRToggle;
-
-  if (qrShareClose) {
-    qrShareClose.onclick = () => {
-      if (qrShareModal) qrShareModal.style.display = 'none';
-    };
-  }
-
-  // Skip Intro button listener (legacy fallback)
-  if (skipIntroBtn) {
-    skipIntroBtn.onclick = () => {
-      hasSkippedIntroForCurrentEpisode = true;
-      const introEnd = currentEpisodeData ? currentEpisodeData.intro_end : null;
-      if (introEnd !== null && introEnd !== undefined) {
-        loadVideoStream(introEnd);
-      } else {
-        seekRelative(90);
-      }
-      skipIntroBtn.style.display = 'none';
-    };
-  }
-
-  // Skip Outro button listener (Siguiente Capítulo)
-  skipOutroBtn.onclick = () => {
-    outroOverlayContainer.style.display = 'none';
-    if (nextEpisodeId) {
-      location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
-    }
-  };
-
-  // Watch Credits button listener (Ver Créditos)
-  watchCreditsBtn.onclick = () => {
-    outroDismissed = true;
-    outroOverlayContainer.style.display = 'none';
-  };
-
-  // More Options Menu Toggle & State Sync
-  const moreOptionsBtn = document.getElementById('more-options-btn');
-  const moreOptionsMenu = document.getElementById('more-options-menu');
-  const moreOptionsDropdown = document.getElementById('more-options-dropdown');
-
-  if (moreOptionsBtn && moreOptionsMenu) {
-    moreOptionsBtn.onclick = (e) => {
-      e.stopPropagation();
-      const isVisible = moreOptionsMenu.classList.contains('show') || (moreOptionsDropdown && moreOptionsDropdown.classList.contains('active'));
-
-      // Close all other dropdowns
-      document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
-      document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
-
-      if (!isVisible) {
-        moreOptionsMenu.classList.add('show');
-        if (moreOptionsDropdown) moreOptionsDropdown.classList.add('active');
-
-        // Sync speed active state
-        const currentSpeed = video ? String(video.playbackRate) : '1';
-        document.querySelectorAll('.speed-opt').forEach(opt => {
-          opt.classList.toggle('active', opt.getAttribute('data-speed') === currentSpeed);
-        });
-
-        // Sync boost active state
-        const currentGain = audioEnhancerInstance ? audioEnhancerInstance.getGain() : 1.0;
-        const currentBoostPercent = Math.round(currentGain * 100);
-        document.querySelectorAll('.boost-opt').forEach(opt => {
-          const val = parseInt(opt.getAttribute('data-boost'), 10);
-          opt.classList.toggle('active', val === currentBoostPercent);
-        });
-
-        // Sync preset active state
-        const currentPreset = audioEnhancerInstance ? audioEnhancerInstance.getCurrentPreset() : 'flat';
-        document.querySelectorAll('.preset-opt').forEach(opt => {
-          opt.classList.toggle('active', opt.getAttribute('data-preset') === currentPreset);
-        });
-      }
-      triggerControlsActivity();
-    };
-  }
-
-  // Dropdown menus triggers click handler
-  document.querySelectorAll('.dropdown-trigger').forEach(trigger => {
-    if (trigger === moreOptionsBtn) return;
-    trigger.onclick = (e) => {
-      e.stopPropagation();
-      const parent = trigger.parentElement;
-      const isActive = parent.classList.contains('active');
-      
-      // Close all dropdowns
-      document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
-      document.querySelectorAll('.player-more-menu').forEach(m => m.classList.remove('show'));
-      
-      if (!isActive) {
-        parent.classList.add('active');
-      }
-      triggerControlsActivity();
-    };
-  });
-
-  // Close menus on click outside
-  window.onclick = (e) => {
-    document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
-    if (moreOptionsMenu && moreOptionsMenu.classList.contains('show')) {
-      if (!moreOptionsMenu.contains(e.target) && e.target !== moreOptionsBtn) {
-        moreOptionsMenu.classList.remove('show');
-      }
-    }
-  };
-
-  // Exit button
-  document.getElementById('player-back-btn').onclick = () => {
-    location.hash = `#/show/${encodeURIComponent(getShowIdFromEpisodeId(currentEpisodeId))}`;
-  };
-
-  // Mouse activity tracker for controls fading
-  container.onmousemove = () => {
-    if (!video) return;
-    triggerControlsActivity();
-  };
-
-  container.onmouseleave = () => {
-    if (!video) return;
-    if (!video.paused) {
-      controlsOverlay.classList.add('hide');
-      
-      const dot = document.getElementById('custom-cursor-dot');
-      const ring = document.getElementById('custom-cursor-ring');
-      if (dot && ring) {
-        dot.style.opacity = '0';
-        ring.style.opacity = '0';
-      }
-    }
-  };
-
-  setupWatchPartyIntegration();
-
-  // Visibility change listener for ambient glow power saving
-  if (handleVisibilityChange) {
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }
-  handleVisibilityChange = () => {
-    if (document.hidden) {
-      stopAmbilightLoop();
-    } else if (ambilightActive && video && !video.paused) {
-      startAmbilightLoop();
-    }
-  };
-  document.addEventListener('visibilitychange', handleVisibilityChange, playerAbortController ? { signal: playerAbortController.signal } : undefined);
-
-  // Mobile double-tap seek touch gestures
-  setupTouchGestures();
-
-  const abortSignal = playerAbortController ? playerAbortController.signal : undefined;
-  setupHoldSpeed(abortSignal);
-  initSpeedMenu(abortSignal);
-}
-
-function setupWatchPartyIntegration() {
-  const partyBtn = document.getElementById('player-party-btn');
-  const partySidebar = document.getElementById('player-party-sidebar');
-  const btnCloseSidebar = document.getElementById('party-btn-close-sidebar');
-  const btnSoundToggle = document.getElementById('party-sound-toggle');
-  const btnCopyCode = document.getElementById('party-btn-copy-code');
-  const btnLeave = document.getElementById('party-btn-leave');
-  const chatInput = document.getElementById('party-chat-input');
-  const chatForm = document.getElementById('party-input-form');
-  const msgContainer = document.getElementById('party-messages-container');
-
-  if (!partyBtn) return;
-
-  // If already in a room when entering player, make sidebar visible
-  if (partyManager.isInRoom() && partySidebar) {
-    partySidebar.style.display = 'flex';
-  }
-
-  partyBtn.onclick = (e) => {
-    e.stopPropagation();
-    if (!partyManager.isInRoom()) {
-      const modal = document.getElementById('modal-watch-party');
-      if (modal) {
-        modal.style.display = 'flex';
-        const createTab = document.getElementById('party-tab-create');
-        if (createTab) createTab.click();
-      }
-    } else if (partySidebar) {
-      const isHidden = partySidebar.style.display === 'none';
-      partySidebar.style.display = isHidden ? 'flex' : 'none';
-    }
-  };
-
-  if (btnCloseSidebar && partySidebar) {
-    btnCloseSidebar.onclick = (e) => {
-      e.stopPropagation();
-      partySidebar.style.display = 'none';
-    };
-  }
-
-  if (btnSoundToggle) {
-    btnSoundToggle.onclick = (e) => {
-      e.stopPropagation();
-      partyManager.toggleSounds();
-    };
-    // init icon
-    const icon = document.getElementById('party-sound-icon');
-    if (icon) {
-      icon.setAttribute('data-lucide', partyManager.soundsMuted ? 'volume-x' : 'volume-2');
-      if (window.lucide) window.lucide.createIcons({ root: icon.parentElement });
-    }
-  }
-
-  if (btnCopyCode) {
-    btnCopyCode.onclick = (e) => {
-      e.stopPropagation();
-      if (!partyManager.activeRoom) return;
-      const roomId = partyManager.activeRoom.id;
-      const joinUrl = `${window.location.origin}/#/party/${roomId}`;
-      const originalHtml = btnCopyCode.innerHTML;
-      btnCopyCode.innerHTML = `<span style="font-size: 0.75rem; font-weight: 700; color: var(--success-color);">¡Copiado!</span>`;
-      setTimeout(() => { btnCopyCode.innerHTML = originalHtml; }, 1500);
-      navigator.clipboard.writeText(joinUrl).then(() => {
-        showVideoToast(`Enlace copiado: ${joinUrl}`);
-      }).catch(() => {
-        showVideoToast(`Código de sala: ${roomId}`);
-      });
-    };
-  }
-
-  const btnCopyCta = document.getElementById('party-btn-copy-cta');
-  if (btnCopyCta) {
-    btnCopyCta.onclick = (e) => {
-      e.stopPropagation();
-      if (!partyManager.activeRoom) return;
-      const roomId = partyManager.activeRoom.id;
-      const joinUrl = `${window.location.origin}/#/party/${roomId}`;
-      const originalHtml = btnCopyCta.innerHTML;
-      btnCopyCta.innerHTML = `¡Copiado!`;
-      setTimeout(() => { btnCopyCta.innerHTML = originalHtml; }, 1500);
-      navigator.clipboard.writeText(joinUrl).then(() => {
-        showVideoToast(`Enlace copiado: ${joinUrl}`);
-      }).catch(() => {
-        showVideoToast(`Código de sala: ${roomId}`);
-      });
-    };
-  }
-
-  const roomCodeDisplay = document.getElementById('party-room-code-display');
-  if (roomCodeDisplay) {
-    roomCodeDisplay.onclick = () => {
-      if (!partyManager.activeRoom) return;
-      navigator.clipboard.writeText(partyManager.activeRoom.id).then(() => {
-        showVideoToast(`Código copiado: ${partyManager.activeRoom.id}`);
-      });
-    };
-  }
-
-  if (btnLeave) {
-    btnLeave.onclick = async (e) => {
-      e.stopPropagation();
-      if (confirm('¿Deseas salir del Watch Party?')) {
-        await partyManager.leaveRoom();
-        if (partySidebar) partySidebar.style.display = 'none';
-        showVideoToast('Has salido de la sala');
-      }
-    };
-  }
-
-  // Reaction buttons
-  document.querySelectorAll('.party-reaction-btn').forEach(btn => {
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      const emoji = btn.getAttribute('data-emoji');
-      if (emoji) partyManager.sendReaction(emoji);
-    };
-  });
-
-  // Chat send form
-  if (chatForm && chatInput) {
-    chatForm.onsubmit = (e) => {
-      e.preventDefault();
-      const text = chatInput.value.trim();
-      if (text) {
-        partyManager.sendMessage(text);
-        chatInput.value = '';
-      }
-    };
-  }
-
-  // Hook PartyManager events
-  partyManager.on('sync', (room) => {
-    if (!room) return;
-    if (partySidebar) partySidebar.style.display = 'flex';
-
-    const headerTitle = document.getElementById('party-header-title');
-    const codeDisplay = document.getElementById('party-room-code-display');
-    const usersBadge = document.getElementById('party-participants-badge');
-    const hostBadge = document.getElementById('party-host-badge');
-
-    if (headerTitle) headerTitle.textContent = room.name || 'Watch Party';
-    if (codeDisplay) codeDisplay.textContent = room.id;
-    if (usersBadge) usersBadge.innerHTML = `<i data-lucide="user"></i> ${room.participants_count || 1}`;
-    if (hostBadge) {
-      if (partyManager.isHost()) {
-        hostBadge.innerHTML = `<i data-lucide="crown"></i> Anfitrión`;
-      } else {
-        hostBadge.textContent = `Host: ${room.host_user}`;
-      }
-    }
-
-    if (window.lucide && typeof window.lucide.createIcons === 'function') {
-      window.lucide.createIcons();
-    }
-
-    // Episode synchronization: if host switched episode, follow host!
-    if (room.episode_id && room.episode_id !== currentEpisodeId && !partyManager.isHost()) {
-      showVideoToast(`El anfitrión cambió al episodio`);
-      initPlayer(room.episode_id);
-      return;
-    }
-
-    // Playback drift & state sync
-    if (video) {
-      partyManager.applyRemotePlaybackToVideo(video);
-    }
-  });
-
-  partyManager.on('message', (msg) => {
-    if (!msgContainer || !msg) return;
-    const item = document.createElement('div');
-    item.className = 'party-msg-item';
-
-    if (msg.type === 'system') {
-      item.innerHTML = `<div class="party-msg-system">${escapeHtml(msg.message)}</div>`;
-    } else if (msg.type === 'reaction') {
-      return; // reactions float across video canvas
-    } else {
-      const initial = (msg.username || 'U').charAt(0).toUpperCase();
-      const color = partyManager.getRandomColor(msg.username || 'User');
-      const isHost = (msg.role === 'host');
-      const bubbleClass = isHost ? 'party-msg-bubble is-host' : 'party-msg-bubble';
-      const hostCrown = isHost ? '<i data-lucide="crown" class="party-host-crown"></i>' : '';
-      const timeStr = msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-      
-      item.innerHTML = `
-        <div class="presence-avatar-container">
-          <div class="party-msg-avatar" style="background: ${color}">${initial}</div>
-          <div class="presence-status-dot"></div>
-        </div>
-        <div class="party-msg-content">
-          <span class="party-msg-author">${escapeHtml(msg.username || 'Usuario')}${hostCrown} <span class="party-msg-timestamp">${timeStr}</span></span>
-          <div class="${bubbleClass}">${escapeHtml(msg.message)}</div>
-        </div>
-      `;
-      if (window.lucide) window.lucide.createIcons({ root: item });
-    }
-
-    msgContainer.appendChild(item);
-    msgContainer.scrollTop = msgContainer.scrollHeight;
-  });
-
-  partyManager.on('closed', () => {
-    if (partySidebar) partySidebar.style.display = 'none';
-  });
-}
-
-let seekDebounceTimer = null;
-let pendingSeekTarget = null;
-
-function seekRelative(seconds) {
-  if (!video) return;
-  const currentStreamSrc = video.src;
-  let startOffset = 0;
-  try {
-    const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-    startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-  } catch(e) {}
-  
-  const baseTime = (pendingSeekTarget !== null) ? pendingSeekTarget : (startOffset + (video.currentTime || 0));
-  const duration = (currentEpisodeData && currentEpisodeData.duration) ? currentEpisodeData.duration : (video.duration || 1);
-  const targetTime = Math.max(0, Math.min(duration, baseTime + seconds));
-  
-  pendingSeekTarget = targetTime;
-  
-  // Instant visual feedback on UI
-  const progressPercent = (targetTime / duration) * 100;
-  if (progressCurrent) progressCurrent.style.width = `${progressPercent}%`;
-  if (progressHandle) progressHandle.style.left = `${progressPercent}%`;
-  if (timeCurrent) timeCurrent.textContent = formatTime(targetTime);
-  
-  if (seekDebounceTimer) clearTimeout(seekDebounceTimer);
-  seekDebounceTimer = setTimeout(() => {
-    const finalTarget = pendingSeekTarget;
-    pendingSeekTarget = null;
-    loadVideoStream(finalTarget);
-  }, 160);
-}
-
-function toggleFullscreen() {
-  const el = container || document.getElementById('player-container') || document.documentElement;
-  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-    if (req) {
-      req.call(el).then(() => {
-        if (screen.orientation && screen.orientation.lock) {
-          screen.orientation.lock('landscape').catch(() => {});
-        }
-      }).catch(err => {
-        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
-      });
-    }
-  } else {
-    const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
-    if (exit) {
-      exit.call(document).then(() => {
-        if (screen.orientation && screen.orientation.unlock) {
-          screen.orientation.unlock();
-        }
-      }).catch(err => {
-        console.error(`Error attempting to exit full-screen mode: ${err.message}`);
-      });
-    }
-  }
-}
-
-function updateVolumeIcon(vol) {
-  let iconName = 'volume-2';
-  if (vol === 0 || (video && video.muted)) {
-    iconName = 'volume-x';
-  } else if (vol < 0.5) {
-    iconName = 'volume-1';
-  }
-  setLucideIcon('volume-icon', iconName);
-}
-
-function showTechnicalModal() {
-  const ep = currentEpisodeData;
-  const sizeGb = (ep.size / (1024 * 1024 * 1024)).toFixed(2);
-  
-  fileInfoBody.innerHTML = `
-    <div class="info-item">
-      <span class="info-label">Resolución</span>
-      <span class="info-val">${ep.resolution || 'N/A'}</span>
-    </div>
-    <div class="info-item">
-      <span class="info-label">Formato de Video</span>
-      <span class="info-val">${ep.video_codec || 'N/A'}</span>
-    </div>
-    <div class="info-item">
-      <span class="info-label">FPS (Tasa de frames)</span>
-      <span class="info-val">${ep.fps ? ep.fps.toFixed(3) : 'N/A'}</span>
-    </div>
-    <div class="info-item">
-      <span class="info-label">Tamaño del archivo</span>
-      <span class="info-val">${sizeGb} GB</span>
-    </div>
-    <div class="info-item">
-      <span class="info-label">Duración total</span>
-      <span class="info-val">${formatTime(ep.duration)}</span>
-    </div>
-  `;
-  fileInfoModal.style.display = 'block';
-}
-
-function triggerControlsActivity() {
-  if (!controlsOverlay) return;
-  controlsOverlay.classList.remove('hide');
-  isControlsVisible = true;
-  if (container) container.classList.remove('hide-cursor');
-  document.body.style.cursor = '';
-
-  clearTimeout(hideControlsTimeout);
-  
-  // Hide after 3 seconds of inactivity if playing
-  if (video && !video.paused) {
-    hideControlsTimeout = setTimeout(() => {
-      if (!isPlayerActive) return;
-      controlsOverlay.classList.add('hide');
-      isControlsVisible = false;
-      if (container) container.classList.add('hide-cursor');
-
-      // Close open dropdowns
-      document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
-      if (fileInfoModal) fileInfoModal.style.display = 'none';
-    }, 3000);
-  }
-}
-
-function triggerCountdownAutoplay() {
-  if (countdownAutoplayInterval) {
-    clearInterval(countdownAutoplayInterval);
-    countdownAutoplayInterval = null;
-  }
-
-  countdownOverlay.style.display = 'flex';
-  const countdownNumber = document.getElementById('countdown-number');
-  const cancelBtn = document.getElementById('countdown-cancel');
-  const playNowBtn = document.getElementById('countdown-play-now');
-  const nextTitleText = document.getElementById('countdown-next-title');
-
-  // Load next episode details
-  nextTitleText.textContent = `Cargando siguiente capítulo...`;
-  
-  // Retrieve title of the next episode
-  fetch(`/api/shows/${encodeURIComponent(getShowIdFromEpisodeId(currentEpisodeId))}`).then(res => res.json()).then(data => {
-    const epList = Array.isArray(data.episodes) ? data.episodes : ((data.show && data.show.episodes) || []);
-    const nextEp = epList.find(e => e.id === nextEpisodeId);
-    if (nextEp) {
-      nextTitleText.textContent = `Capítulo ${nextEp.episode_number}: ${nextEp.title}`;
-    }
-  }).catch(() => {});
-
-  let secondsLeft = 5;
-  countdownNumber.textContent = secondsLeft;
-  
-  countdownAutoplayInterval = setInterval(() => {
-    secondsLeft--;
-    countdownNumber.textContent = secondsLeft;
-    if (secondsLeft <= 0) {
-      if (countdownAutoplayInterval) {
-        clearInterval(countdownAutoplayInterval);
-        countdownAutoplayInterval = null;
-      }
-      countdownOverlay.style.display = 'none';
-      if (isPlayerActive && nextEpisodeId) {
-        location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
-      }
-    }
-  }, 1000);
-
-  playNowBtn.onclick = () => {
-    if (countdownAutoplayInterval) {
-      clearInterval(countdownAutoplayInterval);
-      countdownAutoplayInterval = null;
-    }
-    countdownOverlay.style.display = 'none';
-    location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
-  };
-
-  cancelBtn.onclick = () => {
-    if (countdownAutoplayInterval) {
-      clearInterval(countdownAutoplayInterval);
-      countdownAutoplayInterval = null;
-    }
-    countdownOverlay.style.display = 'none';
-  };
-}
-
-// Time Formatting Helpers
-function formatTime(seconds) {
-  if (isNaN(seconds)) return '0:00';
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-
-  if (hrs > 0) {
-    return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  }
-  return `${mins}:${String(secs).padStart(2, '0')}`;
-}
-
-// Ambilight / Ambient Glow Logic (Luz ambiental reactiva)
-function setupAmbilight() {
-  if (!ambilightCanvas && container) {
-    ambilightCanvas = document.getElementById('ambient-canvas') || document.getElementById('player-ambilight-canvas');
-    if (ambilightCanvas) {
-      ambilightCanvas.id = 'ambient-canvas';
-    }
-  }
-
-  if (ambilightCanvas) {
-    ambilightCanvas.width = 64;
-    ambilightCanvas.height = 36;
-    ambilightCtx = ambilightCanvas.getContext('2d', { willReadFrequently: true, alpha: false });
-  }
-
-  // Toggle button in player controls: "Luz ambiental" (on/off, opt-in, off by default)
-  const savedAmbient = localStorage.getItem('kura_ambilight');
-  ambilightActive = savedAmbient === 'true'; // Off by default (opt-in)
-
-  if (ambilightToggleBtn) {
-    ambilightToggleBtn.title = 'Luz ambiental';
-    if (ambilightActive) {
-      ambilightToggleBtn.classList.add('active');
-      if (ambilightCanvas) ambilightCanvas.classList.add('active');
-    } else {
-      ambilightToggleBtn.classList.remove('active');
-      if (ambilightCanvas) ambilightCanvas.classList.remove('active');
-    }
-    
-    ambilightToggleBtn.onclick = (e) => {
-      e.stopPropagation();
-      ambilightActive = !ambilightActive;
-      localStorage.setItem('kura_ambilight', ambilightActive);
-      ambilightToggleBtn.classList.toggle('active', ambilightActive);
-      if (ambilightCanvas) ambilightCanvas.classList.toggle('active', ambilightActive);
-      showVideoToast(ambilightActive ? 'Luz ambiental: Activada' : 'Luz ambiental: Desactivada');
-      
-      if (ambilightActive) {
-        startAmbilightLoop();
-      } else {
-        stopAmbilightLoop();
-        if (ambilightCtx) {
-          ambilightCtx.fillStyle = 'black';
-          ambilightCtx.fillRect(0, 0, 64, 36);
-        }
-      }
-    };
-  }
-
-  if (ambilightActive && video && !video.paused) {
-    startAmbilightLoop();
-  }
-}
-
-function startAmbilightLoop() {
-  stopAmbilightLoop();
-  if (!ambilightActive) return;
-  ambilightInterval = setInterval(() => {
-    if (!ambilightActive || !video || video.paused || video.ended || document.hidden) return;
-    
-    if (ambilightCtx && video.readyState >= 2) {
-      try {
-        ambilightCtx.drawImage(video, 0, 0, 64, 36);
-      } catch (e) { }
-    }
-  }, 250); // 4 FPS (every 250ms)
-}
-
-function stopAmbilightLoop() {
-  if (ambilightInterval) {
-    clearInterval(ambilightInterval);
-    ambilightInterval = null;
-  }
-}
-
-// Media Session API Integration
-function updateMediaSession() {
-  if (!('mediaSession' in navigator) || !currentEpisodeData) return;
-
-  const showTitle = currentShowData ? (currentShowData.title || 'KuraStream') : 'KuraStream';
-  const epNum = currentEpisodeData.episode_number ? `Episodio ${currentEpisodeData.episode_number}` : '';
-  const epTitle = currentEpisodeData.title 
-    ? `${epNum ? epNum + ': ' : ''}${currentEpisodeData.title}` 
-    : (epNum || 'Episodio');
-
-  const artworkList = [];
-  const rawThumb = currentEpisodeData.thumbnail_path || currentEpisodeData.thumbnail || (currentShowData && (currentShowData.poster_path || currentShowData.backdrop_path));
-  if (rawThumb) {
-    const fullThumb = (rawThumb.startsWith('http') || rawThumb.startsWith('/')) ? rawThumb : `/${rawThumb}`;
-    artworkList.push(
-      { src: fullThumb, sizes: '96x96', type: 'image/jpeg' },
-      { src: fullThumb, sizes: '128x128', type: 'image/jpeg' },
-      { src: fullThumb, sizes: '256x256', type: 'image/jpeg' },
-      { src: fullThumb, sizes: '512x512', type: 'image/jpeg' }
-    );
-  }
-
-  try {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: epTitle,
-      artist: `KuraStream • ${showTitle}`,
-      album: showTitle,
-      artwork: artworkList
-    });
-
-    navigator.mediaSession.setActionHandler('play', () => {
-      if (video) video.play().catch(() => {});
-    });
-    navigator.mediaSession.setActionHandler('pause', () => {
-      if (video) video.pause();
-    });
-    navigator.mediaSession.setActionHandler('seekbackward', () => {
-      seekRelative(-10);
-      showSeekIndicator('left');
-      showVideoToast(formatToast('rwd', '-10s'));
-    });
-    navigator.mediaSession.setActionHandler('seekforward', () => {
-      seekRelative(10);
-      showSeekIndicator('right');
-      showVideoToast(formatToast('fwd', '+10s'));
-    });
-    if (nextEpisodeId) {
-      navigator.mediaSession.setActionHandler('nexttrack', () => {
-        location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
-      });
-    } else {
-      try {
-        navigator.mediaSession.setActionHandler('nexttrack', null);
-      } catch (e) {}
-    }
-  } catch (err) {
-    console.warn('MediaSession initialization error:', err);
-  }
-}
-
-// Next Episode Countdown Overlay Card
-function renderNextEpisodeCard() {
-  if (!container) return null;
-  let card = document.getElementById('next-episode-card');
-  if (!card) {
-    card = document.createElement('div');
-    card.id = 'next-episode-card';
-    card.className = 'next-episode-card';
-    card.style.display = 'none';
-    container.appendChild(card);
-  }
-  return card;
-}
-
-function showNextEpisodeCard(secondsLeft) {
-  if (nextEpisodeDismissed || nextEpisodeNavigated || !nextEpisodeId) return;
-  const card = renderNextEpisodeCard();
-  if (!card) return;
-
-  const nextTitle = nextEpisodeData 
-    ? (nextEpisodeData.title ? `Capítulo ${nextEpisodeData.episode_number}: ${nextEpisodeData.title}` : `Capítulo ${nextEpisodeData.episode_number}`) 
-    : 'Siguiente episodio';
-  const rawThumb = nextEpisodeData ? (nextEpisodeData.thumbnail_path || nextEpisodeData.thumbnail || '') : '';
-  const nextThumb = rawThumb ? ((rawThumb.startsWith('http') || rawThumb.startsWith('/')) ? rawThumb : `/${rawThumb}`) : '';
-
-  card.innerHTML = `
-    <div class="next-ep-card-header">
-      <span class="next-ep-countdown-label">Próximo episodio en <span class="next-ep-sec">${secondsLeft}</span>s...</span>
-    </div>
-    <div class="next-ep-card-content">
-      ${nextThumb ? `<img src="${escapeHtml(nextThumb)}" class="next-ep-thumb" alt="Miniatura">` : ''}
-      <div class="next-ep-info">
-        <div class="next-ep-show">${escapeHtml(currentShowData?.title || 'KuraStream')}</div>
-        <div class="next-ep-title">${escapeHtml(nextTitle)}</div>
-      </div>
-    </div>
-    <div class="next-ep-card-actions">
-      <button class="btn btn-primary btn-next-now" id="next-ep-card-play"><i data-lucide="play"></i> Ver ahora</button>
-      <button class="btn btn-secondary btn-next-cancel" id="next-ep-card-cancel">Cancelar</button>
-    </div>
-  `;
-  card.style.display = 'flex';
-
-  const playBtn = card.querySelector('#next-ep-card-play');
-  const cancelBtn = card.querySelector('#next-ep-card-cancel');
-
-  if (playBtn) {
-    playBtn.onclick = (e) => {
-      e.stopPropagation();
-      nextEpisodeNavigated = true;
-      hideNextEpisodeCard();
-      location.hash = `#/player/${encodeURIComponent(nextEpisodeId)}`;
-    };
-  }
-
-  if (cancelBtn) {
-    cancelBtn.onclick = (e) => {
-      e.stopPropagation();
-      nextEpisodeDismissed = true;
-      hideNextEpisodeCard();
-    };
-  }
-
-  if (typeof lucide !== 'undefined' && lucide.createIcons) {
-    lucide.createIcons();
-  }
-}
-
-function hideNextEpisodeCard() {
-  const card = document.getElementById('next-episode-card');
-  if (card) {
-    card.style.display = 'none';
-  }
-}
-
-// Mobile Touch Gestures (Double-tap seek)
-function setupTouchGestures() {
-  if (!container) return;
-  if (handleTouchStart) {
-    container.removeEventListener('touchstart', handleTouchStart);
-  }
-
-  handleTouchStart = (e) => {
-    if (!isPlayerActive || e.touches.length > 1) return;
-    const touch = e.touches[0];
-    const now = Date.now();
-    const timeDiff = now - lastTapTime;
-    const rect = container.getBoundingClientRect();
-    const touchX = touch.clientX - rect.left;
-    const percentX = touchX / rect.width;
-
-    if (timeDiff < 300 && timeDiff > 40) {
-      const dist = Math.hypot(touch.clientX - lastTapX, touch.clientY - lastTapY);
-      if (dist < 80) {
-        if (percentX <= 0.35) {
-          e.preventDefault();
-          seekRelative(-10);
-          showSeekIndicator('left');
-          showTouchRipple(touchX, touch.clientY - rect.top, 'left');
-          showVideoToast(formatToast('rwd', '-10s'));
-          lastTapTime = 0;
-          return;
-        } else if (percentX >= 0.65) {
-          e.preventDefault();
-          seekRelative(10);
-          showSeekIndicator('right');
-          showTouchRipple(touchX, touch.clientY - rect.top, 'right');
-          showVideoToast(formatToast('fwd', '+10s'));
-          lastTapTime = 0;
-          return;
-        }
-      }
-    }
-
-    lastTapTime = now;
-    lastTapX = touch.clientX;
-    lastTapY = touch.clientY;
-  };
-
-  container.addEventListener('touchstart', handleTouchStart, { passive: false });
-
-  let isSwiping = false;
-  let initialVolume = video ? video.volume : 0;
-  let initialBrightness = 1;
-
-  container.addEventListener('touchmove', (e) => {
-    if (!isPlayerActive || e.touches.length > 1) return;
-    const touch = e.touches[0];
-    const rect = container.getBoundingClientRect();
-    const touchX = touch.clientX - rect.left;
-    const percentX = touchX / rect.width;
-    
-    const deltaY = lastTapY - touch.clientY;
-    
-    if (Math.abs(deltaY) > 20) {
-      isSwiping = true;
-      e.preventDefault();
-      
-      const adjustment = deltaY * 0.005;
-      if (percentX < 0.5) {
-        let newBrightness = Math.max(0.1, Math.min(2.0, initialBrightness + adjustment));
-        if (video) video.style.filter = `brightness(${newBrightness})`;
-        showVideoToast(`Brillo: ${Math.round(newBrightness * 100)}%`);
-      } else {
-        let newVolume = Math.max(0, Math.min(1, initialVolume + adjustment));
-        if (video) {
-          video.volume = newVolume;
-          updateVolumeIcon(newVolume);
-        }
-        showVideoToast(`Volumen: ${Math.round(newVolume * 100)}%`);
-      }
-    }
-  }, { passive: false });
-
-  container.addEventListener('touchend', (e) => {
-    if (isSwiping) {
-      isSwiping = false;
-      if (video) {
-        initialVolume = video.volume;
-        const filterVal = video.style.filter.match(/brightness\(([^)]+)\)/);
-        if (filterVal) initialBrightness = parseFloat(filterVal[1]);
-      }
-    }
-  });
-}
-
-function showTouchRipple(x, y, side) {
-  if (!container) return;
-  const ripple = document.createElement('div');
-  ripple.className = `seek-ripple ${side}`;
-  ripple.style.left = `${x}px`;
-  ripple.style.top = `${y}px`;
-  container.appendChild(ripple);
-  setTimeout(() => {
-    ripple.remove();
-  }, 600);
-}
-
-// QR Share helper
-function showQRModal() {
-  if (fileInfoModal) fileInfoModal.style.display = 'none';
-
-  const currentStreamSrc = video.src;
-  const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-  const startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-  const currentTime = Math.floor(startOffset + video.currentTime);
-  
-  const shareUrl = `${window.location.origin}/#/player/${encodeURIComponent(currentEpisodeId)}?t=${currentTime}`;
-  
-  if (qrUrlText) qrUrlText.textContent = shareUrl;
-  
-  if (qrImage) {
-    renderQRCodeToElement(qrImage, shareUrl, 180);
-  }
-  
-  if (qrShareModal) qrShareModal.style.display = 'block';
-}
-
-function showPlayerErrorOverlay(message) {
-  const errorOverlay = document.getElementById('player-error-overlay');
-  const errorText = document.getElementById('player-error-message');
-  const retryBtn = document.getElementById('player-error-retry-btn');
-  
-  if (errorOverlay && errorText && retryBtn) {
-    errorText.textContent = message || "No se pudo cargar el video. Por favor, comprueba tu conexión o el archivo de origen.";
-    errorOverlay.style.display = 'flex';
-    
-    retryBtn.onclick = () => {
-      errorOverlay.style.display = 'none';
-      
-      const currentStreamSrc = video ? video.src : '';
-      let savedTime = 0;
-      if (currentStreamSrc) {
-        try {
-          const parsedUrl = new URL(currentStreamSrc, window.location.origin);
-          const startOffset = parseFloat(parsedUrl.searchParams.get('start') || 0);
-          savedTime = startOffset + (video ? video.currentTime : 0);
-        } catch (e) {
-          console.warn("Failed to parse video.src URL during retry:", e);
-        }
-      }
-      
-      if (savedTime > 0) {
-        console.log(`Retrying playback from: ${savedTime} seconds`);
-        loadVideoStream(savedTime);
-      } else {
-        console.log("Retrying playback from start");
-        loadVideoStream(0);
-      }
-    };
-  }
-}
-
-// Visual feedback helpers
-let toastTimeout = null;
-function showVideoToast(message) {
-  const playerContainer = container || document.querySelector('.player-container');
-  if (!playerContainer) return;
-  
-  let toast = playerContainer.querySelector('.video-toast');
-  if (!toast) {
-    toast = document.createElement('div');
-    toast.className = 'video-toast';
-    playerContainer.appendChild(toast);
-  }
-  
-  toast.innerHTML = message;
-  toast.classList.add('show');
-  
-  if (toastTimeout) clearTimeout(toastTimeout);
-  toastTimeout = setTimeout(() => {
-    toast.classList.remove('show');
-  }, 1000);
-}
-
-function showSeekIndicator(direction) {
-  const playerContainer = container || document.querySelector('.player-container');
-  if (!playerContainer) return;
-  
-  let indicator = playerContainer.querySelector(`.seek-arc-indicator.${direction}`);
-  if (!indicator) {
-    indicator = document.createElement('div');
-    indicator.className = `seek-arc-indicator ${direction}`;
-    const isLeft = direction === 'left';
-    indicator.innerHTML = isLeft 
-      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/></svg>'
-      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg>';
-    playerContainer.appendChild(indicator);
-  }
-  
-  indicator.classList.remove('show');
-  void indicator.offsetWidth; // Force layout recalculation to re-trigger transition
-  indicator.classList.add('show');
-  
-  if (indicator.dataset.timeoutId) {
-    clearTimeout(parseInt(indicator.dataset.timeoutId, 10));
-  }
-  
-  const timeoutId = setTimeout(() => {
-    indicator.classList.remove('show');
-  }, 400);
-  indicator.dataset.timeoutId = timeoutId.toString();
-}
-
-// Chapter Markers & Dropdown Menu Helpers
-export function renderChapterTicks(episodeData) {
-  const bar = progressBar || (typeof document !== 'undefined' && typeof document.getElementById === 'function' ? document.getElementById('player-progress-bar') : null);
-  if (!bar || !episodeData) return;
-  
-  bar.querySelectorAll('.seekbar-chapter-tick').forEach(t => t.remove());
-  
-  const duration = episodeData.duration || (video ? video.duration : 0);
-  if (!duration || duration <= 0) return;
-  
-  let chaptersList = episodeData.chapters;
-  if (typeof chaptersList === 'string') {
-    try { chaptersList = JSON.parse(chaptersList); } catch(e) { chaptersList = []; }
-  }
-  
-  let ticks = [];
-  if (Array.isArray(chaptersList) && chaptersList.length > 0) {
-    chaptersList.forEach(ch => {
-      if (typeof ch.start === 'number' && ch.start >= 0 && ch.start < duration) {
-        ticks.push({ time: ch.start, title: ch.title || '' });
-      }
-    });
-  } else {
-    if (typeof episodeData.intro_start === 'number' && episodeData.intro_start >= 0) {
-      ticks.push({ time: episodeData.intro_start, title: 'Intro' });
-    }
-    if (typeof episodeData.intro_end === 'number' && episodeData.intro_end > 0) {
-      ticks.push({ time: episodeData.intro_end, title: 'Episodio' });
-    }
-    if (typeof episodeData.outro_start === 'number' && episodeData.outro_start > 0) {
-      ticks.push({ time: episodeData.outro_start, title: 'Outro' });
-    }
-  }
-  
-  ticks.forEach(t => {
-    const pct = (t.time / duration) * 100;
-    if (pct >= 0 && pct <= 100) {
-      const tickEl = document.createElement('div');
-      tickEl.className = 'seekbar-chapter-tick';
-      tickEl.style.left = `${pct}%`;
-      tickEl.setAttribute('data-time', t.time);
-      if (t.title) tickEl.title = `${formatChapterTime(t.time)} - ${t.title}`;
-      bar.appendChild(tickEl);
-    }
-  });
-}
-
-export function renderChaptersDropdown(episodeData) {
-  let chaptersContainer = document.getElementById('chapters-dropdown-container') || document.querySelector('.chapters-dropdown');
-  let chaptersMenuList = document.getElementById('chapters-menu-list') || document.querySelector('.chapters-dropdown-menu');
-  
-  if (!chaptersContainer) {
-    const controlsRight = document.querySelector('.player-controls-right');
-    if (controlsRight) {
-      chaptersContainer = document.createElement('div');
-      chaptersContainer.className = 'player-dropdown chapters-dropdown';
-      chaptersContainer.id = 'chapters-dropdown-container';
-      chaptersContainer.style.display = 'none';
-      chaptersContainer.innerHTML = `
-        <button class="player-btn dropdown-trigger chapters-btn" id="chapters-btn" title="Capítulos"><i data-lucide="bookmark"></i></button>
-        <div class="dropdown-menu chapters-dropdown-menu" id="chapters-menu-list"></div>
-      `;
-      controlsRight.insertBefore(chaptersContainer, controlsRight.firstChild);
-      chaptersMenuList = chaptersContainer.querySelector('#chapters-menu-list');
-      
-      const trigger = chaptersContainer.querySelector('.dropdown-trigger');
-      if (trigger) {
-        trigger.onclick = (e) => {
-          e.stopPropagation();
-          const isActive = chaptersContainer.classList.contains('active');
-          document.querySelectorAll('.player-dropdown').forEach(d => d.classList.remove('active'));
-          if (!isActive) chaptersContainer.classList.add('active');
-          triggerControlsActivity();
-        };
-      }
-    }
-  }
-  
-  if (!chaptersContainer || !chaptersMenuList || !episodeData) return;
-  
-  let chaptersList = episodeData.chapters;
-  if (typeof chaptersList === 'string') {
-    try { chaptersList = JSON.parse(chaptersList); } catch(e) { chaptersList = []; }
-  }
-  
-  let items = [];
-  if (Array.isArray(chaptersList) && chaptersList.length > 0) {
-    items = chaptersList;
-  } else {
-    const duration = episodeData.duration || (video ? video.duration : 0);
-    if (typeof episodeData.intro_start === 'number') {
-      const introEnd = typeof episodeData.intro_end === 'number' ? episodeData.intro_end : episodeData.intro_start + 90;
-      items.push({ title: 'Intro', start: episodeData.intro_start, end: introEnd });
-      items.push({ title: 'Episodio', start: introEnd, end: episodeData.outro_start || duration });
-    }
-    if (typeof episodeData.outro_start === 'number') {
-      items.push({ title: 'Outro', start: episodeData.outro_start, end: duration });
-    }
-  }
-  
-  if (items.length === 0) {
-    chaptersContainer.style.display = 'none';
-    chaptersMenuList.innerHTML = '';
-    return;
-  }
-  
-  chaptersContainer.style.display = '';
-  
-  chaptersMenuList.innerHTML = items.map(ch => {
-    const formatted = formatChapterTime(ch.start);
-    return `<button class="chapter-item" data-start="${ch.start}">${formatted} - ${ch.title}</button>`;
-  }).join('');
-  
-  chaptersMenuList.querySelectorAll('.chapter-item').forEach(btn => {
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      const start = parseFloat(btn.getAttribute('data-start'));
-      if (!isNaN(start)) {
-        loadVideoStream(start);
-        showVideoToast(`Saltar a: ${btn.textContent}`);
-      }
-      chaptersContainer.classList.remove('active');
-    };
-  });
-}
-
-export function formatChapterTime(seconds) {
-  if (isNaN(seconds) || seconds === null || seconds === undefined) return '00:00';
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  
-  if (hrs > 0) {
-    return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  }
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-}
-
-
-
-
-function showSpeedPill() {
-  let pill = document.getElementById('speed-accelerator-pill');
-  if (!pill) {
-    pill = document.createElement('div');
-    pill.id = 'speed-accelerator-pill';
-    pill.className = 'speed-accelerator-pill hide';
-    pill.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><polygon points="13 19 22 12 13 5 13 19"></polygon><polygon points="2 19 11 12 2 5 2 19"></polygon></svg> 2x Rápido';
-    const container = document.getElementById('player-container') || document.body;
-    container.appendChild(pill);
-  }
-  pill.classList.remove('hide');
-}
-
-function hideSpeedPill() {
-  const pill = document.getElementById('speed-accelerator-pill');
-  if (pill) pill.classList.add('hide');
-}
-
-function handleHoldStart(e) {
-  if (e.button === 2) return;
-  if (e.target.tagName !== 'VIDEO') return;
-  
-  speedHoldTimer = setTimeout(() => {
-    isSpeedHoldActive = true;
-    const v = document.getElementById('video-player') || document.querySelector('video');
-    if (v) {
-      previousSpeed = v.playbackRate;
-      v.playbackRate = 2.0;
-      showSpeedPill();
-    }
-  }, 500);
-}
-
-function handleHoldEnd(e) {
-  clearTimeout(speedHoldTimer);
-  if (isSpeedHoldActive) {
-    const v = document.getElementById('video-player') || document.querySelector('video');
-    if (v) v.playbackRate = previousSpeed;
-    hideSpeedPill();
-    setTimeout(() => { isSpeedHoldActive = false; }, 50);
-  }
-}
-
-function setupHoldSpeed(signal) {
-  const v = document.getElementById('video-player') || document.querySelector('video');
-  if (v) {
-    v.addEventListener('mousedown', handleHoldStart, signal ? { signal } : undefined);
-    v.addEventListener('touchstart', handleHoldStart, signal ? { passive: true, signal } : { passive: true });
-    window.addEventListener('mouseup', handleHoldEnd, signal ? { signal } : undefined);
-    window.addEventListener('touchend', handleHoldEnd, signal ? { signal } : undefined);
-  }
-}
-
-// Speed Popover Menu
-function initSpeedMenu(signal) {
-  const speedBtn = document.getElementById('player-speed-btn') || document.getElementById('speed-btn');
-  if (!speedBtn || speedBtn.dataset.menuBound) return;
-  speedBtn.dataset.menuBound = 'true';
-
-  let speedMenu = document.getElementById('player-speed-menu');
-  if (!speedMenu) {
-    speedMenu = document.createElement('div');
-    speedMenu.id = 'player-speed-menu';
-    speedMenu.className = 'player-speed-menu hide';
-    
-    const options = [
-      { val: 0.5, label: '0.5x' },
-      { val: 0.75, label: '0.75x' },
-      { val: 1.0, label: '1.0x (Normal)' },
-      { val: 1.25, label: '1.25x' },
-      { val: 1.5, label: '1.5x' },
-      { val: 2.0, label: '2.0x' }
-    ];
-
-    options.forEach(opt => {
-      const btn = document.createElement('button');
-      btn.className = 'speed-menu-opt';
-      btn.dataset.speed = opt.val;
-      btn.innerHTML = '<span class="check-icon"></span> <span class="label">' + opt.label + '</span>';
-      btn.onclick = (e) => {
-        e.stopPropagation();
-        const rate = opt.val;
-        const v = document.getElementById('video-player') || document.querySelector('video');
-        if (v) v.playbackRate = rate;
-        speedBtn.textContent = rate + 'x';
-        localStorage.setItem('kura_playback_speed', rate);
-        updateSpeedMenuState(rate);
-        speedMenu.classList.add('hide');
-        if (typeof showVideoToast !== 'undefined') showVideoToast('Velocidad: ' + rate + 'x');
-      };
-      speedMenu.appendChild(btn);
-    });
-
-    speedBtn.parentElement.style.position = 'relative';
-    speedBtn.parentElement.appendChild(speedMenu);
-  }
-
-  function updateSpeedMenuState(rate) {
-    document.querySelectorAll('.speed-menu-opt').forEach(btn => {
-      if (parseFloat(btn.dataset.speed) === rate) {
-        btn.classList.add('active');
-        btn.querySelector('.check-icon').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-      } else {
-        btn.classList.remove('active');
-        btn.querySelector('.check-icon').innerHTML = '';
-      }
-    });
-  }
-
-  const currentSpeed = parseFloat(speedBtn.textContent) || 1.0;
-  updateSpeedMenuState(currentSpeed);
-
-  speedBtn.onclick = (e) => {
-    e.stopPropagation();
-    speedMenu.classList.toggle('hide');
-    const currentSpeed = parseFloat(speedBtn.textContent) || 1.0;
-    updateSpeedMenuState(currentSpeed);
-  };
-
-  document.addEventListener('click', (e) => {
-    if (speedMenu && !speedMenu.classList.contains('hide') && !speedMenu.contains(e.target) && e.target !== speedBtn) {
-      speedMenu.classList.add('hide');
-    }
-  }, signal ? { signal } : undefined);
+  document.title = 'KuraStream - Entretenimiento Offline';
+  currentEpisodeId = null;
 }

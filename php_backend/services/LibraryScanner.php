@@ -390,10 +390,13 @@ class LibraryScanner {
                 error_log("[LibraryScanner] DB reconciliation error: " . $e->getMessage());
             }
 
+            $seasonSync = self::syncSeasonMetadata(90);
+
             return [
                 'success' => true, 
                 'scanned_count' => $scannedCount,
-                'shows_count' => $showsCount
+                'shows_count' => $showsCount,
+                'season_sync' => $seasonSync
             ];
         } finally {
             if ($lockFp) {
@@ -402,6 +405,32 @@ class LibraryScanner {
                 @unlink($lockFile);
             }
         }
+    }
+
+    /**
+     * Season art/metadata and AniSkip intros for shows that are new or out of date, within a time
+     * budget so a scan from the admin panel stays responsive (the nightly CLI sync does the rest).
+     * Only network lookups: nothing here decodes media.
+     */
+    public static function syncSeasonMetadata(int $budgetSeconds): array {
+        require_once __DIR__ . '/SeasonSync.php';
+        require_once __DIR__ . '/IntroSync.php';
+        $started = microtime(true);
+        $done = [];
+        try {
+            AnimeSources::resetOnline();
+            foreach (SeasonSync::staleShowIds() as $showId) {
+                if (microtime(true) - $started > $budgetSeconds || !AnimeSources::isOnline()) break;
+                SeasonSync::syncShow($showId);
+                IntroSync::syncShow($showId);
+                $done[] = $showId;
+            }
+            // The audio pass (AudioIntroSync) is not run here: decoding audio is too heavy for the
+            // home server. It runs on a desktop PC with scripts/audio_intros_from_pc.py.
+        } catch (Throwable $e) {
+            error_log('[LibraryScanner] Season sync error: ' . $e->getMessage());
+        }
+        return ['synced_shows' => $done, 'online' => AnimeSources::isOnline()];
     }
 
     /**

@@ -46,7 +46,7 @@ interface KuraApiService {
     ): List<ShowDto>
 
     @GET("api/shows/random")
-    suspend fun getRandomShow(): ShowDto
+    suspend fun getRandomShow(): RandomShowResponseDto
 
     @GET("api/shows/{id}")
     suspend fun getShowDetails(@Path("id") showId: String): ShowDetailResponseDto
@@ -65,6 +65,9 @@ interface KuraApiService {
     // Progress & History
     @GET("api/history")
     suspend fun getHistory(): List<HistoryItemDto>
+
+    @GET("api/history/continue")
+    suspend fun getContinueWatching(): List<ContinueWatchingItemDto>
 
     @DELETE("api/history")
     suspend fun deleteHistoryItem(@Query("episode_id") episodeId: String): BaseResponseDto

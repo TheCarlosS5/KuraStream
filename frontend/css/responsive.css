@@ -22,6 +22,28 @@
   }
 }
 
+/* Laptop widths: the full nav pushed the login/profile button past the right edge (it overflowed
+   from ~1440px down; 1520px leaves margin for wider fallback fonts). Nav icons go first, then the
+   account labels and part of the search box. Below 1200px the header wraps to two rows instead. */
+@media (min-width: 1201px) and (max-width: 1520px) {
+  .header-nav .nav-link > svg:first-child {
+    display: none;
+  }
+  .header-nav .nav-link {
+    padding: 6px 10px;
+  }
+}
+
+@media (min-width: 1201px) and (max-width: 1320px) {
+  .btn-login-label,
+  #user-profile-name {
+    display: none;
+  }
+  .header-search {
+    width: 150px;
+  }
+}
+
 /* Tablet Landscape (1024px) */
 @media (max-width: 1024px) {
   .app-header {
@@ -49,17 +71,44 @@
   }
 }
 
-/* Tablet Portrait (768px - 900px) */
-@media (max-width: 900px) {
+/* Two-row header (logo + actions, then a scrollable nav): below ~1200px the single-row nav no
+   longer fits next to search and the account button. Kept after the 1024px block so its padding wins. */
+@media (max-width: 1200px) {
   .app-header {
     flex-wrap: wrap;
     height: auto;
     min-height: var(--header-height);
     padding: 10px 16px;
+    background-color: var(--bg-color);
   }
 
   .header-search {
     display: none;
+  }
+
+  .nav-icon-btn.mobile-search-toggle {
+    display: inline-flex;
+  }
+
+  /* Search opens as a full-width bar under the header */
+  body.mobile-search-open .header-search {
+    display: block;
+    position: fixed;
+    top: calc(var(--header-offset, 112px) + 8px);
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+    z-index: 1100;
+  }
+
+  body.mobile-search-open .header-search input,
+  body.mobile-search-open .header-search input:focus {
+    width: 100%;
+    padding-top: 11px;
+    padding-bottom: 11px;
+    font-size: 16px; /* avoids iOS zoom on focus */
+    box-shadow: var(--shadow-lg);
   }
 
   .header-nav {
@@ -77,10 +126,21 @@
     display: none;
   }
 
-  .views-container {
-    margin-top: calc(var(--header-height) + 44px);
+  /* The nav scrolls horizontally here, which would clip the absolutely positioned Explore menu;
+     fixed positioning (the header is at the top, so both possible containing blocks agree) escapes it. */
+  .nav-dropdown-menu {
+    position: fixed;
+    top: calc(var(--header-offset, 112px) - 2px);
+    left: 12px;
   }
 
+  .views-container {
+    margin-top: var(--header-offset, calc(var(--header-height) + 44px));
+  }
+}
+
+/* Tablet Portrait (768px - 900px) */
+@media (max-width: 900px) {
   .admin-layout {
     flex-direction: column;
   }
@@ -142,6 +202,22 @@
     padding: 8px 12px;
   }
 
+  /* Keep logo + actions on one row: avatar only, tighter gaps */
+  .header-right {
+    gap: 6px;
+  }
+
+  .btn-login-label,
+  #user-profile-name,
+  .user-profile-trigger > svg,
+  .user-profile-trigger > i {
+    display: none;
+  }
+
+  .user-profile-trigger {
+    padding: 4px;
+  }
+
   .header-logo {
     gap: 6px;
   }
@@ -179,9 +255,49 @@
     font-size: 0.85rem;
   }
 
-  .show-card {
-    flex: 0 0 140px;
-    width: 140px;
+  /* Cards live in grids now; a fixed 140px width left an uneven right gutter and a
+     single narrow column in Mi Lista. */
+  .shows-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .catalog-container {
+    padding: 0 14px;
+  }
+
+  /* Filter chips: one swipeable row per group instead of half a screen of wrapped pills */
+  .catalog-toolbar {
+    padding: 12px;
+  }
+
+  .filter-chip-group,
+  .filter-sort-group,
+  .genre-pill-rail {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+
+  .filter-chip-group::-webkit-scrollbar,
+  .filter-sort-group::-webkit-scrollbar,
+  .genre-pill-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filter-chip,
+  .sort-chip,
+  .genre-pill {
+    flex-shrink: 0;
+  }
+
+  /* Narrow cards: smaller airing label (it sits bottom-left, away from the rating) */
+  .card-img-wrapper .badge-airing-neon {
+    bottom: 10px;
+    font-size: 0.6rem;
+    padding: 2px 5px;
   }
 
   .continue-watching,
@@ -206,5 +322,43 @@
     bottom: 16px;
     font-size: 0.82rem;
     padding: 10px 16px;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Lightweight mode (html.perf-lite): set before first paint on devices with
+   <=4 cores / <=4 GB, when the OS asks for reduced transparency, or from
+   Ajustes. Keeps the look, swaps frosted glass for solid surfaces and drops
+   decorative motion.
+   ------------------------------------------------------------------------ */
+html.perf-lite *,
+html.perf-lite *::before,
+html.perf-lite *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.perf-lite .app-header { background: var(--bg-color); }
+html.perf-lite .pin-modal-overlay { background: rgba(8, 10, 16, 0.95); }
+html.perf-lite .detail-audio-preferences { background: var(--surface-color); }
+html.perf-lite .center-action-btn { background: rgba(23, 33, 49, 0.95); }
+html.perf-lite .center-action-btn:hover { background: var(--accent-color); }
+html.perf-lite .tracks-modal-container { background: rgba(0, 0, 0, 0.9); }
+
+html.perf-lite .airing-pulse-dot,
+html.perf-lite .skeleton {
+  animation: none;
+}
+
+/* Offscreen cards skip style/layout/paint entirely */
+html.perf-lite .show-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .airing-pulse-dot,
+  .skeleton {
+    animation: none;
   }
 }

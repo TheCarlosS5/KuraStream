@@ -31,7 +31,17 @@ class PlaybackConnectionManager @Inject constructor(
         }
 
         val sessionToken = SessionToken(context, ComponentName(context, KuraPlaybackService::class.java))
-        val future = MediaController.Builder(context, sessionToken).buildAsync()
+        val future = MediaController.Builder(context, sessionToken)
+            .setListener(object : MediaController.Listener {
+                override fun onDisconnected(controller: MediaController) {
+                    // Service was killed/released: drop the dead controller so the next screen reconnects.
+                    if (_player.value === controller) {
+                        _player.value = null
+                        controllerFuture = null
+                    }
+                }
+            })
+            .buildAsync()
         controllerFuture = future
 
         future.addListener(
@@ -41,11 +51,35 @@ class PlaybackConnectionManager @Inject constructor(
                     _player.value = controller
                     onConnected(controller)
                 } catch (e: Exception) {
-                    // Fallback / log error
+                    android.util.Log.e("KuraPlayback", "No se pudo conectar con KuraPlaybackService", e)
+                    controllerFuture = null
                 }
             },
             ContextCompat.getMainExecutor(context)
         )
+    }
+
+    /**
+     * The service-hosted player outlives any single screen. When the player screen is replaced by the
+     * next episode, the outgoing ViewModel is cleared *after* the incoming one has started loading,
+     * so "stop on clear" must only happen if nobody else has taken the player over in the meantime.
+     */
+    @Volatile
+    private var owner: Any? = null
+
+    fun claim(newOwner: Any) {
+        owner = newOwner
+    }
+
+    /** Stops playback if [candidate] is still the current owner. Returns true when it did. */
+    fun stopIfOwner(candidate: Any): Boolean {
+        if (owner !== candidate) return false
+        owner = null
+        _player.value?.let {
+            it.stop()
+            it.clearMediaItems()
+        }
+        return true
     }
 
     fun release() {

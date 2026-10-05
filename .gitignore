@@ -51,3 +51,6 @@ playwright-report/
 *.apk
 kurastream_dump.sql
 
+
+# Python caches
+__pycache__/

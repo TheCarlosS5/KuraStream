@@ -1,5 +1,6 @@
 package com.kurastream.app.core.repository
 
+import com.kurastream.app.core.network.toUserFacingError
 import com.kurastream.app.core.database.CachedShowEntity
 import com.kurastream.app.core.database.ShowDao
 import com.kurastream.app.core.model.*
@@ -9,6 +10,7 @@ import com.kurastream.app.core.network.dto.ShowDto
 import com.kurastream.app.core.network.dto.ToggleFavoriteRequestDto
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.contentOrNull
 
 class CatalogRepository(
     private val apiService: KuraApiService,
@@ -28,7 +30,7 @@ class CatalogRepository(
             val filtered = if (isKidsMode) entities.filter { !it.isRestrictedKids } else entities
             Result.success(filtered.map { it.toModel() })
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -62,24 +64,39 @@ class CatalogRepository(
             val seasonsMap = response.seasons.mapKeys { it.key.toIntOrNull() ?: 1 }
                 .mapValues { entry -> entry.value.map { it.toModel() } }
 
+            val seasonInfo = response.seasonInfo.associate { dto ->
+                dto.seasonNumber to SeasonInfo(
+                    seasonNumber = dto.seasonNumber,
+                    name = dto.name.orEmpty(),
+                    title = dto.title.orEmpty(),
+                    synopsis = dto.synopsis.orEmpty(),
+                    year = dto.year,
+                    status = dto.status,
+                    posterPath = dto.posterPath.orEmpty(),
+                    backdropPath = dto.backdropPath.orEmpty()
+                )
+            }
+
             Result.success(
                 ShowDetail(
                     show = show,
                     episodes = episodes,
-                    seasons = seasonsMap
+                    seasons = seasonsMap,
+                    seasonInfo = seasonInfo
                 )
             )
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
     suspend fun getRandomShow(): Result<Show> {
         return try {
-            val dto = apiService.getRandomShow()
+            val dto = apiService.getRandomShow().show
+                ?: return Result.failure(IllegalStateException("El catálogo está vacío"))
             Result.success(dto.toModel())
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -88,7 +105,7 @@ class CatalogRepository(
             val list = apiService.getFavorites().map { it.toModel() }
             Result.success(list)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -97,7 +114,7 @@ class CatalogRepository(
             val res = apiService.toggleFavorite(ToggleFavoriteRequestDto(showId))
             Result.success(res.favorited)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -106,7 +123,7 @@ class CatalogRepository(
             val dto = apiService.getEpisodeDetails(episodeId)
             Result.success(dto.toModel())
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -115,7 +132,7 @@ class CatalogRepository(
             val res = apiService.checkFavorite(showId)
             Result.success(res.favorited)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -125,10 +142,11 @@ class CatalogRepository(
             val mapped = res.mapValues { entry ->
                 entry.value.map { item ->
                     CalendarItem(
-                        scheduleId = item.scheduleId?.toString() ?: "",
+                        scheduleId = (item.scheduleId as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull ?: "",
                         airingAt = item.airingAt ?: 0L,
                         timeUntil = item.timeUntil ?: 0L,
-                        episode = item.episode ?: 1,
+                        // 0 = unknown (offline schedule): the UI hides it instead of inventing one.
+                        episode = item.episode ?: 0,
                         title = item.title,
                         romajiTitle = item.romajiTitle ?: "",
                         englishTitle = item.englishTitle ?: "",
@@ -142,7 +160,7 @@ class CatalogRepository(
             }
             Result.success(mapped)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -151,7 +169,7 @@ class CatalogRepository(
             val res = apiService.getNotifications()
             Result.success(res)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -160,7 +178,7 @@ class CatalogRepository(
             apiService.markNotificationsSeen()
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -263,6 +281,7 @@ class CatalogRepository(
         introStart = introStart,
         introEnd = introEnd,
         outroStart = outroStart,
+        outroEnd = outroEnd,
         chapters = chapters?.map { Chapter(it.title, it.start, it.end) } ?: emptyList(),
         streamUrl = streamUrl ?: "",
         directPlayable = directPlayable ?: false,

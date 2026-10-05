@@ -1,5 +1,8 @@
 package com.kurastream.app.feature.profiles
 
+import com.kurastream.app.core.network.ServerUrlResolver
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -85,6 +88,11 @@ fun ProfileSelectScreen(
                             items(profiles, key = { it.id }) { profile ->
                                 ProfileCardItem(
                                     profile = profile,
+                                    avatarUrl = if (profile.avatar.isNotBlank()) {
+                                        ServerUrlResolver.buildMediaUrl(uiState.mediaBaseUrl, profile.avatar)
+                                    } else {
+                                        ""
+                                    },
                                     onClick = { viewModel.onProfileClicked(profile, onProfileSelected) }
                                 )
                             }
@@ -111,6 +119,7 @@ fun ProfileSelectScreen(
 @Composable
 private fun ProfileCardItem(
     profile: Profile,
+    avatarUrl: String,
     onClick: () -> Unit
 ) {
     val avatarColor = remember(profile.color) {
@@ -129,18 +138,35 @@ private fun ProfileCardItem(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
-            modifier = Modifier
-                .size(96.dp)
-                .background(avatarColor.copy(alpha = 0.2f), KuraShapes.Modal)
-                .border(2.dp, avatarColor, KuraShapes.Modal),
+            modifier = Modifier.size(96.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = profile.name.take(1).uppercase(),
-                style = MaterialTheme.typography.displayMedium,
-                fontWeight = FontWeight.Bold,
-                color = avatarColor
-            )
+            if (avatarUrl.isNotBlank()) {
+                // Photo or preset chosen on the web (same circle as the web profile picker)
+                KuraAsyncImage(
+                    model = avatarUrl,
+                    contentDescription = profile.name,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
+                        .border(2.dp, avatarColor, CircleShape)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(avatarColor.copy(alpha = 0.2f), CircleShape)
+                        .border(2.dp, avatarColor, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = profile.name.take(1).uppercase(),
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = avatarColor
+                    )
+                }
+            }
 
             if (profile.hasPin) {
                 Box(
@@ -167,7 +193,8 @@ private fun ProfileCardItem(
             style = MaterialTheme.typography.titleMedium,
             color = KuraColors.TextMain,
             textAlign = TextAlign.Center,
-            maxLines = 1
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
 
         if (profile.isKids) {

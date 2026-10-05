@@ -1,5 +1,19 @@
 package com.kurastream.app.feature.home
 
+import kotlinx.coroutines.delay
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,6 +40,7 @@ import com.kurastream.app.R
 import com.kurastream.app.core.designsystem.component.*
 import com.kurastream.app.core.designsystem.theme.*
 import com.kurastream.app.core.model.Show
+import com.kurastream.app.core.model.WatchHistoryItem
 import com.kurastream.app.core.model.UiState
 import com.kurastream.app.core.network.ServerUrlResolver
 
@@ -42,6 +57,20 @@ fun HomeScreen(
     val unreadCount by viewModel.unreadCount.collectAsState()
 
     var showNotificationsSheet by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Refresh continue watching when returning from player
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshContinueWatching()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -97,14 +126,17 @@ fun HomeScreen(
         },
         containerColor = KuraColors.Background
     ) { padding ->
-        Box(
+        // Pull down to re-fetch catalog/history (e.g. after adding new episodes on the server)
+        PullToRefreshBox(
+            isRefreshing = (uiState as? UiState.Content)?.data?.isRefreshing == true,
+            onRefresh = viewModel::refresh,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
             when (val state = uiState) {
                 is UiState.Loading -> {
-                    KuraLoadingView(message = "Cargando catálogo…")
+                    HomeSkeleton()
                 }
                 is UiState.Error -> {
                     KuraErrorView(
@@ -122,16 +154,22 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 80.dp)
                     ) {
-                        // Billboard Hero Section
-                        if (feed.heroShow != null) {
+                        // Billboard Hero Section (carousel when there are several candidates)
+                        val heroes = feed.heroShows.ifEmpty { listOfNotNull(feed.heroShow) }
+                        if (heroes.isNotEmpty()) {
                             item {
-                                BillboardHero(
-                                    show = feed.heroShow,
+                                HeroCarousel(
+                                    shows = heroes,
                                     baseUrl = feed.baseUrl,
-                                    onPlayClick = {
-                                        onNavigateToShowDetail(feed.heroShow.id)
+                                    resumeByShow = feed.continueWatching.associateBy { it.showId },
+                                    onPlayClick = { showId ->
+                                        viewModel.playShow(
+                                            showId = showId,
+                                            onEpisode = onNavigateToPlayer,
+                                            onFallback = { onNavigateToShowDetail(showId) }
+                                        )
                                     },
-                                    onInfoClick = { onNavigateToShowDetail(feed.heroShow.id) }
+                                    onShowClick = onNavigateToShowDetail
                                 )
                             }
                         }
@@ -145,12 +183,41 @@ fun HomeScreen(
                                     contentPadding = PaddingValues(horizontal = KuraDimens.Space4)
                                 ) {
                                     items(feed.continueWatching, key = { it.episodeId }) { item ->
-                                        val thumbUrl = ServerUrlResolver.buildMediaUrl(feed.baseUrl, item.thumbnailPath)
-                                        ContinueWatchingCard(
-                                            item = item,
-                                            thumbnailUrl = thumbUrl,
-                                            onClick = { onNavigateToPlayer(item.episodeId) }
-                                        )
+                                        // Episodes without a generated thumbnail fall back to the show artwork
+                                        val artwork = item.thumbnailPath.ifBlank { item.backdropPath.ifBlank { item.posterPath } }
+                                        val thumbUrl = ServerUrlResolver.buildMediaUrl(feed.baseUrl, artwork)
+                                        var menuOpen by remember { mutableStateOf(false) }
+                                        Box {
+                                            ContinueWatchingCard(
+                                                item = item,
+                                                thumbnailUrl = thumbUrl,
+                                                onClick = { onNavigateToPlayer(item.episodeId) },
+                                                onLongClick = { menuOpen = true }
+                                            )
+                                            DropdownMenu(
+                                                expanded = menuOpen,
+                                                onDismissRequest = { menuOpen = false },
+                                                containerColor = KuraColors.SurfaceRaised
+                                            ) {
+                                                DropdownMenuItem(
+                                                    text = { Text("Ver detalles de la serie") },
+                                                    leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
+                                                    onClick = {
+                                                        menuOpen = false
+                                                        onNavigateToShowDetail(item.showId)
+                                                    },
+                                                    enabled = item.showId.isNotBlank()
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Quitar de Continuar viendo") },
+                                                    leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, contentDescription = null) },
+                                                    onClick = {
+                                                        menuOpen = false
+                                                        viewModel.removeFromContinueWatching(item.episodeId)
+                                                    }
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -327,9 +394,115 @@ fun HomeScreen(
 }
 
 @Composable
+private fun HeroCarousel(
+    shows: List<Show>,
+    baseUrl: String,
+    resumeByShow: Map<String, WatchHistoryItem>,
+    onPlayClick: (String) -> Unit,
+    onShowClick: (String) -> Unit
+) {
+    val pagerState = rememberPagerState(pageCount = { shows.size })
+    if (shows.size > 1) {
+        // Advance every 7s; keyed on the settled page so a manual swipe restarts the timer
+        LaunchedEffect(pagerState.settledPage, shows.size) {
+            while (true) {
+                delay(7_000)
+                if (!pagerState.isScrollInProgress) {
+                    pagerState.animateScrollToPage((pagerState.settledPage + 1) % shows.size)
+                }
+            }
+        }
+    }
+    Column {
+        HorizontalPager(state = pagerState, key = { shows[it].id }) { page ->
+            val show = shows[page]
+            BillboardHero(
+                show = show,
+                baseUrl = baseUrl,
+                resume = resumeByShow[show.id],
+                onPlayClick = { onPlayClick(show.id) },
+                onInfoClick = { onShowClick(show.id) }
+            )
+        }
+        if (shows.size > 1) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = KuraDimens.Space2),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                repeat(shows.size) { index ->
+                    val selected = pagerState.currentPage == index
+                    val width by animateDpAsState(if (selected) 18.dp else 6.dp, label = "heroDot")
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 3.dp)
+                            .height(6.dp)
+                            .width(width)
+                            .clip(CircleShape)
+                            .background(if (selected) KuraColors.Primary else KuraColors.Border)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Layout-shaped placeholder while the catalog loads (cheaper and calmer than a spinner). */
+@Composable
+private fun HomeSkeleton() {
+    val pulse = rememberInfiniteTransition(label = "skeleton")
+    val alpha by pulse.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "skeletonAlpha"
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { this.alpha = alpha }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(380.dp)
+                .background(KuraColors.SurfaceRaised)
+        )
+        repeat(2) {
+            Spacer(modifier = Modifier.height(KuraDimens.Space5))
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = KuraDimens.Space4)
+                    .width(160.dp)
+                    .height(20.dp)
+                    .clip(KuraShapes.Small)
+                    .background(KuraColors.SurfaceRaised)
+            )
+            Spacer(modifier = Modifier.height(KuraDimens.Space3))
+            Row(
+                modifier = Modifier.padding(horizontal = KuraDimens.Space4),
+                horizontalArrangement = Arrangement.spacedBy(KuraDimens.Space3)
+            ) {
+                repeat(4) {
+                    Box(
+                        modifier = Modifier
+                            .width(KuraDimens.PosterWidth)
+                            .height(KuraDimens.PosterHeight)
+                            .clip(KuraShapes.Card)
+                            .background(KuraColors.SurfaceRaised)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun BillboardHero(
     show: Show,
     baseUrl: String,
+    resume: WatchHistoryItem?,
     onPlayClick: () -> Unit,
     onInfoClick: () -> Unit
 ) {
@@ -344,10 +517,9 @@ private fun BillboardHero(
             .height(380.dp)
             .background(KuraColors.SurfaceRaised)
     ) {
-        AsyncImage(
+        KuraAsyncImage(
             model = backdropUrl,
             contentDescription = show.title,
-            contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -418,7 +590,11 @@ private fun BillboardHero(
             ) {
                 KuraButton(
                     onClick = onPlayClick,
-                    text = stringResource(R.string.play),
+                    text = if (resume != null) {
+                        "Continuar T${resume.seasonNumber}:E${resume.episodeNumber}"
+                    } else {
+                        stringResource(R.string.play)
+                    },
                     leadingIcon = {
                         Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
                     }

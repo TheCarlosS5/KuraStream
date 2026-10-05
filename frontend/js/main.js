@@ -6,10 +6,12 @@
 import { AuthManager } from './core/auth.js';
 import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
-import { initPlayer, destroyPlayer } from '../player.js?v=2026.09.26-modern-streaming-rc2';
+import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.04-credits';
 import { partyManager } from './modules/party.js';
 import { updateActiveNavHighlight, initHeaderDropdowns, initAdminSidebar, stopAdminPolling } from './modules/navigation.js';
 import { initCardPopovers } from './modules/card_popover_preview.js';
+import { renderAppDownloadView } from './modules/app_download.js';
+import { mountHeroCarousel, pickHeroShows } from './modules/hero_carousel.js';
 
 // Cache for calendar day items
 export let calendarDataCache = {};
@@ -41,6 +43,17 @@ export function escapeHtmlAttribute(value) {
     .replace(/'/g, '&#039;');
 }
 
+// Broken artwork (404, deleted file) falls back to a placeholder instead of showing alt text
+// over the card badges. Capture phase because 'error' does not bubble.
+document.addEventListener('error', (event) => {
+  const img = event.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  const fallback = img.dataset.fallbackSrc;
+  if (fallback && !img.src.endsWith(fallback)) {
+    img.src = fallback;
+  }
+}, true);
+
 export function catalogueImageUrl(value) {
   const url = String(value ?? '').trim();
   if (!url) return '';
@@ -60,6 +73,8 @@ export function getUserAndProfile() {
     activeUser: user ? user.username : 'Guest',
     profileName: profile ? profile.name : 'Principal',
     isGuest: !user,
+    // History, favorites, stats, notifications and preferences are per profile: the API answers 403 without one.
+    hasProfile: Boolean(token && profile),
     token: token || ''
   };
 }
@@ -109,10 +124,23 @@ export function renderAuthState() {
     if (userProfileMenu) userProfileMenu.style.display = 'flex';
 
     if (isAdmin) {
-      if (userProfileName) userProfileName.textContent = user.username || 'admin';
-      if (userAvatarInitial) userAvatarInitial.textContent = (user.username || 'A')[0].toUpperCase();
+      // Admins browse without a profile (preview mode) but can pick one to keep history and a list;
+      // the header then shows who is watching, like for everyone else.
+      const shownName = (activeProfile && activeProfile.name) || user.username || 'admin';
+      if (userProfileName) userProfileName.textContent = shownName;
+      if (userAvatarInitial) {
+        if (activeProfile && activeProfile.avatar) {
+          userAvatarInitial.textContent = '';
+          userAvatarInitial.style.backgroundImage = `url('${activeProfile.avatar}')`;
+          userAvatarInitial.style.backgroundSize = 'cover';
+          userAvatarInitial.style.backgroundPosition = 'center';
+        } else {
+          userAvatarInitial.style.backgroundImage = 'none';
+          userAvatarInitial.textContent = (shownName[0] || 'A').toUpperCase();
+        }
+      }
       if (btnAdminDirect) btnAdminDirect.style.display = 'flex';
-      if (btnSwitchProfile) btnSwitchProfile.style.display = 'none';
+      if (btnSwitchProfile) btnSwitchProfile.style.display = 'flex';
       if (profilesList) profilesList.style.display = 'none';
     } else {
       if (btnAdminDirect) btnAdminDirect.style.display = 'none';
@@ -272,6 +300,12 @@ export function setupAuthModalListeners() {
     cancelBtn.addEventListener('click', () => closeAuthModal());
   }
 
+  // The link navigates to #/app; the modal would otherwise stay on top of the download view.
+  const appLink = document.getElementById('login-app-link');
+  if (appLink) {
+    appLink.addEventListener('click', () => closeAuthModal());
+  }
+
   if (modal) {
     modal.addEventListener('click', (e) => {
       if (e.target === modal) closeAuthModal();
@@ -391,35 +425,48 @@ export function setupCatalogueActions() {
   });
 }
 
-export function renderBillboardHero(featuredShow) {
+export function renderBillboardHero(featuredShow, index = 0, resume = null) {
   if (!featuredShow) return '';
   const rawBg = featuredShow.backdrop_path || featuredShow.poster_path || '';
   const bgUrl = catalogueImageUrl(rawBg) || '/assets/illustrations/backdrop_placeholder.svg';
   const rating = (featuredShow.rating && Number(featuredShow.rating) > 0) ? Number(featuredShow.rating).toFixed(1) : 'N/A';
   const year = featuredShow.year ? String(featuredShow.year) : 'N/A';
-  const genres = featuredShow.genres
-    ? String(featuredShow.genres).split(',').slice(0, 3).map(g => `<span class="billboard-genre-tag">${escapeHtml(g.trim())}</span>`).join('')
-    : '<span class="billboard-genre-tag">Anime</span>';
+  // Every title here is animated, so TMDB's "Animación" only takes room from the real genres.
+  const genreNames = showGenreList(featuredShow).map(genreLabel);
+  const specific = genreNames.filter(g => !/^(animación|animation)$/i.test(g));
+  const genres = (specific.length ? specific : ['Anime']).slice(0, 3)
+    .map(g => `<span class="billboard-genre-tag">${escapeHtml(g)}</span>`).join('');
   const synopsis = featuredShow.synopsis || 'Sin sinopsis disponible.';
+  const showRoute = '#/show/' + encodeURIComponent(featuredShow.id);
+  // Only the first slide loads its artwork right away; the carousel fills in the others.
+  const imgSrc = index === 0
+    ? `src="${escapeHtmlAttribute(bgUrl)}" fetchpriority="high"`
+    : `src="/assets/illustrations/backdrop_placeholder.svg" data-src="${escapeHtmlAttribute(bgUrl)}"`;
+  const statusBadge = featuredShow.status === 'airing'
+    ? '<span class="badge-airing-neon"><span class="airing-pulse-dot"></span> EN EMISIÓN</span>'
+    : '';
+  const playLabel = resume ? `Continuar ${escapeHtml(resume.label)}` : 'Reproducir';
 
   return `
-    <div class="billboard-hero">
-      <img class="billboard-hero-background" src="${escapeHtmlAttribute(bgUrl)}" alt="">
+    <div class="billboard-hero${index === 0 ? ' is-active' : ''}" data-index="${index}" role="group" aria-roledescription="diapositiva">
+      <img class="billboard-hero-background" ${imgSrc} alt="" data-fallback-src="/assets/illustrations/backdrop_placeholder.svg">
       <div class="billboard-hero-vignette"></div>
       <div class="billboard-hero-content">
         <div class="billboard-hero-badges">
-          <span class="badge-hd">HD</span>
-          <span class="badge-rating"><i data-lucide="star"></i>${rating}</span>
-          <span class="badge-year">${escapeHtml(year)}</span>
+          ${statusBadge}
+          <span class="billboard-hero-meta">
+            <span class="badge-rating"><i data-lucide="star"></i>${rating}</span>
+            <span class="badge-year">${escapeHtml(year)}</span>
+          </span>
           <div class="billboard-genres">${genres}</div>
         </div>
         <h1 class="billboard-hero-title">${escapeHtml(featuredShow.title)}</h1>
         <p class="billboard-hero-synopsis">${escapeHtml(synopsis)}</p>
         <div class="billboard-hero-actions">
-          <button class="btn-billboard-play" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(featuredShow.id))}">
-            <i data-lucide="play"></i> Reproducir
+          <button type="button" class="btn-billboard-play" data-hero-play="${escapeHtmlAttribute(featuredShow.id)}"${resume ? ` data-episode-id="${escapeHtmlAttribute(resume.episodeId)}"` : ''}>
+            <i data-lucide="play"></i> ${playLabel}
           </button>
-          <button class="btn-billboard-info" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(featuredShow.id))}">
+          <button type="button" class="btn-billboard-info" data-catalogue-route="${escapeHtmlAttribute(showRoute)}">
             <i data-lucide="info"></i> Más información
           </button>
         </div>
@@ -428,42 +475,87 @@ export function renderBillboardHero(featuredShow) {
   `;
 }
 
-export function renderContinueWatching(historyItems) {
-  if (!Array.isArray(historyItems) || historyItems.length === 0) return '';
-
-  const inProgress = historyItems.filter(item => {
-    const isCompleted = item.completed === 1 || item.completed === true || item.completed === '1';
-    const hasProgress = (item.progress_seconds || 0) > 0;
-    const dur = (item.duration > 0) ? item.duration : (item.ep_duration || 0);
-    const notFinished = dur > 0 ? (item.progress_seconds < dur * 0.95) : true;
-    return hasProgress && !isCompleted && notFinished;
-  });
-
-  if (inProgress.length === 0) return '';
-
-  // Group by anime: keep at most one card per anime (the latest episode reached)
-  const seenShows = new Set();
-  const groupedInProgress = [];
-  for (const item of inProgress) {
-    const key = String(item.show_id || item.show_title || item.episode_id);
-    if (!seenShows.has(key)) {
-      seenShows.add(key);
-      groupedInProgress.push(item);
-    }
+/**
+ * Plays a show: the profile's last unfinished episode of it when known, otherwise its first
+ * episode (specials last). Falls back to the detail page if the episodes cannot be loaded.
+ */
+export async function playShow(showId, resumeEpisodeId = '') {
+  const resumeId = resumeEpisodeId || (catalogHistoryMap.get(String(showId)) || {}).episode_id;
+  if (resumeId) {
+    window.location.hash = `#/player/${encodeURIComponent(resumeId)}`;
+    return;
   }
+  try {
+    const res = await fetch(`/api/shows/${encodeURIComponent(showId)}`);
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
+    const episodes = orderEpisodes(Array.isArray(data.episodes) ? data.episodes : []);
+    window.location.hash = episodes.length
+      ? `#/player/${encodeURIComponent(episodes[0].id)}`
+      : `#/show/${encodeURIComponent(showId)}`;
+  } catch {
+    window.location.hash = `#/show/${encodeURIComponent(showId)}`;
+  }
+}
 
-  if (groupedInProgress.length === 0) return '';
+/** Adds or removes a show from "Mi Lista"; resolves with the new state, or null on failure. */
+export async function toggleFavoriteShow(showId) {
+  const { token, hasProfile } = getUserAndProfile();
+  if (!hasProfile) {
+    showToast(AuthManager.isAuthenticated() ? 'Elige un perfil para usar Mi Lista' : 'Inicia sesión para usar Mi Lista', 'warning');
+    if (!AuthManager.isAuthenticated()) openAuthModal('login');
+    return null;
+  }
+  try {
+    const res = await fetch('/api/favorites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ show_id: showId })
+    });
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
+    const favorited = Boolean(data && data.favorited);
+    showToast(favorited ? 'Agregado a tu lista' : 'Eliminado de tu lista', 'info');
+    return favorited;
+  } catch {
+    showToast('No se pudo actualizar tu lista', 'error');
+    return null;
+  }
+}
 
-  const cardsHTML = groupedInProgress.map(item => {
-    const dur = (item.duration > 0) ? item.duration : (item.ep_duration || 1);
-    const progressPercent = Math.min(100, Math.max(0, ((item.progress_seconds || 0) / dur) * 100));
-    const img = item.thumbnail_path || item.poster_path || '';
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-hero-play]');
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  try {
+    await playShow(button.dataset.heroPlay, button.dataset.episodeId || '');
+  } finally {
+    button.disabled = false;
+  }
+});
+
+/**
+ * "Continuar viendo" rail. Items come from /api/history/continue: one per show, either the episode
+ * in progress or the next one after a finished episode (up_next). Shows watched to the end are absent.
+ */
+export function renderContinueWatching(continueItems) {
+  if (!Array.isArray(continueItems) || continueItems.length === 0) return '';
+
+  const cardsHTML = continueItems.map(item => {
+    const dur = item.duration > 0 ? item.duration : 0;
+    const progress = item.progress_seconds || 0;
+    const progressPercent = dur > 0 ? Math.min(100, Math.max(0, (progress / dur) * 100)) : 0;
+    const img = item.thumbnail_path || item.backdrop_path || item.poster_path || '';
     const imgUrl = catalogueImageUrl(img) || '/assets/illustrations/backdrop_placeholder.svg';
-    const epLabel = item.season_number ? `T${item.season_number}:E${item.episode_number}` : (item.episode_number ? `E${item.episode_number}` : 'Película');
-    const remainingSec = Math.max(0, dur - (item.progress_seconds || 0));
-    const remainingMin = Math.ceil(remainingSec / 60);
-    const remainingText = remainingMin > 0 ? `${remainingMin} min restantes` : `${Math.round(progressPercent)}% visto`;
-    const subtext = `${epLabel} • ${remainingText}`;
+    const epLabel = Number(item.season_number) > 0
+      ? `T${item.season_number}:E${item.episode_number}`
+      : (item.media_type === 'movie' ? 'Película' : `Especial ${item.episode_number}`);
+    const remainingMin = Math.ceil(Math.max(0, dur - progress) / 60);
+    let detail;
+    if (item.up_next && progress < 1) detail = 'Siguiente episodio';
+    else if (remainingMin > 0) detail = `${remainingMin} min restantes`;
+    else detail = `${Math.round(progressPercent)}% visto`;
+    const subtext = `${epLabel} • ${detail}`;
 
     return `
       <div class="continue-watching-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" title="${escapeHtmlAttribute(`${item.show_title || ''} - ${item.episode_title || epLabel}`)}">
@@ -472,6 +564,7 @@ export function renderContinueWatching(historyItems) {
           <div class="continue-watching-play-btn" aria-label="Reproducir">
             <i data-lucide="play"></i>
           </div>
+          ${item.up_next && progress < 1 ? '<span class="continue-watching-next-badge">Nuevo</span>' : ''}
           <div class="continue-watching-progress-bar">
             <div class="continue-watching-progress-fill" style="width: ${progressPercent}%;"></div>
           </div>
@@ -479,7 +572,7 @@ export function renderContinueWatching(historyItems) {
         <div class="continue-watching-info">
           <h4 class="continue-watching-title">${escapeHtml(item.show_title || '')}</h4>
           <span class="continue-watching-subtext">${escapeHtml(subtext)}</span>
-          <div class="continue-watching-action">Continuar <i data-lucide="chevron-right"></i></div>
+          <div class="continue-watching-action">${item.up_next && progress < 1 ? 'Ver ahora' : 'Continuar'} <i data-lucide="chevron-right"></i></div>
         </div>
       </div>
     `;
@@ -502,7 +595,7 @@ export function createShowCardHTML(show, historyMap = new Map()) {
 
   const historyItem = historyMap && historyMap.get ? historyMap.get(String(show.id)) : null;
   let progressHTML = '';
-  if (historyItem && historyItem.duration) {
+  if (historyItem && historyItem.duration > 0 && historyItem.progress_seconds > 0) {
     const progressPercent = Math.min(100, Math.max(0, ((historyItem.progress_seconds || 0) / historyItem.duration) * 100));
     progressHTML = `
       <div class="card-progress-bar-container">
@@ -525,7 +618,7 @@ export function createShowCardHTML(show, historyMap = new Map()) {
   return `
     <div class="show-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}">
       <div class="card-img-wrapper">
-        <img src="${escapeHtmlAttribute(posterSrc)}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy" onload="this.style.opacity=1">
+        <img class="show-card-poster" src="${escapeHtmlAttribute(posterSrc)}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy" decoding="async" data-fallback-src="/assets/illustrations/poster_placeholder.svg">
         <div class="card-rating-badge">
           <i data-lucide="star"></i>${rating}
         </div>
@@ -535,9 +628,7 @@ export function createShowCardHTML(show, historyMap = new Map()) {
       <div class="card-info">
         <h3 class="card-title">${escapeHtml(show.title)}</h3>
         <div class="card-meta">
-          <span>${show.media_type === 'movie' ? 'PELÍCULA' : 'ANIME'}</span>
-          <span>•</span>
-          <span>${escapeHtml(show.year || '')}</span>
+          <span>${show.media_type === 'movie' ? 'Película' : 'Anime'}${show.year ? ` · ${escapeHtml(show.year)}` : ''}</span>
         </div>
       </div>
     </div>
@@ -932,6 +1023,9 @@ export async function loadShowDetails(id) {
     const show = data.show || data;
     const episodes = Array.isArray(data.episodes) ? data.episodes : (show.episodes || []);
     currentShowEpisodes = episodes;
+    // Per-season poster/banner/synopsis (the show's own art is its latest season's).
+    const seasonInfoList = Array.isArray(data.season_info) ? data.season_info : (Array.isArray(show.season_info) ? show.season_info : []);
+    const seasonInfo = new Map(seasonInfoList.map(info => [String(info.season_number), info]));
 
     if (detailTitle) detailTitle.textContent = show.title || 'Detalle del Anime';
     if (detailSynopsis) detailSynopsis.textContent = show.synopsis || 'Sin sinopsis disponible.';
@@ -982,6 +1076,8 @@ export async function loadShowDetails(id) {
         ambientVideo.src = loopSrc;
         ambientVideo.play().catch(() => {});
         ambientBg.style.backgroundImage = 'none';
+        // The loop is the show's art: season changes must not paint a banner under it.
+        if (ambientBg.dataset) delete ambientBg.dataset.seasonArt;
       } else {
         if (ambientVideo) {
           ambientVideo.pause();
@@ -990,6 +1086,7 @@ export async function loadShowDetails(id) {
         }
         const backdropUrl = catalogueImageUrl(show.backdrop_path || show.poster_path || '') || '/assets/illustrations/backdrop_placeholder.svg';
         ambientBg.style.backgroundImage = `url("${backdropUrl}")`;
+        if (ambientBg.dataset) ambientBg.dataset.seasonArt = '1';
       }
     }
 
@@ -1028,10 +1125,15 @@ export async function loadShowDetails(id) {
 
     if (detailRating) detailRating.textContent = show.rating ? Number(show.rating).toFixed(1) : 'N/A';
     if (detailYear) detailYear.textContent = show.year || 'N/A';
-    if (detailAge) detailAge.textContent = show.age_rating || 'TV-14';
+    const statusLabel = show.status === 'airing' ? 'En Emisión' : (show.status === 'upcoming' ? 'Próximamente' : 'Finalizado');
+    if (detailAge) {
+      detailAge.textContent = show.age_rating || '';
+      const ageItem = detailAge.closest?.('.stat-item');
+      if (ageItem) ageItem.style.display = show.age_rating ? '' : 'none';
+    }
     if (detailStatusBadge) {
       const isAiring = show.status === 'airing';
-      detailStatusBadge.textContent = isAiring ? 'En Emisión' : 'Finalizado';
+      detailStatusBadge.textContent = statusLabel;
       detailStatusBadge.className = `badge ${isAiring ? 'badge-status-airing' : 'badge-subtle'}`;
     }
 
@@ -1044,10 +1146,14 @@ export async function loadShowDetails(id) {
       detailTitle.insertAdjacentElement('afterend', metaBadgesEl);
     }
     if (metaBadgesEl) {
+      const genreTags = String(show.genres || '').split(',').map(g => g.trim()).filter(Boolean)
+        .map(g => `<span class="detail-genre-tag">${escapeHtml(genreLabel(g))}</span>`).join('');
       metaBadgesEl.innerHTML = `
-        <span class="detail-badge-pill"><i data-lucide="star" class="icon-star-badge"></i> ${show.rating ? Number(show.rating).toFixed(1) : 'N/A'}</span>
-        <span class="detail-badge-pill">${escapeHtml(show.year || 'N/A')}</span>
-        <span class="badge badge-subtle">${show.status === 'airing' ? 'En Emisión' : 'Finalizado'}</span>
+        ${show.rating ? `<span class="detail-badge-pill"><i data-lucide="star" class="icon-star-badge"></i> ${Number(show.rating).toFixed(1)}</span>` : ''}
+        ${show.year ? `<span class="detail-badge-pill" data-meta="year">${escapeHtml(show.year)}</span>` : ''}
+        ${show.age_rating ? `<span class="detail-badge-pill">${escapeHtml(show.age_rating)}</span>` : ''}
+        <span class="badge ${show.status === 'airing' ? 'badge-status-airing' : 'badge-subtle'}" data-meta="status">${statusLabel}</span>
+        ${genreTags}
       `;
     }
 
@@ -1086,7 +1192,8 @@ export async function loadShowDetails(id) {
 
     // Fetch user progress for this show's episodes
     const showProgressMap = {};
-    if (token) {
+    let lastWatchedEpisodeId = '';
+    if (userSession.hasProfile) {
       try {
         const histRes = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -1094,6 +1201,10 @@ export async function loadShowDetails(id) {
         if (histRes.ok) {
           const histItems = await histRes.json();
           if (Array.isArray(histItems)) {
+            // History is newest first: the latest episode of this show decides the opening season.
+            const showEpisodeIds = new Set(episodes.map(ep => String(ep.id)));
+            const latest = histItems.find(item => showEpisodeIds.has(String(item.episode_id)));
+            if (latest) lastWatchedEpisodeId = String(latest.episode_id);
             histItems.forEach(item => {
               if (item.episode_id) {
                 showProgressMap[item.episode_id] = {
@@ -1130,22 +1241,122 @@ export async function loadShowDetails(id) {
         return String(a).localeCompare(String(b));
       });
 
-      const defaultSeason = seasons[1] ? 1 : seasonNums[0];
+      // Open on the season being watched; otherwise the first regular season.
+      const watched = lastWatchedEpisodeId && episodes.find(ep => String(ep.id) === lastWatchedEpisodeId);
+      const watchedSeason = watched ? String(watched.season_number ?? 1) : '';
+      const defaultSeason = seasons[watchedSeason] ? watchedSeason : (seasons[1] ? '1' : seasonNums[0]);
+      const seasonLabel = num => (num === 0 || num === '0') ? 'Especiales' : `Temporada ${num}`;
 
-      seasonTabs.innerHTML = seasonNums.map((num, idx) => {
-        const isSpecials = (num === 0 || num === '0');
-        const isActive = (num == defaultSeason || (idx === 0 && !seasons[defaultSeason]));
-        const label = isSpecials ? 'Especiales' : `Temporada ${escapeHtml(num)}`;
-        return `<button class="season-tab ${isActive ? 'active' : ''}" data-season="${escapeHtmlAttribute(num)}">${label}</button>`;
-      }).join('');
+      // Poster, banner, synopsis, year and status of the selected season.
+      const seasonEyebrow = document.getElementById('detail-season-eyebrow');
+      const applySeason = num => {
+        const info = seasonInfo.get(String(num));
+        if (detailPoster) {
+          detailPoster.src = catalogueImageUrl((info && info.poster_path) || show.poster_path || '') || '/assets/illustrations/poster_placeholder.svg';
+        }
+        if (ambientBg && ambientBg.dataset && ambientBg.dataset.seasonArt) {
+          const backdropUrl = catalogueImageUrl((info && info.backdrop_path) || show.backdrop_path || show.poster_path || '') || '/assets/illustrations/backdrop_placeholder.svg';
+          ambientBg.style.backgroundImage = `url("${backdropUrl}")`;
+        }
+        if (detailSynopsis) detailSynopsis.textContent = (info && info.synopsis) || show.synopsis || 'Sin sinopsis disponible.';
+        if (seasonEyebrow) {
+          const extra = info && info.title && info.title !== show.title ? info.title : '';
+          seasonEyebrow.textContent = [seasonLabel(num), extra].filter(Boolean).join(' · ');
+          seasonEyebrow.hidden = seasonNums.length < 2;
+        }
+        const year = (info && info.year) || show.year;
+        if (detailYear) detailYear.textContent = year || 'N/A';
+        const status = (info && info.status) || show.status;
+        const label = status === 'airing' ? 'En Emisión' : (status === 'upcoming' ? 'Próximamente' : 'Finalizado');
+        const statusClass = `badge ${status === 'airing' ? 'badge-status-airing' : 'badge-subtle'}`;
+        if (metaBadgesEl && typeof metaBadgesEl.querySelector === 'function') {
+          const yearPill = metaBadgesEl.querySelector('[data-meta="year"]');
+          if (yearPill && year) yearPill.textContent = year;
+          const statusPill = metaBadgesEl.querySelector('[data-meta="status"]');
+          if (statusPill) {
+            statusPill.textContent = label;
+            statusPill.className = statusClass;
+          }
+        }
+        if (detailStatusBadge) {
+          detailStatusBadge.textContent = label;
+          detailStatusBadge.className = statusClass;
+        }
+      };
 
+      // Several seasons with their own art: a row of season posters in watch order instead of pills.
+      const seasonStrip = document.getElementById('season-strip');
+      const useStrip = Boolean(seasonStrip) && seasonNums.length > 1 && seasonNums.some(num => (seasonInfo.get(String(num)) || {}).poster_path);
+      const watchedCount = list => list.filter(ep => {
+        const prog = showProgressMap[ep.id];
+        if (!prog) return false;
+        const dur = prog.duration || ep.duration || 0;
+        return prog.completed || (dur > 0 && prog.progress_seconds / dur >= 0.85);
+      }).length;
+
+      if (useStrip) {
+        seasonTabs.innerHTML = '';
+        seasonTabs.hidden = true;
+        seasonStrip.hidden = false;
+        let order = 0;
+        seasonStrip.innerHTML = `
+          <div class="season-strip-head">
+            <h2 class="section-title">Temporadas</h2>
+            <span class="season-strip-hint">en orden para ver</span>
+          </div>
+          <div class="season-strip-row" role="tablist" aria-label="Temporadas">
+            ${seasonNums.map(num => {
+              const info = seasonInfo.get(String(num)) || {};
+              const list = seasons[num] || [];
+              const done = watchedCount(list);
+              const pct = list.length ? Math.round((done / list.length) * 100) : 0;
+              const poster = catalogueImageUrl(info.poster_path || show.poster_path || '') || '/assets/illustrations/poster_placeholder.svg';
+              const meta = [info.year, `${list.length} cap.`].filter(Boolean).join(' · ');
+              const active = String(num) === String(defaultSeason);
+              const isSpecials = num === 0 || num === '0';
+              if (!isSpecials) order++;
+              return `
+                <button type="button" class="season-tab season-card${active ? ' active' : ''}" role="tab" aria-selected="${active}" data-season="${escapeHtmlAttribute(num)}">
+                  <span class="season-card-poster">
+                    <img src="${escapeHtmlAttribute(poster)}" alt="" loading="lazy" data-fallback-src="/assets/illustrations/poster_placeholder.svg">
+                    ${isSpecials ? '' : `<span class="season-card-order">${order}</span>`}
+                    ${pct >= 100 ? '<span class="season-card-done" title="Vista"><i data-lucide="check"></i></span>' : ''}
+                    ${pct > 0 && pct < 100 ? `<span class="season-card-progress"><span style="width:${pct}%"></span></span>` : ''}
+                  </span>
+                  <span class="season-card-name">${escapeHtml(seasonLabel(num))}</span>
+                  <span class="season-card-meta">${escapeHtml(meta)}</span>
+                </button>`;
+            }).join('')}
+          </div>`;
+        seasonStrip.querySelectorAll('img[data-fallback-src]').forEach(img => {
+          img.onerror = () => { img.onerror = null; img.src = img.dataset.fallbackSrc; };
+        });
+      } else {
+        if (seasonStrip) {
+          seasonStrip.hidden = true;
+          seasonStrip.innerHTML = '';
+        }
+        seasonTabs.hidden = false;
+        seasonTabs.innerHTML = seasonNums.map(num => {
+          const isActive = String(num) === String(defaultSeason);
+          return `<button class="season-tab ${isActive ? 'active' : ''}" data-season="${escapeHtmlAttribute(num)}">${escapeHtml(seasonLabel(num))}</button>`;
+        }).join('');
+      }
+
+      applySeason(defaultSeason);
       renderEpisodeList(seasons[defaultSeason] || episodes, episodesList, show.poster_path, showProgressMap);
 
-      seasonTabs.querySelectorAll('.season-tab').forEach(tab => {
+      const tabRoot = useStrip ? seasonStrip : seasonTabs;
+      tabRoot.querySelectorAll('.season-tab').forEach(tab => {
         tab.onclick = () => {
-          seasonTabs.querySelectorAll('.season-tab').forEach(t => t.classList.remove('active'));
+          tabRoot.querySelectorAll('.season-tab').forEach(t => {
+            t.classList.remove('active');
+            if (t.setAttribute) t.setAttribute('aria-selected', 'false');
+          });
           tab.classList.add('active');
+          if (tab.setAttribute) tab.setAttribute('aria-selected', 'true');
           const sNum = tab.getAttribute('data-season');
+          applySeason(sNum);
           renderEpisodeList(seasons[sNum] || [], episodesList, show.poster_path, showProgressMap);
         };
       });
@@ -1261,7 +1472,16 @@ export async function loadShowDetails(id) {
         }
       });
 
-      if (audioTracksMap.size > 0 || subTracksMap.size > 0) {
+      // One untagged audio track and no subtitles (hardsubbed releases) leaves nothing to choose;
+      // the box used to show a lone "Pista 1" pill and an empty "Subtítulos:" label.
+      const hasAudioChoice = audioTracksMap.size > 1;
+      const hasSubChoice = subTracksMap.size > 0;
+      const audioGroup = document.getElementById('detail-pref-audio-group');
+      const subGroup = document.getElementById('detail-pref-sub-group');
+      if (audioGroup) audioGroup.style.display = hasAudioChoice ? '' : 'none';
+      if (subGroup) subGroup.style.display = hasSubChoice ? '' : 'none';
+
+      if (hasAudioChoice || hasSubChoice) {
         trackPrefContainer.style.display = 'flex';
 
         let currentAudioPref = localStorage.getItem('kura_pref_audio_lang') || 'jpn';
@@ -1355,7 +1575,7 @@ export async function loadShowDetails(id) {
       }
     };
 
-    if (token) {
+    if (userSession.hasProfile) {
       try {
         const favCheckRes = await fetch(`/api/favorites/check?show_id=${encodeURIComponent(id)}`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -1541,40 +1761,48 @@ export async function loadShowDetails(id) {
   }
 }
 
+function renderLoginRequiredState(container, title, message, illustration) {
+  const needsProfileOnly = AuthManager.isAuthenticated();
+  container.innerHTML = `
+    <div class="empty-state-card col-span-all">
+      <img src="${escapeHtmlAttribute(illustration)}" alt="" class="empty-state-img">
+      <h3>${escapeHtml(needsProfileOnly ? 'Selecciona un perfil' : title)}</h3>
+      <p>${escapeHtml(message)}</p>
+      <button class="btn btn-primary" data-action="login-required"><i data-lucide="user"></i> ${needsProfileOnly ? 'Elegir Perfil' : 'Iniciar Sesión'}</button>
+    </div>
+  `;
+  const btnLogin = container.querySelector('[data-action="login-required"]');
+  if (btnLogin) {
+    btnLogin.onclick = () => {
+      if (needsProfileOnly) window.location.hash = '#/profiles';
+      else openAuthModal('login');
+    };
+  }
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
 export async function renderMyListView() {
   const container = document.getElementById('mylist-grid');
   if (!container) return;
 
-  container.innerHTML = `<div class="state-box-loading">Cargando tu lista...</div>`;
-  const { activeUser, profileName, token } = getUserAndProfile();
+  container.innerHTML = `<div class="shows-grid"><div class="show-card skeleton" style="height:250px;"></div><div class="show-card skeleton" style="height:250px;"></div><div class="show-card skeleton" style="height:250px;"></div><div class="show-card skeleton" style="height:250px;"></div></div>`;
+  const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
   let favorites = [];
 
+  if (!hasProfile) {
+    renderLoginRequiredState(container, 'Inicia sesión para ver tu lista', 'Guarda tus series y películas favoritas para encontrarlas fácilmente en cualquier momento.', '/assets/illustrations/empty_watchlist.svg');
+    return;
+  }
+
   try {
-    const headers = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(`/api/favorites?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
+    const res = await fetch(`/api/favorites?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
     if (res.ok) {
       favorites = await res.json();
     }
   } catch (e) {
     console.warn('Error fetching favorites:', e);
-  }
-
-  if (!token) {
-    container.innerHTML = `
-      <div class="empty-state-card col-span-all">
-        <img src="/assets/illustrations/empty_watchlist.svg" alt="" class="empty-state-img">
-        <h3>Inicia sesión para ver tu lista</h3>
-        <p>Guarda tus series y películas favoritas para encontrarlas fácilmente en cualquier momento.</p>
-        <button class="btn btn-primary" id="btn-mylist-login"><i data-lucide="user"></i> Iniciar Sesión</button>
-      </div>
-    `;
-    const btnLogin = document.getElementById('btn-mylist-login');
-    if (btnLogin && typeof openAuthModal === 'function') {
-      btnLogin.onclick = () => openAuthModal('login');
-    }
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-    return;
   }
 
   if (!Array.isArray(favorites) || favorites.length === 0) {
@@ -1590,21 +1818,42 @@ export async function renderMyListView() {
     return;
   }
 
-  container.innerHTML = favorites.map(s => createShowCardHTML(s)).join('');
-  if (typeof lucide !== 'undefined') lucide.createIcons();
+  // "Ordenar por" had no handler; the API returns favourites newest first ("Recientes").
+  const sortSelect = document.getElementById('mylist-sort');
+  const renderSorted = () => {
+    const mode = sortSelect ? sortSelect.value : 'recent';
+    mylistSortValue = mode;
+    const list = [...favorites];
+    if (mode === 'title_asc') list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'es'));
+    else if (mode === 'rating_desc') list.sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0));
+    else if (mode === 'year_desc') list.sort((a, b) => (Number(b.year) || 0) - (Number(a.year) || 0));
+    container.innerHTML = list.map(s => createShowCardHTML(s)).join('');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  };
+  if (sortSelect) {
+    sortSelect.value = mylistSortValue;
+    sortSelect.onchange = renderSorted;
+  }
+  renderSorted();
 }
 
 export async function renderHistoryView() {
   const container = document.getElementById('history-list');
   if (!container) return;
 
-  container.innerHTML = `<div class="state-box-loading"><div class="spinner spinner-centered"></div>Cargando historial...</div>`;
-  const { activeUser, profileName, token } = getUserAndProfile();
+  container.innerHTML = `<div class="history-list-container"><div class="history-item skeleton" style="height:80px;"></div><div class="history-item skeleton" style="height:80px;"></div><div class="history-item skeleton" style="height:80px;"></div></div>`;
+  const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
   let historyItems = [];
+  const clearBtn = document.getElementById('btn-clear-history');
+  if (clearBtn) clearBtn.style.display = 'none';
+
+  if (!hasProfile) {
+    renderLoginRequiredState(container, 'Inicia sesión para ver tu historial', 'Los episodios y películas que reproduzcas aparecerán aquí para que continúes donde los dejaste.', '/assets/illustrations/empty_history.svg');
+    return;
+  }
 
   try {
-    const headers = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers = { 'Authorization': `Bearer ${token}` };
     const res = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
     if (res.ok) {
       historyItems = await res.json();
@@ -1626,6 +1875,7 @@ export async function renderHistoryView() {
     return;
   }
 
+  if (clearBtn) clearBtn.style.display = '';
   container.innerHTML = historyItems.map(item => {
     const poster = item.thumbnail_path || item.poster_path || '';
     const progressPercent = item.duration > 0 ? Math.min(100, Math.round(((item.progress_seconds || 0) / item.duration) * 100)) : 0;
@@ -1635,15 +1885,51 @@ export async function renderHistoryView() {
 
     return `
       <div class="history-item">
-        <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(showTitle)}">
+        <img src="${escapeHtmlAttribute(catalogueImageUrl(poster) || '/assets/illustrations/backdrop_placeholder.svg')}" alt="${escapeHtmlAttribute(showTitle)}">
         <div class="history-item-info">
           <h4>${escapeHtml(showTitle)}</h4>
           <span>${escapeHtml(seasonEpStr ? seasonEpStr + ' - ' : '')}${escapeHtml(epTitle)} • ${progressPercent}% visto</span>
+          <div class="history-progress"><div class="history-progress-bar" style="width: ${progressPercent}%;"></div></div>
         </div>
-        <a href="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" class="btn btn-secondary">Reproducir</a>
+        <div class="history-item-actions">
+          <a href="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" class="btn btn-secondary">${item.completed ? 'Volver a ver' : 'Continuar'}</a>
+          <button type="button" class="history-remove-btn" data-remove-episode="${escapeHtmlAttribute(item.episode_id)}" aria-label="Quitar del historial" title="Quitar del historial"><i data-lucide="x"></i></button>
+        </div>
       </div>
     `;
   }).join('');
+
+  const deleteHistory = async (query) => {
+    const res = await fetch(`/api/history?${query}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+    if (!res.ok) throw new Error(String(res.status));
+  };
+  container.querySelectorAll('[data-remove-episode]').forEach(btn => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        await deleteHistory(`episode_id=${encodeURIComponent(btn.dataset.removeEpisode)}`);
+        renderHistoryView();
+      } catch {
+        btn.disabled = false;
+        showToast('No se pudo quitar del historial', 'error');
+      }
+    };
+  });
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
+      if (!confirm('¿Borrar todo el historial de este perfil? También se reinicia "Continuar viendo".')) return;
+      clearBtn.disabled = true;
+      try {
+        await deleteHistory('clear=all');
+        showToast('Historial borrado', 'success');
+        renderHistoryView();
+      } catch {
+        showToast('No se pudo borrar el historial', 'error');
+      } finally {
+        clearBtn.disabled = false;
+      }
+    };
+  }
 
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
@@ -1678,6 +1964,7 @@ export async function loadPopularSidebar(currentShowId) {
       return;
     }
 
+    popularSidebar.style.display = '';
     popularSidebar.innerHTML = `
       <h3 class="section-title section-title-compact">Populares</h3>
       ${popularShows.map(s => `
@@ -1695,63 +1982,121 @@ export async function loadPopularSidebar(currentShowId) {
   }
 }
 
+const CALENDAR_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const CALENDAR_UNSCHEDULED = 'TBA';
+let calendarOnlyLibrary = false;
+
+function calendarItems(dayName) {
+  const list = Array.isArray(calendarDataCache[dayName]) ? calendarDataCache[dayName] : [];
+  return calendarOnlyLibrary ? list.filter(item => item.in_library) : list;
+}
+
+/** "Episodio 5 · 19:30 · Studio": the row tooltip. */
+function calendarCardMeta(item) {
+  const parts = [];
+  if (item.episode) parts.push(`Episodio ${item.episode}`);
+  if (item.airing_at) {
+    const time = new Date(Number(item.airing_at) * 1000);
+    if (!Number.isNaN(time.getTime())) parts.push(time.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }));
+  }
+  if (item.studio) parts.push(item.studio);
+  return parts.join(' · ');
+}
+
+function calendarTime(item) {
+  if (!item.airing_at) return '—';
+  const time = new Date(Number(item.airing_at) * 1000);
+  return Number.isNaN(time.getTime()) ? '—' : time.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+}
+
+/** Day tabs show how many titles air that day; the "Por confirmar" tab only exists when needed. */
+function renderCalendarTabCounts() {
+  const tabs = document.getElementById('day-picker-tabs');
+  if (!tabs) return;
+  tabs.querySelectorAll('.day-tab').forEach(tab => {
+    const day = tab.getAttribute('data-day');
+    const count = calendarItems(day).length;
+    if (day === CALENDAR_UNSCHEDULED) tab.hidden = count === 0;
+    let badge = tab.querySelector('.day-tab-count');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'day-tab-count';
+      tab.appendChild(badge);
+    }
+    badge.textContent = String(count);
+  });
+}
+
+/** One table per day: hour, title, episode, studio and whether it is already in the library. */
 export function renderCalendarDay(dayName) {
   const gridContainer = document.getElementById('calendar-grid-content');
   if (!gridContainer || !calendarDataCache) return;
 
-  const showsList = calendarDataCache[dayName] || [];
+  const showsList = calendarItems(dayName);
 
   if (showsList.length === 0) {
+    const title = calendarOnlyLibrary ? 'Ningún anime de tu biblioteca se emite este día' : 'No hay estrenos programados para este día';
     gridContainer.innerHTML = `
       <div class="empty-state">
         <i data-lucide="calendar-off"></i>
-        <h2>No hay estrenos programados para este día</h2>
+        <h2>${escapeHtml(title)}</h2>
       </div>`;
     if (typeof lucide !== 'undefined') lucide.createIcons();
     return;
   }
 
-  gridContainer.innerHTML = `
-    <div class="calendar-grid">
-      ${showsList.map(item => {
-        const cover = item.cover_image || '';
-        const inLib = Boolean(item.in_library);
-        const inLibBadge = inLib ? `
-          <div class="calendar-airing-pill">
-            <i data-lucide="check"></i> EN TU BIBLIOTECA
+  const nowSec = Date.now() / 1000;
+  const rows = showsList.map(item => {
+    const localId = item.local_show_id || item.library_show_id;
+    const hasLocal = Boolean(item.in_library && localId);
+    const route = hasLocal ? '#/show/' + encodeURIComponent(localId) : '';
+    const aired = item.airing_at && Number(item.airing_at) < nowSec;
+    const cover = catalogueImageUrl(item.cover_image || '') || '/assets/illustrations/poster_placeholder.svg';
+    const subtitle = item.romaji_title && item.romaji_title !== item.title ? item.romaji_title : (item.genres || '');
+    const titleHtml = hasLocal
+      ? `<a href="${escapeHtmlAttribute(route)}">${escapeHtml(item.title || '')}</a>`
+      : `<strong>${escapeHtml(item.title || '')}</strong>`;
+    const status = hasLocal
+      ? '<span class="calendar-status is-library"><i data-lucide="check"></i> En tu biblioteca</span>'
+      : '<span class="calendar-status is-external">No disponible</span>';
+    return `
+      <tr class="${hasLocal ? 'is-linked' : ''}${aired ? ' is-aired' : ''}" title="${escapeHtmlAttribute(calendarCardMeta(item))}"${hasLocal ? ` data-catalogue-route="${escapeHtmlAttribute(route)}"` : ''}>
+        <td class="calendar-cell-time"><span class="calendar-time">${escapeHtml(calendarTime(item))}</span></td>
+        <td class="calendar-cell-title">
+          <div class="calendar-title-cell">
+            <img src="${escapeHtmlAttribute(cover)}" alt="" loading="lazy" data-fallback-src="/assets/illustrations/poster_placeholder.svg">
+            <div class="calendar-title-text">${titleHtml}${subtitle ? `<small>${escapeHtml(subtitle)}</small>` : ''}</div>
           </div>
-        ` : '';
+        </td>
+        <td class="calendar-cell-episode">${item.episode ? `Episodio ${escapeHtml(String(item.episode))}` : '—'}</td>
+        <td class="calendar-cell-studio">${escapeHtml(item.studio || '—')}</td>
+        <td class="calendar-cell-status">${status}</td>
+      </tr>`;
+  }).join('');
 
-        const localId = item.local_show_id || item.library_show_id;
-        const hasLocal = inLib && Boolean(localId);
-        const cardTag = hasLocal ? 'a' : 'div';
-        const cardAttrs = hasLocal 
-          ? `href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(localId))}" class="calendar-show-card calendar-show-card-linked"`
-          : `class="calendar-show-card" data-premiere-title="${escapeHtmlAttribute(item.title || '')}" style="cursor: pointer;"`;
+  const note = dayName === CALENDAR_UNSCHEDULED
+    ? '<p class="calendar-note">Animes de tu biblioteca marcados como "en emisión" cuyo día aún no se conoce (el servidor no tiene conexión con AniList).</p>'
+    : '';
 
-        return `
-          <${cardTag} ${cardAttrs}>
-            <div class="calendar-card-img-wrap">
-              <img src="${escapeHtmlAttribute(catalogueImageUrl(cover))}" alt="${escapeHtmlAttribute(item.title || '')}">
-              ${inLibBadge}
-            </div>
-            <div class="calendar-card-body">
-              <h3 class="calendar-card-title">${escapeHtml(item.title || '')}</h3>
-              <p class="calendar-card-meta">${escapeHtml(item.studio || '')} • ${escapeHtml(item.episode || '')}</p>
-            </div>
-          </${cardTag}>
-        `;
-      }).join('')}
+  gridContainer.innerHTML = `
+    <div class="calendar-table-wrap">
+      <table class="calendar-table">
+        <thead>
+          <tr>
+            <th class="calendar-col-time">Hora</th>
+            <th>Anime</th>
+            <th class="calendar-col-episode">Episodio</th>
+            <th class="calendar-col-studio">Estudio</th>
+            <th class="calendar-col-status">Estado</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
     </div>
+    ${note}
   `;
 
-  gridContainer.querySelectorAll('.calendar-show-card[data-premiere-title]').forEach(card => {
-    card.onclick = () => {
-      const pTitle = card.getAttribute('data-premiere-title') || 'Este anime';
-      showToast(`"${pTitle}" es un estreno en emisión (próximamente en biblioteca)`, 'info', 2500);
-    };
-  });
-
+  // Linked rows navigate through the shared [data-catalogue-route] click handler.
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
@@ -1760,29 +2105,59 @@ export async function openRandomAnimeModal() {
   const cardBody = document.getElementById('random-card-body');
   if (!modal || !cardBody) return;
 
+  // The × had no handler, so the modal could only be left through "Ver Anime".
+  if (!modal._kuraCloseWired) {
+    modal._kuraCloseWired = true;
+    const close = () => { modal.style.display = 'none'; };
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    document.getElementById('btn-close-random')?.addEventListener('click', close);
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.style.display !== 'none') close();
+    });
+  }
+
   modal.style.display = 'flex';
   cardBody.className = 'random-card';
   cardBody.innerHTML = `<div class="state-box"><div class="spinner"></div>Buscando anime aleatorio...</div>`;
 
   try {
     const res = await fetch('/api/shows/random');
+    if (!res.ok) throw new Error(String(res.status));
     const data = await res.json();
     const show = data.show || data;
+    if (!show || !show.id) throw new Error('empty');
+
+    const poster = catalogueImageUrl(show.poster_path || '') || '/assets/illustrations/poster_placeholder.svg';
+    const backdrop = catalogueImageUrl(show.backdrop_path || '');
+    const meta = [];
+    if (Number(show.rating) > 0) meta.push(`<span><i data-lucide="star"></i>${escapeHtml(Number(show.rating).toFixed(1))}</span>`);
+    if (show.year) meta.push(`<span>${escapeHtml(String(show.year))}</span>`);
+    if (show.status === 'airing') meta.push('<span>En emisión</span>');
+    String(show.genres || '').split(',').map(g => g.trim()).filter(Boolean).slice(0, 3)
+      .forEach(g => meta.push(`<span>${escapeHtml(genreLabel(g))}</span>`));
 
     cardBody.innerHTML = `
-      <div class="state-box">
-        <img src="${escapeHtmlAttribute(catalogueImageUrl(show.poster_path || ''))}" alt="${escapeHtmlAttribute(show.title)}" class="random-poster-img">
-        <h3 class="modal-title">${escapeHtml(show.title)}</h3>
-        <p class="modal-subtitle">${escapeHtml(show.synopsis || '')}</p>
-        <a class="btn btn-primary" id="random-card-watch-btn" href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}">Ver Anime</a>
+      <div class="random-hero">
+        ${backdrop ? `<img class="random-hero-backdrop" src="${escapeHtmlAttribute(backdrop)}" alt="">` : ''}
+        <img src="${escapeHtmlAttribute(poster)}" alt="${escapeHtmlAttribute(show.title || '')}" class="random-poster-img" data-fallback-src="/assets/illustrations/poster_placeholder.svg">
+        <div class="random-info">
+          <p class="random-kicker">Descubrimiento aleatorio</p>
+          <h3 class="random-title">${escapeHtml(show.title || '')}</h3>
+          ${meta.length ? `<div class="random-meta">${meta.join('')}</div>` : ''}
+          <p class="random-synopsis">${escapeHtml(show.synopsis || 'Sin sinopsis disponible.')}</p>
+          <div class="random-actions">
+            <a class="btn btn-primary" id="random-card-watch-btn" href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}"><i data-lucide="info"></i> Ver anime</a>
+            <button type="button" class="btn btn-secondary" id="random-card-again-btn"><i data-lucide="shuffle"></i> Otro al azar</button>
+          </div>
+        </div>
       </div>
     `;
-    const watchBtn = document.getElementById('random-card-watch-btn');
-    if (watchBtn) {
-      watchBtn.addEventListener('click', () => {
-        modal.style.display = 'none';
-      });
-    }
+    document.getElementById('random-card-watch-btn')?.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+    document.getElementById('random-card-again-btn')?.addEventListener('click', () => openRandomAnimeModal());
+    if (typeof lucide !== 'undefined') lucide.createIcons();
   } catch {
     cardBody.innerHTML = `<div class="state-box state-box-error">Error al buscar anime aleatorio.</div>`;
   }
@@ -1809,10 +2184,19 @@ export async function renderStatsView() {
   const chartContainer = document.getElementById('stats-genre-chart');
   if (!cardsGrid || !chartContainer) return;
 
+  const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
+  const chartCard = document.getElementById('stats-chart-card');
+  if (!hasProfile) {
+    renderLoginRequiredState(cardsGrid, 'Inicia sesión para ver tus estadísticas', 'Tu tiempo de visionado, capítulos vistos y géneros favoritos se calculan por perfil.', '/assets/illustrations/empty_history.svg');
+    chartContainer.innerHTML = '';
+    if (chartCard) chartCard.style.display = 'none';
+    return;
+  }
+  if (chartCard) chartCard.style.display = '';
+
   cardsGrid.innerHTML = '<div class="state-box col-span-all"><div class="spinner"></div>Cargando estadísticas...</div>';
   chartContainer.innerHTML = '<div class="state-box">Cargando gráfico...</div>';
 
-  const { activeUser, profileName, token } = getUserAndProfile();
   let stats = {
     total_time_seconds: 0,
     completed_shows: 0,
@@ -1849,7 +2233,28 @@ export async function renderStatsView() {
     </div>
   `;
 
-  chartContainer.innerHTML = `<p class="stat-genre-pill">Género favorito: <strong>${escapeHtml(stats.top_genre || 'Anime')}</strong></p>`;
+  // Top genres as proportional bars (the card used to show only the favourite genre's name)
+  const breakdown = Object.entries(stats.genres_breakdown || {})
+    .map(([genre, value]) => [genre, Number(value) || 0])
+    .filter(([, value]) => value > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+  if (breakdown.length === 0) {
+    chartContainer.innerHTML = '<p class="stat-genre-pill">Todavía no hay suficiente actividad para calcular tus géneros.</p>';
+  } else {
+    const max = breakdown[0][1];
+    const total = breakdown.reduce((sum, [, value]) => sum + value, 0);
+    chartContainer.innerHTML = `
+      <div class="genre-bars">
+        ${breakdown.map(([genre, value]) => `
+          <div class="genre-bar-row">
+            <span class="genre-bar-label">${escapeHtml(genreLabel(genre))}</span>
+            <div class="genre-bar-track"><div class="genre-bar-fill" style="width: ${Math.max(4, Math.round((value / max) * 100))}%;"></div></div>
+            <span class="genre-bar-value">${Math.round((value / total) * 100)}%</span>
+          </div>
+        `).join('')}
+      </div>`;
+  }
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
@@ -1857,22 +2262,29 @@ export async function loadNotifications() {
   const badge = document.getElementById('notification-badge');
   const list = document.getElementById('notifications-list');
 
-  const { activeUser, profileName } = getUserAndProfile();
+  const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
   let notifications = [];
   let unreadCount = 0;
 
   try {
-    const token = (typeof AuthManager !== 'undefined' && typeof AuthManager.getToken === 'function') ? AuthManager.getToken() : null;
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-
-    const res = await fetch(`/api/notifications?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
-    if (res.ok) {
+    // Notifications are per profile; guests would only get a 401.
+    const res = hasProfile
+      ? await fetch(`/api/notifications?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      : null;
+    if (res && res.ok) {
       const data = await res.json();
       notifications = Array.isArray(data) ? data : (data.notifications || []);
       unreadCount = (typeof data.unread_count === 'number') ? data.unread_count : notifications.length;
     }
   } catch (err) {
     console.error("Error loading notifications:", err);
+  }
+
+  // Settings toggle "Notificaciones en la aplicación": keep the list, but stop the unread badge.
+  if (typeof window !== 'undefined' && window.userPreferences && window.userPreferences.notifications_enabled === false) {
+    unreadCount = 0;
   }
 
   if (badge) {
@@ -2035,10 +2447,23 @@ export function setupWatchPartyModal() {
 
     select.innerHTML = '<option value="">Cargando episodios disponibles...</option>';
     try {
-      const activeEpId = (typeof currentEpisodeId !== 'undefined' && currentEpisodeId) || null;
+      const activeEpId = getActiveEpisodeId();
+
+      // Opened from the player: offer the show being watched, with the current episode preselected
+      if (activeEpId) {
+        const showRes = await fetch(`/api/shows/${encodeURIComponent(getShowIdFromEpisodeId(activeEpId))}`);
+        const showData = showRes.ok ? await showRes.json() : null;
+        const eps = Array.isArray(showData?.episodes) ? showData.episodes : [];
+        if (eps.length > 0) {
+          select.innerHTML = '<option value="">Selecciona un episodio...</option>' +
+            eps.map(ep => `<option value="${escapeHtmlAttribute(ep.id)}">${escapeHtml(ep.title || `Episodio ${ep.episode_number}`)}</option>`).join('');
+          select.value = activeEpId;
+          return;
+        }
+      }
 
       // If we already have current show episodes loaded in detail view
-      if (currentShowEpisodes && currentShowEpisodes.length > 0) {
+      if (currentView === 'detail' && currentShowEpisodes && currentShowEpisodes.length > 0) {
         select.innerHTML = '<option value="">Selecciona un episodio...</option>' +
           currentShowEpisodes.map(ep => `<option value="${escapeHtmlAttribute(ep.id)}">${escapeHtml(ep.title || `Episodio ${ep.episode_number}`)}</option>`).join('');
         if (activeEpId) select.value = activeEpId;
@@ -2235,7 +2660,6 @@ export function hideAllViews() {
 
 export function setupRouter() {
   const handleRoute = async () => {
-    if (typeof updateMosaicBgVisibility === 'function') updateMosaicBgVisibility();
     if (typeof renderAuthState === 'function') renderAuthState();
 
     const rawHash = window.location.hash || '#/';
@@ -2269,7 +2693,12 @@ export function setupRouter() {
     }
 
     if (!path.startsWith('/show/')) {
-      if (typeof resetChameleonTheme === 'function') resetChameleonTheme();
+      // The detail view's muted backdrop loop keeps decoding in the background unless it is stopped.
+      document.querySelectorAll('.detail-ambient-bg video.ambient-loop-video').forEach(ambientVideo => {
+        ambientVideo.pause();
+        ambientVideo.removeAttribute('src');
+        ambientVideo.remove();
+      });
       const trailerModal = document.getElementById('trailer-modal');
       const trailerIframe = document.getElementById('trailer-iframe');
       if (trailerModal) trailerModal.style.display = 'none';
@@ -2294,7 +2723,15 @@ export function setupRouter() {
         dashView.style.display = 'block';
       }
       if (typeof initCatalogView === 'function') await initCatalogView();
-    } else if (path === '/airing' || path === '/calendar') {
+    } else if (path === '/airing') {
+      currentView = 'dashboard';
+      const dashView = document.getElementById('dashboard-view');
+      if (dashView) {
+        dashView.classList.add('active');
+        dashView.style.display = 'block';
+      }
+      if (typeof initCatalogView === 'function') await initCatalogView('airing');
+    } else if (path === '/calendar') {
       currentView = 'calendar';
       const calView = document.getElementById('calendar-view');
       if (calView) {
@@ -2355,6 +2792,14 @@ export function setupRouter() {
         setView.style.display = 'block';
       }
       if (typeof loadSettingsView === 'function') await loadSettingsView();
+    } else if (path === '/app') {
+      currentView = 'app-download';
+      const appView = document.getElementById('app-download-view');
+      if (appView) {
+        appView.classList.add('active');
+        appView.style.display = 'block';
+      }
+      await renderAppDownloadView();
     } else if (path === '/admin') {
       if (typeof AuthManager !== 'undefined' && !AuthManager.isAdmin()) {
         if (!AuthManager.isAuthenticated()) {
@@ -2441,9 +2886,155 @@ export function setupRouter() {
     if (typeof lucide !== 'undefined') lucide.createIcons();
   };
 
+  // hashchange alone covers links, back/forward and programmatic hash changes; also listening to
+  // popstate made every navigation run the route (and initPlayer) twice.
   window.addEventListener('hashchange', handleRoute);
-  window.addEventListener('popstate', handleRoute);
   handleRoute();
+}
+
+let catalogSearchQuery = '';
+
+export function genreLabel(genre) {
+  // TMDB leaves a few TV genres untranslated in its Spanish responses.
+  const labels = {
+    'Action & Adventure': 'Acción y Aventura',
+    'Sci-Fi & Fantasy': 'Ciencia Ficción y Fantasía',
+    'War & Politics': 'Bélica y Política',
+    'Kids': 'Infantil',
+    'Soap': 'Telenovela',
+    'Talk': 'Entrevistas',
+    'News': 'Noticias'
+  };
+  return labels[genre] || genre;
+}
+
+function showGenreList(show) {
+  return String(show.genres || '').split(',').map(g => g.trim()).filter(Boolean);
+}
+
+// Home toolbar state (status chips, sort chips, genre pills). The markup shipped without any
+// handlers, so the filters looked clickable but did nothing.
+const catalogFilters = { status: '', sort: 'popular', genre: 'all' };
+let catalogShows = [];
+let catalogHistoryMap = new Map();
+let catalogToolbarBound = false;
+
+function syncCatalogToolbar() {
+  document.querySelectorAll('.catalog-toolbar .filter-chip').forEach(chip => {
+    const on = (chip.dataset.status || '') === catalogFilters.status;
+    chip.classList.toggle('active', on);
+    chip.setAttribute('aria-pressed', String(on));
+  });
+  document.querySelectorAll('.catalog-toolbar .sort-chip').forEach(chip => {
+    const on = chip.dataset.sort === catalogFilters.sort;
+    chip.classList.toggle('active', on);
+    chip.setAttribute('aria-pressed', String(on));
+  });
+  document.querySelectorAll('.catalog-toolbar .genre-pill').forEach(pill => {
+    const on = pill.dataset.genre === catalogFilters.genre;
+    pill.classList.toggle('active', on);
+    pill.setAttribute('aria-pressed', String(on));
+  });
+}
+
+/** Genre pills come from the genres actually present in the library, not a fixed list. */
+function renderGenrePills(shows) {
+  const rail = document.querySelector('.catalog-toolbar .genre-pill-rail');
+  if (!rail) return;
+  const genres = [...new Set(shows.flatMap(showGenreList))]
+    .sort((a, b) => genreLabel(a).localeCompare(genreLabel(b), 'es'));
+  if (catalogFilters.genre !== 'all' && !genres.includes(catalogFilters.genre)) catalogFilters.genre = 'all';
+  rail.innerHTML = [`<button type="button" class="genre-pill" data-genre="all">Todos</button>`]
+    .concat(genres.map(g => `<button type="button" class="genre-pill" data-genre="${escapeHtmlAttribute(g)}">${escapeHtml(genreLabel(g))}</button>`))
+    .join('');
+  // A single genre shared by every title filters nothing; hide the rail then.
+  rail.style.display = genres.length > 1 ? '' : 'none';
+}
+
+function filteredCatalogShows() {
+  // A search looks through the whole library; status/genre filters would silently hide matches.
+  if (catalogSearchQuery) {
+    return catalogShows.filter(show => String(show.title || '').toLowerCase().includes(catalogSearchQuery));
+  }
+  const list = catalogShows.filter(show => {
+    if (catalogFilters.status === 'airing' && show.status !== 'airing') return false;
+    if (catalogFilters.status === 'completed' && show.status !== 'finished' && show.status !== 'completed') return false;
+    if (catalogFilters.genre !== 'all' && !showGenreList(show).includes(catalogFilters.genre)) return false;
+    return true;
+  });
+  if (catalogFilters.sort === 'rating') {
+    list.sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0));
+  } else if (catalogFilters.sort === 'recent') {
+    // "Recientes" = most recently added to the library
+    list.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  }
+  return list;
+}
+
+function renderCatalogGrid() {
+  const grid = document.getElementById('catalog-grid');
+  if (!grid) return;
+  const list = filteredCatalogShows();
+  if (list.length === 0) {
+    grid.innerHTML = catalogSearchQuery
+      ? `<div class="catalog-filter-empty"><p>No encontramos “${escapeHtml(catalogSearchQuery)}” en tu biblioteca.</p></div>`
+      : `
+      <div class="catalog-filter-empty">
+        <p>No hay títulos con estos filtros.</p>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-clear-catalog-filters">Quitar filtros</button>
+      </div>`;
+  } else {
+    grid.innerHTML = list.map(s => createShowCardHTML(s, catalogHistoryMap)).join('');
+  }
+  syncCatalogToolbar();
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+  // Hover previews only make sense with a mouse; on touch screens a tap must open the title.
+  if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    try {
+      initCardPopovers(document.body, {
+        onPlay: showId => playShow(showId),
+        onInfo: showId => { window.location.hash = `#/show/${encodeURIComponent(showId)}`; },
+        onList: async (showId, card, wanted) => {
+          const result = await toggleFavoriteShow(showId);
+          return result === null ? !wanted : result;
+        }
+      });
+    } catch (err) {
+      console.warn('[Catalog] Card previews unavailable:', err);
+    }
+  }
+}
+
+function bindCatalogToolbar() {
+  if (catalogToolbarBound) return;
+  const toolbar = document.querySelector('.catalog-toolbar');
+  if (!toolbar) return;
+  catalogToolbarBound = true;
+  toolbar.addEventListener('click', (e) => {
+    const chip = e.target.closest('.filter-chip, .sort-chip, .genre-pill');
+    if (!chip) return;
+    if (chip.classList.contains('filter-chip')) catalogFilters.status = chip.dataset.status || '';
+    else if (chip.classList.contains('sort-chip')) catalogFilters.sort = chip.dataset.sort || 'popular';
+    else catalogFilters.genre = chip.dataset.genre || 'all';
+    renderCatalogGrid();
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#btn-clear-catalog-filters')) return;
+    catalogFilters.status = '';
+    catalogFilters.genre = 'all';
+    renderCatalogGrid();
+  });
+}
+
+function applyCatalogSearch() {
+  if (document.getElementById('catalog-grid')) {
+    renderCatalogGrid();
+    return;
+  }
+  document.querySelectorAll('#dashboard-sections .show-card').forEach(card => {
+    const title = (card.querySelector('.card-title')?.textContent || '').toLowerCase();
+    card.style.display = !catalogSearchQuery || title.includes(catalogSearchQuery) ? '' : 'none';
+  });
 }
 
 async function initCatalogView(filterType = 'all') {
@@ -2459,41 +3050,62 @@ async function initCatalogView(filterType = 'all') {
       shows = shows.filter(s => s.media_type === 'movie' || s.type === 'movie');
     }
     appState.set('catalog', shows);
+    // "En Emisión" opens the catalog pre-filtered; plain Inicio starts unfiltered.
+    catalogFilters.status = filterType === 'airing' ? 'airing' : '';
+    catalogFilters.genre = 'all';
+    catalogFilters.sort = 'popular';
 
-    // Hero Billboard
-    if (heroContainer && heroWrapper && shows.length > 0) {
-      const featured = shows.find(s => s.is_featured) || shows[0];
-      heroContainer.style.display = 'block';
-      heroWrapper.innerHTML = renderBillboardHero(featured);
+    // Continue Watching (history is per profile, so guests have none server-side)
+    const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
+    let continueItems = [];
+    if (hasProfile) {
+      try {
+        const histRes = await fetch(`/api/history/continue?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (histRes.ok) continueItems = await histRes.json();
+      } catch {}
+    }
+    if (!Array.isArray(continueItems)) continueItems = [];
+
+    // Hero carousel: up to five titles; "Reproducir" resumes where this profile left off.
+    if (heroContainer && heroWrapper) {
+      const resumeByShow = new Map();
+      continueItems.forEach(item => {
+        const key = String(item.show_id || '');
+        if (!key || resumeByShow.has(key)) return;
+        const label = Number(item.season_number) > 0 ? `T${item.season_number}:E${item.episode_number}` : (item.episode_number ? `E${item.episode_number}` : '');
+        resumeByShow.set(key, { episodeId: item.episode_id, label });
+      });
+      mountHeroCarousel(heroContainer, pickHeroShows(shows), (show, index) => renderBillboardHero(show, index, resumeByShow.get(String(show.id)) || null));
     }
 
-    // Continue Watching
-    const { activeUser, profileName, token } = getUserAndProfile();
-    let history = [];
-    try {
-      const headers = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      const histRes = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
-      if (histRes.ok) history = await histRes.json();
-    } catch {}
-
     if (dashboardSections) {
-      const continueHtml = renderContinueWatching(history);
+      const continueHtml = renderContinueWatching(continueItems);
+      const sectionTitle = filterType === 'movie'
+        ? 'Películas Disponibles'
+        : (filterType === 'airing' ? 'En Emisión en tu Biblioteca' : 'Catálogo Completo');
       const catalogHtml = `
         <section class="catalog-section">
-          <h2 class="section-title">
-            ${filterType === 'movie' ? 'Películas Disponibles' : 'Catálogo Completo'}
-          </h2>
-          <div class="shows-grid">
-            ${shows.map(s => createShowCardHTML(s)).join('')}
-          </div>
+          <h2 class="section-title">${sectionTitle}</h2>
+          <div class="shows-grid" id="catalog-grid"></div>
         </section>
       `;
       dashboardSections.innerHTML = continueHtml + catalogHtml;
+
+      // Cards show the progress of the episode "Continuar viendo" points at; playShow() opens it.
+      catalogHistoryMap = new Map();
+      continueItems.forEach(item => {
+        const key = String(item.show_id || '');
+        if (key && !catalogHistoryMap.has(key)) catalogHistoryMap.set(key, item);
+      });
+      catalogShows = shows;
+      renderGenrePills(shows);
+      bindCatalogToolbar();
+      renderCatalogGrid();
     }
 
     if (typeof lucide !== 'undefined') lucide.createIcons();
-    try { initCardPopovers(); } catch {}
   } catch (err) {
     console.error('Error initializing catalog view:', err);
   }
@@ -2502,31 +3114,46 @@ async function initCatalogView(filterType = 'all') {
 async function loadCalendarView() {
   const dayTabs = document.getElementById('day-picker-tabs');
   const btnRefresh = document.getElementById('btn-refresh-calendar');
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const onlyLibrary = document.getElementById('calendar-only-library');
   const todayDay = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const activeDay = () => {
+    const activeTab = dayTabs ? dayTabs.querySelector('.day-tab.active') : null;
+    return activeTab ? activeTab.getAttribute('data-day') : todayDay;
+  };
 
   const fetchCalendar = async (force = false) => {
     try {
       const url = force ? '/api/calendar?force=1' : '/api/calendar';
       const res = await fetch(url);
       if (res.ok) {
-        calendarDataCache = await res.json();
+        const data = await res.json();
+        calendarDataCache = data && typeof data === 'object' ? data : {};
       }
     } catch (e) {
       console.warn('Error loading calendar:', e);
     }
   };
 
+  const selectDay = day => {
+    if (!dayTabs) return renderCalendarDay(day);
+    dayTabs.querySelectorAll('.day-tab').forEach(t => {
+      const isActive = t.getAttribute('data-day') === day;
+      t.classList.toggle('active', isActive);
+      t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    renderCalendarDay(day);
+  };
+
   await fetchCalendar();
+  renderCalendarTabCounts();
 
   if (btnRefresh) {
     btnRefresh.onclick = async () => {
       btnRefresh.disabled = true;
       try {
         await fetchCalendar(true);
-        const activeTab = dayTabs ? dayTabs.querySelector('.day-tab.active') : null;
-        const currentDay = activeTab ? activeTab.getAttribute('data-day') : 'Monday';
-        renderCalendarDay(currentDay);
+        renderCalendarTabCounts();
+        renderCalendarDay(activeDay());
         showToast('Calendario de estrenos actualizado', 'success');
       } catch {
         showToast('Error al actualizar el calendario', 'error');
@@ -2536,40 +3163,84 @@ async function loadCalendarView() {
     };
   }
 
+  if (onlyLibrary) {
+    onlyLibrary.checked = calendarOnlyLibrary;
+    onlyLibrary.onchange = () => {
+      calendarOnlyLibrary = onlyLibrary.checked;
+      renderCalendarTabCounts();
+      renderCalendarDay(activeDay());
+    };
+  }
+
   if (dayTabs) {
     dayTabs.querySelectorAll('.day-tab').forEach(tab => {
-      tab.onclick = () => {
-        dayTabs.querySelectorAll('.day-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const day = tab.getAttribute('data-day');
-        renderCalendarDay(day);
-      };
+      tab.classList.toggle('is-today', tab.getAttribute('data-day') === todayDay);
+      tab.onclick = () => selectDay(tab.getAttribute('data-day'));
     });
   }
 
-  const initialDay = days.includes(todayDay) ? todayDay : 'Monday';
+  const initialDay = CALENDAR_DAYS.includes(todayDay) ? todayDay : 'Monday';
+  selectDay(initialDay);
   if (dayTabs) {
-    dayTabs.querySelectorAll('.day-tab').forEach(t => {
-      t.classList.toggle('active', t.getAttribute('data-day') === initialDay);
-    });
+    // On phones the tab rail scrolls; weekend days started off-screen with nothing selected in view.
+    const activeTab = dayTabs.querySelector('.day-tab.active');
+    if (activeTab && dayTabs.scrollWidth > dayTabs.clientWidth) {
+      dayTabs.scrollLeft = activeTab.offsetLeft - (dayTabs.clientWidth - activeTab.offsetWidth) / 2;
+    }
   }
-  renderCalendarDay(initialDay);
 }
 
-async function renderGenresView() {
+async function renderGenresView(activeGenre = '') {
   const genresGrid = document.getElementById('genres-grid');
+  const catalogSection = document.getElementById('genre-catalog-section');
+  const catalogTitle = document.getElementById('genre-catalog-title');
+  const catalogGrid = document.getElementById('genre-catalog-grid');
   if (!genresGrid) return;
-  const genres = ['Acción', 'Aventura', 'Comedia', 'Drama', 'Fantasía', 'Ciencia Ficción', 'Romance', 'Sobrenatural', 'Misterio'];
 
-  genresGrid.innerHTML = genres.map(g => `
-    <div class="genre-card" onclick="window.location.hash='#/genres?genre=${encodeURIComponent(g)}'">
-      <h3>${escapeHtml(g)}</h3>
-    </div>
-  `).join('');
+  let shows = [];
+  try {
+    const res = await fetch('/api/shows');
+    if (res.ok) {
+      const data = await res.json();
+      shows = Array.isArray(data) ? data : (data.shows || []);
+    }
+  } catch (e) {
+    console.warn('Error loading catalog for genres:', e);
+  }
+
+  // Genres come from the catalog's own metadata (TMDB names such as "Sci-Fi & Fantasy").
+  const splitGenres = show => String(show.genres || '').split(',').map(g => g.trim()).filter(Boolean);
+  const counts = new Map();
+  shows.forEach(show => splitGenres(show).forEach(g => counts.set(g, (counts.get(g) || 0) + 1)));
+  const genres = [...counts.keys()].sort((a, b) => genreLabel(a).localeCompare(genreLabel(b), 'es'));
+
+  if (genres.length === 0) {
+    genresGrid.innerHTML = '<div class="empty-state">Todavía no hay géneros en el catálogo.</div>';
+  } else {
+    genresGrid.innerHTML = genres.map(g => `
+      <div class="genre-card ${g === activeGenre ? 'active' : ''}" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/genres?genre=' + encodeURIComponent(g))}">
+        <h3>${escapeHtml(genreLabel(g))}</h3>
+        <span class="text-muted">${counts.get(g)} ${counts.get(g) === 1 ? 'título' : 'títulos'}</span>
+      </div>
+    `).join('');
+  }
+
+  if (!catalogSection || !catalogGrid) return;
+  if (!activeGenre) {
+    catalogSection.style.display = 'none';
+    return;
+  }
+  const matching = shows.filter(show => splitGenres(show).includes(activeGenre));
+  catalogSection.style.display = '';
+  if (catalogTitle) catalogTitle.textContent = genreLabel(activeGenre);
+  catalogGrid.innerHTML = matching.length > 0
+    ? matching.map(show => createShowCardHTML(show)).join('')
+    : '<div class="empty-state">No hay títulos con este género.</div>';
+  if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 async function loadSettingsView() {
-  const { activeUser, profileName, token } = getUserAndProfile();
+  const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
   const audioLangSelect = document.getElementById('pref-audio-lang');
   const subLangSelect = document.getElementById('pref-sub-lang');
   const boostSelect = document.getElementById('pref-audio-boost');
@@ -2580,11 +3251,23 @@ async function loadSettingsView() {
   const saveSuccessToast = document.getElementById('settings-save-success');
 
   try {
-    const headers = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(`/api/user/preferences?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
-    if (res.ok) {
-      const data = await res.json();
+    // Guests keep their preferences in localStorage only (the API requires a profile session).
+    const res = hasProfile
+      ? await fetch(`/api/user/preferences?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      : null;
+    const localPrefs = {
+      preferred_audio_language: localStorage.getItem('kurastream_preferred_audio_language') || undefined,
+      preferred_subtitle_language: localStorage.getItem('kurastream_preferred_subtitle_language') || undefined,
+      audio_boost: localStorage.getItem('kura_audio_boost') || undefined,
+      audio_preset: localStorage.getItem('kura_audio_preset') || undefined,
+      auto_skip_intro: localStorage.getItem('kurastream_auto_skip_intro') === 'true',
+      auto_play_next: localStorage.getItem('kurastream_auto_play_next') !== 'false',
+      notifications_enabled: localStorage.getItem('kura_notifications_enabled') !== 'false'
+    };
+    const data = (res && res.ok) ? await res.json() : (hasProfile ? null : { preferences: localPrefs });
+    if (data) {
       const prefs = data.preferences || data;
       if (audioLangSelect) audioLangSelect.value = prefs.preferred_audio_language || 'default';
       if (subLangSelect) subLangSelect.value = prefs.preferred_subtitle_language || 'default';
@@ -2592,7 +3275,7 @@ async function loadSettingsView() {
       if (presetSelect) presetSelect.value = prefs.audio_preset || 'flat';
       if (skipIntroToggle) skipIntroToggle.checked = Boolean(prefs.auto_skip_intro);
       if (autoPlayNextToggle) autoPlayNextToggle.checked = prefs.auto_play_next !== false && prefs.auto_play_next !== 0 && prefs.auto_play_next !== 'false';
-      if (notifToggle) notifToggle.checked = Boolean(prefs.notifications_enabled);
+      if (notifToggle) notifToggle.checked = prefs.notifications_enabled !== false;
 
       if (!window.userPreferences) window.userPreferences = {};
       Object.assign(window.userPreferences, prefs);
@@ -2621,11 +3304,13 @@ async function loadSettingsView() {
     };
 
     try {
-      const res = await fetch('/api/user/preferences', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload)
-      });
+      const res = hasProfile
+        ? await fetch('/api/user/preferences', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        })
+        : { ok: true };
       if (res.ok) {
         if (!window.userPreferences) window.userPreferences = {};
         Object.assign(window.userPreferences, payload);
@@ -2641,6 +3326,8 @@ async function loadSettingsView() {
         }
         localStorage.setItem('kura_audio_boost', String(boostSelect ? boostSelect.value : 100));
         localStorage.setItem('kura_audio_preset', presetSelect ? presetSelect.value : 'flat');
+        localStorage.setItem('kura_notifications_enabled', String(notifToggle ? notifToggle.checked : true));
+        loadNotifications();
 
         if (saveSuccessToast) {
           saveSuccessToast.style.display = 'block';
@@ -2658,12 +3345,177 @@ async function loadSettingsView() {
   if (presetSelect) presetSelect.onchange = savePreferences;
   if (skipIntroToggle) skipIntroToggle.onchange = savePreferences;
   if (autoPlayNextToggle) autoPlayNextToggle.onchange = savePreferences;
+
+  // Visual performance mode is a per-device choice (an old PC and a phone differ), so it lives
+  // in localStorage rather than in the synced profile preferences.
+  const perfModeSelect = document.getElementById('perfModeSelect');
+  if (perfModeSelect) {
+    let storedMode = null;
+    try { storedMode = localStorage.getItem('kurastream_perf_mode'); } catch { storedMode = null; }
+    perfModeSelect.value = storedMode === 'lite' || storedMode === 'full' ? storedMode : 'auto';
+    perfModeSelect.onchange = () => {
+      const mode = perfModeSelect.value;
+      try {
+        if (mode === 'auto') localStorage.removeItem('kurastream_perf_mode');
+        else localStorage.setItem('kurastream_perf_mode', mode);
+      } catch { /* storage blocked: still apply for this session */ }
+      const lowEnd = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4);
+      document.documentElement.classList.toggle('perf-lite', mode === 'lite' || (mode === 'auto' && Boolean(lowEnd)));
+    };
+  }
   if (notifToggle) notifToggle.onchange = savePreferences;
 }
 
 let isProfileManageMode = false;
 let currentEditingAvatar = '';
 let currentEditingColor = '#818CF8';
+
+/** Returns the entered 4-digit PIN, or null if the user cancelled or typed something invalid. */
+function askCurrentProfilePin(profile) {
+  const pin = window.prompt(`Introduce el PIN actual del perfil "${profile.name}"`);
+  if (pin === null) return null;
+  if (!/^\d{4}$/.test(pin.trim())) {
+    showToast('El PIN debe contener exactamente 4 dígitos', 'error');
+    return null;
+  }
+  return pin.trim();
+}
+
+const AVATAR_OUTPUT_SIZE = 512;
+
+/**
+ * Square photo framing inside the profile modal: drag to position, slider/wheel to zoom.
+ * Resolves with a 512px JPEG data URL (≈60 KB) or null if cancelled. Phone photos used to be sent
+ * whole as base64 and the server rejects anything over 5 MB.
+ */
+function openAvatarCropper(src) {
+  return new Promise(resolve => {
+    const main = document.getElementById('profile-edit-main');
+    const actions = document.getElementById('profile-edit-actions');
+    const cropper = document.getElementById('avatar-cropper');
+    const viewport = document.getElementById('avatar-crop-viewport');
+    const img = document.getElementById('avatar-crop-img');
+    const zoomInput = document.getElementById('avatar-crop-zoom');
+    const applyBtn = document.getElementById('btn-crop-apply');
+    const cancelBtn = document.getElementById('btn-crop-cancel');
+    if (!cropper || !viewport || !img || !zoomInput) { resolve(null); return; }
+
+    const state = { zoom: 1, x: 0, y: 0, base: 1, w: 0, h: 0 };
+    const size = () => viewport.clientWidth || 240;
+    const clamp = () => {
+      const v = size();
+      const maxX = Math.max(0, (state.w * state.base * state.zoom - v) / 2);
+      const maxY = Math.max(0, (state.h * state.base * state.zoom - v) / 2);
+      state.x = Math.min(maxX, Math.max(-maxX, state.x));
+      state.y = Math.min(maxY, Math.max(-maxY, state.y));
+    };
+    const render = () => {
+      clamp();
+      img.style.width = `${state.w * state.base * state.zoom}px`;
+      img.style.transform = `translate(calc(-50% + ${state.x}px), calc(-50% + ${state.y}px))`;
+    };
+    const finish = (result) => {
+      cropper.style.display = 'none';
+      if (main) main.style.display = '';
+      if (actions) actions.style.display = '';
+      viewport.onpointerdown = viewport.onpointermove = viewport.onpointerup = viewport.onwheel = null;
+      resolve(result);
+    };
+
+    img.onload = () => {
+      state.w = img.naturalWidth;
+      state.h = img.naturalHeight;
+      state.base = size() / Math.min(state.w, state.h); // cover the circle at zoom 1
+      state.zoom = 1; state.x = 0; state.y = 0;
+      zoomInput.value = '1';
+      render();
+    };
+    img.onerror = () => {
+      showToast('No se pudo leer la imagen (usa JPG, PNG o WebP)', 'error');
+      finish(null);
+    };
+
+    if (main) main.style.display = 'none';
+    if (actions) actions.style.display = 'none';
+    cropper.style.display = 'flex';
+    img.src = src;
+
+    let drag = null;
+    viewport.onpointerdown = (e) => {
+      drag = { px: e.clientX, py: e.clientY, x: state.x, y: state.y };
+      viewport.setPointerCapture(e.pointerId);
+    };
+    viewport.onpointermove = (e) => {
+      if (!drag) return;
+      state.x = drag.x + (e.clientX - drag.px);
+      state.y = drag.y + (e.clientY - drag.py);
+      render();
+    };
+    viewport.onpointerup = () => { drag = null; };
+    viewport.onwheel = (e) => {
+      e.preventDefault();
+      state.zoom = Math.min(3, Math.max(1, state.zoom - e.deltaY * 0.002));
+      zoomInput.value = String(state.zoom);
+      render();
+    };
+    zoomInput.oninput = () => { state.zoom = Number(zoomInput.value) || 1; render(); };
+
+    cancelBtn.onclick = () => finish(null);
+    applyBtn.onclick = () => {
+      const scale = state.base * state.zoom;
+      const v = size();
+      const srcSize = v / scale;
+      const sx = (state.w * scale / 2 - v / 2 - state.x) / scale;
+      const sy = (state.h * scale / 2 - v / 2 - state.y) / scale;
+      const canvas = document.createElement('canvas');
+      canvas.width = AVATAR_OUTPUT_SIZE;
+      canvas.height = AVATAR_OUTPUT_SIZE;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#111824';
+      ctx.fillRect(0, 0, AVATAR_OUTPUT_SIZE, AVATAR_OUTPUT_SIZE);
+      ctx.drawImage(img, sx, sy, srcSize, srcSize, 0, 0, AVATAR_OUTPUT_SIZE, AVATAR_OUTPUT_SIZE);
+      try {
+        finish(canvas.toDataURL('image/jpeg', 0.88));
+      } catch {
+        showToast('No se pudo procesar esa imagen', 'error');
+        finish(null);
+      }
+    };
+  });
+}
+
+/** Posters stored on this server, offered as avatar sources (external URLs would taint the canvas). */
+async function renderLibraryAvatarChoices(grid, onPick) {
+  if (!grid || grid.dataset.loaded === '1') return;
+  grid.innerHTML = '<span class="avatar-library-hint">Cargando…</span>';
+  let shows = appState.get ? appState.get('catalog') : null;
+  if (!Array.isArray(shows) || shows.length === 0) {
+    try {
+      const res = await fetch('/api/shows');
+      const data = await res.json();
+      shows = Array.isArray(data) ? data : (data.shows || []);
+    } catch {
+      shows = [];
+    }
+  }
+  const posters = shows
+    .map(show => ({ title: show.title || '', src: catalogueImageUrl(show.poster_path || '') }))
+    .filter(item => item.src.startsWith('/library/'))
+    .slice(0, 24);
+  if (posters.length === 0) {
+    grid.innerHTML = '<span class="avatar-library-hint">No hay pósters en la biblioteca todavía.</span>';
+    return;
+  }
+  grid.dataset.loaded = '1';
+  grid.innerHTML = posters.map(item => `
+    <button type="button" class="preset-avatar-option library-avatar-option" data-src="${escapeHtmlAttribute(item.src)}"
+      style="background-image: url('${escapeHtmlAttribute(item.src)}');" title="${escapeHtmlAttribute(item.title)}" aria-label="${escapeHtmlAttribute('Usar ' + item.title)}"></button>
+  `).join('');
+  grid.querySelectorAll('.library-avatar-option').forEach(btn => {
+    btn.onclick = () => onPick(btn.getAttribute('data-src'));
+  });
+}
 
 export function openProfileEditModal(mode = 'create', profile = null) {
   const modal = document.getElementById('profile-edit-modal');
@@ -2692,6 +3544,12 @@ export function openProfileEditModal(mode = 'create', profile = null) {
   if (nameInput) nameInput.value = isEdit ? (profile.name || '') : '';
   if (kidsInput) kidsInput.checked = Boolean(isEdit && profile.is_kids);
   if (pinInput) pinInput.value = '';
+  // The API could always clear a PIN (remove_pin), but there was no way to ask for it.
+  const removePinRow = document.getElementById('profile-remove-pin-row');
+  const removePinInput = document.getElementById('profile-remove-pin-input');
+  if (removePinRow) removePinRow.style.display = isEdit && profile.has_pin ? '' : 'none';
+  if (removePinInput) removePinInput.checked = false;
+  const removeAvatarBtn = document.getElementById('btn-remove-avatar');
 
   const updateAvatarPreview = () => {
     if (!avatarDisplay) return;
@@ -2707,6 +3565,7 @@ export function openProfileEditModal(mode = 'create', profile = null) {
       const initial = nameInput && nameInput.value ? nameInput.value[0].toUpperCase() : '?';
       avatarDisplay.textContent = initial;
     }
+    if (removeAvatarBtn) removeAvatarBtn.style.display = currentEditingAvatar ? '' : 'none';
   };
 
   updateAvatarPreview();
@@ -2718,53 +3577,81 @@ export function openProfileEditModal(mode = 'create', profile = null) {
   }
 
   // Preset avatar clicks
-  const presetOptions = modal.querySelectorAll('.preset-avatar-option');
+  const presetOptions = modal.querySelectorAll('#preset-avatars-grid .preset-avatar-option');
+  const clearSelection = () => modal.querySelectorAll('.preset-avatar-option').forEach(o => o.classList.remove('selected'));
   presetOptions.forEach(opt => {
-    opt.classList.remove('selected');
     const presetPath = opt.getAttribute('data-preset');
-    if (presetPath === currentEditingAvatar) opt.classList.add('selected');
-
+    opt.classList.toggle('selected', presetPath === currentEditingAvatar);
     opt.onclick = () => {
-      presetOptions.forEach(o => o.classList.remove('selected'));
+      clearSelection();
       opt.classList.add('selected');
       currentEditingAvatar = presetPath;
       updateAvatarPreview();
     };
   });
 
-  // Upload button
+  const useCroppedPhoto = async (src) => {
+    const cropped = await openAvatarCropper(src);
+    if (cropped) {
+      currentEditingAvatar = cropped;
+      clearSelection();
+      updateAvatarPreview();
+    }
+  };
+
+  // Own photo: framed and downscaled in the browser before upload
   if (uploadBtn && fileInput) {
     uploadBtn.onclick = () => fileInput.click();
-    fileInput.onchange = (e) => {
+    fileInput.onchange = async (e) => {
       const file = e.target.files && e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (re) => {
-          currentEditingAvatar = re.target.result;
-          presetOptions.forEach(o => o.classList.remove('selected'));
-          updateAvatarPreview();
-        };
-        reader.readAsDataURL(file);
+      fileInput.value = '';
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        showToast('Elige una imagen (JPG, PNG o WebP)', 'error');
+        return;
+      }
+      const url = URL.createObjectURL(file);
+      try {
+        await useCroppedPhoto(url);
+      } finally {
+        URL.revokeObjectURL(url);
       }
     };
   }
 
-  // Color swatches
-  const colorMap = {
-    'Purple': '#818CF8',
-    'Green': '#4DD4A7',
-    'Blue': '#5AA7FF',
-    'Red': '#FF6B81',
-    'Orange': '#5ED8C6'
-  };
-  const swatches = modal.querySelectorAll('.color-swatches-row .color-swatch');
-  swatches.forEach(sw => {
-    const colName = sw.getAttribute('data-color');
-    const hex = colorMap[colName] || '#818CF8';
-    sw.classList.toggle('active', currentEditingColor === hex || currentEditingColor === colName);
+  if (removeAvatarBtn) {
+    removeAvatarBtn.onclick = () => {
+      currentEditingAvatar = '';
+      clearSelection();
+      updateAvatarPreview();
+    };
+  }
 
+  // Avatar sources: bundled characters or a poster from the library
+  const presetsGrid = document.getElementById('preset-avatars-grid');
+  const libraryGrid = document.getElementById('library-avatars-grid');
+  modal.querySelectorAll('.avatar-source-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.source === 'presets');
+    tab.onclick = () => {
+      modal.querySelectorAll('.avatar-source-tab').forEach(t => t.classList.toggle('active', t === tab));
+      const fromLibrary = tab.dataset.source === 'library';
+      if (presetsGrid) presetsGrid.style.display = fromLibrary ? 'none' : '';
+      if (libraryGrid) libraryGrid.style.display = fromLibrary ? '' : 'none';
+      if (fromLibrary) renderLibraryAvatarChoices(libraryGrid, useCroppedPhoto);
+    };
+  });
+  if (presetsGrid) presetsGrid.style.display = '';
+  if (libraryGrid) libraryGrid.style.display = 'none';
+
+  // Color swatches (also the background of the initial when there is no photo)
+  const swatches = modal.querySelectorAll('.color-swatches-row .color-swatch');
+  const legacyColors = { Purple: '#818CF8', Green: '#4DD4A7', Blue: '#5AA7FF', Red: '#FF6B81', Orange: '#5ED8C6' };
+  const activeHex = String(legacyColors[currentEditingColor] || currentEditingColor).toUpperCase();
+  swatches.forEach(sw => {
+    const hex = sw.getAttribute('data-hex');
+    sw.classList.toggle('active', hex.toUpperCase() === activeHex);
     sw.onclick = () => {
-      swatches.forEach(s => s.classList.remove('active'));
+      swatches.forEach(other => other.classList.remove('active'));
       sw.classList.add('active');
       currentEditingColor = hex;
       if (!currentEditingAvatar) updateAvatarPreview();
@@ -2777,6 +3664,8 @@ export function openProfileEditModal(mode = 'create', profile = null) {
       deleteBtn.style.display = 'inline-flex';
       deleteBtn.onclick = async () => {
         if (!confirm(`¿Eliminar el perfil "${profile.name}"? Esta acción no se puede deshacer.`)) return;
+        const deletePin = profile.has_pin ? askCurrentProfilePin(profile) : '';
+        if (deletePin === null) return;
         deleteBtn.disabled = true;
         try {
           const token = AuthManager.getToken();
@@ -2786,7 +3675,7 @@ export function openProfileEditModal(mode = 'create', profile = null) {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({ id: profile.id })
+            body: JSON.stringify({ id: profile.id, pin: deletePin })
           });
           const data = await res.json();
           if (res.ok && data.success) {
@@ -2854,6 +3743,9 @@ export function openProfileEditModal(mode = 'create', profile = null) {
       }
 
       const pinVal = pinInput ? pinInput.value.trim() : '';
+      if (removePinInput && removePinInput.checked && !pinVal) {
+        payload.remove_pin = 1;
+      }
       if (pinVal) {
         if (!/^\d{4}$/.test(pinVal)) {
           if (errorDiv) {
@@ -2864,6 +3756,16 @@ export function openProfileEditModal(mode = 'create', profile = null) {
           return;
         }
         payload.pin = pinVal;
+      }
+
+      // The backend requires the current PIN to modify a PIN-protected profile.
+      if (isEdit && profile.has_pin) {
+        const currentPin = askCurrentProfilePin(profile);
+        if (currentPin === null) {
+          saveBtn.disabled = false;
+          return;
+        }
+        payload.current_pin = currentPin;
       }
 
       try {
@@ -2878,6 +3780,11 @@ export function openProfileEditModal(mode = 'create', profile = null) {
         });
         const data = await res.json();
         if (res.ok && data.success) {
+          if (data.token) {
+            // Edited the active profile: keep the session's profile name and kids flag in sync.
+            AuthManager.setSession(data.token, AuthManager.getUser(), data.profile);
+            renderAuthState();
+          }
           modal.style.display = 'none';
           showToast(isEdit ? 'Perfil actualizado' : 'Perfil creado con éxito', 'success');
           loadProfilesView();
@@ -3138,16 +4045,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Load user preferences globally into window.userPreferences
   try {
-    const { activeUser, profileName, token } = getUserAndProfile();
-    const prefHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
-    fetch(`/api/user/preferences?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers: prefHeaders })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data && data.preferences) {
-          window.userPreferences = Object.assign(window.userPreferences || {}, data.preferences);
-        }
-      })
-      .catch(() => {});
+    const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
+    if (hasProfile) {
+      fetch(`/api/user/preferences?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && data.preferences) {
+            window.userPreferences = Object.assign(window.userPreferences || {}, data.preferences);
+          }
+        })
+        .catch(() => {});
+    }
   } catch (err) {
     console.warn('Failed to load initial user preferences:', err);
   }
@@ -3188,6 +4096,27 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
+  // PWA install button: only shown once the browser offers installation
+  const pwaInstallBtn = document.getElementById('pwa-install-btn');
+  if (pwaInstallBtn) {
+    let deferredInstallPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      pwaInstallBtn.style.display = 'inline-flex';
+    });
+    pwaInstallBtn.onclick = async () => {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice.catch(() => null);
+      deferredInstallPrompt = null;
+      pwaInstallBtn.style.display = 'none';
+    };
+    window.addEventListener('appinstalled', () => {
+      pwaInstallBtn.style.display = 'none';
+    });
+  }
+
   // Random Anime Button
   const btnRandom = document.getElementById('btn-random-anime');
   if (btnRandom) {
@@ -3197,16 +4126,35 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  // Search Bar
+  // Search Bar: filters the catalogue grid, jumping to it from any other view
   const searchInput = document.getElementById('search-input');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
-      const query = e.target.value.toLowerCase().trim();
-      const cards = document.querySelectorAll('.show-card');
-      cards.forEach(card => {
-        const title = (card.querySelector('.card-title')?.textContent || '').toLowerCase();
-        card.style.display = !query || title.includes(query) ? '' : 'none';
-      });
+      catalogSearchQuery = e.target.value.toLowerCase().trim();
+      if (currentView !== 'dashboard' && catalogSearchQuery) {
+        window.location.hash = '#/';
+        return;
+      }
+      applyCatalogSearch();
+    });
+  }
+
+  // Mobile: the header search is hidden below 900px; this toggle opens it as a full-width bar
+  const mobileSearchBtn = document.getElementById('btn-mobile-search');
+  if (mobileSearchBtn && searchInput) {
+    const setMobileSearch = (open) => {
+      document.body.classList.toggle('mobile-search-open', open);
+      mobileSearchBtn.setAttribute('aria-expanded', String(open));
+      if (open) searchInput.focus();
+    };
+    mobileSearchBtn.addEventListener('click', () => {
+      setMobileSearch(!document.body.classList.contains('mobile-search-open'));
+    });
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') setMobileSearch(false);
+    });
+    searchInput.addEventListener('blur', () => {
+      if (!searchInput.value) setMobileSearch(false);
     });
   }
 

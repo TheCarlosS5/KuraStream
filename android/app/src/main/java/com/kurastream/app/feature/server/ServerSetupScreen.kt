@@ -1,5 +1,7 @@
 package com.kurastream.app.feature.server
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -67,278 +69,288 @@ fun ServerSetupScreen(
         },
         containerColor = KuraColors.Background
     ) { padding ->
-        Column(
+        // Scrolls above the keyboard (edge-to-edge: adjustResize no longer shrinks the window)
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = KuraDimens.Space5),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .imePadding()
         ) {
-            Spacer(modifier = Modifier.height(KuraDimens.Space8))
-
-            // Icon Header
-            Box(
+            Column(
                 modifier = Modifier
-                    .size(64.dp)
-                    .clip(KuraShapes.Modal)
-                    .background(KuraColors.SurfaceRaised)
-                    .border(1.dp, KuraColors.Border, KuraShapes.Modal),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = maxHeight)
+                    .padding(horizontal = KuraDimens.Space5),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(
-                    imageVector = Icons.Default.Dns,
-                    contentDescription = null,
-                    tint = KuraColors.Primary,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
+                Spacer(modifier = Modifier.height(KuraDimens.Space8))
 
-            Spacer(modifier = Modifier.height(KuraDimens.Space4))
-
-            Text(
-                text = "Conecta con tu servidor",
-                style = MaterialTheme.typography.titleLarge,
-                color = KuraColors.TextMain,
-                fontWeight = FontWeight.Bold
-            )
-
-            Text(
-                text = "Introduce la IP o dominio de tu instancia KuraStream",
-                style = MaterialTheme.typography.bodyMedium,
-                color = KuraColors.TextSecondary,
-                modifier = Modifier.padding(top = KuraDimens.Space1)
-            )
-
-            Spacer(modifier = Modifier.height(KuraDimens.Space6))
-
-            // URL Input Field
-            OutlinedTextField(
-                value = state.urlInput,
-                onValueChange = viewModel::onUrlChanged,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = {
-                    Text(
-                        text = "192.168.1.50:3000 o https://kura.midominio.com",
-                        color = KuraColors.TextMuted,
-                        fontSize = 14.sp
+                // Icon Header
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(KuraShapes.Modal)
+                        .background(KuraColors.SurfaceRaised)
+                        .border(1.dp, KuraColors.Border, KuraShapes.Modal),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Dns,
+                        contentDescription = null,
+                        tint = KuraColors.Primary,
+                        modifier = Modifier.size(32.dp)
                     )
-                },
-                singleLine = true,
-                shape = KuraShapes.Control,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = KuraColors.Primary,
-                    unfocusedBorderColor = KuraColors.Border,
-                    focusedTextColor = KuraColors.TextMain,
-                    unfocusedTextColor = KuraColors.TextMain,
-                    focusedContainerColor = KuraColors.Surface,
-                    unfocusedContainerColor = KuraColors.Surface
-                ),
-                trailingIcon = {
-                    if (state.urlInput.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.onUrlChanged("") }) {
+                }
+
+                Spacer(modifier = Modifier.height(KuraDimens.Space4))
+
+                Text(
+                    text = "Conecta con tu servidor",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = KuraColors.TextMain,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = "Introduce la IP o dominio de tu instancia KuraStream",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = KuraColors.TextSecondary,
+                    modifier = Modifier.padding(top = KuraDimens.Space1)
+                )
+
+                Spacer(modifier = Modifier.height(KuraDimens.Space6))
+
+                // URL Input Field
+                OutlinedTextField(
+                    value = state.urlInput,
+                    onValueChange = viewModel::onUrlChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = {
+                        Text(
+                            text = "192.168.1.50:3000 o https://kura.midominio.com",
+                            color = KuraColors.TextMuted,
+                            fontSize = 14.sp
+                        )
+                    },
+                    singleLine = true,
+                    shape = KuraShapes.Control,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = KuraColors.Primary,
+                        unfocusedBorderColor = KuraColors.Border,
+                        focusedTextColor = KuraColors.TextMain,
+                        unfocusedTextColor = KuraColors.TextMain,
+                        focusedContainerColor = KuraColors.Surface,
+                        unfocusedContainerColor = KuraColors.Surface
+                    ),
+                    trailingIcon = {
+                        if (state.urlInput.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.onUrlChanged("") }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Limpiar",
+                                    tint = KuraColors.TextMuted
+                                )
+                            }
+                        }
+                    }
+                )
+
+                // Dynamic Normalization / Protocol Indicator
+                if (state.validation != null && state.validation!!.isValid) {
+                    Spacer(modifier = Modifier.height(KuraDimens.Space2))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Destino normalizado: ${state.validation!!.normalizedUrl}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = KuraColors.Secondary
+                        )
+                    }
+                }
+
+                // HTTP Unencrypted Warning
+                if (state.validation != null && state.validation!!.isValid && !state.validation!!.isHttps) {
+                    Spacer(modifier = Modifier.height(KuraDimens.Space2))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(KuraShapes.Control)
+                            .background(KuraColors.Warning.copy(alpha = 0.1f))
+                            .padding(horizontal = KuraDimens.Space3, vertical = KuraDimens.Space2),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Alerta",
+                            tint = KuraColors.Warning,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(KuraDimens.Space2))
+                        Text(
+                            text = stringResource(R.string.http_warning),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = KuraColors.TextSecondary
+                        )
+                    }
+                }
+
+                // Error Display
+                if (state.errorMessage != null) {
+                    Spacer(modifier = Modifier.height(KuraDimens.Space3))
+                    Text(
+                        text = state.errorMessage!!,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = KuraColors.Danger,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // Success Display (e.g. Server discovered)
+                if (state.successMessage != null) {
+                    Spacer(modifier = Modifier.height(KuraDimens.Space3))
+                    Text(
+                        text = state.successMessage!!,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = KuraColors.Success,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(KuraDimens.Space4))
+
+                // Connect Button
+                KuraButton(
+                    onClick = attemptConnect,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.isTesting && !state.isScanningLan && state.urlInput.isNotBlank(),
+                    text = if (state.isTesting) stringResource(R.string.testing_connection) else stringResource(R.string.connect)
+                )
+
+                Spacer(modifier = Modifier.height(KuraDimens.Space3))
+
+                // LAN Auto Discovery Button
+                KuraOutlinedButton(
+                    onClick = {
+                        if (state.isScanningLan) {
+                            viewModel.cancelLanDiscovery()
+                        } else {
+                            viewModel.startLanDiscovery()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    text = if (state.isScanningLan) "Buscando en red local… (Cancelar)" else "Buscar servidor local automáticamente",
+                    leadingIcon = {
+                        if (state.isScanningLan) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = KuraColors.Secondary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
                             Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Limpiar",
-                                tint = KuraColors.TextMuted
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = KuraColors.Secondary
                             )
                         }
                     }
-                }
-            )
-
-            // Dynamic Normalization / Protocol Indicator
-            if (state.validation != null && state.validation!!.isValid) {
-                Spacer(modifier = Modifier.height(KuraDimens.Space2))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Destino normalizado: ${state.validation!!.normalizedUrl}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = KuraColors.Secondary
-                    )
-                }
-            }
-
-            // HTTP Unencrypted Warning
-            if (state.validation != null && state.validation!!.isValid && !state.validation!!.isHttps) {
-                Spacer(modifier = Modifier.height(KuraDimens.Space2))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(KuraShapes.Control)
-                        .background(KuraColors.Warning.copy(alpha = 0.1f))
-                        .padding(horizontal = KuraDimens.Space3, vertical = KuraDimens.Space2),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = "Alerta",
-                        tint = KuraColors.Warning,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(KuraDimens.Space2))
-                    Text(
-                        text = stringResource(R.string.http_warning),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = KuraColors.TextSecondary
-                    )
-                }
-            }
-
-            // Error Display
-            if (state.errorMessage != null) {
-                Spacer(modifier = Modifier.height(KuraDimens.Space3))
-                Text(
-                    text = state.errorMessage!!,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = KuraColors.Danger,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            // Success Display (e.g. Server discovered)
-            if (state.successMessage != null) {
-                Spacer(modifier = Modifier.height(KuraDimens.Space3))
-                Text(
-                    text = state.successMessage!!,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = KuraColors.Success,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            Spacer(modifier = Modifier.height(KuraDimens.Space4))
-
-            // Connect Button
-            KuraButton(
-                onClick = attemptConnect,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.isTesting && !state.isScanningLan && state.urlInput.isNotBlank(),
-                text = if (state.isTesting) stringResource(R.string.testing_connection) else stringResource(R.string.connect)
-            )
-
-            Spacer(modifier = Modifier.height(KuraDimens.Space3))
-
-            // LAN Auto Discovery Button
-            KuraOutlinedButton(
-                onClick = {
-                    if (state.isScanningLan) {
-                        viewModel.cancelLanDiscovery()
-                    } else {
-                        viewModel.startLanDiscovery()
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                text = if (state.isScanningLan) "Buscando en red local… (Cancelar)" else "Buscar servidor local automáticamente",
-                leadingIcon = {
-                    if (state.isScanningLan) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            color = KuraColors.Secondary,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = KuraColors.Secondary
-                        )
-                    }
-                }
-            )
-
-            // Local Network Permission Contextual Dialog (Android 17 / API 37)
-            if (state.showLocalNetworkPermissionDialog) {
-                AlertDialog(
-                    onDismissRequest = viewModel::dismissLocalNetworkDialog,
-                    title = {
-                        Text(
-                            text = "Acceso a la Red Local",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = KuraColors.TextMain
-                        )
-                    },
-                    text = {
-                        Text(
-                            text = "KuraStream necesita acceder al servidor multimedia de tu red local para descubrir contenido, cargar imágenes y reproducir video.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = KuraColors.TextSecondary
-                        )
-                    },
-                    confirmButton = {
-                        KuraButton(
-                            onClick = {
-                                permissionLauncher.launch("android.permission.ACCESS_LOCAL_NETWORK")
-                            },
-                            text = "Conceder permiso"
-                        )
-                    },
-                    dismissButton = {
-                        TextButton(onClick = viewModel::dismissLocalNetworkDialog) {
-                            Text("Cancelar", color = KuraColors.TextMuted)
-                        }
-                    },
-                    containerColor = KuraColors.Surface,
-                    shape = KuraShapes.Modal
-                )
-            }
-
-            // Recent Servers Section
-            if (state.recentServers.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(KuraDimens.Space8))
-                Text(
-                    text = stringResource(R.string.recent_servers),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = KuraColors.TextSecondary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = KuraDimens.Space2)
                 )
 
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(KuraDimens.Space2)
-                ) {
-                    items(state.recentServers, key = { it.id }) { server ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(KuraShapes.Card)
-                                .background(KuraColors.Surface)
-                                .border(1.dp, KuraColors.Border, KuraShapes.Card)
-                                .clickable {
-                                    val hasLocalPermission = if (Build.VERSION.SDK_INT >= 37) {
-                                        ContextCompat.checkSelfPermission(context, "android.permission.ACCESS_LOCAL_NETWORK") == PackageManager.PERMISSION_GRANTED
-                                    } else {
-                                        true
-                                    }
-                                    viewModel.selectRecentServer(server, isLocalNetworkPermissionGranted = hasLocalPermission, onSuccess = onServerConnected)
-                                }
-                                .padding(horizontal = KuraDimens.Space4, vertical = KuraDimens.Space3),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = server.displayName,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = KuraColors.TextMain
-                                )
-                                Text(
-                                    text = server.baseUrl,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = KuraColors.TextMuted
-                                )
+                // Local Network Permission Contextual Dialog (Android 17 / API 37)
+                if (state.showLocalNetworkPermissionDialog) {
+                    AlertDialog(
+                        onDismissRequest = viewModel::dismissLocalNetworkDialog,
+                        title = {
+                            Text(
+                                text = "Acceso a la Red Local",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = KuraColors.TextMain
+                            )
+                        },
+                        text = {
+                            Text(
+                                text = "KuraStream necesita acceder al servidor multimedia de tu red local para descubrir contenido, cargar imágenes y reproducir video.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = KuraColors.TextSecondary
+                            )
+                        },
+                        confirmButton = {
+                            KuraButton(
+                                onClick = {
+                                    permissionLauncher.launch("android.permission.ACCESS_LOCAL_NETWORK")
+                                },
+                                text = "Conceder permiso"
+                            )
+                        },
+                        dismissButton = {
+                            TextButton(onClick = viewModel::dismissLocalNetworkDialog) {
+                                Text("Cancelar", color = KuraColors.TextMuted)
                             }
-                            IconButton(onClick = { viewModel.deleteRecentServer(server.id) }) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Eliminar",
-                                    tint = KuraColors.TextMuted,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                        },
+                        containerColor = KuraColors.Surface,
+                        shape = KuraShapes.Modal
+                    )
+                }
+
+                // Recent Servers Section
+                if (state.recentServers.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(KuraDimens.Space8))
+                    Text(
+                        text = stringResource(R.string.recent_servers),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = KuraColors.TextSecondary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = KuraDimens.Space2)
+                    )
+
+                    // Plain Column: a LazyColumn can't live inside the scrolling form (infinite height)
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(KuraDimens.Space2)
+                    ) {
+                        state.recentServers.forEach { server ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(KuraShapes.Card)
+                                    .background(KuraColors.Surface)
+                                    .border(1.dp, KuraColors.Border, KuraShapes.Card)
+                                    .clickable {
+                                        val hasLocalPermission = if (Build.VERSION.SDK_INT >= 37) {
+                                            ContextCompat.checkSelfPermission(context, "android.permission.ACCESS_LOCAL_NETWORK") == PackageManager.PERMISSION_GRANTED
+                                        } else {
+                                            true
+                                        }
+                                        viewModel.selectRecentServer(server, isLocalNetworkPermissionGranted = hasLocalPermission, onSuccess = onServerConnected)
+                                    }
+                                    .padding(horizontal = KuraDimens.Space4, vertical = KuraDimens.Space3),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = server.displayName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = KuraColors.TextMain
+                                    )
+                                    Text(
+                                        text = server.baseUrl,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = KuraColors.TextMuted
+                                    )
+                                }
+                                IconButton(onClick = { viewModel.deleteRecentServer(server.id) }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Eliminar",
+                                        tint = KuraColors.TextMuted,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }

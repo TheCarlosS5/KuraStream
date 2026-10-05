@@ -1,14 +1,17 @@
 package com.kurastream.app.feature.party
 
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +24,13 @@ import com.kurastream.app.R
 import com.kurastream.app.core.designsystem.component.*
 import com.kurastream.app.core.designsystem.theme.*
 import com.kurastream.app.core.model.PartyMessage
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.SentimentVerySatisfied
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 
 @Composable
 fun WatchPartyScreen(
@@ -93,11 +103,25 @@ fun WatchPartyScreen(
 
                     if (state.errorMessage != null) {
                         Spacer(modifier = Modifier.height(KuraDimens.Space3))
-                        Text(
-                            text = state.errorMessage!!,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = KuraColors.Danger
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = state.errorMessage!!,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = KuraColors.Danger,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            IconButton(onClick = viewModel::clearError) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Descartar",
+                                    tint = KuraColors.TextSecondary
+                                )
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(KuraDimens.Space5))
@@ -134,9 +158,14 @@ fun WatchPartyScreen(
                 }
             } else {
                 // Active Room: Participants & Chat
+                val chatListState = rememberLazyListState()
+                LaunchedEffect(state.messages.size) {
+                    if (state.messages.isNotEmpty()) chatListState.animateScrollToItem(state.messages.lastIndex)
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
+                        .imePadding()
                         .padding(KuraDimens.Space4)
                 ) {
                     // Room Header Info
@@ -155,7 +184,10 @@ fun WatchPartyScreen(
                                 text = "Sala: ${session.roomId}",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = KuraColors.TextMain,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically
@@ -214,12 +246,17 @@ fun WatchPartyScreen(
 
                     // Messages LazyColumn
                     LazyColumn(
+                        state = chatListState,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(KuraDimens.Space2)
                     ) {
                         items(state.messages, key = { it.id }) { msg ->
+                            if (msg.type == "reaction" || msg.type == "system") {
+                                PartyNoticeRow(msg)
+                                return@items
+                            }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -242,6 +279,22 @@ fun WatchPartyScreen(
                     }
 
                     Spacer(modifier = Modifier.height(KuraDimens.Space2))
+
+                    // Quick reactions (same set as the web player)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        PartyReactions.ALL.forEach { reaction ->
+                            IconButton(onClick = { viewModel.sendReaction(reaction.key) }) {
+                                Icon(
+                                    imageVector = reaction.icon,
+                                    contentDescription = reaction.label,
+                                    tint = reaction.color
+                                )
+                            }
+                        }
+                    }
 
                     // Chat Input Row
                     Row(
@@ -285,3 +338,69 @@ fun WatchPartyScreen(
         }
     }
 }
+
+/** Reaction keys travel as plain text; older web builds sent emoji, mapped here to the same icons. */
+private object PartyReactions {
+    data class Reaction(val key: String, val label: String, val icon: ImageVector, val color: Color)
+
+    val ALL = listOf(
+        Reaction("flame", "Fuego", Icons.Default.Whatshot, Color(0xFFFF8A4C)),
+        Reaction("heart", "Me encanta", Icons.Default.Favorite, Color(0xFFFF6B81)),
+        Reaction("smile", "Risa", Icons.Default.SentimentVerySatisfied, Color(0xFFF1C75B)),
+        Reaction("sparkles", "Increíble", Icons.Default.AutoAwesome, Color(0xFF9AA3FF)),
+        Reaction("thumbs-up", "Me gusta", Icons.Default.ThumbUp, Color(0xFF5ED8C6))
+    )
+
+    private val LEGACY = mapOf(
+        "\uD83D\uDD25" to "flame",
+        "\u2764\uFE0F" to "heart",
+        "\u2764" to "heart",
+        "\uD83D\uDE02" to "smile",
+        "\uD83E\uDD23" to "smile",
+        "\uD83D\uDE04" to "smile",
+        "\uD83C\uDF89" to "sparkles",
+        "\u2728" to "sparkles",
+        "\uD83D\uDC4D" to "thumbs-up"
+    )
+
+    fun find(message: String): Reaction {
+        val key = LEGACY[message.trim()] ?: message.trim()
+        return ALL.firstOrNull { it.key == key } ?: ALL[3]
+    }
+}
+
+@Composable
+private fun PartyNoticeRow(msg: PartyMessage) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = KuraDimens.Space2),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (msg.type == "reaction") {
+            val reaction = PartyReactions.find(msg.message)
+            Text(
+                text = msg.username,
+                style = MaterialTheme.typography.labelSmall,
+                color = KuraColors.TextMuted
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Icon(
+                imageVector = reaction.icon,
+                contentDescription = reaction.label,
+                tint = reaction.color,
+                modifier = Modifier.size(18.dp)
+            )
+        } else {
+            Text(
+                text = msg.message,
+                style = MaterialTheme.typography.labelSmall,
+                color = KuraColors.TextMuted,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+

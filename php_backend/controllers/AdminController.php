@@ -228,7 +228,9 @@ class AdminController {
         if (!$item) {
             // Fallback search by original_filename or filepath or partial match
             $stmt = $db->prepare("SELECT * FROM staged_imports WHERE original_filename = :id OR filepath = :id OR id LIKE :id_like LIMIT 1");
-            $stmt->execute(['id' => $id, 'id_like' => "%{$id}%"]);
+            // % and _ in the id must match literally, not as LIKE wildcards.
+            $likeId = addcslashes($id, '\\%_');
+            $stmt->execute(['id' => $id, 'id_like' => "%{$likeId}%"]);
             $item = $stmt->fetch();
         }
 
@@ -827,15 +829,33 @@ class AdminController {
         $show = DbHelper::getShow($showId) ?: DbHelper::findShowByFolderOrTitle($showId, $showId);
         if ($show) {
             $loops = !empty($show['backdrop_loops']) ? (is_array($show['backdrop_loops']) ? $show['backdrop_loops'] : json_decode($show['backdrop_loops'], true)) : [];
+            $wasRegistered = in_array($loopUrl, $loops, true);
             $loops = array_values(array_filter($loops, fn($u) => $u !== $loopUrl));
             $show['backdrop_loops'] = $loops;
             DbHelper::saveShow($show);
 
-            $localFile = ROOT_DIR . $loopUrl;
-            if (file_exists($localFile)) @unlink($localFile);
+            // Only delete a file this show actually registered, and only inside the library.
+            // Loop URLs are "/library/<rel>" (see uploadShowLoop) and must map onto LIBRARY_DIR,
+            // which may live outside ROOT_DIR when MEDIA_LIBRARY_PATH is configured.
+            $localFile = $wasRegistered ? self::resolveLibraryUrlToFile($loopUrl) : null;
+            if ($localFile !== null) @unlink($localFile);
         }
 
         jsonResponse(['success' => true]);
+    }
+
+    /**
+     * Maps a public "/library/..." URL to a real file inside LIBRARY_DIR, or null when the
+     * path escapes the library (../, symlinks) or is not a regular file.
+     */
+    public static function resolveLibraryUrlToFile(string $url): ?string {
+        $prefix = '/library/';
+        if (!str_starts_with($url, $prefix)) return null;
+        $libReal = realpath(LIBRARY_DIR);
+        $candidate = realpath(LIBRARY_DIR . '/' . substr($url, strlen($prefix)));
+        if ($libReal === false || $candidate === false || !is_file($candidate)) return null;
+        $libRoot = rtrim($libReal, '/\\') . DIRECTORY_SEPARATOR;
+        return str_starts_with($candidate, $libRoot) ? $candidate : null;
     }
 
     public static function uploadEpisodeThumb(): void {
@@ -1271,6 +1291,21 @@ class AdminController {
         jsonResponse($results);
     }
 
+    /** Re-fetches a show's per-season art/metadata and looks up its intros on AniSkip. */
+    public static function syncShowSeasons(string $showId): void {
+        AuthMiddleware::requireAdmin();
+        require_once __DIR__ . '/../services/IntroSync.php';
+        $data = json_decode(file_get_contents('php://input'), true) ?: [];
+        $force = !empty($data['force']) || !empty($_GET['force']);
+        @set_time_limit(300);
+        $seasons = SeasonSync::syncShow($showId, $force);
+        if (!empty($seasons['error'])) {
+            jsonError('Show no encontrado', 404);
+        }
+        $intros = IntroSync::syncShow($showId, $force);
+        jsonResponse(['success' => true, 'seasons' => $seasons, 'intros' => $intros]);
+    }
+
     public static function detectTimings(?string $epId = null): void {
         AuthMiddleware::requireAdmin();
         $raw = file_get_contents('php://input');
@@ -1288,7 +1323,7 @@ class AdminController {
 
         $chapters = !empty($ep['chapters']) ? $ep['chapters'] : [];
         if (empty($chapters) && !empty($ep['filepath']) && file_exists($ep['filepath'])) {
-            $probe = FfmpegScanner::probeMedia($ep['filepath']);
+            $probe = FfmpegScanner::probeVideo($ep['filepath']);
             if (!empty($probe['chapters'])) {
                 $chapters = $probe['chapters'];
                 DbHelper::saveEpisodeTimestamps($episodeId, ['chapters' => $chapters]);
@@ -1341,6 +1376,35 @@ class AdminController {
                 'episode_id' => $episodeId
             ]);
             return;
+        }
+
+        // Level 1b: AniSkip community timings for this episode's MyAnimeList entry
+        require_once __DIR__ . '/../services/SeasonSync.php';
+        $seasonRow = !empty($ep['show_id']) ? DbHelper::getShowSeason($ep['show_id'], (int)$ep['season_number']) : null;
+        $target = $seasonRow ? SeasonSync::malEpisode(json_decode($seasonRow['mal_map'] ?? '[]', true) ?: [], (int)$ep['episode_number']) : null;
+        if ($target !== null && (float)($ep['duration'] ?? 0) > 0) {
+            $skip = AnimeSources::skipTimes($target['mal_id'], $target['episode'], (float)$ep['duration']);
+            if (!empty($skip['op'])) {
+                $introStart = (int)round($skip['op'][0]);
+                $introEnd = (int)round($skip['op'][1]);
+                $outroStart = !empty($skip['ed']) ? (int)floor($skip['ed'][0]) : null;
+                jsonResponse([
+                    'success' => true,
+                    'method' => 'aniskip',
+                    'confidence' => 0.9,
+                    'intro_start' => $introStart,
+                    'intro_end' => $introEnd,
+                    'outro_start' => $outroStart,
+                    'proposed_intro_start' => $introStart,
+                    'proposed_intro_end' => $introEnd,
+                    'proposed_outro_start' => $outroStart,
+                    'matched_episodes' => [$episodeId],
+                    'mal_id' => $target['mal_id'],
+                    'mal_episode' => $target['episode'],
+                    'episode_id' => $episodeId
+                ]);
+                return;
+            }
         }
 
         // Level 2: Sibling episode / Season repetition
@@ -1441,7 +1505,8 @@ class AdminController {
                     DbHelper::saveEpisodeTimestamps($ep['id'], [
                         'intro_start' => $introStart,
                         'intro_end' => $introEnd,
-                        'outro_start' => $outroStart
+                        'outro_start' => $outroStart,
+                        'intro_source' => 'manual'
                     ]);
                     $appliedCount++;
                 }
@@ -1454,7 +1519,8 @@ class AdminController {
             DbHelper::saveEpisodeTimestamps($episodeId, [
                 'intro_start' => $introStart,
                 'intro_end' => $introEnd,
-                'outro_start' => $outroStart
+                'outro_start' => $outroStart,
+                'intro_source' => 'manual'
             ]);
             $appliedCount = 1;
 
@@ -1465,7 +1531,8 @@ class AdminController {
                         DbHelper::saveEpisodeTimestamps($sibling['id'], [
                             'intro_start' => $introStart,
                             'intro_end' => $introEnd,
-                            'outro_start' => $outroStart
+                            'outro_start' => $outroStart,
+                            'intro_source' => 'manual'
                         ]);
                         $appliedCount++;
                     }
@@ -1492,8 +1559,10 @@ class AdminController {
         $cmd1 = escapeshellcmd($ffmpeg) . ' -nostdin -ss 0 -t 200 -i ' . escapeshellarg($file1) . ' -vn -ac 1 -ar 100 -f f32le pipe:1 2>' . $devNull;
         $cmd2 = escapeshellcmd($ffmpeg) . ' -nostdin -ss 0 -t 200 -i ' . escapeshellarg($file2) . ' -vn -ac 1 -ar 100 -f f32le pipe:1 2>' . $devNull;
 
-        $raw1 = @shell_exec($cmd1);
-        $raw2 = @shell_exec($cmd2);
+        // shell_exec has no timeout: a slow disk or a huge FLAC track used to hang the request.
+        require_once __DIR__ . '/../services/FfmpegScanner.php';
+        $raw1 = FfmpegScanner::executeBoundedCommand($cmd1, 60, false);
+        $raw2 = $raw1 ? FfmpegScanner::executeBoundedCommand($cmd2, 60, false) : null;
 
         if (!$raw1 || !$raw2 || strlen($raw1) < 800 || strlen($raw2) < 800) {
             return null;

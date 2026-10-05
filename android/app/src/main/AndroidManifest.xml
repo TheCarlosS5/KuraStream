@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Required by ExoPlayer WAKE_MODE_NETWORK (keeps Wi-Fi up while streaming in background/PiP) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:name=".KuraStreamApp"

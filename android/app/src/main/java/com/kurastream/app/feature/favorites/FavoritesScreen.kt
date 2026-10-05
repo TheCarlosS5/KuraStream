@@ -1,5 +1,7 @@
 package com.kurastream.app.feature.favorites
 
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -18,7 +20,8 @@ import com.kurastream.app.core.network.ServerUrlResolver
 @Composable
 fun FavoritesScreen(
     viewModel: FavoritesViewModel,
-    onNavigateToShowDetail: (String) -> Unit
+    onNavigateToShowDetail: (String) -> Unit,
+    onNavigateToExplore: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val baseUrl by viewModel.baseUrl.collectAsState()
@@ -42,7 +45,12 @@ fun FavoritesScreen(
                     KuraErrorView(message = state.message, onRetry = viewModel::loadFavorites)
                 }
                 is UiState.Empty -> {
-                    KuraEmptyView(message = state.message)
+                    KuraEmptyView(
+                        message = state.message,
+                        icon = Icons.Outlined.BookmarkBorder,
+                        actionText = "Explorar catálogo",
+                        onAction = onNavigateToExplore
+                    )
                 }
                 is UiState.Content, is UiState.Refreshing -> {
                     val shows = if (state is UiState.Content) state.data else (state as UiState.Refreshing).currentData

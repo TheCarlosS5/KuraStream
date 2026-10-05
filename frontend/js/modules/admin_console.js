@@ -3,7 +3,7 @@
  * Handles real-time server logs streaming and terminal output controls.
  */
 
-import { getAuthHeaders, openAdminLoginModal } from './auth.js';
+import { getAuthHeaders } from './auth.js';
 
 let logsInterval = null;
 

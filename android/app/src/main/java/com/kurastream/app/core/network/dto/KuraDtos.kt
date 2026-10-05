@@ -57,7 +57,8 @@ data class ProfileDto(
     val color: String? = null,
     @SerialName("avatar_color") val avatarColor: String? = null,
     @SerialName("is_kids") val isKids: Boolean = false,
-    @SerialName("has_pin") val hasPin: Boolean = false
+    @SerialName("has_pin") val hasPin: Boolean = false,
+    val avatar: String? = null
 )
 
 @Serializable
@@ -129,7 +130,20 @@ data class ShowDetailResponseDto(
     val status: String? = "finished",
     @SerialName("tmdb_id") val tmdbId: Int? = null,
     val episodes: List<EpisodeDto> = emptyList(),
-    val seasons: Map<String, List<EpisodeDto>> = emptyMap()
+    val seasons: Map<String, List<EpisodeDto>> = emptyMap(),
+    @SerialName("season_info") val seasonInfo: List<SeasonInfoDto> = emptyList()
+)
+
+@Serializable
+data class SeasonInfoDto(
+    @SerialName("season_number") val seasonNumber: Int,
+    val name: String? = "",
+    val title: String? = "",
+    val synopsis: String? = "",
+    val year: Int? = null,
+    val status: String? = null,
+    @SerialName("poster_path") val posterPath: String? = "",
+    @SerialName("backdrop_path") val backdropPath: String? = ""
 )
 
 @Serializable
@@ -152,6 +166,7 @@ data class EpisodeDto(
     @SerialName("intro_start") val introStart: Float? = null,
     @SerialName("intro_end") val introEnd: Float? = null,
     @SerialName("outro_start") val outroStart: Float? = null,
+    @SerialName("outro_end") val outroEnd: Float? = null,
     val chapters: List<ChapterDto>? = emptyList(),
     @SerialName("stream_url") val streamUrl: String? = "",
     @SerialName("direct_playable") val directPlayable: Boolean? = false,
@@ -201,6 +216,24 @@ data class HistoryItemDto(
     @SerialName("episode_number") val episodeNumber: Int? = 1,
     @SerialName("thumbnail_path") val thumbnailPath: String? = "",
     @SerialName("show_title") val showTitle: String? = "",
+    @SerialName("poster_path") val posterPath: String? = "",
+    @SerialName("backdrop_path") val backdropPath: String? = ""
+)
+
+/** One "Continuar viendo" entry from /api/history/continue (in progress, or the next episode). */
+@Serializable
+data class ContinueWatchingItemDto(
+    @SerialName("episode_id") val episodeId: String,
+    @SerialName("show_id") val showId: String? = "",
+    @SerialName("show_title") val showTitle: String? = "",
+    @SerialName("episode_title") val episodeTitle: String? = "",
+    @SerialName("season_number") val seasonNumber: Int? = 1,
+    @SerialName("episode_number") val episodeNumber: Int? = 1,
+    @SerialName("progress_seconds") val progressSeconds: Float? = 0f,
+    val duration: Float? = 0f,
+    @SerialName("up_next") val upNext: Boolean? = false,
+    @SerialName("updated_at") val updatedAt: String? = "",
+    @SerialName("thumbnail_path") val thumbnailPath: String? = "",
     @SerialName("poster_path") val posterPath: String? = "",
     @SerialName("backdrop_path") val backdropPath: String? = ""
 )
@@ -275,21 +308,24 @@ data class NotificationsResponseDto(
 
 @Serializable
 data class NotificationItemDto(
-    val id: Int,
-    val title: String,
-    val message: String,
+    // The API sends ids like "notif_<episode id>" and flags unread items with is_unread.
+    val id: String,
+    val title: String = "",
+    val message: String = "",
     @SerialName("show_id") val showId: String? = null,
     @SerialName("episode_id") val episodeId: String? = null,
     @SerialName("created_at") val createdAt: String = "",
-    @SerialName("is_read") val isRead: Boolean = false
-)
+    @SerialName("is_unread") val isUnread: Boolean = false
+) {
+    val isRead: Boolean get() = !isUnread
+}
 
 @Serializable
 data class CalendarScheduleItemDto(
     @SerialName("schedule_id") val scheduleId: kotlinx.serialization.json.JsonElement? = null,
     @SerialName("airing_at") val airingAt: Long? = 0L,
     @SerialName("time_until") val timeUntil: Long? = 0L,
-    val episode: Int? = 1,
+    val episode: Int? = null,
     val title: String = "",
     @SerialName("romaji_title") val romajiTitle: String? = "",
     @SerialName("english_title") val englishTitle: String? = "",
@@ -356,8 +392,14 @@ data class PartyRoomDto(
     @SerialName("is_playing") val isPlaying: Boolean = false,
     @SerialName("is_public") val isPublic: Boolean = false,
     @SerialName("allow_guest_controls") val allowGuestControls: Boolean = false,
-    @SerialName("member_count") val memberCount: Int = 1,
+    @SerialName("participants_count") val memberCount: Int = 1,
     @SerialName("last_sync_timestamp") val lastSyncTimestamp: Long? = 0L
+)
+
+@Serializable
+data class RandomShowResponseDto(
+    val success: Boolean = true,
+    val show: ShowDto? = null
 )
 
 @Serializable
@@ -413,7 +455,7 @@ data class CommentsResponseDto(
 
 @Serializable
 data class CommentDto(
-    val id: Int,
+    val id: String,
     val username: String = "",
     @SerialName("profile_name") val profileName: String = "",
     val content: String = "",

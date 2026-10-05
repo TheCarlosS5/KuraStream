@@ -486,7 +486,7 @@ class PartyController {
             $min = floor($currentTime / 60);
             $sec = str_pad((int)($currentTime % 60), 2, '0', STR_PAD_LEFT);
             DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} saltó a {$min}:{$sec}", 'system');
-        } elseif ($action === 'episode_change' || $requestedEpisodeId !== $room['episode_id']) {
+        } elseif ($action !== 'heartbeat' && ($action === 'episode_change' || $requestedEpisodeId !== $room['episode_id'])) {
             DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} cambió de episodio", 'system');
         }
 

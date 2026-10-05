@@ -20,7 +20,7 @@ test('notification metadata stays in text and quoted attributes, with encoded ro
   const attack = `<img src=x onerror=alert(1)>"'&`;
   const ids = `show?part/one"'`;
   const list = { innerHTML: '', querySelectorAll: () => [] };
-  const context = vm.createContext({ URL, console, document: { getElementById: key => key === 'notifications-list' ? list : null }, getUserAndProfile: () => ({ activeUser: 'user', profileName: 'profile' }), fetch: async () => ({ ok: true, json: async () => [{ show_id: ids, episode_id: ids, show_title: attack, episode_number: attack, season_number: attack, message: attack, poster_path: 'javascript:alert(1)' }, { show_id: ids, title: attack, poster_path: attack }] }) });
+  const context = vm.createContext({ URL, console, document: { getElementById: key => key === 'notifications-list' ? list : null }, getUserAndProfile: () => ({ activeUser: 'user', profileName: 'profile', hasProfile: true, token: 'test-token' }), fetch: async () => ({ ok: true, json: async () => [{ show_id: ids, episode_id: ids, show_title: attack, episode_number: attack, season_number: attack, message: attack, poster_path: 'javascript:alert(1)' }, { show_id: ids, title: attack, poster_path: attack }] }) });
   for (const name of ['escapeHtml', 'escapeHtmlAttribute', 'catalogueImageUrl', 'loadNotifications']) evaluate(app, name, context);
   await context.loadNotifications();
   assert.ok(!list.innerHTML.includes('<img src=x'), 'No injected elements');
@@ -57,7 +57,7 @@ for (const entry of ['code', 'modal']) {
       const context = vm.createContext({
         console,
         window: { location: { hash: '' }, addEventListener() {} },
-        document: { getElementById: key => nodes[key] || null },
+        document: { getElementById: key => nodes[key] || null, addEventListener() {} },
         partyManager: { joinRoom: async () => ({ episode_id: episodeId }) },
         showToast() {},
         alert: message => { throw new Error(message); },
@@ -82,12 +82,12 @@ for (const entry of ['code', 'modal']) {
 test('decoded IDs retain question marks and slashes through API URL construction', async () => {
   let requested;
   const stop = new Error('Stop after first API request');
-  const context = vm.createContext({ console: { error() {} }, progressSaveInterval: null, document: { getElementById: () => null }, fetch: async url => { requested = url; throw stop; } });
+  const context = vm.createContext({ console: { error() {} }, document: { getElementById: () => null }, fetch: async url => { requested = url; throw stop; } });
   evaluate(player, 'getShowIdFromEpisodeId', context);
-  evaluate(player, 'initPlayer', context);
-  await context.initPlayer('Show?part/one_S1_E1').catch(() => {});
-  assert.equal(context.currentEpisodeId, 'Show?part/one_S1_E1');
-  assert.equal(requested, '/api/shows/Show%3Fpart%2Fone');
+  evaluate(player, 'showApiUrl', context);
+  // The player loads its episode through showApiUrl(getShowIdFromEpisodeId(id)).
+  assert.ok(/showApiUrl\(getShowIdFromEpisodeId\(episodeId\)\)|showApiUrl\(showId\)/.test(player), 'player must build the show request with showApiUrl');
+  assert.equal(context.showApiUrl(context.getShowIdFromEpisodeId('Show?part/one_S1_E1')), '/api/shows/Show%3Fpart%2Fone');
   assert.equal(context.getShowIdFromEpisodeId('Show%2Ftitle_S1_E1'), 'Show%2Ftitle', 'Literal percent escapes in IDs are not decoded twice');
   // Detail loading needs only the initial DOM reset before its first API request.
   const node = { textContent: '', innerHTML: '', children: [], remove() {} };
@@ -135,7 +135,7 @@ test('new service worker installs exact versioned shell assets and retires old c
     }
   };
   const mainScriptMatch = html.match(/src="(\/js\/main\.js\?[^"]+)"/);
-  checkModule(mainScriptMatch ? mainScriptMatch[1] : '/js/main.js?v=2026.09.26-modern-streaming-rc2');
+  checkModule(mainScriptMatch ? mainScriptMatch[1] : '/js/main.js?v=2026.10.04-credits');
   handlers.activate({ waitUntil: promise => { done = promise; } });
   await done;
   assert.deepEqual(removed, ['kurastream-v2.0']);

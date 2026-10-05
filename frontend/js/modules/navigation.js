@@ -4,9 +4,10 @@
  * and Admin sidebar sub-view switching.
  */
 
-import { toggleLaptopDisplayPower, startAdminStatsPolling, stopAdminStatsPolling } from './admin_status.js';
+import { toggleLaptopDisplayPower, startAdminStatsPolling, stopAdminStatsPolling, fetchAdminStats } from './admin_status.js';
+import { getAuthHeaders } from './auth.js';
 import { loadStagedImports } from './admin_staging.js';
-import { updateShowTitle, scrapeShowCover, loadAdminPanel } from './admin_library.js';
+import { saveShowTitleAndStatus, scrapeShowCover, loadAdminPanel } from './admin_library.js';
 import { clearConsoleLogs, startAdminLogsPolling, stopAdminLogsPolling } from './admin_console.js';
 import { initImportForm } from './admin_import.js';
 
@@ -55,10 +56,31 @@ export function updateActiveNavHighlight(hash = location.hash || '#/') {
   } else if (baseHash === '#/settings') {
     const el = document.getElementById('nav-settings') || document.querySelector('a[href="#/settings"]');
     if (el) el.classList.add('active');
+  } else if (baseHash === '#/app') {
+    const el = document.getElementById('nav-app-download');
+    if (el) el.classList.add('active');
   }
 }
 
+/**
+ * Publishes the header's real height as --header-offset. The header wraps to two rows on narrow
+ * screens (and the row height depends on what the account area shows), so a fixed margin either
+ * hid the top of every view or left a gap.
+ */
+function syncHeaderOffset() {
+  const header = document.querySelector('.app-header');
+  if (!header || typeof ResizeObserver === 'undefined') return;
+  const apply = () => {
+    const height = Math.round(header.getBoundingClientRect().height);
+    // The player hides the header; keep the last offset instead of collapsing the layout.
+    if (height > 0) document.documentElement.style.setProperty('--header-offset', `${height}px`);
+  };
+  new ResizeObserver(apply).observe(header);
+  apply();
+}
+
 export function initHeaderDropdowns() {
+  syncHeaderOffset();
   const exploreDropdown = document.getElementById('nav-explore-dropdown');
   const exploreTrigger = document.getElementById('nav-explore-trigger');
   const exploreMenu = document.getElementById('nav-explore-menu');
@@ -115,8 +137,11 @@ export function initHeaderDropdowns() {
       });
     });
 
+    // Hover-open is for mice only: a tap fires a compatibility mouseenter right before the click,
+    // so the click handler saw the menu already open and closed it again.
     let exploreLeaveTimer = null;
-    exploreDropdown.addEventListener('mouseenter', () => {
+    exploreDropdown.addEventListener('pointerenter', (e) => {
+      if (e.pointerType !== 'mouse') return;
       if (exploreLeaveTimer) {
         clearTimeout(exploreLeaveTimer);
         exploreLeaveTimer = null;
@@ -125,7 +150,8 @@ export function initHeaderDropdowns() {
       exploreDropdown.classList.add('open');
       if (exploreTrigger) exploreTrigger.classList.add('active');
     });
-    exploreDropdown.addEventListener('mouseleave', () => {
+    exploreDropdown.addEventListener('pointerleave', (e) => {
+      if (e.pointerType !== 'mouse') return;
       exploreLeaveTimer = setTimeout(() => {
         exploreMenu.classList.remove('show');
         exploreDropdown.classList.remove('open');
@@ -367,7 +393,35 @@ export function initAdminSidebar() {
   setupAdminActionButtons();
 }
 
+async function runLibraryScan(btn, endpoint) {
+  if (btn.disabled) return;
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = 'Escaneando biblioteca...';
+  try {
+    const res = await fetch(endpoint, { method: 'POST', headers: getAuthHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      window.showToast?.(`Escaneo completado: ${data.shows_count ?? 0} títulos, ${data.scanned_count ?? 0} archivos`, 'success');
+      fetchAdminStats();
+    } else {
+      window.showToast?.(data.error || 'No se pudo escanear la biblioteca', 'error');
+    }
+  } catch {
+    window.showToast?.('Error de red al escanear la biblioteca', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+}
+
 function setupAdminActionButtons() {
+  // Library scan / repair (both re-index the media folders and fix stale paths)
+  const btnScan = document.getElementById('btn-scan-library');
+  const btnRepair = document.getElementById('btn-repair-server');
+  if (btnScan) btnScan.onclick = () => runLibraryScan(btnScan, '/api/admin/scan');
+  if (btnRepair) btnRepair.onclick = () => runLibraryScan(btnRepair, '/api/admin/repair-library');
+
   // Display Power Control
   const btnOff = document.getElementById('btn-display-off');
   const btnOn = document.getElementById('btn-display-on');
@@ -391,7 +445,84 @@ function setupAdminActionButtons() {
   if (btnSaveTitle) {
     btnSaveTitle.onclick = () => {
       if (showIdInput && showTitleInput) {
-        updateShowTitle(showIdInput.value, showTitleInput.value);
+        const statusSelect = document.getElementById('edit-show-status-select');
+        saveShowTitleAndStatus(showIdInput.value, showTitleInput.value, statusSelect ? statusSelect.value : '');
+      }
+    };
+  }
+
+  // Library: re-detect airing/finished for every show from TMDB (the button had no handler)
+  const btnSyncStatuses = document.getElementById('btn-sync-all-statuses');
+  if (btnSyncStatuses) {
+    btnSyncStatuses.onclick = async () => {
+      btnSyncStatuses.disabled = true;
+      try {
+        const res = await fetch('/api/admin/sync-statuses', { method: 'POST', headers: getAuthHeaders() });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          const n = Array.isArray(data.updated) ? data.updated.length : (data.updated_count ?? null);
+          alert(n === null ? 'Estados sincronizados con TMDB.' : `Estados sincronizados con TMDB (${n} actualizados).`);
+          loadAdminPanel();
+        } else {
+          alert('Error al sincronizar estados: ' + (data.error || res.status));
+        }
+      } catch (err) {
+        alert('Error de red: ' + err.message);
+      } finally {
+        btnSyncStatuses.disabled = false;
+      }
+    };
+  }
+
+  // Branding: custom header logo upload / reset (both controls had no handler)
+  const logoZone = document.getElementById('logo-drop-zone');
+  const logoInput = document.getElementById('logo-file-input');
+  const uploadLogo = async (file) => {
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    const headers = getAuthHeaders();
+    delete headers['Content-Type'];
+    try {
+      const res = await fetch('/api/admin/upload-logo', { method: 'POST', headers, body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        refreshHeaderLogo();
+        alert('Logotipo actualizado.');
+      } else {
+        alert('Error al subir el logotipo: ' + (data.error || res.status));
+      }
+    } catch (err) {
+      alert('Error de red: ' + err.message);
+    } finally {
+      if (logoInput) logoInput.value = '';
+    }
+  };
+  if (logoZone && logoInput) {
+    logoZone.onclick = () => logoInput.click();
+    logoInput.onchange = () => uploadLogo(logoInput.files && logoInput.files[0]);
+    logoZone.ondragover = (e) => { e.preventDefault(); logoZone.classList.add('dragover'); };
+    logoZone.ondragleave = () => logoZone.classList.remove('dragover');
+    logoZone.ondrop = (e) => {
+      e.preventDefault();
+      logoZone.classList.remove('dragover');
+      uploadLogo(e.dataTransfer.files && e.dataTransfer.files[0]);
+    };
+  }
+  const btnResetLogo = document.getElementById('btn-reset-logo');
+  if (btnResetLogo) {
+    btnResetLogo.onclick = async () => {
+      if (!confirm('¿Restablecer el logotipo original de KuraStream?')) return;
+      try {
+        const res = await fetch('/api/admin/reset-logo', { method: 'POST', headers: getAuthHeaders() });
+        if (res.ok) {
+          refreshHeaderLogo();
+          alert('Logotipo restablecido.');
+        } else {
+          alert('Error al restablecer el logotipo.');
+        }
+      } catch (err) {
+        alert('Error de red: ' + err.message);
       }
     };
   }
@@ -400,4 +531,14 @@ function setupAdminActionButtons() {
       if (showIdInput) scrapeShowCover(showIdInput.value);
     };
   }
+}
+
+/** Reloads the header logo after an upload/reset (cache-busted so the new image shows at once). */
+function refreshHeaderLogo() {
+  const img = document.getElementById('custom-logo');
+  const fallback = document.getElementById('fallback-logo');
+  if (!img) return;
+  img.style.display = '';
+  if (fallback) fallback.style.display = 'none';
+  img.src = `/library/logo.png?t=${Date.now()}`;
 }

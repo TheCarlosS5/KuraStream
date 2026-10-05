@@ -1,5 +1,6 @@
 package com.kurastream.app.core.repository
 
+import com.kurastream.app.core.network.toUserFacingError
 import com.kurastream.app.core.model.Profile
 import com.kurastream.app.core.model.User
 import com.kurastream.app.core.network.KuraApiService
@@ -33,7 +34,7 @@ class AuthRepository(
                 Result.failure(Exception(response.error ?: "Error de autenticación"))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -53,7 +54,7 @@ class AuthRepository(
                 Result.failure(Exception(response.error ?: "Error al registrar usuario"))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -67,7 +68,7 @@ class AuthRepository(
                 Result.failure(Exception(response.error ?: "Error cargando perfiles"))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -89,7 +90,7 @@ class AuthRepository(
                 Result.failure(Exception(response.error ?: "PIN o perfil incorrecto"))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -109,7 +110,7 @@ class AuthRepository(
                 Result.failure(Exception(response.error ?: "No fue posible guardar el perfil"))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -124,7 +125,7 @@ class AuthRepository(
             preferencesDataSource.clearSession()
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toUserFacingError())
         }
     }
 
@@ -135,6 +136,7 @@ class AuthRepository(
         color = avatarColor ?: color ?: "#818CF8",
         avatarColor = avatarColor ?: color ?: "#818CF8",
         isKids = isKids,
-        hasPin = hasPin
+        hasPin = hasPin,
+        avatar = avatar.orEmpty()
     )
 }

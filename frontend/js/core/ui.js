@@ -4,8 +4,8 @@
  */
 
 export function escapeHtml(str) {
-  if (typeof str !== 'string') return String(str ?? '');
-  return str
+  // Non-strings (numbers, arrays from loose JSON) must be escaped too, not passed through.
+  return (typeof str === 'string' ? str : String(str ?? ''))
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

@@ -6,10 +6,35 @@
 
 import { getAuthHeaders } from './auth.js';
 import { AuthManager } from '../core/auth.js';
+import { iconSvg } from '../core/icons.js';
+
+// Reactions travel as icon keys; older clients sent emoji, which are mapped onto the same icons.
+/** Longest stretch a guest extrapolates the host clock (heartbeats arrive every 10 s). */
+const MAX_SYNC_EXTRAPOLATION_S = 30;
+
+const REACTION_ICONS = {
+  flame: { icon: 'flame', color: '#FF8A4C' },
+  heart: { icon: 'heart', color: '#FF6B81' },
+  smile: { icon: 'laugh', color: '#F1C75B' },
+  sparkles: { icon: 'sparkles', color: '#9AA3FF' },
+  'thumbs-up': { icon: 'thumbs-up', color: '#5ED8C6' }
+};
+const LEGACY_REACTIONS = {
+  '\u{1F525}': 'flame',
+  '\u2764\uFE0F': 'heart',
+  '\u2764': 'heart',
+  '\u{1F602}': 'smile',
+  '\u{1F923}': 'smile',
+  '\u{1F604}': 'smile',
+  '\u{1F389}': 'sparkles',
+  '\u2728': 'sparkles',
+  '\u{1F44D}': 'thumbs-up'
+};
 
 class PartyManager {
   constructor() {
     this.activeRoom = null;
+    this.clockOffsetMs = 0;
     this.currentUser = {
       username: '',
       isHost: false,
@@ -44,7 +69,7 @@ class PartyManager {
       try {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         this.audioContext = new AudioContext();
-      } catch (e) {}
+      } catch {}
     }
     if (this.audioContext && this.audioContext.state === 'suspended') {
       this.audioContext.resume();
@@ -91,12 +116,7 @@ class PartyManager {
 
   toggleSounds() {
     this.soundsMuted = !this.soundsMuted;
-    localStorage.setItem('party_sounds_muted', this.soundsMuted ? 'true' : 'false');
-    const icon = document.getElementById('party-sound-icon');
-    if (icon) {
-      icon.setAttribute('data-lucide', this.soundsMuted ? 'volume-x' : 'volume-2');
-      if (window.lucide) window.lucide.createIcons({ root: icon.parentElement });
-    }
+    try { localStorage.setItem('party_sounds_muted', this.soundsMuted ? 'true' : 'false'); } catch { /* storage blocked */ }
   }
 
   on(event, callback) {
@@ -139,7 +159,7 @@ class PartyManager {
 
       const profile = AuthManager.getActiveProfile();
       if (profile && profile.name) return profile.name;
-    } catch (e) {}
+    } catch {}
 
     let guestName = localStorage.getItem('kura_party_nickname');
     if (!guestName) {
@@ -255,12 +275,13 @@ class PartyManager {
           member_token: memberToken
         })
       });
-    } catch (e) {}
+    } catch {}
 
     this.emit('closed', { reason: 'Has salido de la sala' });
   }
 
   setupRoomState(room, username, isHost) {
+    this.noteServerClock(room);
     this.activeRoom = room;
     this.currentUser = {
       username,
@@ -297,7 +318,7 @@ class PartyManager {
         const data = await res.json();
         return data.sse_ticket || null;
       }
-    } catch (e) {}
+    } catch {}
     return null;
   }
 
@@ -374,6 +395,7 @@ class PartyManager {
         }
         const data = JSON.parse(e.data);
         if (data.room) {
+          this.noteServerClock(data.room);
           this.activeRoom = data.room;
           this.emit('sync', data.room);
         }
@@ -398,7 +420,7 @@ class PartyManager {
               this.participantsMap.set(msg.username, this.getRandomColor(msg.username));
             }
             if (msg.type === 'reaction') {
-              this.triggerFlyingReaction(msg.message);
+              if (msg.username !== this.currentUser.username) this.triggerFlyingReaction(msg.message);
             } else if (msg.type === 'system') {
               this.triggerToastNotification(msg.message);
               const joinMatch = msg.message.match(/(.+) se unió/);
@@ -486,7 +508,7 @@ class PartyManager {
               this.participantsMap.set(msg.username, this.getRandomColor(msg.username));
             }
             if (msg.type === 'reaction') {
-              this.triggerFlyingReaction(msg.message);
+              if (msg.username !== this.currentUser.username) this.triggerFlyingReaction(msg.message);
             } else if (msg.type === 'system') {
               this.triggerToastNotification(msg.message);
               const joinMatch = msg.message.match(/(.+) se unió/);
@@ -506,7 +528,7 @@ class PartyManager {
             if (msg.id > this.lastMessageId) this.lastMessageId = msg.id;
           });
         }
-      } catch (e) {}
+      } catch {}
     }, 1500);
   }
 
@@ -560,8 +582,30 @@ class PartyManager {
     }
   }
 
+  /** Server clock minus local clock, learned from every room payload. */
+  noteServerClock(room) {
+    const serverNow = Number(room && room.server_time_ms);
+    if (serverNow > 0) this.clockOffsetMs = serverNow - Date.now();
+  }
+
+  /**
+   * The host's position right now, in absolute episode seconds: current_time is where the host was
+   * at last_sync_timestamp (server clock), so while playing the time since then is added. Measuring
+   * that with the local clock threw guests to the end of the episode whenever the two clocks
+   * disagreed, so it uses the server offset and never extrapolates past a few heartbeats.
+   */
+  roomPositionNow(room = this.activeRoom) {
+    if (!room) return 0;
+    const base = Math.max(0, Number(room.current_time) || 0);
+    const syncedAt = Number(room.last_sync_timestamp) || 0;
+    if (!room.is_playing || syncedAt <= 0) return base;
+    const elapsed = (Date.now() + (this.clockOffsetMs || 0) - syncedAt) / 1000;
+    return base + Math.min(Math.max(0, elapsed), MAX_SYNC_EXTRAPOLATION_S);
+  }
+
   handleRemoteSync(newRoom) {
     if (!newRoom) return;
+    this.noteServerClock(newRoom);
     if (this.activeRoom && this.activeRoom.is_playing !== newRoom.is_playing) {
       if (newRoom.is_playing) {
         this.triggerToastNotification("El anfitrión ha reanudado el video");
@@ -581,6 +625,8 @@ class PartyManager {
     if (this.syncDebounceTimer) clearTimeout(this.syncDebounceTimer);
 
     this.syncDebounceTimer = setTimeout(async () => {
+      this.syncDebounceTimer = null;
+      if (!this.activeRoom) return;
       try {
         await fetch('/api/party/sync', {
           method: 'POST',
@@ -602,21 +648,36 @@ class PartyManager {
     }, action ? 0 : 250);
   }
 
-  applyRemotePlaybackToVideo(video) {
+  /**
+   * Aligns a guest's <video> with the host.
+   * - Room times are ABSOLUTE episode seconds; a remuxed/transcoded stream starts at `offset`,
+   *   so the guest's absolute position is offset + video.currentTime.
+   * - current_time is the host position at last_sync_timestamp; while playing it must be
+   *   extrapolated or every poll/SSE frame drags guests back.
+   * - Remuxed streams can't seek in place: `seekAbsolute` restarts the stream at that time.
+   */
+  applyRemotePlaybackToVideo(video, { offset = 0, isDirect = true, seekAbsolute = null } = {}) {
     if (!video || !this.activeRoom || this.isHost()) return;
 
-    const targetTime = Number(this.activeRoom.current_time || 0);
     const shouldPlay = Boolean(this.activeRoom.is_playing);
-    const timeDiff = Math.abs(video.currentTime - targetTime);
+    const targetTime = this.roomPositionNow();
+    const clientTime = offset + (video.currentTime || 0);
+    const timeDiff = Math.abs(clientTime - targetTime);
+    // Restarting FFmpeg costs seconds of buffering; a tight window there causes seek loops.
+    const seekThreshold = isDirect ? 2.0 : 5.0;
 
     this.isApplyingRemoteSync = true;
 
     const syncPill = document.getElementById('party-sync-pill');
     const baseRate = this.userBaseRate || 1.0;
     // Smooth drift correction algorithm
-    if (timeDiff > 2.0) {
+    if (timeDiff > seekThreshold) {
       // Major jump / seek by host
-      video.currentTime = targetTime;
+      if (isDirect || typeof seekAbsolute !== 'function') {
+        video.currentTime = Math.max(0, targetTime - offset);
+      } else {
+        seekAbsolute(targetTime);
+      }
     } else if (timeDiff > 0.4 && shouldPlay) {
       if (syncPill) {
         syncPill.innerHTML = `<span class="spinner" style="width: 10px; height: 10px; border-width: 2px; margin-right: 4px;"></span> Alineando...`;
@@ -624,7 +685,7 @@ class PartyManager {
         syncPill.style.borderColor = 'var(--rating-color)';
       }
       // Settle drift gently without audio glitch
-      if (video.currentTime < targetTime) {
+      if (clientTime < targetTime) {
         video.playbackRate = Math.min(4.0, Number((baseRate * 1.06).toFixed(3)));
       } else {
         video.playbackRate = Math.max(0.25, Number((baseRate * 0.94).toFixed(3)));
@@ -675,10 +736,10 @@ class PartyManager {
     }
   }
 
-  async sendReaction(emoji) {
+  async sendReaction(reaction) {
     if (!this.isInRoom()) return;
 
-    this.triggerFlyingReaction(emoji);
+    this.triggerFlyingReaction(reaction);
 
     try {
       await fetch('/api/party/message', {
@@ -689,69 +750,36 @@ class PartyManager {
           username: this.currentUser.username,
           member_id: this.memberId,
           member_token: this.memberToken,
-          message: emoji,
+          message: reaction,
           type: 'reaction'
         })
       });
-    } catch (e) {}
+    } catch {}
   }
 
-  triggerFlyingReaction(emoji) {
-    const container = document.getElementById('player-container') || document.body;
+  triggerFlyingReaction(reaction) {
+    const container = document.getElementById('player-container');
+    if (!container || !document.getElementById('player-view')?.classList.contains('active')) return;
+    const key = REACTION_ICONS[reaction] ? reaction : (LEGACY_REACTIONS[String(reaction).trim()] || 'sparkles');
+    const { icon, color } = REACTION_ICONS[key];
     const particle = document.createElement('div');
     particle.className = 'party-flying-reaction';
-    particle.textContent = emoji;
-
-    const startX = 60 + Math.random() * 30; // 60-90% width
-    const driftX = (Math.random() - 0.5) * 60; // random drift
-
-    particle.style.cssText = `
-      position: absolute;
-      bottom: 80px;
-      right: ${100 - startX}%;
-      font-size: ${24 + Math.random() * 16}px;
-      pointer-events: none;
-      z-index: 99999;
-      animation: floatUpReaction 2.2s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
-      --drift-x: ${driftX}px;
-      filter: drop-shadow(0 2px 8px rgba(0,0,0,0.5));
-    `;
-
+    particle.innerHTML = iconSvg(icon, { size: 34 });
+    particle.style.right = `${12 + Math.random() * 22}%`;
+    particle.style.setProperty('--drift-x', `${Math.round((Math.random() - 0.5) * 80)}px`);
+    particle.style.setProperty('--reaction-size', `${28 + Math.round(Math.random() * 14)}px`);
+    particle.style.setProperty('--reaction-color', color);
     container.appendChild(particle);
-    setTimeout(() => {
-      if (particle.parentNode) particle.parentNode.removeChild(particle);
-    }, 2300);
+    setTimeout(() => particle.remove(), 2300);
   }
 
   triggerToastNotification(message) {
-    if (typeof showVideoToast === 'function') {
-      showVideoToast(message);
-    } else {
-      const container = document.getElementById('player-container') || document.body;
-      const toast = document.createElement('div');
-      toast.style.cssText = `
-        position: absolute;
-        top: 80px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(19, 26, 28, 0.9);
-        color: #fff;
-        padding: 8px 16px;
-        border-radius: 4px;
-        font-size: 0.9rem;
-        z-index: 100000;
-        pointer-events: none;
-        border: 1px solid rgba(255,255,255,0.1);
-        backdrop-filter: blur(8px);
-        animation: fadeInDown 0.3s forwards;
-      `;
-      toast.textContent = message;
-      container.appendChild(toast);
-      setTimeout(() => {
-        toast.style.animation = 'fadeOutUp 0.3s forwards';
-        setTimeout(() => { if(toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
-      }, 3000);
-    }
+    const toast = document.getElementById('player-toast');
+    if (!toast || !document.getElementById('player-view')?.classList.contains('active')) return;
+    toast.textContent = message;
+    toast.classList.add('is-visible');
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => toast.classList.remove('is-visible'), 3000);
   }
 
   async fetchPublicRooms() {
@@ -759,7 +787,7 @@ class PartyManager {
       const res = await fetch('/api/party/public-rooms');
       const data = await res.json();
       return data.rooms || [];
-    } catch (e) {
+    } catch {
       return [];
     }
   }

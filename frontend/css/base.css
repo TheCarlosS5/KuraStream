@@ -29,7 +29,8 @@ body {
 /* Accessible Focus Ring */
 :focus-visible {
   outline: 2px solid var(--accent-color);
-  outline-offset: 2px;
+  outline-offset: 3px;
+  border-radius: var(--radius-xs);
 }
 
 /* Reduced Motion Override */
@@ -166,6 +167,122 @@ input:focus, select:focus, textarea:focus {
 .state-box-loading { padding: 40px; text-align: center; color: var(--text-muted); grid-column: 1 / -1; }
 .state-box-error { color: var(--danger-color); }
 .icon-star-badge { width: 13px; height: 13px; fill: currentColor; }
-.random-poster-img { max-height: 250px; border-radius: var(--radius-control); margin-bottom: 16px; }
+/* Descubrimiento aleatorio */
+.random-modal-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 760px;
+  max-height: calc(100vh - 32px);
+  overflow: hidden auto;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--shadow-lg);
+}
+.random-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  background: rgba(8, 10, 16, 0.7);
+  color: var(--text-main);
+  cursor: pointer;
+}
+.random-modal-close:hover { background: var(--surface-hover); }
+.random-modal-close svg, .random-modal-close i { width: 18px; height: 18px; }
+.random-card .state-box { min-height: 260px; }
+.random-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--space-6);
+  padding: var(--space-6);
+  isolation: isolate;
+}
+.random-hero-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.18;
+}
+.random-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, var(--surface-color) 15%, rgba(17, 24, 36, 0.86) 60%, rgba(17, 24, 36, 0.7));
+}
+.random-poster-img {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-md);
+}
+.random-info { display: flex; flex-direction: column; min-width: 0; padding-right: var(--space-8); }
+.random-kicker {
+  margin: 0 0 var(--space-2);
+  color: var(--accent-color);
+  font-family: var(--font-title);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.random-title {
+  margin: 0 0 var(--space-3);
+  color: var(--text-main);
+  font-family: var(--font-title);
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+.random-meta { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
+.random-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.random-meta svg, .random-meta i { width: 12px; height: 12px; color: var(--rating-color); }
+.random-synopsis {
+  display: -webkit-box;
+  margin: 0 0 var(--space-5);
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+}
+.random-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: auto; }
+.random-actions .btn { display: inline-flex; align-items: center; gap: var(--space-2); }
+.random-actions svg, .random-actions i { width: 16px; height: 16px; }
+@media (max-width: 640px) {
+  .random-hero { grid-template-columns: 1fr; gap: var(--space-4); padding: var(--space-5) var(--space-4); }
+  .random-poster-img { width: 140px; justify-self: center; }
+  .random-info { padding-right: 0; text-align: center; }
+  .random-meta, .random-actions { justify-content: center; }
+  .random-title { font-size: 1.3rem; }
+  .random-synopsis { -webkit-line-clamp: 5; line-clamp: 5; }
+  .random-actions .btn { flex: 1 1 140px; justify-content: center; }
+}
 .section-title-compact { font-size: 1.1rem; margin-bottom: 14px; }
 .profiles-action-row { margin-top: 40px; display: flex; justify-content: center; }

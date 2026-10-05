@@ -89,7 +89,7 @@ export async function loadShowDetail(showId) {
     let castArray = [];
     try {
       castArray = typeof show.cast_members === 'string' ? JSON.parse(show.cast_members) : (show.cast_members || []);
-    } catch(e) {}
+    } catch {}
 
     const episodes = show.episodes || [];
     const rating = (show.rating && Number(show.rating) > 0) ? Number(show.rating).toFixed(1) : 'N/A';

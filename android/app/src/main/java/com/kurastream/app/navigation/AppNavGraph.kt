@@ -1,5 +1,8 @@
 package com.kurastream.app.navigation
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -148,12 +151,18 @@ fun AppNavGraph(
                 }
             },
             containerColor = KuraColors.Background,
+            // Each screen handles its own status bar (TopAppBar / hero / immersive player). Applying
+            // it here too doubled the gap above every TopAppBar; consumeWindowInsets also stops the
+            // inner Scaffolds from re-adding the bottom inset already covered by the NavigationBar.
+            contentWindowInsets = WindowInsets(0),
             modifier = modifier
         ) { padding ->
             NavContent(
                 navController = navController,
                 startDestination = startDestination,
-                modifier = Modifier.padding(padding)
+                modifier = Modifier
+                    .padding(padding)
+                    .consumeWindowInsets(padding)
             )
         }
     }
@@ -168,7 +177,12 @@ private fun NavContent(
     NavHost(
         navController = navController,
         startDestination = startDestination,
-        modifier = modifier
+        modifier = modifier,
+        // Short cross-fade instead of the abrupt cut between screens
+        enterTransition = { fadeIn(animationSpec = tween(220)) },
+        exitTransition = { fadeOut(animationSpec = tween(160)) },
+        popEnterTransition = { fadeIn(animationSpec = tween(220)) },
+        popExitTransition = { fadeOut(animationSpec = tween(160)) }
     ) {
         // Setup & Auth with Deep Link support (kurastream://server?url=...)
         composable(
@@ -270,6 +284,14 @@ private fun NavContent(
                 viewModel = vm,
                 onNavigateToShowDetail = { showId ->
                     navController.navigate(Screen.ShowDetail.createRoute(showId))
+                },
+                onNavigateToExplore = {
+                    // Same semantics as tapping the bottom-nav tab
+                    navController.navigate(Screen.Explore.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
             )
         }

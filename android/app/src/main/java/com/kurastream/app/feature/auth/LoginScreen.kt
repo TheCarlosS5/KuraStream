@@ -1,5 +1,7 @@
 package com.kurastream.app.feature.auth
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -41,118 +43,127 @@ fun LoginScreen(
         },
         containerColor = KuraColors.Background
     ) { padding ->
-        Column(
+        // Scrolls above the keyboard (edge-to-edge: adjustResize no longer shrinks the window)
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = KuraDimens.Space5),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .imePadding()
         ) {
-            Text(
-                text = "Bienvenido a KuraStream",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = KuraColors.TextMain
-            )
-            Spacer(modifier = Modifier.height(KuraDimens.Space2))
-            Text(
-                text = "Ingresa tus credenciales para continuar",
-                style = MaterialTheme.typography.bodyMedium,
-                color = KuraColors.TextSecondary
-            )
-
-            Spacer(modifier = Modifier.height(KuraDimens.Space8))
-
-            // Username Field
-            OutlinedTextField(
-                value = state.usernameInput,
-                onValueChange = viewModel::onUsernameChanged,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.username)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Text,
-                    imeAction = ImeAction.Next
-                ),
-                keyboardActions = KeyboardActions(
-                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
-                ),
-                shape = KuraShapes.Control,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = KuraColors.Primary,
-                    unfocusedBorderColor = KuraColors.Border,
-                    focusedTextColor = KuraColors.TextMain,
-                    unfocusedTextColor = KuraColors.TextMain,
-                    focusedContainerColor = KuraColors.Surface,
-                    unfocusedContainerColor = KuraColors.Surface
-                )
-            )
-
-            Spacer(modifier = Modifier.height(KuraDimens.Space4))
-
-            // Password Field
-            OutlinedTextField(
-                value = state.passwordInput,
-                onValueChange = viewModel::onPasswordChanged,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.password)) },
-                singleLine = true,
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done
-                ),
-                keyboardActions = KeyboardActions(
-                    onDone = {
-                        focusManager.clearFocus()
-                        viewModel.login(onLoginSuccess)
-                    }
-                ),
-                trailingIcon = {
-                    val icon = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(imageVector = icon, contentDescription = null, tint = KuraColors.TextSecondary)
-                    }
-                },
-                shape = KuraShapes.Control,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = KuraColors.Primary,
-                    unfocusedBorderColor = KuraColors.Border,
-                    focusedTextColor = KuraColors.TextMain,
-                    unfocusedTextColor = KuraColors.TextMain,
-                    focusedContainerColor = KuraColors.Surface,
-                    unfocusedContainerColor = KuraColors.Surface
-                )
-            )
-
-            if (state.errorMessage != null) {
-                Spacer(modifier = Modifier.height(KuraDimens.Space3))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = maxHeight)
+                    .padding(horizontal = KuraDimens.Space5),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
                 Text(
-                    text = state.errorMessage!!,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = KuraColors.Danger,
-                    modifier = Modifier.fillMaxWidth()
+                    text = "Bienvenido a KuraStream",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = KuraColors.TextMain
                 )
-            }
-
-            Spacer(modifier = Modifier.height(KuraDimens.Space6))
-
-            KuraButton(
-                onClick = { viewModel.login(onLoginSuccess) },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.isLoading && state.usernameInput.isNotBlank() && state.passwordInput.isNotBlank(),
-                text = if (state.isLoading) "Iniciando sesión…" else stringResource(R.string.login)
-            )
-
-            Spacer(modifier = Modifier.height(KuraDimens.Space4))
-
-            TextButton(onClick = onNavigateToRegister) {
+                Spacer(modifier = Modifier.height(KuraDimens.Space2))
                 Text(
-                    text = stringResource(R.string.no_account),
+                    text = "Ingresa tus credenciales para continuar",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = KuraColors.Primary
+                    color = KuraColors.TextSecondary
                 )
+
+                Spacer(modifier = Modifier.height(KuraDimens.Space8))
+
+                // Username Field
+                OutlinedTextField(
+                    value = state.usernameInput,
+                    onValueChange = viewModel::onUsernameChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.username)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Next
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                    ),
+                    shape = KuraShapes.Control,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = KuraColors.Primary,
+                        unfocusedBorderColor = KuraColors.Border,
+                        focusedTextColor = KuraColors.TextMain,
+                        unfocusedTextColor = KuraColors.TextMain,
+                        focusedContainerColor = KuraColors.Surface,
+                        unfocusedContainerColor = KuraColors.Surface
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(KuraDimens.Space4))
+
+                // Password Field
+                OutlinedTextField(
+                    value = state.passwordInput,
+                    onValueChange = viewModel::onPasswordChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.password)) },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            focusManager.clearFocus()
+                            viewModel.login(onLoginSuccess)
+                        }
+                    ),
+                    trailingIcon = {
+                        val icon = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(imageVector = icon, contentDescription = null, tint = KuraColors.TextSecondary)
+                        }
+                    },
+                    shape = KuraShapes.Control,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = KuraColors.Primary,
+                        unfocusedBorderColor = KuraColors.Border,
+                        focusedTextColor = KuraColors.TextMain,
+                        unfocusedTextColor = KuraColors.TextMain,
+                        focusedContainerColor = KuraColors.Surface,
+                        unfocusedContainerColor = KuraColors.Surface
+                    )
+                )
+
+                if (state.errorMessage != null) {
+                    Spacer(modifier = Modifier.height(KuraDimens.Space3))
+                    Text(
+                        text = state.errorMessage!!,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = KuraColors.Danger,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(KuraDimens.Space6))
+
+                KuraButton(
+                    onClick = { viewModel.login(onLoginSuccess) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.isLoading && state.usernameInput.isNotBlank() && state.passwordInput.isNotBlank(),
+                    text = if (state.isLoading) "Iniciando sesión…" else stringResource(R.string.login)
+                )
+
+                Spacer(modifier = Modifier.height(KuraDimens.Space4))
+
+                TextButton(onClick = onNavigateToRegister) {
+                    Text(
+                        text = stringResource(R.string.no_account),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = KuraColors.Primary
+                    )
+                }
             }
         }
     }

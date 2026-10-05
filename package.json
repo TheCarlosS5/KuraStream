@@ -4,8 +4,8 @@
   "description": "Plataforma moderna de streaming de anime y medios en la nube (PHP 8.4 + MySQL).",
   "type": "module",
   "scripts": {
-    "start": "php -d upload_max_filesize=4096M -d post_max_size=4096M -d memory_limit=512M -d max_execution_time=600 -d max_input_time=600 -c php.ini -S 0.0.0.0:3000 php_backend/router.php",
-    "dev": "php -d upload_max_filesize=4096M -d post_max_size=4096M -d memory_limit=512M -d max_execution_time=600 -d max_input_time=600 -c php.ini -S 0.0.0.0:3000 php_backend/router.php",
+    "start": "node scripts/run-php.mjs -d upload_max_filesize=4096M -d post_max_size=4096M -d memory_limit=512M -d max_execution_time=600 -d max_input_time=600 -c php.ini -S 0.0.0.0:3000 php_backend/router.php",
+    "dev": "node scripts/run-php.mjs -d upload_max_filesize=4096M -d post_max_size=4096M -d memory_limit=512M -d max_execution_time=600 -d max_input_time=600 -c php.ini -S 0.0.0.0:3000 php_backend/router.php",
     "test": "node scripts/run-php.mjs tests/run_all_tests.php",
     "test:php": "node scripts/run-php.mjs tests/run_all_tests.php",
     "test:e2e": "playwright test",

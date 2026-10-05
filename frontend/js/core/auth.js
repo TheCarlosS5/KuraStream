@@ -11,9 +11,26 @@ const STORAGE_KEYS = {
   ACTIVE_PROFILE: 'kurastream_active_profile'
 };
 
+function isTokenExpired(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload.exp === 'number' && payload.exp * 1000 <= Date.now();
+  } catch {
+    return false;
+  }
+}
+
 export class AuthManager {
   static getToken() {
-    return localStorage.getItem(STORAGE_KEYS.TOKEN) || localStorage.getItem('kurastream_token') || null;
+    const token = localStorage.getItem(STORAGE_KEYS.TOKEN) || localStorage.getItem('kurastream_token') || null;
+    // An expired JWT would leave the UI "logged in" while every request fails with 401.
+    if (token && isTokenExpired(token)) {
+      this.clearSession();
+      return null;
+    }
+    return token;
   }
 
   static getUser() {

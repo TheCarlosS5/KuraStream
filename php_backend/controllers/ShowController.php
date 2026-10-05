@@ -102,6 +102,8 @@ class ShowController {
     }
 
     public static function searchShows(): void {
+        // TMDB proxy: never let anonymous visitors spend the server's API quota.
+        AuthMiddleware::requireAuth();
         $query = trim($_GET['query'] ?? '');
         $type = $_GET['type'] ?? 'anime';
 
@@ -152,13 +154,18 @@ class ShowController {
                 $seasons[$sNum][] = $ep;
             }
 
+            // Own poster/banner/synopsis per season (see SeasonSync); `seasons` keeps its old shape.
+            $seasonInfo = array_map([DbHelper::class, 'serializeSeasonForClient'], DbHelper::getShowSeasons($show['id']));
+
             $show['episodes'] = $episodes;
             $show['seasons'] = $seasons;
+            $show['season_info'] = $seasonInfo;
 
             $response = $show;
             $response['show'] = $show;
             $response['episodes'] = $episodes;
             $response['seasons'] = $seasons;
+            $response['season_info'] = $seasonInfo;
 
             jsonResponse($response);
         } catch (Throwable $e) {

@@ -2,6 +2,20 @@
 <html lang="es">
 <head>
   <script>
+    // Lightweight mode must be decided before the first paint (no flash of heavy glass effects).
+    (function () {
+      try {
+        var mode = localStorage.getItem('kurastream_perf_mode'); // 'lite' | 'full' | null (auto)
+        var lowEnd = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+          (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+          (window.matchMedia && window.matchMedia('(prefers-reduced-transparency: reduce)').matches);
+        if (mode === 'lite' || (mode !== 'full' && lowEnd)) {
+          document.documentElement.className += (document.documentElement.className ? ' ' : '') + 'perf-lite';
+        }
+      } catch (e) { /* storage blocked: keep full mode */ }
+    })();
+  </script>
+  <script>
     (function() {
       function sendLog(type, msg, stack) {
         fetch('/api/debug-log', {
@@ -35,12 +49,22 @@
   <meta name="theme-color" content="#080A10">
   <title>KuraStream - Entretenimiento Offline</title>
   <link rel="manifest" href="/manifest.json">
-  <link rel="icon" type="image/png" href="/assets/branding/KuraStreamLogoBlack.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/branding/icon-32.png">
+  <link rel="apple-touch-icon" href="/assets/branding/icon-192.png">
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2026.09.26-modern-streaming-rc2">
+  <!-- style.css @imports these; preloading fetches them in parallel instead of one by one -->
+  <link rel="preload" href="/css/tokens.css" as="style">
+  <link rel="preload" href="/css/base.css" as="style">
+  <link rel="preload" href="/css/layout.css" as="style">
+  <link rel="preload" href="/css/components.css" as="style">
+  <link rel="preload" href="/css/catalog.css" as="style">
+  <link rel="preload" href="/css/player.css" as="style">
+  <link rel="preload" href="/css/admin.css" as="style">
+  <link rel="preload" href="/css/responsive.css" as="style">
+  <link rel="stylesheet" href="style.css?v=2026.10.04-credits">
 </head>
 <body>
   <!-- Offline Status Banner -->
@@ -78,6 +102,7 @@
       <button id="pwa-install-btn" class="btn btn-primary" style="display: none;">
         <i data-lucide="download"></i> Instalar App
       </button>
+      <button type="button" class="nav-icon-btn mobile-search-toggle" id="btn-mobile-search" title="Buscar" aria-label="Buscar" aria-controls="search-input" aria-expanded="false"><i data-lucide="search"></i></button>
       <div class="header-search">
         <input type="search" id="search-input" placeholder="Buscar series, películas...">
         <i data-lucide="search" class="search-icon"></i>
@@ -92,8 +117,8 @@
       </div>
       <!-- User Account Widget -->
       <div class="user-account-container" id="user-account-container">
-        <button class="btn btn-secondary" id="btn-login-trigger">
-          <i data-lucide="user"></i> Iniciar Sesión
+        <button class="btn btn-secondary" id="btn-login-trigger" aria-label="Iniciar Sesión" title="Iniciar Sesión">
+          <i data-lucide="user"></i> <span class="btn-login-label">Iniciar Sesión</span>
         </button>
         <div class="user-profile-menu" id="user-profile-menu" style="display: none;">
           <button class="user-profile-trigger" id="user-profile-trigger">
@@ -108,6 +133,7 @@
             <a href="javascript:void(0)" id="btn-switch-profile" class="user-dropdown-item"><i data-lucide="users"></i> Administrar Perfiles</a>
             <a href="#/stats" class="user-dropdown-item" id="btn-user-stats"><i data-lucide="bar-chart-2"></i> Mis Estadísticas</a>
             <a href="#/settings" class="user-dropdown-item" id="nav-settings"><i data-lucide="settings"></i> Ajustes</a>
+            <a href="#/app" class="user-dropdown-item" id="nav-app-download"><i data-lucide="smartphone"></i> App para Android</a>
             <a href="javascript:void(0)" id="btn-admin-direct" class="user-dropdown-item" style="display: none;"><i data-lucide="shield-check"></i> Panel Admin</a>
             <hr class="dropdown-divider">
             <a href="javascript:void(0)" id="btn-logout" class="user-dropdown-item btn-logout-item"><i data-lucide="log-out"></i> Cerrar Sesión</a>
@@ -151,6 +177,8 @@
         <div class="carousel-indicators" id="carousel-indicators"></div>
       </div>
 
+      <!-- Same gutter/max-width as every other view (was flush against the window edge) -->
+      <div class="catalog-container">
       <!-- Catalog Control & Filter Toolbar -->
       <div class="catalog-toolbar">
         <div class="catalog-toolbar-inner">
@@ -169,14 +197,6 @@
           </div>
           <div class="genre-pill-rail">
             <button type="button" class="genre-pill active" data-genre="all">Todos</button>
-            <button type="button" class="genre-pill" data-genre="Acción">Acción</button>
-            <button type="button" class="genre-pill" data-genre="Aventura">Aventura</button>
-            <button type="button" class="genre-pill" data-genre="Comedia">Comedia</button>
-            <button type="button" class="genre-pill" data-genre="Drama">Drama</button>
-            <button type="button" class="genre-pill" data-genre="Fantasía">Fantasía</button>
-            <button type="button" class="genre-pill" data-genre="Ciencia Ficción">Ciencia Ficción</button>
-            <button type="button" class="genre-pill" data-genre="Romance">Romance</button>
-            <button type="button" class="genre-pill" data-genre="Sobrenatural">Sobrenatural</button>
           </div>
         </div>
       </div>
@@ -184,6 +204,7 @@
       <!-- Sections container (loaded dynamically via main.js) -->
       <div id="dashboard-sections">
         <!-- populated dynamically -->
+      </div>
       </div>
     </section>
 
@@ -194,22 +215,29 @@
           <h1>
             <i data-lucide="calendar"></i> Calendario de Estrenos
           </h1>
-          <p>Explora las emisiones semanales en directo y descubre cuáles ya tienes disponibles en tu biblioteca de KuraStream.</p>
+          <p>Solo los animes que están en emisión esta semana, con su hora de estreno. Los que ya tienes en tu biblioteca aparecen marcados.</p>
         </div>
         <button class="btn btn-secondary" id="btn-refresh-calendar">
           <i data-lucide="rotate-cw"></i> Actualizar
         </button>
       </div>
 
-      <!-- Day Picker Tabs -->
-      <div class="day-picker-container" id="day-picker-tabs">
-        <button class="day-tab active" data-day="Monday">Lunes</button>
-        <button class="day-tab" data-day="Tuesday">Martes</button>
-        <button class="day-tab" data-day="Wednesday">Miércoles</button>
-        <button class="day-tab" data-day="Thursday">Jueves</button>
-        <button class="day-tab" data-day="Friday">Viernes</button>
-        <button class="day-tab" data-day="Saturday">Sábado</button>
-        <button class="day-tab" data-day="Sunday">Domingo</button>
+      <!-- Day Picker Tabs (counts and the "Por confirmar" tab are filled in by main.js) -->
+      <div class="calendar-toolbar">
+        <div class="day-picker-container" id="day-picker-tabs" role="tablist" aria-label="Día de la semana">
+          <button class="day-tab active" data-day="Monday" role="tab">Lunes</button>
+          <button class="day-tab" data-day="Tuesday" role="tab">Martes</button>
+          <button class="day-tab" data-day="Wednesday" role="tab">Miércoles</button>
+          <button class="day-tab" data-day="Thursday" role="tab">Jueves</button>
+          <button class="day-tab" data-day="Friday" role="tab">Viernes</button>
+          <button class="day-tab" data-day="Saturday" role="tab">Sábado</button>
+          <button class="day-tab" data-day="Sunday" role="tab">Domingo</button>
+          <button class="day-tab" data-day="TBA" role="tab" hidden>Por confirmar</button>
+        </div>
+        <label class="calendar-library-toggle">
+          <input type="checkbox" id="calendar-only-library">
+          <span>Solo mi biblioteca</span>
+        </label>
       </div>
 
       <!-- Calendar Grid Container -->
@@ -259,10 +287,12 @@
     <!-- GENRES VIEW -->
     <section id="genres-view" class="view-section app-view">
       <div class="view-header">
-        <h1>
-          <span>Explorar por Géneros</span>
-        </h1>
-        <p>Selecciona una categoría para explorar el catálogo disponible.</p>
+        <div>
+          <h1>
+            <span>Explorar por Géneros</span>
+          </h1>
+          <p>Selecciona una categoría para explorar el catálogo disponible.</p>
+        </div>
       </div>
       <div id="genres-grid" class="genres-grid-container"></div>
       <div id="genre-catalog-section" class="genre-catalog-section">
@@ -274,15 +304,68 @@
     <!-- STATS VIEW -->
     <section id="stats-view" class="view-section app-view">
       <div class="view-header">
-        <h1>
-          <span>Mis Estadísticas</span>
-        </h1>
-        <p>Resumen de tu actividad y hábitos de reproducción.</p>
+        <div>
+          <h1>
+            <span>Mis Estadísticas</span>
+          </h1>
+          <p>Resumen de tu actividad y hábitos de reproducción.</p>
+        </div>
       </div>
       <div id="stats-cards-grid" class="stats-grid-container"></div>
-      <div class="stats-chart-card">
+      <div class="stats-chart-card" id="stats-chart-card">
         <h3>Desglose por Géneros</h3>
         <div id="stats-genre-chart" class="genre-chart-container"></div>
+      </div>
+    </section>
+
+    <!-- ANDROID APP DOWNLOAD VIEW -->
+    <section id="app-download-view" class="view-section app-view">
+      <div class="app-dl-container">
+        <div class="app-dl-card" id="app-dl-card">
+          <div class="app-dl-main">
+            <span class="app-dl-badge"><i data-lucide="smartphone"></i> Android</span>
+            <h1 class="app-dl-title">KuraStream en tu celular</h1>
+            <p class="app-dl-lead">Tu catálogo con reproductor nativo, Watch Party y controles en la pantalla de bloqueo.</p>
+            <a class="btn btn-primary app-dl-button" id="app-dl-button" href="/api/app/android/download" download="KuraStream.apk">
+              <i data-lucide="download"></i> Descargar APK
+            </a>
+            <p class="app-dl-meta" id="app-dl-meta">Comprobando disponibilidad…</p>
+          </div>
+          <div class="app-dl-qr-panel">
+            <div class="app-dl-qr" id="app-dl-qr" aria-label="Código QR de descarga"></div>
+            <p class="app-dl-qr-caption">Escanéalo con la cámara del celular conectado al Wi-Fi de KuraStream</p>
+            <code class="app-dl-qr-url" id="app-dl-qr-url"></code>
+          </div>
+        </div>
+
+        <h2 class="app-dl-steps-title">Cómo instalarla</h2>
+        <ol class="app-dl-steps">
+          <li>
+            <span class="app-dl-step-num">1</span>
+            <div><strong>Descarga el APK</strong><p>Toca el botón de arriba o, desde un PC, escanea el código QR con el celular.</p></div>
+          </li>
+          <li>
+            <span class="app-dl-step-num">2</span>
+            <div><strong>Permite la instalación</strong><p>Al abrir el archivo, Android pedirá autorizar "Instalar apps desconocidas" para tu navegador. Actívalo y vuelve atrás.</p></div>
+          </li>
+          <li>
+            <span class="app-dl-step-num">3</span>
+            <div>
+              <strong>Conecta con este servidor</strong>
+              <p>La app busca el servidor sola en la red. Si no lo encuentra, escribe esta dirección:</p>
+              <div class="app-dl-server">
+                <code id="app-dl-server"></code>
+                <button type="button" class="nav-icon-btn app-dl-copy" id="app-dl-copy" aria-label="Copiar dirección del servidor" title="Copiar">
+                  <i data-lucide="copy" class="app-dl-copy-idle"></i><i data-lucide="check" class="app-dl-copy-done"></i>
+                </button>
+              </div>
+            </div>
+          </li>
+          <li>
+            <span class="app-dl-step-num">4</span>
+            <div><strong>Inicia sesión</strong><p>Usa la misma cuenta y perfiles que en la web; tu historial y tu lista se sincronizan.</p></div>
+          </li>
+        </ol>
       </div>
     </section>
 
@@ -326,6 +409,7 @@
 
         <!-- Main Info and Episodes -->
         <div class="detail-content">
+          <p id="detail-season-eyebrow" class="detail-season-eyebrow" hidden></p>
           <h1 id="detail-title" class="detail-title">--</h1>
           <p id="detail-synopsis" class="detail-synopsis">--</p>
 
@@ -343,6 +427,7 @@
 
           <!-- Season / Episodes Selector -->
           <div class="episodes-section">
+            <div class="season-strip" id="season-strip" hidden></div>
             <div class="episodes-header">
               <h2 class="section-title">Capítulos</h2>
               <div class="season-tabs" id="season-tabs">
@@ -409,130 +494,91 @@
       </div>
     </section>
 
-    <!-- CUSTOM VIDEO PLAYER VIEW -->
+    <!-- VIDEO PLAYER VIEW (wired by player.js; icons are injected as inline SVG) -->
     <section id="player-view" class="app-view full-screen-view">
       <div class="player-container" id="player-container">
-        <!-- Ambilight Canvas -->
-        <canvas id="player-ambilight-canvas"></canvas>
-        <!-- Native Video Element (Controls Disabled) -->
-        <video id="video-element" playsinline></video>
-
-        <!-- Subtitles Render Layer (SubtitlesOctopus canvas renders inside here) -->
+        <canvas id="player-ambilight-canvas" class="player-ambilight" aria-hidden="true"></canvas>
+        <video id="video-element" playsinline preload="auto"></video>
         <div id="subtitles-container" class="subtitles-container"></div>
 
-        <!-- Player Error Overlay -->
-        <div id="player-error-overlay" class="player-error-overlay" style="display: none;">
-          <div class="error-card">
-            <i data-lucide="alert-triangle" class="error-icon"></i>
-            <h3>Error de Reproducción</h3>
-            <p id="player-error-message">No se pudo cargar el video. Por favor, comprueba tu conexión o el archivo de origen.</p>
-            <button class="btn btn-primary" id="player-error-retry-btn">
-              <i data-lucide="refresh-cw"></i> Reintentar
-            </button>
-          </div>
+        <div id="player-loader" class="player-loader" hidden>
+          <div class="player-spinner" aria-hidden="true"></div>
+          <span class="player-loader-text" id="player-loader-text"></span>
         </div>
 
-        <!-- Custom Video Player Controls Overlay -->
+        <div class="player-seek-feedback is-left" id="player-seek-feedback-left" aria-hidden="true">
+          <span class="player-seek-feedback-icon"></span><span class="player-seek-feedback-label"></span>
+        </div>
+        <div class="player-seek-feedback is-right" id="player-seek-feedback-right" aria-hidden="true">
+          <span class="player-seek-feedback-icon"></span><span class="player-seek-feedback-label"></span>
+        </div>
+
+        <div class="player-hud-pill" id="player-hud" role="status" aria-live="polite">
+          <span class="player-hud-icon"></span><span class="player-hud-label"></span>
+        </div>
+        <div class="player-toast" id="player-toast" role="status" aria-live="polite"></div>
+
         <div class="player-controls-overlay" id="player-controls-overlay">
-          
-          <!-- Top Control Bar -->
           <div class="player-top-bar">
-            <button class="player-btn" id="player-back-btn"><i data-lucide="arrow-left"></i></button>
+            <button type="button" class="player-btn" id="player-back-btn" aria-label="Volver a la serie" data-tip="Volver"></button>
             <div class="player-title-block">
-              <h2 id="player-show-title">--</h2>
-              <p id="player-episode-title">--</p>
+              <h2 id="player-show-title"></h2>
+              <p id="player-episode-title"></p>
             </div>
           </div>
 
-          <!-- Center Action / Loading Overlay -->
           <div class="player-center-block">
-            <div id="player-loader" class="player-loader" style="display: none;">
-              <div class="youtube-spinner">
-                <svg viewBox="0 0 50 50">
-                  <circle class="spinner-track" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
-                  <circle class="spinner-circle" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
-                </svg>
-              </div>
-            </div>
-            <button id="center-play-pause-btn" class="center-action-btn"><i data-lucide="play" id="center-play-icon"></i></button>
+            <button type="button" class="center-skip-btn" id="center-rewind-btn" aria-label="Retroceder 10 segundos"><span class="center-skip-label">10</span></button>
+            <button type="button" class="center-action-btn" id="center-play-pause-btn" aria-label="Reproducir"><span id="center-play-icon"></span></button>
+            <button type="button" class="center-skip-btn" id="center-forward-btn" aria-label="Avanzar 10 segundos"><span class="center-skip-label">10</span></button>
           </div>
 
-          <!-- Bottom Control Bar -->
           <div class="player-bottom-bar">
-            
-            <!-- Progress Timeline -->
             <div class="player-timeline-container">
-              <span class="player-time" id="player-time-current">0:00</span>
-              <div class="player-progress-bar" id="player-progress-bar">
-                <div class="player-progress-buffered" id="player-progress-buffered"></div>
-                <div class="player-progress-hover" id="player-progress-hover"></div>
-                <div class="player-progress-current" id="player-progress-current"></div>
+              <div class="player-progress-bar" id="player-progress-bar" role="slider" tabindex="0" aria-label="Posición del video" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+                <div class="player-progress-track">
+                  <div class="player-progress-buffered" id="player-progress-buffered"></div>
+                  <div class="player-progress-hover" id="player-progress-hover"></div>
+                  <div class="player-progress-current" id="player-progress-current"></div>
+                </div>
                 <div class="player-progress-handle" id="player-progress-handle"></div>
                 <div class="player-progress-tooltip" id="player-progress-tooltip">0:00</div>
               </div>
-              <span class="player-time" id="player-time-duration">0:00</span>
             </div>
 
-            <!-- Controls Buttons Grid -->
             <div class="player-controls-row">
               <div class="player-controls-left">
-                <button class="player-btn" id="play-pause-btn"><i data-lucide="play" id="play-icon"></i></button>
-                <button class="player-btn" id="next-ep-btn" title="Siguiente capítulo"><i data-lucide="skip-forward"></i></button>
-                
-                <!-- Volume Control -->
+                <button type="button" class="player-btn" id="play-pause-btn" aria-label="Reproducir" data-tip="Reproducir (K)"><span id="play-icon"></span></button>
+                <button type="button" class="player-btn player-btn-seek" id="rewind-btn" aria-label="Retroceder 10 segundos" data-tip="-10 s (J)"></button>
+                <button type="button" class="player-btn player-btn-seek" id="forward-btn" aria-label="Avanzar 10 segundos" data-tip="+10 s (L)"></button>
                 <div class="player-volume-container">
-                  <button class="player-btn" id="mute-btn"><i data-lucide="volume-2" id="volume-icon"></i></button>
-                  <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="1" class="volume-slider">
+                  <button type="button" class="player-btn" id="mute-btn" aria-label="Silenciar" data-tip="Silenciar (M)"><span id="volume-icon"></span></button>
+                  <input type="range" id="volume-slider" class="volume-slider" min="0" max="1" step="0.05" value="1" aria-label="Volumen">
+                </div>
+                <div class="player-time-display">
+                  <span class="player-time" id="player-time-current">0:00</span>
+                  <span class="player-time-sep">/</span>
+                  <span class="player-time" id="player-time-duration">0:00</span>
                 </div>
               </div>
 
               <div class="player-controls-right">
-                <!-- Chapter Selector Dropdown -->
-                <div class="player-dropdown chapters-dropdown" id="chapters-dropdown-container" style="display: none;">
-                  <button class="player-btn dropdown-trigger chapters-btn" id="chapters-btn" title="Capítulos"><i data-lucide="bookmark"></i></button>
-                  <div class="dropdown-menu chapters-dropdown-menu" id="chapters-menu-list">
-                    <!-- Chapters injected here -->
-                  </div>
-                </div>
-
-                <!-- Legacy Separate Audio/Subtitle Dropdowns (Hidden, consolidated into Tracks Modal) -->
-                <div class="player-dropdown" id="audio-dropdown" style="display: none;">
-                  <button class="player-btn dropdown-trigger" id="audio-btn" title="Audio"><i data-lucide="headphones"></i></button>
-                  <div class="dropdown-menu" id="audio-menu-list"></div>
-                </div>
-                <div class="player-dropdown" id="subtitle-dropdown" style="display: none;">
-                  <button class="player-btn dropdown-trigger" id="subtitle-btn" title="Subtítulos"><i data-lucide="captions"></i></button>
-                  <div class="dropdown-menu" id="subtitle-menu-list"></div>
-                </div>
-
-                <!-- Ambilight & PiP Standalone (Consolidated into More Options menu) -->
-                <button class="player-btn" id="ambilight-toggle-btn" title="Activar/Desactivar Ambilight" style="display: none;"><i data-lucide="sparkles"></i></button>
-                <button class="player-btn player-pip-btn" id="player-pip-btn" title="Picture in Picture" style="display: none;"><i data-lucide="picture-in-picture-2"></i></button>
-
-                <!-- Audio & Subtitles 2-Column Modal Trigger -->
-                <button class="player-btn" id="player-tracks-btn" title="Audio y Subtítulos"><i data-lucide="subtitles"></i></button>
-
-                <!-- More Options Dropdown (...) -->
+                <button type="button" class="player-btn player-btn-labeled" id="next-ep-btn" aria-label="Siguiente episodio" data-tip="Siguiente episodio (N)" hidden><span class="player-btn-icon"></span><span class="player-btn-label">Siguiente</span></button>
+                <button type="button" class="player-btn" id="episodes-btn" aria-label="Episodios" data-tip="Episodios" hidden></button>
+                <button type="button" class="player-btn" id="player-tracks-btn" aria-label="Audio y subtítulos" data-tip="Audio y subtítulos"></button>
                 <div class="player-dropdown" id="more-options-dropdown">
-                  <button class="player-btn dropdown-trigger" id="more-options-btn" title="Más opciones"><i data-lucide="more-vertical"></i></button>
-                  <div class="dropdown-menu player-more-menu" id="more-options-menu">
-                    <div class="more-menu-section-header">
-                      <i data-lucide="gauge"></i>
-                      <span>Velocidad</span>
-                    </div>
+                  <button type="button" class="player-btn" id="more-options-btn" aria-label="Ajustes de reproducción" aria-haspopup="true" aria-expanded="false" data-tip="Ajustes"></button>
+                  <div class="player-more-menu" id="more-options-menu">
+                    <div class="more-menu-section-header"><i data-lucide="gauge"></i><span>Velocidad</span></div>
                     <div class="more-menu-speed-grid" id="speed-options-group">
-                      <button class="speed-opt" data-speed="0.5">0.5x</button>
-                      <button class="speed-opt" data-speed="0.75">0.75x</button>
-                      <button class="speed-opt active" data-speed="1">1.0x</button>
-                      <button class="speed-opt" data-speed="1.25">1.25x</button>
-                      <button class="speed-opt" data-speed="1.5">1.5x</button>
-                      <button class="speed-opt" data-speed="2">2.0x</button>
+                      <button type="button" class="speed-opt" data-speed="0.5">0.5x</button>
+                      <button type="button" class="speed-opt" data-speed="0.75">0.75x</button>
+                      <button type="button" class="speed-opt active" data-speed="1">Normal</button>
+                      <button type="button" class="speed-opt" data-speed="1.25">1.25x</button>
+                      <button type="button" class="speed-opt" data-speed="1.5">1.5x</button>
+                      <button type="button" class="speed-opt" data-speed="2">2x</button>
                     </div>
-                    <div class="more-menu-divider"></div>
-                    <div class="more-menu-section-header">
-                      <i data-lucide="volume-2"></i>
-                      <span>Audio Boost</span>
-                    </div>
+                    <div class="more-menu-section-header"><i data-lucide="volume-2"></i><span>Volumen extra</span></div>
                     <div class="more-menu-speed-grid" id="boost-options-group">
                       <button type="button" class="boost-opt active" data-boost="100">100%</button>
                       <button type="button" class="boost-opt" data-boost="125">125%</button>
@@ -540,138 +586,170 @@
                       <button type="button" class="boost-opt" data-boost="175">175%</button>
                       <button type="button" class="boost-opt" data-boost="200">200%</button>
                     </div>
-                    <div class="more-menu-section-header" style="margin-top: 6px;">
-                      <i data-lucide="sliders"></i>
-                      <span>Ecualizador</span>
-                    </div>
+                    <div class="more-menu-section-header"><i data-lucide="audio-lines"></i><span>Ecualizador</span></div>
                     <div class="more-menu-speed-grid" id="preset-options-group">
                       <button type="button" class="preset-opt active" data-preset="flat">Plano</button>
                       <button type="button" class="preset-opt" data-preset="vocal_clarity">Voces</button>
                       <button type="button" class="preset-opt" data-preset="night_mode">Nocturno</button>
-                      <button type="button" class="preset-opt" data-preset="bass_boost">Bass Boost</button>
+                      <button type="button" class="preset-opt" data-preset="bass_boost">Graves</button>
                     </div>
                     <div class="more-menu-divider"></div>
-                    <button class="more-menu-item" id="menu-pip-btn">
-                      <i data-lucide="picture-in-picture"></i>
-                      <span>Ventana en ventana</span>
-                    </button>
-                    <button class="more-menu-item" id="menu-ambilight-btn">
-                      <i data-lucide="sparkles"></i>
-                      <span>Efecto Ambilight</span>
-                    </button>
-                    <button class="more-menu-item" id="menu-qr-btn">
-                      <i data-lucide="qr-code"></i>
-                      <span>Compartir con QR</span>
-                    </button>
-                    <button class="more-menu-item" id="menu-file-info-btn">
-                      <i data-lucide="info"></i>
-                      <span>Información técnica</span>
-                    </button>
+                    <button type="button" class="more-menu-item" id="menu-pip-btn"><i data-lucide="picture-in-picture-2"></i><span>Ventana flotante</span></button>
+                    <button type="button" class="more-menu-item more-menu-toggle" id="menu-ambilight-btn" role="menuitemcheckbox" aria-checked="false"><i data-lucide="sparkles"></i><span>Luz ambiental</span><span class="more-menu-switch" aria-hidden="true"></span></button>
+                    <button type="button" class="more-menu-item" id="menu-qr-btn"><i data-lucide="qr-code"></i><span>Seguir en el celular (QR)</span></button>
+                    <button type="button" class="more-menu-item" id="menu-file-info-btn"><i data-lucide="info"></i><span>Información técnica</span></button>
+                    <button type="button" class="more-menu-item" id="menu-shortcuts-btn"><i data-lucide="keyboard"></i><span>Atajos de teclado</span></button>
                   </div>
                 </div>
-
-                <!-- Watch Party Toggle -->
-                <button class="player-btn" id="player-party-btn" title="Watch Party (Ver con amigos)"><i data-lucide="users"></i></button>
-
-                <!-- Fullscreen Toggle -->
-                <button class="player-btn" id="fullscreen-btn"><i data-lucide="maximize" id="fullscreen-icon"></i></button>
+                <button type="button" class="player-btn" id="player-party-btn" aria-label="Watch Party" data-tip="Watch Party"></button>
+                <button type="button" class="player-btn player-pip-btn" id="player-pip-btn" aria-label="Ventana flotante" data-tip="Ventana flotante"></button>
+                <button type="button" class="player-btn" id="fullscreen-btn" aria-label="Pantalla completa" data-tip="Pantalla completa (F)"><span id="fullscreen-icon"></span></button>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Watch Party Floating Live Chat & Sync Sidebar -->
-        <div class="player-party-sidebar" id="player-party-sidebar" style="display: none;">
+        <!-- Episode list drawer -->
+        <aside class="player-panel player-episodes-panel" id="player-episodes-panel" aria-label="Episodios" hidden>
+          <div class="player-panel-header">
+            <h3>Episodios</h3>
+            <button type="button" class="player-btn" id="player-episodes-close" aria-label="Cerrar"><i data-lucide="x"></i></button>
+          </div>
+          <div class="player-season-tabs" id="player-episodes-seasons"></div>
+          <div class="player-episodes-list" id="player-episodes-list"></div>
+        </aside>
+
+        <button type="button" class="skip-intro-btn" id="skip-intro-btn" hidden><i data-lucide="skip-forward"></i> <span id="skip-intro-label">Omitir intro</span></button>
+
+        <!-- Up next: appears with the credits (or the last 20 s) -->
+        <div class="up-next-card" id="up-next-card" hidden>
+          <div class="up-next-media">
+            <img id="up-next-thumb" alt="" data-fallback-src="/assets/illustrations/backdrop_placeholder.svg">
+            <div class="up-next-ring" id="up-next-ring"><span id="up-next-count"></span></div>
+          </div>
+          <div class="up-next-body">
+            <span class="up-next-eyebrow">Siguiente episodio</span>
+            <strong class="up-next-title" id="up-next-title"></strong>
+            <span class="up-next-meta" id="up-next-meta"></span>
+            <div class="up-next-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="up-next-play"><i data-lucide="play"></i> Ver ahora</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="up-next-dismiss">Ver créditos</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- End of episode without autoplay -->
+        <div class="player-end-screen" id="player-end-screen" hidden>
+          <div class="player-end-card">
+            <h3 id="player-end-title">Has terminado este episodio</h3>
+            <div class="player-end-actions">
+              <button type="button" class="btn btn-primary" id="player-end-next"><i data-lucide="skip-forward"></i> <span>Siguiente episodio</span></button>
+              <button type="button" class="btn btn-secondary" id="player-end-replay"><i data-lucide="rotate-ccw"></i> Volver a ver</button>
+              <button type="button" class="btn btn-secondary" id="player-end-back"><i data-lucide="arrow-left"></i> Volver a la serie</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="player-resume-toast" id="player-resume-toast" hidden>
+          <i data-lucide="history"></i>
+          <span id="player-resume-text"></span>
+          <button type="button" id="player-resume-restart">Empezar desde el principio</button>
+        </div>
+
+        <div id="player-error-overlay" class="player-error-overlay" hidden>
+          <div class="error-card">
+            <i data-lucide="triangle-alert" class="error-icon"></i>
+            <h3 id="player-error-title">Error de reproducción</h3>
+            <p id="player-error-message">No se pudo cargar el video.</p>
+            <div class="error-actions">
+              <button type="button" class="btn btn-primary" id="player-error-retry-btn"><i data-lucide="refresh-cw"></i> Reintentar</button>
+              <button type="button" class="btn btn-secondary" id="player-error-back-btn"><i data-lucide="arrow-left"></i> Volver</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Watch Party chat & sync sidebar -->
+        <aside class="player-party-sidebar" id="player-party-sidebar" hidden>
           <div class="party-sidebar-header">
             <div class="party-room-badge">
               <span class="party-live-dot"></span>
               <span id="party-header-title">Watch Party</span>
             </div>
             <div class="party-header-actions">
-              <button class="party-icon-btn" id="party-sound-toggle" title="Alternar sonidos"><i data-lucide="volume-2" id="party-sound-icon"></i></button>
-              <button class="party-icon-btn" id="party-btn-copy-code" title="Copiar código y enlace de sala"><i data-lucide="share-2"></i></button>
-              <button class="party-icon-btn party-btn-leave" id="party-btn-leave" title="Salir de la sala"><i data-lucide="log-out"></i></button>
-              <button class="party-icon-btn" id="party-btn-close-sidebar" title="Ocultar chat"><i data-lucide="x"></i></button>
+              <button type="button" class="party-icon-btn" id="party-sound-toggle" title="Sonidos del chat" aria-label="Sonidos del chat"><span id="party-sound-icon"></span></button>
+              <button type="button" class="party-icon-btn" id="party-btn-copy-code" title="Copiar enlace de invitación" aria-label="Copiar enlace de invitación"><i data-lucide="share-2"></i></button>
+              <button type="button" class="party-icon-btn party-btn-leave" id="party-btn-leave" title="Salir de la sala" aria-label="Salir de la sala"><i data-lucide="log-out"></i></button>
+              <button type="button" class="party-icon-btn" id="party-btn-close-sidebar" title="Ocultar chat" aria-label="Ocultar chat"><i data-lucide="x"></i></button>
             </div>
           </div>
-
           <div class="party-status-banner" id="party-status-banner">
-            <div class="party-info-row">
-              <span id="party-sync-pill" class="badge party-sync-pill">
-                <span class="airing-pulse-dot party-sync-dot"></span> Sincronizado
-              </span>
-              <span id="party-room-code-display" class="party-code-pill" title="Clic para copiar código">KURA-XXXX</span>
-              <button id="party-btn-copy-cta" class="party-icon-btn party-btn-copy-cta" title="Copiar código de sala">Copiar código</button>
-              <div id="party-avatar-stack-container" class="party-avatar-stack"></div>
-              <span id="party-host-badge" class="party-host-pill"><i data-lucide="crown" class="party-host-icon"></i>Anfitrión</span>
-            </div>
+            <span id="party-sync-pill" class="party-sync-pill"><span class="airing-pulse-dot party-sync-dot"></span> Sincronizado</span>
+            <button type="button" id="party-room-code-display" class="party-code-pill" title="Copiar invitación">KURA-XXXX</button>
+            <button type="button" id="party-btn-copy-cta" class="party-btn-copy-cta">Invitar</button>
+            <div id="party-avatar-stack-container" class="party-avatar-stack"></div>
+            <span id="party-host-badge" class="party-host-pill"></span>
           </div>
-
-          <!-- Messages stream -->
-          <div class="party-messages-container" id="party-messages-container">
-            <!-- Chat messages and system notices injected dynamically -->
+          <div class="party-messages-container" id="party-messages-container"></div>
+          <div class="party-reactions-bar">
+            <button type="button" class="party-reaction-btn" data-reaction="flame" title="Fuego" aria-label="Fuego"><i data-lucide="flame"></i></button>
+            <button type="button" class="party-reaction-btn" data-reaction="heart" title="Me encanta" aria-label="Me encanta"><i data-lucide="heart"></i></button>
+            <button type="button" class="party-reaction-btn" data-reaction="smile" title="Risa" aria-label="Risa"><i data-lucide="smile"></i></button>
+            <button type="button" class="party-reaction-btn" data-reaction="sparkles" title="Increíble" aria-label="Increíble"><i data-lucide="sparkles"></i></button>
+            <button type="button" class="party-reaction-btn" data-reaction="thumbs-up" title="Me gusta" aria-label="Me gusta"><i data-lucide="thumbs-up"></i></button>
           </div>
-
-          <!-- Floating Flying Reactions Bar -->
-          <div class="party-reactions-bar"><button class="party-reaction-btn" data-reaction="flame" title="Fuego" aria-label="Fuego"><i data-lucide="flame"></i></button><button class="party-reaction-btn" data-reaction="heart" title="Me encanta" aria-label="Me encanta"><i data-lucide="heart"></i></button><button class="party-reaction-btn" data-reaction="smile" title="Risa" aria-label="Risa"><i data-lucide="smile"></i></button><button class="party-reaction-btn" data-reaction="sparkles" title="Fiesta" aria-label="Fiesta"><i data-lucide="sparkles"></i></button><button class="party-reaction-btn" data-reaction="thumbs-up" title="Me gusta" aria-label="Me gusta"><i data-lucide="thumbs-up"></i></button></div>
-
-          <!-- Chat input -->
-          <form class="party-input-form" id="party-input-form" onsubmit="return false;">
-            <input type="text" id="party-chat-input" placeholder="Comenta en vivo..." autocomplete="off">
-            <button type="submit" id="party-chat-send-btn" title="Enviar"><i data-lucide="send"></i></button>
+          <form class="party-input-form" id="party-input-form">
+            <input type="text" id="party-chat-input" placeholder="Escribe un mensaje…" autocomplete="off" maxlength="300">
+            <button type="submit" id="party-chat-send-btn" aria-label="Enviar"><i data-lucide="send"></i></button>
           </form>
-        </div>
+        </aside>
 
-        <!-- File Info Modal Panel -->
-        <div class="file-info-modal" id="file-info-modal" style="display: none;">
-          <div class="modal-header">
-            <h3>Información Técnica del Archivo</h3>
-            <button class="modal-close" id="file-info-close"><i data-lucide="x"></i></button>
-          </div>
-          <div class="modal-body" id="file-info-body">
-            <!-- Dynamic technical stats injected here -->
-          </div>
-        </div>
-
-        <!-- QR Share Modal Panel -->
-        <div class="file-info-modal qr-share-modal" id="qr-share-modal" style="display: none;">
-          <div class="modal-header">
-            <h3>Compartir en Red Local</h3>
-            <button class="modal-close" id="qr-share-close"><i data-lucide="x"></i></button>
-          </div>
-          <div class="modal-body qr-share-body">
-            <p class="mb-12">Escanea este código QR con tu celular o tablet para continuar la reproducción en este segundo:</p>
-            <div class="qr-box">
-              <img id="qr-image" class="qr-img" src="" alt="Código QR de Compartido">
+        <div class="player-modal" id="file-info-modal" hidden>
+          <div class="player-modal-card file-info-modal">
+            <div class="modal-header">
+              <h3>Información técnica</h3>
+              <button type="button" class="modal-close" id="file-info-close" aria-label="Cerrar"><i data-lucide="x"></i></button>
             </div>
-            <div id="qr-url-text" class="qr-url-text">
-              --
+            <div class="modal-body" id="file-info-body"></div>
+          </div>
+        </div>
+
+        <div class="player-modal" id="qr-share-modal" hidden>
+          <div class="player-modal-card qr-share-modal">
+            <div class="modal-header">
+              <h3>Seguir en otro dispositivo</h3>
+              <button type="button" class="modal-close" id="qr-share-close" aria-label="Cerrar"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body qr-share-body">
+              <p>Escanea el código con el celular conectado a la red de KuraStream para seguir desde este minuto.</p>
+              <div class="qr-box"><img id="qr-image" class="qr-img" src="data:," alt="Código QR"></div>
+              <div id="qr-url-text" class="qr-url-text"></div>
             </div>
           </div>
         </div>
 
-        <!-- Skip Intro Button -->
-        <button class="skip-intro-btn" id="skip-intro-btn" style="display: none;">Omitir Intro <i data-lucide="chevron-right" class="icon-chevron-inline"></i></button>
-
-        <!-- Outro Overlay Container (Siguiente Capítulo & Ver Créditos) -->
-        <div id="outro-overlay-container" class="outro-overlay-container" style="display: none;">
-          <button class="skip-intro-btn btn-skip-outro" id="skip-outro-btn">Siguiente Capítulo <i data-lucide="chevron-right" class="icon-chevron-inline"></i></button>
-          <button class="skip-intro-btn btn-watch-credits" id="watch-credits-btn">Ver Créditos</button>
-        </div>
-
-        <!-- Next Episode Autoplay Countdown -->
-        <div class="autoplay-countdown-overlay" id="autoplay-countdown-overlay" style="display: none;">
-          <div class="countdown-card">
-            <h3>Siguiente capítulo en</h3>
-            <div class="countdown-number" id="countdown-number">5</div>
-            <p id="countdown-next-title">Título del capítulo</p>
-            <div class="countdown-buttons">
-              <button class="btn btn-primary" id="countdown-play-now">Ver ya</button>
-              <button class="btn btn-secondary" id="countdown-cancel">Cancelar</button>
+        <div class="player-modal" id="player-shortcuts-modal" hidden>
+          <div class="player-modal-card shortcuts-card" role="dialog" aria-modal="true" aria-labelledby="player-shortcuts-title">
+            <div class="modal-header">
+              <h3 id="player-shortcuts-title"><i data-lucide="keyboard"></i> Atajos de teclado</h3>
+              <button type="button" class="modal-close" id="player-shortcuts-close" aria-label="Cerrar"><i data-lucide="x"></i></button>
             </div>
+            <div class="shortcuts-grid">
+              <div><kbd>Espacio</kbd><kbd>K</kbd><span>Reproducir / pausar</span></div>
+              <div><kbd>J</kbd><kbd>&larr;</kbd><span>Retroceder 10 s</span></div>
+              <div><kbd>L</kbd><kbd>&rarr;</kbd><span>Avanzar 10 s</span></div>
+              <div><kbd>0</kbd>–<kbd>9</kbd><span>Ir al 0 %–90 %</span></div>
+              <div><kbd>&uarr;</kbd><kbd>&darr;</kbd><span>Volumen</span></div>
+              <div><kbd>M</kbd><span>Silenciar</span></div>
+              <div><kbd>F</kbd><span>Pantalla completa</span></div>
+              <div><kbd>C</kbd><span>Subtítulos sí / no</span></div>
+              <div><kbd>N</kbd><span>Siguiente episodio</span></div>
+              <div><kbd>S</kbd><kbd>&lt;</kbd><kbd>&gt;</kbd><span>Velocidad</span></div>
+              <div><kbd>B</kbd><span>Volumen extra</span></div>
+              <div><kbd>Esc</kbd><span>Cerrar menú / salir</span></div>
+            </div>
+            <p class="shortcuts-hint">En el celular: toca dos veces a los lados para saltar 10 s y mantén presionado para ver a 2x.</p>
           </div>
         </div>
-
       </div>
     </section>
 
@@ -1045,11 +1123,6 @@
                       <input type="text" id="import-tmdb" placeholder="Ej: 153070">
                       <small class="form-tip">Para forzar la coincidencia exacta de metadatos.</small>
                     </div>
-                    <div class="form-group col">
-                      <label for="import-intro-start">Inicio de Intro (segundos)</label>
-                      <input type="number" id="import-intro-start" placeholder="Ej: 45">
-                      <small class="form-tip">Segundo en el que inicia el Opening.</small>
-                    </div>
                   </div>
 
                   <button type="submit" class="btn btn-primary btn-block mt-15" id="import-submit-btn"><i data-lucide="download"></i> Importar y Organizar</button>
@@ -1175,6 +1248,18 @@
 
           <div class="setting-item">
             <div class="setting-info">
+              <label for="perfModeSelect" class="setting-label">Rendimiento visual</label>
+              <p class="setting-desc">El modo ligero sustituye las transparencias con desenfoque por superficies sólidas y quita animaciones decorativas. Recomendado en equipos antiguos.</p>
+            </div>
+            <select id="perfModeSelect" class="settings-select settings-select-compact">
+              <option value="auto">Automático</option>
+              <option value="lite">Ligero</option>
+              <option value="full">Completo</option>
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
               <label for="notificationsToggle" class="setting-label">Notificaciones en la aplicación</label>
               <p class="setting-desc">Si está activado, recibirás avisos dentro de la aplicación cuando se añadan nuevos capítulos o animes al catálogo.</p>
             </div>
@@ -1206,6 +1291,12 @@
             </label>
           </div>
         </div>
+
+        <a href="#/app" class="settings-app-card">
+          <i data-lucide="smartphone" class="settings-app-icon"></i>
+          <span class="settings-app-text"><strong>App para Android</strong><small>Descarga el instalador y conéctalo a este servidor.</small></span>
+          <i data-lucide="chevron-right"></i>
+        </a>
 
         <div id="settings-save-success" class="settings-toast" style="display: none;">
           <i data-lucide="check-circle" class="icon-sm"></i> Preferencias guardadas y aplicadas con éxito
@@ -1284,7 +1375,7 @@
         <div class="media-editor-header-row">
           <div>
             <h4 class="media-editor-header-title">Gestión y Títulos de Capítulos</h4>
-            <p class="media-editor-header-desc">Edita nombres manualmente o auto-detecta todos los nombres y sinopsis oficiales con TMDB.</p>
+            <p class="media-editor-header-desc">Nombres y sinopsis oficiales desde TMDB. La intro y el ending de cada capítulo se detectan solos (AniSkip y el audio de los archivos).</p>
           </div>
           <button type="button" class="btn btn-secondary btn-sync-tmdb-compact" id="btn-sync-episodes-tmdb">
             <i data-lucide="sparkles" class="icon-accent mr-5"></i> Auto-Detectar Nombres (TMDB)
@@ -1345,49 +1436,77 @@
     <div class="pin-modal profile-edit-dialog">
       <h3 id="profile-edit-title" class="modal-title">Agregar Perfil</h3>
       
-      <div class="profile-edit-body">
+      <div class="profile-edit-body" id="profile-edit-main">
         <div class="profile-avatar-col">
           <div id="profile-edit-avatar" class="profile-avatar-display">?</div>
-          <button type="button" class="btn btn-secondary btn-upload-avatar" id="btn-upload-avatar">Cargar imagen</button>
-          <input type="file" id="profile-avatar-file-input" accept="image/*" style="display: none;">
-          
-          <div class="mt-10">
-            <div class="preset-avatars-label">Presets Anime:</div>
-            <div class="preset-avatars-grid" id="preset-avatars-grid">
-              <div class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_boy.jpg" style="background-image: url('/library/avatars/presets/preset_anime_boy.jpg');"></div>
-              <div class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_girl.jpg" style="background-image: url('/library/avatars/presets/preset_anime_girl.jpg');"></div>
-              <div class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_ninja.jpg" style="background-image: url('/library/avatars/presets/preset_anime_ninja.jpg');"></div>
-              <div class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_cyber.jpg" style="background-image: url('/library/avatars/presets/preset_anime_cyber.jpg');"></div>
-              <div class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_fantasy.jpg" style="background-image: url('/library/avatars/presets/preset_anime_fantasy.jpg');"></div>
-              <div class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_mecha.jpg" style="background-image: url('/library/avatars/presets/preset_anime_mecha.jpg');"></div>
-            </div>
-          </div>
+          <button type="button" class="btn btn-secondary btn-upload-avatar" id="btn-upload-avatar"><i data-lucide="camera"></i> Subir foto</button>
+          <button type="button" class="btn-link-subtle" id="btn-remove-avatar" style="display: none;">Quitar foto</button>
+          <input type="file" id="profile-avatar-file-input" accept="image/jpeg,image/png,image/webp,image/gif" style="display: none;">
         </div>
-        
+
         <div class="profile-fields-col">
-          <div class="form-group">
-            <input type="text" id="profile-name-input" class="input-text" placeholder="Nombre (máx 25)" maxlength="25">
-          </div>
-          
+          <label class="profile-field-label" for="profile-name-input">Nombre</label>
+          <input type="text" id="profile-name-input" class="input-text" placeholder="Nombre (máx 25)" maxlength="25">
+
+          <div class="profile-field-label">Color</div>
           <div class="color-swatches-row">
-            <div class="color-swatch active" data-color="Purple"></div>
-            <div class="color-swatch" data-color="Green"></div>
-            <div class="color-swatch" data-color="Blue"></div>
-            <div class="color-swatch" data-color="Red"></div>
-            <div class="color-swatch" data-color="Orange"></div>
+            <button type="button" class="color-swatch" data-hex="#818CF8" style="background: #818CF8;" aria-label="Color Índigo" title="Índigo"></button>
+            <button type="button" class="color-swatch" data-hex="#5ED8C6" style="background: #5ED8C6;" aria-label="Color Menta" title="Menta"></button>
+            <button type="button" class="color-swatch" data-hex="#4DD4A7" style="background: #4DD4A7;" aria-label="Color Verde" title="Verde"></button>
+            <button type="button" class="color-swatch" data-hex="#5AA7FF" style="background: #5AA7FF;" aria-label="Color Azul" title="Azul"></button>
+            <button type="button" class="color-swatch" data-hex="#FF6B81" style="background: #FF6B81;" aria-label="Color Rojo" title="Rojo"></button>
+            <button type="button" class="color-swatch" data-hex="#F59E5B" style="background: #F59E5B;" aria-label="Color Naranja" title="Naranja"></button>
+            <button type="button" class="color-swatch" data-hex="#F1C75B" style="background: #F1C75B;" aria-label="Color Amarillo" title="Amarillo"></button>
+            <button type="button" class="color-swatch" data-hex="#E879F9" style="background: #E879F9;" aria-label="Color Rosa" title="Rosa"></button>
           </div>
 
+          <div class="profile-field-label">Avatar</div>
+          <div class="avatar-source-tabs" role="tablist">
+            <button type="button" class="avatar-source-tab active" data-source="presets" role="tab">Personajes</button>
+            <button type="button" class="avatar-source-tab" data-source="library" role="tab">De tu biblioteca</button>
+          </div>
+          <div class="preset-avatars-grid" id="preset-avatars-grid">
+              <button type="button" class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_boy.jpg" style="background-image: url('/library/avatars/presets/preset_anime_boy.jpg');" aria-label="Avatar Chico" title="Chico"></button>
+              <button type="button" class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_girl.jpg" style="background-image: url('/library/avatars/presets/preset_anime_girl.jpg');" aria-label="Avatar Chica" title="Chica"></button>
+              <button type="button" class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_ninja.jpg" style="background-image: url('/library/avatars/presets/preset_anime_ninja.jpg');" aria-label="Avatar Ninja" title="Ninja"></button>
+              <button type="button" class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_cyber.jpg" style="background-image: url('/library/avatars/presets/preset_anime_cyber.jpg');" aria-label="Avatar Cyber" title="Cyber"></button>
+              <button type="button" class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_fantasy.jpg" style="background-image: url('/library/avatars/presets/preset_anime_fantasy.jpg');" aria-label="Avatar Fantasía" title="Fantasía"></button>
+              <button type="button" class="preset-avatar-option" data-preset="/library/avatars/presets/preset_anime_mecha.jpg" style="background-image: url('/library/avatars/presets/preset_anime_mecha.jpg');" aria-label="Avatar Mecha" title="Mecha"></button>
+          </div>
+          <div class="preset-avatars-grid library-avatars-grid" id="library-avatars-grid" style="display: none;"></div>
+
           <label class="form-checkbox-label">
-            <input type="checkbox" id="profile-kids-input"> Perfil Infantil
+            <input type="checkbox" id="profile-kids-input"> Perfil infantil
           </label>
-          
-          <input type="password" id="profile-pin-input" class="input-text" placeholder="PIN de 4 dígitos (Opcional)" maxlength="4">
+
+          <label class="profile-field-label" for="profile-pin-input">PIN (opcional)</label>
+          <input type="password" id="profile-pin-input" class="input-text" placeholder="4 dígitos para proteger el perfil" maxlength="4" inputmode="numeric" autocomplete="new-password">
+          <label class="form-checkbox-label" id="profile-remove-pin-row" style="display: none;">
+            <input type="checkbox" id="profile-remove-pin-input"> Quitar el PIN de este perfil
+          </label>
         </div>
       </div>
-      
+
+      <!-- Photo framing step: drag to position, slider to zoom, saved as a 512px square -->
+      <div class="avatar-cropper" id="avatar-cropper" style="display: none;">
+        <div class="avatar-crop-viewport" id="avatar-crop-viewport">
+          <img id="avatar-crop-img" alt="Vista previa de la foto" draggable="false">
+        </div>
+        <div class="avatar-crop-zoom-row">
+          <i data-lucide="zoom-out"></i>
+          <input type="range" id="avatar-crop-zoom" min="1" max="3" step="0.01" value="1" aria-label="Zoom">
+          <i data-lucide="zoom-in"></i>
+        </div>
+        <p class="avatar-crop-hint">Arrastra la foto para encuadrarla</p>
+        <div class="pin-buttons pin-buttons-end">
+          <button type="button" class="btn btn-secondary" id="btn-crop-cancel">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="btn-crop-apply">Usar foto</button>
+        </div>
+      </div>
+
       <div id="profile-edit-error" class="login-error-msg" style="display: none;">Error</div>
       
-      <div class="pin-buttons pin-buttons-between">
+      <div class="pin-buttons pin-buttons-between" id="profile-edit-actions">
         <button class="btn btn-secondary btn-danger-soft" id="btn-delete-profile" style="display: none;">Borrar</button>
         <div class="modal-actions-right">
           <button class="btn btn-secondary" id="btn-cancel-profile">Cancelar</button>
@@ -1441,6 +1560,7 @@
         <button class="btn btn-secondary" id="login-modal-cancel">Cancelar</button>
         <button class="btn btn-primary" id="login-modal-submit">Iniciar Sesión</button>
       </div>
+      <a href="#/app" class="login-app-link" id="login-app-link"><i data-lucide="smartphone"></i> Descargar la app para Android</a>
     </div>
   </div>
 
@@ -1536,9 +1656,9 @@
   </div>
 
   <!-- Random Anime Modal -->
-  <div class="modal" id="random-modal" style="display: none;">
-    <div class="modal-content random-modal-content">
-      <button class="modal-close" id="btn-close-random">&times;</button>
+  <div class="pin-modal-overlay random-modal" id="random-modal" style="display: none;" role="dialog" aria-modal="true" aria-label="Descubrimiento aleatorio">
+    <div class="random-modal-dialog">
+      <button type="button" class="random-modal-close" id="btn-close-random" aria-label="Cerrar"><i data-lucide="x"></i></button>
       <div class="random-card" id="random-card-body">
         <!-- Dynamic anime preview card -->
       </div>
@@ -1548,8 +1668,8 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="/js/main.js?v=2026.09.26-modern-streaming-rc2" type="module"></script>
-  <script src="player.js?v=2026.09.26-modern-streaming-rc2" type="module"></script>
+  <script src="/js/main.js?v=2026.10.04-credits" type="module"></script>
+  <script src="player.js?v=2026.10.04-credits" type="module"></script>
   <!-- Service Worker Registration for PWA -->
   <script>
     if ('serviceWorker' in navigator) {

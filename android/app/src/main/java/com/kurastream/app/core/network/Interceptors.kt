@@ -1,8 +1,6 @@
 package com.kurastream.app.core.network
 
 import com.kurastream.app.core.security.TokenStorage
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -59,11 +57,9 @@ fun okhttp3.HttpUrl.hasSameOrigin(other: okhttp3.HttpUrl): Boolean {
  */
 class AuthInterceptor(
     private val tokenStorage: TokenStorage,
+    private val onUnauthorized: () -> Unit = {},
     private val getActiveServerInfo: () -> Pair<String?, String?>? // serverId to serverBaseUrl
 ) : Interceptor {
-
-    private val _unauthorizedEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val unauthorizedEvents = _unauthorizedEvents.asSharedFlow()
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val original = chain.request()
@@ -103,11 +99,14 @@ class AuthInterceptor(
 
         val response = chain.proceed(builder.build())
 
-        // Handle 401 Unauthorized cleanly without infinite recursion
-        if (response.code == 401 && !isAnonymousEndpoint) {
+        // A 401 means the JWT was rejected -> drop it and let the UI route to login.
+        // Watch Party endpoints answer 401 for bad *member* credentials, which says nothing about the
+        // user session, so they must not log the user out.
+        val isPartyEndpoint = path.contains("/api/party/")
+        if (response.code == 401 && !isAnonymousEndpoint && !isPartyEndpoint && !isExplicitNoAuth) {
             val activeServerId = getActiveServerInfo()?.first
             tokenStorage.clearToken(activeServerId)
-            _unauthorizedEvents.tryEmit(Unit)
+            onUnauthorized()
         }
 
         return response

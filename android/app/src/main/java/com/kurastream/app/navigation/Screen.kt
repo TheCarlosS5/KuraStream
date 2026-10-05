@@ -1,5 +1,7 @@
 package com.kurastream.app.navigation
 
+import android.net.Uri
+
 sealed class Screen(val route: String) {
     data object ServerSetup : Screen("server_setup")
     data object Login : Screen("login")
@@ -15,11 +17,11 @@ sealed class Screen(val route: String) {
 
     // Detail & Sub-features
     data object ShowDetail : Screen("show_detail/{showId}") {
-        fun createRoute(showId: String) = "show_detail/$showId"
+        fun createRoute(showId: String) = "show_detail/${Uri.encode(showId)}"
     }
 
     data object Player : Screen("player/{episodeId}") {
-        fun createRoute(episodeId: String) = "player/$episodeId"
+        fun createRoute(episodeId: String) = "player/${Uri.encode(episodeId)}"
     }
 
     data object WatchParty : Screen("watch_party")

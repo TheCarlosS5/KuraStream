@@ -22,8 +22,11 @@ class FfmpegScanner {
         return $fps > 0 ? $fps : 0.0;
     }
 
-    public static function executeBoundedCommand(string $cmd, int $timeoutSeconds = 15): ?string {
-        $cmdWithRedirect = $cmd . ' 2>&1';
+    /**
+     * @param bool $mergeStderr false for binary stdout (raw PCM, images): stderr text would corrupt it.
+     */
+    public static function executeBoundedCommand(string $cmd, int $timeoutSeconds = 15, bool $mergeStderr = true): ?string {
+        $cmdWithRedirect = $mergeStderr ? $cmd . ' 2>&1' : $cmd;
         $descriptors = [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w']
@@ -239,8 +242,11 @@ class FfmpegScanner {
         $dir = dirname($destThumbPath);
         if (!is_dir($dir)) @mkdir($dir, 0755, true);
 
+        // thumbnail=120 picks the most representative of ~5 s of frames, so a title card or a
+        // fade to white/black at the seek point no longer becomes the episode's image. Scaling
+        // first keeps that buffer small and the JPEG light (cards never show it above ~400px).
         $cmd = sprintf(
-            'ffmpeg -y -ss %f -i %s -vframes 1 -q:v 2 %s',
+            'ffmpeg -y -ss %f -i %s -vf "scale=640:-2,thumbnail=120" -frames:v 1 -q:v 3 %s',
             $seekSeconds,
             escapeshellarg($videoPath),
             escapeshellarg($destThumbPath)

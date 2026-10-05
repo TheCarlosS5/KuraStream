@@ -130,6 +130,9 @@ object ServerUrlResolver {
      * Construct absolute media / image URL against normalized base URL.
      */
     fun buildMediaUrl(baseUrl: String, relativePath: String): String {
+        // No artwork: return "" so image loaders show their fallback instead of requesting
+        // the server root (which answers with the web app's HTML).
+        if (relativePath.isBlank()) return ""
         if (relativePath.startsWith("http://", ignoreCase = true) ||
             relativePath.startsWith("https://", ignoreCase = true)
         ) {
@@ -139,6 +142,23 @@ object ServerUrlResolver {
         val baseClean = baseUrl.trimEnd('/')
         val pathClean = relativePath.trimStart('/')
         return "$baseClean/$pathClean"
+    }
+
+    /**
+     * Subtitle URL. The server always answers with ASS. When the video is a remux/transcode that
+     * FFmpeg started at [startSeconds], the server must shift cue times by the same amount or every
+     * line appears [startSeconds] late.
+     */
+    fun buildSubtitleUrl(baseUrl: String, episodeId: String, trackIndex: Int, startSeconds: Float? = null): String {
+        val baseClean = baseUrl.trimEnd('/')
+        val encodedEp = HttpUrl.Builder()
+            .scheme("http")
+            .host("dummy")
+            .addPathSegment(episodeId)
+            .build()
+            .encodedPathSegments[0]
+        val query = if (startSeconds != null && startSeconds > 0f) "?start=$startSeconds" else ""
+        return "$baseClean/api/subtitles/$encodedEp/$trackIndex$query"
     }
 
     /**
@@ -158,7 +178,7 @@ object ServerUrlResolver {
             .host("dummy")
             .addPathSegment(episodeId)
             .build()
-            .pathSegments[0]
+            .encodedPathSegments[0]
 
         val params = mutableListOf<String>()
         if (startSeconds != null && startSeconds > 0f) {

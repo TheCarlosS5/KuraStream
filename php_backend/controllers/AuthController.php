@@ -219,15 +219,41 @@ class AuthController {
         jsonResponse(['success' => true, 'profiles' => $profiles]);
     }
 
+    /** A kids session must not manage profiles, or it could simply turn its own kids mode off. */
+    private static function denyKidsSession(array $authUser): void {
+        if (!empty($authUser['is_kids'])) {
+            jsonError('Los perfiles infantiles no pueden administrar perfiles', 403);
+        }
+    }
+
+    private static function issueProfileToken(array $authUser, array $profile): string {
+        $token = AuthMiddleware::createToken([
+            'username' => $authUser['username'],
+            'role' => $authUser['role'] ?? 'user',
+            'profile_id' => $profile['id'],
+            'profile_name' => $profile['name'],
+            'is_kids' => (bool)$profile['is_kids'],
+            'exp' => time() + (30 * 24 * 3600)
+        ]);
+        self::setSessionCookie($token);
+        return $token;
+    }
+
     public static function saveProfile(): void {
         $authUser = AuthMiddleware::requireAuth();
+        self::denyKidsSession($authUser);
         $username = $authUser['username'];
 
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?: [];
 
         $profile = DbHelper::saveUserProfile($username, $data);
-        jsonResponse(['success' => true, 'profile' => $profile]);
+        $response = ['success' => true, 'profile' => $profile];
+        // Editing the active profile: the session token carries its name and kids flag, so reissue it.
+        if (!empty($authUser['profile_id']) && $authUser['profile_id'] === $profile['id']) {
+            $response['token'] = self::issueProfileToken($authUser, $profile);
+        }
+        jsonResponse($response);
     }
 
     public static function selectProfile(): void {
@@ -265,16 +291,7 @@ class AuthController {
             }
         }
 
-        $tokenPayload = [
-            'username' => $username,
-            'role' => $authUser['role'] ?? 'user',
-            'profile_id' => $profile['id'],
-            'profile_name' => $profile['name'],
-            'is_kids' => (bool)$profile['is_kids'],
-            'exp' => time() + (30 * 24 * 3600)
-        ];
-        $token = AuthMiddleware::createToken($tokenPayload);
-        self::setSessionCookie($token);
+        $token = self::issueProfileToken($authUser, $profile);
 
         // Clear active party session on profile switch to avoid incompatible party session
         $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
@@ -295,11 +312,12 @@ class AuthController {
         ]);
     }
 
-    public static function deleteProfile(string $id): void {
+    public static function deleteProfile(string $id, string $pin = ''): void {
         $authUser = AuthMiddleware::requireAuth();
+        self::denyKidsSession($authUser);
         $username = $authUser['username'];
 
-        $success = DbHelper::deleteUserProfile($username, $id);
+        $success = DbHelper::deleteUserProfile($username, $id, $pin);
         jsonResponse(['success' => $success]);
     }
 }

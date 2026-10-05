@@ -32,7 +32,25 @@ data class Show(
 data class ShowDetail(
     val show: Show,
     val episodes: List<Episode> = emptyList(),
-    val seasons: Map<Int, List<Episode>> = emptyMap()
+    val seasons: Map<Int, List<Episode>> = emptyMap(),
+    /** Own poster/banner/synopsis per season; the show's art is its latest season's. */
+    val seasonInfo: Map<Int, SeasonInfo> = emptyMap()
+) {
+    /** Regular seasons in order, specials (season 0) last. */
+    val orderedSeasons: List<Int>
+        get() = seasons.keys.sortedWith(compareBy({ it <= 0 }, { it }))
+}
+
+@Serializable
+data class SeasonInfo(
+    val seasonNumber: Int,
+    val name: String = "",
+    val title: String = "",
+    val synopsis: String = "",
+    val year: Int? = null,
+    val status: String? = null,
+    val posterPath: String = "",
+    val backdropPath: String = ""
 )
 
 @Serializable
@@ -55,6 +73,8 @@ data class Episode(
     val introStart: Float? = null,
     val introEnd: Float? = null,
     val outroStart: Float? = null,
+    /** End of the ending credits; a scene may follow (null: credits run to the end). */
+    val outroEnd: Float? = null,
     val chapters: List<Chapter> = emptyList(),
     val streamUrl: String = "",
     val directPlayable: Boolean = false,

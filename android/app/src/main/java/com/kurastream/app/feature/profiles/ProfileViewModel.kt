@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kurastream.app.core.model.Profile
 import com.kurastream.app.core.model.UiState
+import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import com.kurastream.app.core.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -17,12 +19,14 @@ data class ProfileUiState(
     val selectedProfilePendingPin: Profile? = null,
     val pinInput: String = "",
     val pinError: String? = null,
-    val isSelecting: Boolean = false
+    val isSelecting: Boolean = false,
+    val mediaBaseUrl: String = ""
 )
 
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val preferencesDataSource: KuraPreferencesDataSource
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ProfileUiState())
@@ -30,6 +34,11 @@ class ProfileViewModel @Inject constructor(
 
     init {
         loadProfiles()
+        // Profile photos are served from the active server's /library
+        viewModelScope.launch {
+            val baseUrl = preferencesDataSource.preferencesFlow.first().activeServerUrl.orEmpty()
+            _uiState.value = _uiState.value.copy(mediaBaseUrl = baseUrl)
+        }
     }
 
     fun loadProfiles() {

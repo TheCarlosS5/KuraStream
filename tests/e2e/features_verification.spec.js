@@ -218,9 +218,10 @@ test.describe('KuraStream 10 Platform Features E2E Verification', () => {
     await expect(page.locator('#calendar-view')).toBeVisible();
     await page.click('.day-tab[data-day="Monday"]');
 
-    const calendarCard = page.locator('.calendar-show-card-linked').first();
-    await expect(calendarCard).toBeVisible();
-    await expect(calendarCard).toHaveAttribute('href', '#/show/vinland-saga');
+    // The calendar is a table; a show in the library links to its page.
+    const calendarLink = page.locator('#calendar-view tr.is-linked a').first();
+    await expect(calendarLink).toBeVisible();
+    await expect(calendarLink).toHaveAttribute('href', '#/show/vinland-saga');
 
     // -------------------------------------------------------------------------
     // 4. Show Details (Audio/Sub Pills, Favorites Toggle, Progress Bar, Comments)

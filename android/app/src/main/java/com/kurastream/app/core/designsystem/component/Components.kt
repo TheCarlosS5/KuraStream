@@ -1,8 +1,16 @@
 package com.kurastream.app.core.designsystem.component
 
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,7 +27,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.kurastream.app.core.designsystem.theme.*
 import com.kurastream.app.core.model.Show
 import com.kurastream.app.core.model.WatchHistoryItem
@@ -252,7 +268,10 @@ fun KuraErrorView(
 @Composable
 fun KuraEmptyView(
     message: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    actionText: String? = null,
+    onAction: (() -> Unit)? = null
 ) {
     Box(
         modifier = modifier
@@ -260,11 +279,27 @@ fun KuraEmptyView(
             .padding(KuraDimens.Space6),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyLarge,
-            color = KuraColors.TextMuted
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = KuraColors.TextMuted,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(KuraDimens.Space3))
+            }
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = KuraColors.TextMuted,
+                textAlign = TextAlign.Center
+            )
+            if (actionText != null && onAction != null) {
+                Spacer(modifier = Modifier.height(KuraDimens.Space4))
+                KuraOutlinedButton(onClick = onAction, text = actionText)
+            }
+        }
     }
 }
 
@@ -275,11 +310,16 @@ fun ShowPosterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    // Subtle press-in so taps feel physical
+    val pressScale by animateFloatAsState(if (pressed) 0.96f else 1f, tween(120), label = "cardPress")
     Column(
         modifier = modifier
+            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
             .width(KuraDimens.PosterWidth)
             .clip(KuraShapes.Card)
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick)
     ) {
         Box(
             modifier = Modifier
@@ -289,10 +329,10 @@ fun ShowPosterCard(
                 .border(1.dp, KuraColors.Border, KuraShapes.Card)
                 .clip(KuraShapes.Card)
         ) {
-            AsyncImage(
+            KuraAsyncImage(
                 model = imageUrl,
                 contentDescription = show.title,
-                contentScale = ContentScale.Crop,
+                fallbackText = show.title,
                 modifier = Modifier.fillMaxSize()
             )
             if (show.isAiring) {
@@ -328,18 +368,30 @@ fun ShowPosterCard(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ContinueWatchingCard(
     item: WatchHistoryItem,
     thumbnailUrl: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    // Subtle press-in so taps feel physical
+    val pressScale by animateFloatAsState(if (pressed) 0.96f else 1f, tween(120), label = "cardPress")
     Column(
         modifier = modifier
+            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
             .width(220.dp)
             .clip(KuraShapes.Card)
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onLongClick = onLongClick,
+                onClick = onClick
+            )
     ) {
         Box(
             modifier = Modifier
@@ -349,26 +401,42 @@ fun ContinueWatchingCard(
                 .border(1.dp, KuraColors.Border, KuraShapes.Card)
                 .clip(KuraShapes.Card)
         ) {
-            AsyncImage(
+            KuraAsyncImage(
                 model = thumbnailUrl,
                 contentDescription = item.showTitle,
-                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
-            // Progress Bar Overlay at bottom of card
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .background(KuraColors.SurfaceHover)
-            ) {
+            val notStarted = item.upNext && item.progressSeconds < 1f
+            if (notStarted) {
+                Text(
+                    text = "NUEVO",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .background(KuraColors.Primary, KuraShapes.Pill)
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+            } else {
+                // Same inset bar as the episode list in the show detail
                 Box(
                     modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(fraction = (item.progressPercentage / 100f).coerceIn(0f, 1f))
-                        .background(KuraColors.Primary)
-                )
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .height(3.dp)
+                        .clip(KuraShapes.Pill)
+                        .background(Color.White.copy(alpha = 0.3f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(fraction = (item.progressPercentage / 100f).coerceIn(0f, 1f))
+                            .background(KuraColors.Primary)
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.height(KuraDimens.Space2))
@@ -380,9 +448,71 @@ fun ContinueWatchingCard(
             overflow = TextOverflow.Ellipsis
         )
         Text(
-            text = "T${item.seasonNumber} E${item.episodeNumber} • ${item.progressPercentage}% completado",
+            text = (if (item.seasonNumber > 0) "T${item.seasonNumber}:E${item.episodeNumber}" else "Especial ${item.episodeNumber}") + " • " +
+                when {
+                    item.upNext && item.progressSeconds < 1f -> "Siguiente episodio"
+                    item.duration > 0f -> "Quedan ${(item.remainingSeconds / 60).coerceAtLeast(1)} min"
+                    else -> "${item.progressPercentage}% visto"
+                },
             style = MaterialTheme.typography.labelSmall,
-            color = KuraColors.TextSecondary
+            color = KuraColors.TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+/**
+ * Artwork loader used across the app: cross-fades in, and when there is no URL or the request
+ * fails shows a branded fallback (icon + optional title) instead of an empty box.
+ */
+@Composable
+fun KuraAsyncImage(
+    model: String?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+    fallbackText: String? = null
+) {
+    var failed by remember(model) { mutableStateOf(model.isNullOrBlank()) }
+    Box(
+        modifier = modifier.background(KuraColors.SurfaceRaised),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!failed) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(model)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = contentDescription,
+                contentScale = contentScale,
+                onError = { failed = true },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(KuraDimens.Space2)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Movie,
+                    contentDescription = null,
+                    tint = KuraColors.TextMuted,
+                    modifier = Modifier.size(28.dp)
+                )
+                if (!fallbackText.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(KuraDimens.Space1))
+                    Text(
+                        text = fallbackText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = KuraColors.TextMuted,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
     }
 }
