@@ -96,6 +96,11 @@ class PartyController {
         return null;
     }
 
+    /** Whether this member may still take part: guests (no account) only while the host admits them. */
+    private static function memberMayParticipate(array $member, array $room): bool {
+        return !DbHelper::isGuestMember($member) || !empty($room['allow_guests']);
+    }
+
     private static function resolvePartyParticipant(array $data, array $room, bool $enforceProfileContext = true): ?array {
         // 1. Check ephemeral SSE ticket if provided
         $sseTicket = trim((string)($data['sse_ticket'] ?? ($_SERVER['HTTP_X_SSE_TICKET'] ?? ($_GET['sse_ticket'] ?? ''))));
@@ -106,7 +111,7 @@ class PartyController {
                 && !empty($ticketPayload['member_id'])
             ) {
                 $member = DbHelper::getPartyMemberById($room['id'], $ticketPayload['member_id']);
-                if ($member) {
+                if ($member && self::memberMayParticipate($member, $room)) {
                     if ($enforceProfileContext) {
                         self::validatePartyMemberProfileContext($member);
                     }
@@ -138,7 +143,7 @@ class PartyController {
 
         if (!empty($memberId) && !empty($memberToken)) {
             $member = DbHelper::validatePartyMemberToken($room['id'], $memberId, $memberToken);
-            if ($member) {
+            if ($member && self::memberMayParticipate($member, $room)) {
                 if ($enforceProfileContext) {
                     self::validatePartyMemberProfileContext($member);
                 }
@@ -229,6 +234,8 @@ class PartyController {
 
         $isPublic = !empty($data['is_public']) ? 1 : 0;
         $allowGuestControls = !empty($data['allow_guest_controls']) ? 1 : 0;
+        // Off unless the host opts in: a guest has no account, so no profile, no kids context and no revocation.
+        $allowGuests = Input::bool($data, 'allow_guests') ? 1 : 0;
 
         // 96 bits of randomness makes private room links unguessable in practice.
         $roomId = 'KURA-' . strtoupper(bin2hex(random_bytes(12)));
@@ -240,6 +247,7 @@ class PartyController {
             'episode_id' => $episodeId,
             'is_public' => $isPublic,
             'allow_guest_controls' => $allowGuestControls,
+            'allow_guests' => $allowGuests,
             'is_playing' => 0,
             'current_time' => 0.0
         ]);
@@ -281,6 +289,17 @@ class PartyController {
         ]);
     }
 
+    /** A guest cannot pose as the system or as a registered account (chat, "joined" messages, host checks). */
+    private static function assertGuestNameAllowed(string $name): void {
+        if (in_array(mb_strtolower(trim($name), 'UTF-8'), ['sistema', 'system'], true)) {
+            jsonError('Ese nombre está reservado. Elige otro nombre.', 400);
+        }
+        $adminUser = (string)getenv('ADMIN_USER');
+        if (($adminUser !== '' && strcasecmp($name, $adminUser) === 0) || DbHelper::getUser($name) !== null) {
+            jsonError('Ese nombre pertenece a una cuenta registrada. Elige otro nombre o inicia sesión.', 409, ['code' => 'PARTY_GUEST_NAME_TAKEN']);
+        }
+    }
+
     public static function joinRoom(): void {
         RateLimiter::enforce('party_join', 30, 60);
         $raw = file_get_contents('php://input');
@@ -305,6 +324,16 @@ class PartyController {
         $authPayload = AuthMiddleware::sessionPayload(AuthMiddleware::getBearerToken());
         $isHost = ($authPayload !== null && !empty($authPayload['username']) && $room['host_user'] === $authPayload['username']);
         $role = $isHost ? 'host' : 'guest';
+
+        if ($authPayload === null) {
+            if (empty($room['allow_guests'])) {
+                jsonError('Esta sala solo admite usuarios con cuenta. Inicia sesión para unirte.', 403, ['code' => 'PARTY_ACCOUNT_REQUIRED']);
+            }
+            self::assertGuestNameAllowed($user);
+        } elseif (empty($authPayload['profile_id']) && empty($authPayload['profile_name'])) {
+            // Without an active profile there is no kids context to enforce.
+            jsonError('Selección de perfil requerida', 403, ['code' => 'PROFILE_REQUIRED']);
+        }
 
         $isKids = false;
         $accountUsername = null;
@@ -577,7 +606,25 @@ class PartyController {
             }
         }
 
-        DbHelper::updatePartySettings($roomId, $data);
+        // Only these fields: the request body used to be passed through whole, which let the host rewrite
+        // host_user (handing the host role to any account).
+        $settings = [];
+        if (array_key_exists('name', $data)) {
+            $name = Input::string($data, 'name', 100);
+            if ($name !== '') {
+                $settings['name'] = $name;
+            }
+        }
+        foreach (['is_public', 'allow_guest_controls', 'allow_guests'] as $flag) {
+            if (array_key_exists($flag, $data) && $data[$flag] !== null) {
+                $settings[$flag] = Input::bool($data, $flag);
+            }
+        }
+
+        DbHelper::updatePartySettings($roomId, $settings);
+        if (array_key_exists('allow_guests', $settings) && $settings['allow_guests'] === false) {
+            DbHelper::removePartyGuests($roomId);
+        }
         $updatedRoom = DbHelper::getPartyRoom($roomId);
 
         jsonResponse([
@@ -587,6 +634,8 @@ class PartyController {
     }
 
     public static function getPublicRooms(): void {
+        // The list names hosts (account names) and what they are watching: accounts only.
+        AuthMiddleware::requireAuth();
         $rooms = DbHelper::getPublicPartyRooms();
         jsonResponse([
             'success' => true,

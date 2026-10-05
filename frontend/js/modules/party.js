@@ -180,7 +180,7 @@ class PartyManager {
 
   // --- API CALLS ---
 
-  async createRoom({ episodeId, name, isPublic = false, allowGuestControls = false }) {
+  async createRoom({ episodeId, name, isPublic = false, allowGuestControls = false, allowGuests = false }) {
     const username = this.resolveUsername();
     const res = await fetch('/api/party/create', {
       method: 'POST',
@@ -190,7 +190,8 @@ class PartyManager {
         episode_id: episodeId,
         name: name || `Sala de ${username}`,
         is_public: isPublic ? 1 : 0,
-        allow_guest_controls: allowGuestControls ? 1 : 0
+        allow_guest_controls: allowGuestControls ? 1 : 0,
+        allow_guests: allowGuests === true
       })
     });
 
@@ -784,7 +785,9 @@ class PartyManager {
 
   async fetchPublicRooms() {
     try {
-      const res = await fetch('/api/party/public-rooms');
+      // The list needs a signed-in session (it names hosts and what they are watching).
+      const res = await fetch('/api/party/public-rooms', { headers: getAuthHeaders() });
+      if (!res.ok) return [];
       const data = await res.json();
       return data.rooms || [];
     } catch {

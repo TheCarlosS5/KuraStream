@@ -1356,13 +1356,14 @@ class DbHelper {
         $episodeId = $data['episode_id'] ?? '';
         $isPublic = !empty($data['is_public']) ? 1 : 0;
         $allowGuestControls = !empty($data['allow_guest_controls']) ? 1 : 0;
+        $allowGuests = !empty($data['allow_guests']) ? 1 : 0;
         $currentTime = (float)($data['current_time'] ?? 0.0);
         $isPlaying = !empty($data['is_playing']) ? 1 : 0;
         $nowMs = (int)(microtime(true) * 1000);
 
         $stmt = $db->prepare("
-            INSERT INTO party_rooms (id, name, host_user, episode_id, is_playing, `current_time`, last_sync_timestamp, is_public, allow_guest_controls, participants_count, created_at, updated_at)
-            VALUES (:id, :name, :host, :ep, :playing, :time, :sync, :pub, :ctrl, 1, NOW(), NOW())
+            INSERT INTO party_rooms (id, name, host_user, episode_id, is_playing, `current_time`, last_sync_timestamp, is_public, allow_guest_controls, allow_guests, participants_count, created_at, updated_at)
+            VALUES (:id, :name, :host, :ep, :playing, :time, :sync, :pub, :ctrl, :guests, 1, NOW(), NOW())
             ON DUPLICATE KEY UPDATE 
                 name = VALUES(name),
                 host_user = VALUES(host_user),
@@ -1372,6 +1373,7 @@ class DbHelper {
                 last_sync_timestamp = VALUES(last_sync_timestamp),
                 is_public = VALUES(is_public),
                 allow_guest_controls = VALUES(allow_guest_controls),
+                allow_guests = VALUES(allow_guests),
                 updated_at = NOW()
         ");
 
@@ -1384,7 +1386,8 @@ class DbHelper {
             'time' => $currentTime,
             'sync' => $nowMs,
             'pub' => $isPublic,
-            'ctrl' => $allowGuestControls
+            'ctrl' => $allowGuestControls,
+            'guests' => $allowGuests
         ]);
 
         return $id;
@@ -1409,6 +1412,7 @@ class DbHelper {
         $row['last_sync_timestamp'] = (int)$row['last_sync_timestamp'];
         $row['is_public'] = (bool)$row['is_public'];
         $row['allow_guest_controls'] = (bool)$row['allow_guest_controls'];
+        $row['allow_guests'] = !empty($row['allow_guests']);
         $row['participants_count'] = (int)$row['participants_count'];
         // Clients extrapolate the host position from last_sync_timestamp; this lets them measure
         // against the server clock instead of their own (the home server often runs without NTP).
@@ -1465,6 +1469,10 @@ class DbHelper {
         if (isset($settings['allow_guest_controls'])) {
             $fields[] = "allow_guest_controls = :ctrl";
             $params['ctrl'] = !empty($settings['allow_guest_controls']) ? 1 : 0;
+        }
+        if (isset($settings['allow_guests'])) {
+            $fields[] = "allow_guests = :guests";
+            $params['guests'] = !empty($settings['allow_guests']) ? 1 : 0;
         }
 
         if (empty($fields)) return true;
@@ -1538,6 +1546,7 @@ class DbHelper {
             $r['last_sync_timestamp'] = (int)$r['last_sync_timestamp'];
             $r['is_public'] = (bool)$r['is_public'];
             $r['allow_guest_controls'] = (bool)$r['allow_guest_controls'];
+            $r['allow_guests'] = !empty($r['allow_guests']);
             $r['participants_count'] = (int)$r['participants_count'];
             return $r;
         }, $rooms);
@@ -1610,6 +1619,18 @@ class DbHelper {
         ");
         $stmt->execute(['r' => $roomId, 'm' => $memberId, 'h' => $tokenHash]);
         return $stmt->fetch() ?: null;
+    }
+
+    /** A guest is a room member without an account (the host always has one). */
+    public static function isGuestMember(array $member): bool {
+        return ($member['role'] ?? '') !== 'host' && empty($member['account_username']);
+    }
+
+    /** Removes every member without an account (used when the host stops admitting guests). */
+    public static function removePartyGuests(string $roomId): void {
+        $db = Database::getConnection();
+        $db->prepare("DELETE FROM party_members WHERE room_id = :r AND role <> 'host' AND (account_username IS NULL OR account_username = '')")
+            ->execute(['r' => $roomId]);
     }
 
     public static function getPartyMemberById(string $roomId, string $memberId): ?array {

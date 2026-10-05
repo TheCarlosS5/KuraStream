@@ -122,6 +122,9 @@ class PlayerController {
                 if (!$room || empty($room['episode_id'])) {
                     jsonError('Sala no encontrada o inactiva', 404);
                 }
+                if (DbHelper::isGuestMember($member) && empty($room['allow_guests'])) {
+                    jsonError('Esta sala ya no admite invitados sin cuenta', 403);
+                }
                 if ($room['episode_id'] !== $episodeId) {
                     jsonError('El ticket no corresponde al episodio activo de la sala', 403);
                 }

@@ -214,6 +214,7 @@ KuraStream/
 - **Session tokens are revocable.** Each account has a `token_version` (migration 013) that is embedded in its JWT as `ver`. `POST /api/account/password` (change password) and `POST /api/account/logout-all` increment it, which immediately invalidates every other token of the account; the calling device receives a fresh token in the response.
 - **Account state is re-read on every request.** The role, the active profile's name and its kids flag come from the database, not from the token, so demoting an admin, deleting an account, or enabling kids mode on a profile applies to every device at once instead of when the 30-day token expires.
 - **Watch Party tickets are not sessions.** Stream/SSE tickets share the signing key but carry a `type` claim and are refused wherever a login is required.
+- **Watch Party guests are opt-in.** A room admits people without an account only when its host enables *Permitir invitados sin cuenta* (`allow_guests`, off by default). Guests cannot use the name of a registered account or "Sistema"; accounts must have an active profile to join (so kids mode always applies); turning the option off removes the guests immediately, and the public room list requires a signed-in session.
 - **PIN guesses are throttled** (5 per 15 minutes per account and profile; a correct PIN resets the counter).
 - The administrator defined by `ADMIN_USER` has no database row; its token is trusted as issued and it cannot use the password endpoints (change `ADMIN_PASS_HASH` in the server configuration instead).
 

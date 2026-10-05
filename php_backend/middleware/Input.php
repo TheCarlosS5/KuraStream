@@ -14,6 +14,27 @@ class Input {
     }
 
     /**
+     * A boolean flag. Accepts true/false, 1/0 and "1"/"0"/"true"/"false" (a literal "false" string is truthy in PHP,
+     * so `!empty($data['flag'])` would silently turn it on). Anything else is refused with 400. Missing gives $default.
+     */
+    public static function bool(array $source, string $key, bool $default = false): bool {
+        if (!array_key_exists($key, $source) || $source[$key] === null || $source[$key] === '') {
+            return $default;
+        }
+        $value = $source[$key];
+        if (is_bool($value)) {
+            return $value;
+        }
+        if ($value === 1 || $value === '1' || $value === 'true') {
+            return true;
+        }
+        if ($value === 0 || $value === '0' || $value === 'false') {
+            return false;
+        }
+        jsonError("El campo '{$key}' debe ser verdadero o falso", 400);
+    }
+
+    /**
      * A string field. Missing/null gives ''. Arrays, objects and booleans are refused with 400, and so are
      * values longer than $maxLength characters (never silently truncated).
      */

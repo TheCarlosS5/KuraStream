@@ -2542,6 +2542,7 @@ export function setupWatchPartyModal() {
   const epSelect = document.getElementById('party-create-episode-select');
   const pubCheck = document.getElementById('party-create-public-check');
   const ctrlCheck = document.getElementById('party-create-controls-check');
+  const guestsCheck = document.getElementById('party-create-guests-check');
   const createError = document.getElementById('party-create-error');
 
   if (createSubmitBtn) {
@@ -2576,6 +2577,7 @@ export function setupWatchPartyModal() {
       const partyName = createNameInput ? createNameInput.value.trim() : '';
       const isPublic = Boolean(pubCheck && pubCheck.checked);
       const allowGuestControls = Boolean(ctrlCheck && ctrlCheck.checked);
+      const allowGuests = Boolean(guestsCheck && guestsCheck.checked);
 
       createSubmitBtn.disabled = true;
       try {
@@ -2583,7 +2585,8 @@ export function setupWatchPartyModal() {
           episodeId: epId,
           name: partyName,
           isPublic,
-          allowGuestControls
+          allowGuestControls,
+          allowGuests
         });
         closeModal();
         showToast(`Sala "${room.name || room.id}" creada con éxito`, 'success');

@@ -152,7 +152,7 @@ echo "  [3/3] Testing Watch Party token auth, duplicate nicknames, and member is
 $hostToken = AuthMiddleware::createToken(['username' => 'alice', 'role' => 'user', 'exp' => time() + 3600]);
 $_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$hostToken}";
 $roomId = 'KURA-TESTROOM1';
-$db->exec("INSERT INTO party_rooms (id, name, host_user, episode_id) VALUES ('{$roomId}', 'Sala de Alice', 'alice', 'ep1')");
+$db->exec("INSERT INTO party_rooms (id, name, host_user, episode_id, allow_guests) VALUES ('{$roomId}', 'Sala de Alice', 'alice', 'ep1', 1)");
 
 // Host joins as member
 $hostMemId = 'mem_host_123';
