@@ -24,8 +24,7 @@ class PartyController {
         $guestName = strip_tags($guestName);
         $cleanName = mb_substr($guestName, 0, 64);
         if (empty($_COOKIE['kurastream_guest_name']) || $_COOKIE['kurastream_guest_name'] !== $cleanName) {
-            $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-                || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+            $isSecure = kuraIsSecureRequest();
             @setcookie('kurastream_guest_name', $cleanName, [
                 'expires' => time() + (24 * 3600),
                 'path' => '/',
@@ -183,8 +182,7 @@ class PartyController {
     }
 
     private static function setPartySessionCookie(string $roomId, string $memberId, string $memberToken): void {
-        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+        $isSecure = kuraIsSecureRequest();
         $payload = json_encode([
             'room_id' => $roomId,
             'member_id' => $memberId,
@@ -439,8 +437,7 @@ class PartyController {
         DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} salió de la sala", 'system');
         DbHelper::updatePartyPlayback($roomId, (bool)$room['is_playing'], (float)$room['current_time'], null, $newCount);
 
-        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+        $isSecure = kuraIsSecureRequest();
         @setcookie('kurastream_party_session', '', [
             'expires' => time() - 3600,
             'path' => '/api/party',

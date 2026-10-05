@@ -117,6 +117,21 @@ if (!empty($configuredMediaPath)) {
     define('LIBRARY_DIR', ROOT_DIR . '/library');
 }
 
+/**
+ * Whether the browser reached us over HTTPS (cookies get the Secure flag). nginx passes HTTPS through FastCGI;
+ * X-Forwarded-Proto is only believed from a configured TRUSTED_PROXIES address, so a client cannot claim it.
+ */
+function kuraIsSecureRequest(): bool {
+    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        return true;
+    }
+    if ((int)($_SERVER['SERVER_PORT'] ?? 0) === 443) {
+        return true;
+    }
+    $forwarded = strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    return $forwarded === 'https' && in_array($_SERVER['REMOTE_ADDR'] ?? '', TRUSTED_PROXIES, true);
+}
+
 // Security and CSP headers. One list feeds both PHP (setSecurityHeaders) and nginx, which serves the static files
 // itself: deploy/nginx/security-headers.conf is generated from it (php_backend/scripts/print_security_headers.php)
 // and tests/test_nginx_deploy.php fails when the two drift apart.

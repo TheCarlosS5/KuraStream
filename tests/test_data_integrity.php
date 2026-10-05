@@ -70,6 +70,18 @@ try {
     assert($iso['nested'][0]['last_ping'] === '2026-10-05T14:03:00Z' && $iso['nested'][0]['timestamp'] === '2026-10-05T14:03:00Z' && $iso['nested'][0]['note_at'] === 'tomorrow' && $iso['count'] === 3, 'nested values and non-dates are handled');
     echo "✓ UTC and ISO-8601 OK\n";
 
+    // 4b. "Secure" cookies: a client cannot claim HTTPS through X-Forwarded-Proto unless it comes from a trusted proxy
+    $backup = $_SERVER;
+    $_SERVER = ['REMOTE_ADDR' => '203.0.113.9', 'HTTP_X_FORWARDED_PROTO' => 'https'];
+    assert(kuraIsSecureRequest() === false, 'an untrusted client cannot claim HTTPS');
+    $_SERVER = ['HTTPS' => 'on'];
+    assert(kuraIsSecureRequest() === true, 'FastCGI HTTPS=on is believed');
+    $_SERVER = ['SERVER_PORT' => '443'];
+    assert(kuraIsSecureRequest() === true, 'port 443 is HTTPS');
+    $_SERVER = ['HTTPS' => 'off'];
+    assert(kuraIsSecureRequest() === false, 'HTTPS=off is not');
+    $_SERVER = $backup;
+
     // 5. Watch progress: canonical id, completed only goes up, newest device wins
     DbHelper::saveShow(['id' => $showId, 'title' => 'DI Show', 'type' => 'anime', 'folder' => 'di']);
     DbHelper::saveEpisode(['id' => $epId, 'show_id' => $showId, 'season_number' => 1, 'episode_number' => 1, 'title' => 'E1', 'filepath' => '/tmp/none.mkv',

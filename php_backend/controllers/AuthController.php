@@ -178,9 +178,7 @@ class AuthController {
     }
 
     public static function logout(): void {
-        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
-            || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443);
+        $isSecure = kuraIsSecureRequest();
 
         @setcookie('kurastream_token', '', [
             'expires' => time() - 3600,
@@ -212,9 +210,7 @@ class AuthController {
      * A planned future refactor will decouple these or move fully to HttpOnly session tokens with CSRF protections.
      */
     private static function setSessionCookie(string $token): void {
-        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
-            || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443);
+        $isSecure = kuraIsSecureRequest();
 
         @setcookie('kurastream_token', $token, [
             'expires' => time() + (30 * 24 * 3600),
@@ -382,8 +378,7 @@ class AuthController {
         $token = self::issueProfileToken($authUser, $profile);
 
         // Clear active party session on profile switch to avoid incompatible party session
-        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+        $isSecure = kuraIsSecureRequest();
         @setcookie('kurastream_party_session', '', [
             'expires' => time() - 3600,
             'path' => '/api/party',
