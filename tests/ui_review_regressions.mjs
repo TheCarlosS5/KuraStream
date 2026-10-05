@@ -34,7 +34,7 @@ test('notification metadata stays in text and quoted attributes, with encoded ro
 test('router decodes IDs only after separating the actual query string', () => {
   for (const kind of ['show', 'player']) {
     let received;
-    const context = vm.createContext({ console, window: { location: { hash: `#/${kind}/Show%3Fpart%2Fone_S1_E1?t=42` }, addEventListener() {} }, document: { querySelector: () => ({ style: { removeProperty() {} } }), querySelectorAll: () => [], getElementById: () => null }, updateMosaicBgVisibility() {}, updateActiveNavHighlight() {}, resetChameleonTheme() {}, currentView: '', loadShowDetails: id => { received = id; }, initPlayer: id => { received = id; } });
+    const context = vm.createContext({ navigationGeneration: 0, console, window: { location: { hash: `#/${kind}/Show%3Fpart%2Fone_S1_E1?t=42` }, addEventListener() {} }, document: { querySelector: () => ({ style: { removeProperty() {} } }), querySelectorAll: () => [], getElementById: () => null }, updateMosaicBgVisibility() {}, updateActiveNavHighlight() {}, resetChameleonTheme() {}, currentView: '', loadShowDetails: id => { received = id; }, initPlayer: id => { received = id; } });
     evaluate(app, 'setupRouter', context);
     context.setupRouter();
     assert.equal(received, 'Show?part/one_S1_E1');
@@ -55,6 +55,7 @@ for (const entry of ['code', 'modal']) {
         'party-join-name-input': { value: 'Viewer' }
       };
       const context = vm.createContext({
+        navigationGeneration: 0,
         console,
         window: { location: { hash: '' }, addEventListener() {} },
         document: { getElementById: key => nodes[key] || null, addEventListener() {} },
@@ -82,7 +83,7 @@ for (const entry of ['code', 'modal']) {
 test('decoded IDs retain question marks and slashes through API URL construction', async () => {
   let requested;
   const stop = new Error('Stop after first API request');
-  const context = vm.createContext({ console: { error() {} }, document: { getElementById: () => null }, fetch: async url => { requested = url; throw stop; } });
+  const context = vm.createContext({ navigationGeneration: 0, console: { error() {} }, document: { getElementById: () => null }, fetch: async url => { requested = url; throw stop; } });
   evaluate(player, 'getShowIdFromEpisodeId', context);
   evaluate(player, 'showApiUrl', context);
   // The player loads its episode through showApiUrl(getShowIdFromEpisodeId(id)).
@@ -107,7 +108,7 @@ test('new service worker installs exact versioned shell assets and retires old c
   const cacheModes = [];
   const removed = [];
   let cacheName;
-  const context = vm.createContext({ URL, Request, console, self: { location: { origin: 'https://kura.test' }, addEventListener: (type, handler) => { handlers[type] = handler; }, skipWaiting() {}, clients: { claim() {} } }, caches: { open: async name => { cacheName = name; return { addAll: async assets => { cacheModes.push(...assets.map(asset => asset.cache)); installed.push(...assets.map(asset => typeof asset === 'string' ? asset : new URL(asset.url).pathname + new URL(asset.url).search)); } }; }, keys: async () => ['kurastream-v2.0', cacheName], delete: async name => { removed.push(name); } } });
+  const context = vm.createContext({ URL, Request, console, self: { location: { origin: 'https://kura.test' }, addEventListener: (type, handler) => { handlers[type] = handler; }, skipWaiting() {}, clients: { claim() {} } }, caches: { open: async name => { cacheName = name; const record = assets => { cacheModes.push(...assets.map(asset => asset.cache)); installed.push(...assets.map(asset => typeof asset === 'string' ? asset : new URL(asset.url).pathname + new URL(asset.url).search)); }; return { addAll: async assets => record(assets), add: async asset => record([asset]) }; }, keys: async () => ['kurastream-v2.0', cacheName], delete: async name => { removed.push(name); } } });
   vm.runInContext(sw, context);
   let done;
   handlers.install({ waitUntil: promise => { done = promise; } });

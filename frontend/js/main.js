@@ -4,6 +4,7 @@
  */
 
 import { AuthManager } from './core/auth.js';
+import { fetchJson, loadErrorState } from './core/http.js';
 import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
 import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.05-security';
@@ -41,6 +42,28 @@ export function escapeHtmlAttribute(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+// Bumped on every route change. A view that awaits the network compares it afterwards and stops when the person
+// has already moved on, so a slow answer for show A can no longer paint over show B.
+let navigationGeneration = 0;
+
+// Lists (catalogue, history...) come back to where the person left them; every other view starts at the top.
+const scrollPositions = new Map();
+const SCROLL_RESTORED_ROUTES = new Set(['/', '/airing', '/movies', '/my-list', '/history', '/calendar', '/stats']);
+let scrollRouteKey = null;
+
+function trackRouteScroll(path) {
+  if (scrollRouteKey !== null && typeof window.scrollY === 'number') scrollPositions.set(scrollRouteKey, window.scrollY);
+  scrollRouteKey = path === '' ? '/' : path;
+}
+
+function restoreScrollFor(path) {
+  if (typeof window.scrollTo !== 'function') return;
+  const target = SCROLL_RESTORED_ROUTES.has(path) ? (scrollPositions.get(path) || 0) : 0;
+  window.scrollTo(0, target);
+  // The list is painted after its data arrives: try again while it grows.
+  if (target > 0) [150, 500, 1200].forEach((ms) => setTimeout(() => window.scrollTo(0, target), ms));
 }
 
 /** `url("...")` for a CSS background, with the address JSON-escaped so a quote or parenthesis cannot end the string. */
@@ -1020,6 +1043,7 @@ export function showEpisodeDetails(episodeId) {
 }
 
 export async function loadShowDetails(id) {
+  const generation = navigationGeneration;
   const detailTitle = document.getElementById('detail-title');
   const detailSynopsis = document.getElementById('detail-synopsis');
   const detailPoster = document.getElementById('detail-poster');
@@ -1048,6 +1072,7 @@ export async function loadShowDetails(id) {
       throw new Error(`Error ${res.status}: no se pudo cargar el show`);
     }
     const data = await res.json();
+    if (generation !== navigationGeneration) return;   // the person already left this show
     const show = data.show || data;
     const episodes = Array.isArray(data.episodes) ? data.episodes : (show.episodes || []);
     currentShowEpisodes = episodes;
@@ -1703,40 +1728,37 @@ export async function loadShowDetails(id) {
       if (!commentsListContainer) return;
       commentsListContainer.innerHTML = '<div class="state-box-loading">Cargando comentarios...</div>';
       try {
-        const cRes = await fetch(`/api/comments?show_id=${encodeURIComponent(id)}`);
-        if (cRes.ok) {
-          const cData = await cRes.json();
-          const comments = Array.isArray(cData.comments) ? cData.comments : [];
-          if (comments.length === 0) {
-            commentsListContainer.innerHTML = '<div class="empty-state text-muted" style="padding: 24px 0; text-align: center;">No hay comentarios todavía. ¡Sé el primero en comentar!</div>';
-            return;
-          }
-          commentsListContainer.innerHTML = comments.map(c => {
-            // The API deliberately does not send account (login) names; comments show the profile name.
-            const author = c.profile_name || 'Usuario';
-            const initial = (c.profile_name || 'U')[0].toUpperCase();
-            const dateStr = c.created_at ? new Date(c.created_at).toLocaleDateString() : '';
-            const avatarAttrs = c.avatar
-              ? `data-bg-image="${escapeHtmlAttribute(c.avatar)}"`
-              : `data-bg-color="${escapeHtmlAttribute(c.avatar_color || '')}"`;
-            const avatarContent = c.avatar ? '' : escapeHtml(initial);
-            return `
-              <div class="comment-item" style="display: flex; gap: 12px; margin-bottom: 16px; padding: 12px; background: var(--surface-control); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
-                <div class="user-avatar-initial" style="width: 36px; height: 36px; font-size: 0.9rem; flex-shrink: 0;" ${avatarAttrs}>${avatarContent}</div>
-                <div style="flex: 1;">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <strong style="color: var(--text-main); font-size: 0.9rem;">${escapeHtml(author)}</strong>
-                    <span style="color: var(--text-muted); font-size: 0.75rem;">${escapeHtml(dateStr)}</span>
-                  </div>
-                  <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0; white-space: pre-wrap;">${escapeHtml(c.content)}</p>
-                </div>
-              </div>
-            `;
-          }).join('');
-          applyDynamicBackgrounds(commentsListContainer);
+        const cData = await fetchJson(`/api/comments?show_id=${encodeURIComponent(id)}`);
+        const comments = Array.isArray(cData.comments) ? cData.comments : [];
+        if (comments.length === 0) {
+          commentsListContainer.innerHTML = '<div class="empty-state text-muted" style="padding: 24px 0; text-align: center;">No hay comentarios todavía. ¡Sé el primero en comentar!</div>';
+          return;
         }
-      } catch {
-        commentsListContainer.innerHTML = '<div class="text-danger" style="padding: 12px 0;">Error al cargar comentarios.</div>';
+        commentsListContainer.innerHTML = comments.map(c => {
+          // The API deliberately does not send account (login) names; comments show the profile name.
+          const author = c.profile_name || 'Usuario';
+          const initial = (c.profile_name || 'U')[0].toUpperCase();
+          const dateStr = c.created_at ? new Date(c.created_at).toLocaleDateString() : '';
+          const avatarAttrs = c.avatar
+            ? `data-bg-image="${escapeHtmlAttribute(c.avatar)}"`
+            : `data-bg-color="${escapeHtmlAttribute(c.avatar_color || '')}"`;
+          const avatarContent = c.avatar ? '' : escapeHtml(initial);
+          return `
+            <div class="comment-item" style="display: flex; gap: 12px; margin-bottom: 16px; padding: 12px; background: var(--surface-control); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+              <div class="user-avatar-initial" style="width: 36px; height: 36px; font-size: 0.9rem; flex-shrink: 0;" ${avatarAttrs}>${avatarContent}</div>
+              <div style="flex: 1;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <strong style="color: var(--text-main); font-size: 0.9rem;">${escapeHtml(author)}</strong>
+                  <span style="color: var(--text-muted); font-size: 0.75rem;">${escapeHtml(dateStr)}</span>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0; white-space: pre-wrap;">${escapeHtml(c.content)}</p>
+              </div>
+            </div>
+          `;
+        }).join('');
+        applyDynamicBackgrounds(commentsListContainer);
+      } catch (error) {
+        renderLoadErrorState(commentsListContainer, error, 'los comentarios', loadComments);
       }
     };
 
@@ -1791,6 +1813,28 @@ export async function loadShowDetails(id) {
   }
 }
 
+/**
+ * Shows why a list could not be loaded (no connection, expired session, server error) with the right action,
+ * instead of the "empty" illustration that made a failure look like the user having no data.
+ */
+function renderLoadErrorState(container, error, what, retry) {
+  const info = loadErrorState(error, what);
+  const icon = info.kind === 'network' ? 'wifi-off' : (info.kind === 'auth' ? 'user' : 'triangle-alert');
+  container.innerHTML = `
+    <div class="empty-state-card col-span-all load-error-state" role="alert" data-error-kind="${escapeHtmlAttribute(info.kind)}">
+      <h3><i data-lucide="${icon}"></i> ${escapeHtml(info.title)}</h3>
+      <p>${escapeHtml(info.message)}</p>
+      ${info.retry ? '<button type="button" class="btn btn-primary" data-action="retry-load"><i data-lucide="refresh-cw"></i> Reintentar</button>' : ''}
+      ${info.login ? '<button type="button" class="btn btn-primary" data-action="login-again"><i data-lucide="user"></i> Iniciar sesión</button>' : ''}
+    </div>
+  `;
+  const retryBtn = container.querySelector('[data-action="retry-load"]');
+  if (retryBtn && typeof retry === 'function') retryBtn.onclick = retry;
+  const loginBtn = container.querySelector('[data-action="login-again"]');
+  if (loginBtn) loginBtn.onclick = () => openAuthModal('login');
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
 function renderLoginRequiredState(container, title, message, illustration) {
   const needsProfileOnly = AuthManager.isAuthenticated();
   container.innerHTML = `
@@ -1814,6 +1858,7 @@ function renderLoginRequiredState(container, title, message, illustration) {
 export async function renderMyListView() {
   const container = document.getElementById('mylist-grid');
   if (!container) return;
+  const generation = navigationGeneration;
 
   container.innerHTML = `<div class="shows-grid"><div class="show-card skeleton" style="height:250px;"></div><div class="show-card skeleton" style="height:250px;"></div><div class="show-card skeleton" style="height:250px;"></div><div class="show-card skeleton" style="height:250px;"></div></div>`;
   const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
@@ -1825,15 +1870,15 @@ export async function renderMyListView() {
   }
 
   try {
-    const res = await fetch(`/api/favorites?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, {
+    favorites = await fetchJson(`/api/favorites?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
-    if (res.ok) {
-      favorites = await res.json();
-    }
-  } catch (e) {
-    console.warn('Error fetching favorites:', e);
+  } catch (error) {
+    if (generation !== navigationGeneration) return;
+    renderLoadErrorState(container, error, 'tu lista', renderMyListView);
+    return;
   }
+  if (generation !== navigationGeneration) return;
 
   if (!Array.isArray(favorites) || favorites.length === 0) {
     container.innerHTML = `
@@ -1870,6 +1915,7 @@ export async function renderMyListView() {
 export async function renderHistoryView() {
   const container = document.getElementById('history-list');
   if (!container) return;
+  const generation = navigationGeneration;
 
   container.innerHTML = `<div class="history-list-container"><div class="history-item skeleton" style="height:80px;"></div><div class="history-item skeleton" style="height:80px;"></div><div class="history-item skeleton" style="height:80px;"></div></div>`;
   const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
@@ -1884,13 +1930,13 @@ export async function renderHistoryView() {
 
   try {
     const headers = { 'Authorization': `Bearer ${token}` };
-    const res = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
-    if (res.ok) {
-      historyItems = await res.json();
-    }
-  } catch (e) {
-    console.warn('Error fetching history:', e);
+    historyItems = await fetchJson(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
+  } catch (error) {
+    if (generation !== navigationGeneration) return;
+    renderLoadErrorState(container, error, 'tu historial', renderHistoryView);
+    return;
   }
+  if (generation !== navigationGeneration) return;
 
   if (!Array.isArray(historyItems) || historyItems.length === 0) {
     container.innerHTML = `
@@ -2213,6 +2259,7 @@ export async function renderStatsView() {
   const cardsGrid = document.getElementById('stats-cards-grid');
   const chartContainer = document.getElementById('stats-genre-chart');
   if (!cardsGrid || !chartContainer) return;
+  const generation = navigationGeneration;
 
   const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
   const chartCard = document.getElementById('stats-chart-card');
@@ -2238,13 +2285,15 @@ export async function renderStatsView() {
   try {
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(`/api/user/stats?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
-    if (res.ok) {
-      const data = await res.json();
-      stats = data.stats || data || stats;
-    }
-  } catch (e) {
-    console.warn('Error fetching stats:', e);
+    const data = await fetchJson(`/api/user/stats?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
+    stats = data.stats || data || stats;
+    if (generation !== navigationGeneration) return;
+  } catch (error) {
+    if (generation !== navigationGeneration) return;
+    renderLoadErrorState(cardsGrid, error, 'tus estadísticas', renderStatsView);
+    chartContainer.innerHTML = '';
+    if (chartCard) chartCard.style.display = 'none';
+    return;
   }
 
   const formattedTime = formatWatchTime(stats.total_time_seconds || 0);
@@ -2343,7 +2392,7 @@ export async function loadNotifications() {
 
         return `
           <a href="${escapeHtmlAttribute(targetHash)}" class="notification-item${readClass}" data-show-id="${escapeHtmlAttribute(item.show_id || '')}" data-episode-id="${escapeHtmlAttribute(item.episode_id || '')}">
-            <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(title)}" class="notification-poster" onerror="this.onerror=null;this.src='/api/placeholder-poster?title=Show';">
+            <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(title)}" class="notification-poster" data-fallback-src="/api/placeholder-poster?title=Show">
             <div class="notification-info">
               <span class="notification-title">${escapeHtml(title)}</span>
               <span class="notification-ep">Episodio ${escapeHtml(epNum)} ${escapeHtml(seasonNum ? `(Temporada ${seasonNum})` : '')}</span>
@@ -2693,13 +2742,25 @@ export function hideAllViews() {
 
 export function setupRouter() {
   const handleRoute = async () => {
+    navigationGeneration++;
     if (typeof renderAuthState === 'function') renderAuthState();
 
     const rawHash = window.location.hash || '#/';
     const [routeWithPrefix] = rawHash.split('?');
     const path = routeWithPrefix.replace(/^#/, '') || '/';
+    if (typeof trackRouteScroll === 'function') trackRouteScroll(path);
     
     if (typeof updateActiveNavHighlight === 'function') updateActiveNavHighlight(rawHash);
+
+    // The show page's ambient background clip keeps decoding (and downloading) if it is left in the DOM.
+    if (!path.startsWith('/show/') && typeof document.querySelectorAll === 'function') {
+      document.querySelectorAll('.ambient-loop-video').forEach((clip) => {
+        clip.pause();
+        clip.removeAttribute('src');
+        clip.load();
+        clip.remove();
+      });
+    }
 
     // If leaving player view, destroy player cleanly
     const mainHeader = document.querySelector('.app-header');
@@ -2851,7 +2912,11 @@ export function setupRouter() {
         admView.classList.add('active');
         admView.style.display = 'flex';
       }
-      if (typeof initAdminSidebar === 'function') initAdminSidebar();
+      if (typeof initAdminSidebar === 'function') {
+        Promise.resolve(initAdminSidebar()).catch(() => {
+          window.showToast?.('No se pudo cargar el panel de administración. Revisa la conexión.', 'error');
+        });
+      }
     } else if (path === '/profiles') {
       currentView = 'profiles';
       const profView = document.getElementById('profile-switcher-view');
@@ -2902,7 +2967,13 @@ export function setupRouter() {
 
       const roomId = decodeURIComponent(path.replace(/^\/party\/?/, '')).trim();
       if (roomId) {
-        if (typeof joinWatchPartyByCode === 'function') await joinWatchPartyByCode(roomId);
+        // A link must not drop someone into a room (and show their name to it) without asking.
+        const wantsToJoin = typeof window.confirm !== 'function' || window.confirm(`¿Unirte al Watch Party ${roomId}?`);
+        if (!wantsToJoin) {
+          window.location.hash = '#/';
+        } else if (typeof joinWatchPartyByCode === 'function') {
+          await joinWatchPartyByCode(roomId);
+        }
       } else {
         openWatchPartyModal('join');
       }
@@ -2917,6 +2988,7 @@ export function setupRouter() {
     }
 
     if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof restoreScrollFor === 'function') restoreScrollFor(path);
   };
 
   // hashchange alone covers links, back/forward and programmatic hash changes; also listening to
@@ -3074,10 +3146,11 @@ async function initCatalogView(filterType = 'all') {
   const heroContainer = document.getElementById('hero-carousel-container');
   const heroWrapper = document.getElementById('hero-carousel-wrapper');
   const dashboardSections = document.getElementById('dashboard-sections');
+  const generation = navigationGeneration;
 
   try {
-    const res = await fetch('/api/shows');
-    const data = await res.json();
+    const data = await fetchJson('/api/shows');
+    if (generation !== navigationGeneration) return;
     let shows = Array.isArray(data) ? data : (data.shows || []);
     if (filterType === 'movie') {
       shows = shows.filter(s => s.media_type === 'movie' || s.type === 'movie');
@@ -3100,6 +3173,7 @@ async function initCatalogView(filterType = 'all') {
       } catch {}
     }
     if (!Array.isArray(continueItems)) continueItems = [];
+    if (generation !== navigationGeneration) return;
 
     // Hero carousel: up to five titles; "Reproducir" resumes where this profile left off.
     if (heroContainer && heroWrapper) {
@@ -3141,6 +3215,11 @@ async function initCatalogView(filterType = 'all') {
     if (typeof lucide !== 'undefined') lucide.createIcons();
   } catch (err) {
     console.error('Error initializing catalog view:', err);
+    // A failed catalogue must not look like an empty library.
+    if (dashboardSections) {
+      if (heroWrapper) heroWrapper.style.display = 'none';
+      renderLoadErrorState(dashboardSections, err, 'el catálogo', () => initCatalogView(filterType));
+    }
   }
 }
 
@@ -3229,16 +3308,18 @@ async function renderGenresView(activeGenre = '') {
   const catalogTitle = document.getElementById('genre-catalog-title');
   const catalogGrid = document.getElementById('genre-catalog-grid');
   if (!genresGrid) return;
+  const generation = navigationGeneration;
 
   let shows = [];
   try {
-    const res = await fetch('/api/shows');
-    if (res.ok) {
-      const data = await res.json();
-      shows = Array.isArray(data) ? data : (data.shows || []);
-    }
-  } catch (e) {
-    console.warn('Error loading catalog for genres:', e);
+    const data = await fetchJson('/api/shows');
+    if (generation !== navigationGeneration) return;
+    shows = Array.isArray(data) ? data : (data.shows || []);
+  } catch (error) {
+    if (generation !== navigationGeneration) return;
+    renderLoadErrorState(genresGrid, error, 'los géneros', () => renderGenresView(activeGenre));
+    if (catalogSection) catalogSection.style.display = 'none';
+    return;
   }
 
   // Genres come from the catalog's own metadata (TMDB names such as "Sci-Fi & Fantasy").
@@ -3366,9 +3447,12 @@ async function loadSettingsView() {
           saveSuccessToast.style.display = 'block';
           setTimeout(() => { saveSuccessToast.style.display = 'none'; }, 2500);
         }
+      } else {
+        window.showToast?.(res.status === 401 || res.status === 403 ? 'Tu sesión terminó: inicia sesión para guardar tus ajustes' : 'No se pudieron guardar tus ajustes', 'error');
       }
     } catch (err) {
       console.warn('Error saving preferences:', err);
+      window.showToast?.('Sin conexión: no se guardaron tus ajustes', 'error');
     }
   };
 
@@ -4077,6 +4161,13 @@ document.addEventListener('DOMContentLoaded', () => {
   loadNotifications();
   renderAuthState();
   setupAuthModalListeners();
+
+  // A reload keeps the Watch Party this tab was in (the room code is remembered for the tab's lifetime).
+  partyManager.restoreSession().then(room => {
+    if (room && room.episode_id && !window.location.hash.startsWith('#/player/')) {
+      window.location.hash = `#/player/${encodeURIComponent(room.episode_id)}`;
+    }
+  }).catch(() => {});
 
   // Load user preferences globally into window.userPreferences
   try {

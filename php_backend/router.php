@@ -143,14 +143,33 @@ if (!function_exists('serveBackdropLoop')) {
     }
 }
 
+// `npm run build` writes frontend/dist (hashed, minified files). It is served automatically when present;
+// KURA_USE_DIST=0 serves the readable sources instead (development, E2E tests).
+$distDir = $frontendDir . '/dist';
+$useDist = getenv('KURA_USE_DIST') !== '0' && is_file($distDir . '/index.html');
+
 if ($uri === '/' || $uri === '/index.html') {
     header('Content-Type: text/html; charset=utf-8');
     header('Cache-Control: no-cache, no-store, must-revalidate');
-    readfile($frontendDir . '/index.html');
+    readfile($useDist ? $distDir . '/index.html' : $frontendDir . '/index.html');
+    exit();
+}
+
+if ($useDist && $uri === '/sw.js') {
+    // The service worker must live at the root to control the whole site; the built one lists this build's files.
+    header('Content-Type: application/javascript; charset=utf-8');
+    header('Cache-Control: no-cache');
+    header('Service-Worker-Allowed: /');
+    readfile($distDir . '/sw.js');
     exit();
 }
 
 $decodedUri = urldecode($uri);
+
+// Hashed build files never change: cache them for a year.
+if (str_starts_with($decodedUri, '/dist/')) {
+    serveStaticFile($frontendDir, $decodedUri, 'public, max-age=31536000, immutable');
+}
 
 serveStaticFile($frontendDir, $decodedUri);
 

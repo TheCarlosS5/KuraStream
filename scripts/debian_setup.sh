@@ -32,7 +32,7 @@ echo "=========================================================="
 echo "[1/7] Instalando paquetes (nginx, PHP-FPM, MariaDB, FFmpeg, NetworkManager)..."
 sudo apt-get update
 sudo apt-get install -y nginx php-fpm php-cli php-mysql php-curl php-mbstring php-xml mariadb-server mariadb-client \
-    ffmpeg network-manager openssl perl acl
+    ffmpeg network-manager openssl perl acl nodejs npm
 
 PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')"
 PHP_BIN="$(command -v php)"
@@ -124,6 +124,14 @@ while [ "$dir" != "/" ]; do
     dir="$(dirname "$dir")"
 done
 sudo -u "$SERVICE_USER" test -r "$SCRIPT_DIR/php_backend/router.php" || { echo "  [ERROR] $SERVICE_USER no puede leer $SCRIPT_DIR" >&2; exit 1; }
+
+# Build de producción de la web (bundles con hash, caché eterna): si falla, se sirven los archivos fuente.
+echo "  -> Construyendo la web (npm run build)..."
+if (cd "$SCRIPT_DIR" && npm ci --ignore-scripts --no-audit --no-fund && node scripts/build.mjs); then
+    sudo chmod -R o+rX "$SCRIPT_DIR/frontend"
+else
+    echo "  [AVISO] No se pudo construir la web; se servirán los archivos sin empaquetar (funciona, pero con más peticiones)." >&2
+fi
 
 # 4. MariaDB
 echo "[4/7] Configurando MariaDB..."

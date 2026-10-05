@@ -2233,3 +2233,22 @@ input:checked + .slider:before {
   max-height: calc(100vh - 32px);
   overflow-y: auto;
 }
+
+/* "New version available" prompt shown by js/boot/sw_register.js */
+.app-update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 16px;
+  border-radius: var(--radius-card, 12px);
+  background: var(--surface-raised, #1b2326);
+  border: 1px solid var(--accent-color, #f97316);
+  color: var(--text-main, #f4f8f9);
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.5));
+}

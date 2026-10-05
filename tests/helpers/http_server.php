@@ -10,7 +10,7 @@ function kura_start_server(array $env = []): array {
     $sock = stream_socket_server('tcp://127.0.0.1:0');
     $port = (int)substr(strrchr(stream_socket_get_name($sock, false), ':'), 1);
     fclose($sock);
-    $env = array_merge(getenv(), ['JWT_SECRET' => JWT_SECRET, 'PHP_CLI_SERVER_WORKERS' => '4'], $env);
+    $env = array_merge(getenv(), ['JWT_SECRET' => JWT_SECRET, 'PHP_CLI_SERVER_WORKERS' => '4', 'KURA_USE_DIST' => '0'], $env);
     $proc = proc_open([PHP_BINARY, '-S', "127.0.0.1:$port", __DIR__ . '/../../php_backend/router.php'],
         [0 => ['pipe', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, __DIR__ . '/../..', $env);
     assert(is_resource($proc), 'Could not start the PHP built-in server');

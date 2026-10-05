@@ -1,48 +1,8 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <script>
-    // Lightweight mode must be decided before the first paint (no flash of heavy glass effects).
-    (function () {
-      try {
-        var mode = localStorage.getItem('kurastream_perf_mode'); // 'lite' | 'full' | null (auto)
-        var lowEnd = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
-          (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
-          (window.matchMedia && window.matchMedia('(prefers-reduced-transparency: reduce)').matches);
-        if (mode === 'lite' || (mode !== 'full' && lowEnd)) {
-          document.documentElement.className += (document.documentElement.className ? ' ' : '') + 'perf-lite';
-        }
-      } catch (e) { /* storage blocked: keep full mode */ }
-    })();
-  </script>
-  <script>
-    (function() {
-      function sendLog(type, msg, stack) {
-        fetch('/api/debug-log', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: type, message: msg, stack: stack || '' })
-        }).catch(err => {});
-      }
-      window.onerror = function(message, source, lineno, colno, error) {
-        sendLog('WINDOW_ERROR', message + ' at ' + source + ':' + lineno + ':' + colno, error ? error.stack : '');
-        return false;
-      };
-      window.onunhandledrejection = function(event) {
-        sendLog('UNHANDLED_REJECTION', event.reason ? (event.reason.message || event.reason) : 'Promise rejected', event.reason ? event.reason.stack : '');
-      };
-      const originalConsoleError = console.error;
-      console.error = function() {
-        originalConsoleError.apply(console, arguments);
-        const args = Array.prototype.slice.call(arguments).map(a => {
-          if (a instanceof Error) return a.message + '\n' + a.stack;
-          if (typeof a === 'object') return JSON.stringify(a);
-          return String(a);
-        }).join(' ');
-        sendLog('CONSOLE_ERROR', args);
-      };
-    })();
-  </script>
+  <script src="/js/boot/perf_mode.js"></script>
+  <script src="/js/boot/error_log.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="KuraStream - Centro de entretenimiento local offline premium.">
@@ -76,7 +36,7 @@
   <!-- App Header -->
   <header class="app-header">
     <a href="#/" class="header-logo" id="header-logo">
-      <img id="custom-logo" src="/library/logo.png" alt="KuraStream Logo" onerror="this.style.display='none'; document.getElementById('fallback-logo').style.display='inline-flex';" class="custom-logo">
+      <img id="custom-logo" src="/library/logo.png" alt="KuraStream Logo" data-error-hide-show="fallback-logo" class="custom-logo">
       <div id="fallback-logo" class="fallback-logo" style="display: none;">
         <span class="logo-icon">蔵</span>
       </div>
@@ -91,12 +51,12 @@
         <div class="nav-dropdown-menu" id="nav-explore-menu">
           <a href="#/movies" class="dropdown-item" id="nav-movies"><i data-lucide="film"></i> Películas</a>
           <a href="#/genres" class="dropdown-item" id="nav-genres"><i data-lucide="layout-grid"></i> Géneros</a>
-          <a href="javascript:void(0)" id="btn-random-anime" class="dropdown-item"><i data-lucide="sparkles"></i> Descubrimiento Aleatorio</a>
+          <a href="#" id="btn-random-anime" class="dropdown-item"><i data-lucide="sparkles"></i> Descubrimiento Aleatorio</a>
         </div>
       </div>
       <a href="#/my-list" class="nav-link" id="nav-mylist"><i data-lucide="heart"></i> Mi Lista</a>
       <a href="#/history" class="nav-link" id="nav-history"><i data-lucide="history"></i> Historial</a>
-      <a href="javascript:void(0)" class="nav-link nav-link-party" id="nav-party"><i data-lucide="users"></i> Watch Party</a>
+      <a href="#" class="nav-link nav-link-party" id="nav-party"><i data-lucide="users"></i> Watch Party</a>
     </nav>
     <div class="header-right">
       <button id="pwa-install-btn" class="btn btn-primary" style="display: none;">
@@ -130,13 +90,13 @@
             <div id="dropdown-profiles-list" class="dropdown-profiles-list">
               <!-- Dynamic list of other profiles -->
             </div>
-            <a href="javascript:void(0)" id="btn-switch-profile" class="user-dropdown-item"><i data-lucide="users"></i> Administrar Perfiles</a>
+            <a href="#" id="btn-switch-profile" class="user-dropdown-item"><i data-lucide="users"></i> Administrar Perfiles</a>
             <a href="#/stats" class="user-dropdown-item" id="btn-user-stats"><i data-lucide="bar-chart-2"></i> Mis Estadísticas</a>
             <a href="#/settings" class="user-dropdown-item" id="nav-settings"><i data-lucide="settings"></i> Ajustes</a>
             <a href="#/app" class="user-dropdown-item" id="nav-app-download"><i data-lucide="smartphone"></i> App para Android</a>
-            <a href="javascript:void(0)" id="btn-admin-direct" class="user-dropdown-item" style="display: none;"><i data-lucide="shield-check"></i> Panel Admin</a>
+            <a href="#" id="btn-admin-direct" class="user-dropdown-item" style="display: none;"><i data-lucide="shield-check"></i> Panel Admin</a>
             <hr class="dropdown-divider">
-            <a href="javascript:void(0)" id="btn-logout" class="user-dropdown-item btn-logout-item"><i data-lucide="log-out"></i> Cerrar Sesión</a>
+            <a href="#" id="btn-logout" class="user-dropdown-item btn-logout-item"><i data-lucide="log-out"></i> Cerrar Sesión</a>
           </div>
         </div>
       </div>
@@ -385,7 +345,7 @@
       <div class="detail-main-layout">
         <!-- Sidebar: Poster and Technical Quick Info -->
         <aside class="detail-sidebar">
-          <img id="detail-poster" src="/assets/illustrations/poster_placeholder.svg" alt="Poster" class="detail-poster" onerror="this.onerror=null;this.src='/assets/illustrations/poster_placeholder.svg';">
+          <img id="detail-poster" src="/assets/illustrations/poster_placeholder.svg" alt="Poster" class="detail-poster" data-fallback-src="/assets/illustrations/poster_placeholder.svg">
           <div class="quick-stats">
             <div class="stat-item rating-stars">
               <i data-lucide="star" class="star-icon"></i>
@@ -1679,19 +1639,7 @@
   <!-- Global scripts -->
   <script src="/js/main.js?v=2026.10.05-security" type="module"></script>
   <script src="player.js?v=2026.10.05-security" type="module"></script>
-  <!-- Service Worker Registration for PWA -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-          .then((registration) => {
-            console.log('[PWA] Service Worker registered with scope:', registration.scope);
-          })
-          .catch((error) => {
-            console.warn('[PWA] Service Worker registration failed:', error);
-          });
-      });
-    }
-  </script>
+  <!-- Service Worker Registration for PWA (+ "new version available" prompt) -->
+  <script src="/js/boot/sw_register.js"></script>
 </body>
 </html>

@@ -55,6 +55,7 @@ jobs:
           node tests/ui_catalogue_rendering.mjs
           node tests/ui_review_regressions.mjs
           node tests/test_generate_app_release.mjs
+          node tests/test_frontend_build.mjs
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
@@ -82,6 +83,8 @@ jobs:
         run: |
           export JWT_SECRET=$(openssl rand -hex 32)
           npm run test:e2e
+          # The production build, served as in production (hashed bundles, built page and service worker)
+          npm run test:e2e:dist
 
       - name: Run PHP Test Suite
         id: php_tests

@@ -9,12 +9,17 @@
     "test": "node scripts/run-php.mjs tests/run_all_tests.php",
     "test:php": "node scripts/run-php.mjs tests/run_all_tests.php",
     "test:e2e": "playwright test",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build": "node scripts/build.mjs",
+    "test:e2e:dist": "node scripts/build.mjs && playwright test -c playwright.dist.config.js",
+    "test:build": "node tests/test_frontend_build.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "esbuild": "^0.28.2",
     "eslint": "^9.0.0",
     "globals": "^17.12.0",
+    "lucide": "^1.52.0",
     "prettier": "^3.0.0"
   }
 }

@@ -54,11 +54,25 @@ server {
 
     # --- the web app (frontend/) ----------------------------------------------------------------------------------
     # PHP used to serve these too, with the security headers; nginx adds the same ones (security-headers.conf is
-    # generated from config.php). Scripts and styles are revalidated on every load (cheap 304 thanks to ETag):
-    # the hashed, immutable build of Phase 4 will let them be cached for good.
+    # generated from config.php). Unbuilt scripts and styles are revalidated on every load (cheap 304 thanks to ETag).
+    # `npm run build` writes frontend/dist (hashed files, built index.html and service worker); without a build the
+    # readable sources are served. The shell and the worker are always revalidated; the hashed files never change.
     location = / {
-        try_files /index.html =404;
+        try_files /dist/index.html /index.html =404;
         add_header Cache-Control "no-cache" always;
+        include ${KURA_APP_DIR}/deploy/nginx/security-headers.conf;
+    }
+
+    location = /sw.js {
+        try_files /dist/sw.js /sw.js =404;
+        add_header Cache-Control "no-cache" always;
+        add_header Service-Worker-Allowed "/" always;
+        include ${KURA_APP_DIR}/deploy/nginx/security-headers.conf;
+    }
+
+    location /dist/ {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
         include ${KURA_APP_DIR}/deploy/nginx/security-headers.conf;
     }
 

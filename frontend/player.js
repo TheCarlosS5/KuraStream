@@ -2163,8 +2163,13 @@ function bindParty() {
   Object.entries(handlers).forEach(([event, handler]) => partyManager.on(event, handler));
   S.partyHandlers = handlers;
 
-  if (partyManager.isInRoom()) renderPartyRoom(partyManager.activeRoom);
-  else if (sidebar) sidebar.hidden = true;
+  if (partyManager.isInRoom()) {
+    renderPartyRoom(partyManager.activeRoom);
+    // The history arrived with the join, before this player existed: show it now (already-seen ids are skipped).
+    partyManager.messageLog.forEach(renderPartyMessage);
+  } else if (sidebar) {
+    sidebar.hidden = true;
+  }
 
   // The host keeps the room clock fresh so late joiners and drift correction have a recent anchor.
   clearInterval(S.heartbeatTimer);
@@ -2360,14 +2365,16 @@ export async function initPlayer(rawEpisodeId) {
     if (S.duration > 0) start = Math.min(start, Math.max(0, S.duration - 5));
   }
 
+  // The host announces the new episode before asking for its stream: guests learn about the change right away
+  // instead of after the host's (possibly slow) stream setup, and a busy server cannot swallow the announcement.
+  if (partyManager.isInRoom() && partyManager.isHost() && partyManager.activeRoom && partyManager.activeRoom.episode_id !== episodeId) {
+    partyManager.sendPlaybackSync(true, start, episodeId, 'episode_change');
+  }
+
   const autoplay = !partyManager.isInRoom() || partyManager.isHost() || Boolean(partyManager.activeRoom && partyManager.activeRoom.is_playing);
   loadStream(start, { autoplay });
   if (start > 0 && resume.source === 'history' && !partyManager.isInRoom()) showResumeToast(start);
   if (S.subtitleTrack !== -1) applySubtitleTrack(S.subtitleTrack);
-
-  if (partyManager.isInRoom() && partyManager.isHost() && partyManager.activeRoom && partyManager.activeRoom.episode_id !== episodeId) {
-    partyManager.sendPlaybackSync(true, start, episodeId, 'episode_change');
-  }
 
   clearInterval(S.saveTimer);
   S.saveTimer = setInterval(() => {
