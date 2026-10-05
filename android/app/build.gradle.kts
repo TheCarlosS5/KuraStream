@@ -88,8 +88,7 @@ android {
 
     lint {
         abortOnError = true
-        checkReleaseBuilds = false
-        disable += listOf("NewApi")
+        checkReleaseBuilds = true
     }
 }
 

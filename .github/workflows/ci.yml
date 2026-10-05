@@ -224,6 +224,17 @@ jobs:
           cd android
           ./gradlew assembleDebug
 
+      # The release build runs R8 (shrinking and renaming), which is where serialization, Retrofit, Hilt or WorkManager
+      # reflection can break without any debug build noticing. A throwaway key is enough to build it on every PR; the
+      # real, published APK is signed by the android-release job below.
+      - name: Assemble and lint the release build (throwaway key)
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/ci-release.jks" -alias ci -keyalg RSA -keysize 2048 -validity 2 \
+            -storepass ci-pass-123 -keypass ci-pass-123 -dname "CN=KuraStream CI" >/dev/null 2>&1
+          cd android
+          KURA_KEYSTORE_FILE="$RUNNER_TEMP/ci-release.jks" KURA_KEYSTORE_PASSWORD=ci-pass-123 \
+            KURA_KEY_ALIAS=ci KURA_KEY_PASSWORD=ci-pass-123 ./gradlew assembleRelease lintRelease
+
   android-release:
     name: Android Release APK (signed)
     runs-on: ubuntu-latest
