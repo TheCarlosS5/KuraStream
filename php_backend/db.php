@@ -960,7 +960,15 @@ class DbHelper {
 
         $hash = password_hash($password, PASSWORD_BCRYPT);
         $ins = $db->prepare("INSERT INTO users (username, password_hash, role) VALUES (:u, :p, :r)");
-        $ins->execute(['u' => $username, 'p' => $hash, 'r' => $role]);
+        try {
+            $ins->execute(['u' => $username, 'p' => $hash, 'r' => $role]);
+        } catch (PDOException $e) {
+            // Two simultaneous registrations of the same name both pass the SELECT above; the loser hits the key.
+            if ((int)($e->errorInfo[1] ?? 0) === 1062) {
+                return null;
+            }
+            throw $e;
+        }
 
         // Create default profile
         self::saveUserProfile($username, [
@@ -1065,7 +1073,14 @@ class DbHelper {
             $id = 'prof_' . bin2hex(random_bytes(16));
         }
 
-        $name = trim($data['profile_name'] ?? $data['name'] ?? 'Perfil');
+        $rawName = $data['profile_name'] ?? $data['name'] ?? 'Perfil';
+        if (!is_string($rawName)) {
+            jsonError('El nombre del perfil debe ser texto', 400);
+        }
+        $name = trim($rawName);
+        if (mb_strlen($name, 'UTF-8') > 64) {
+            jsonError('El nombre del perfil no puede superar 64 caracteres', 400);
+        }
         if (empty($name)) {
             $name = 'Perfil';
         }

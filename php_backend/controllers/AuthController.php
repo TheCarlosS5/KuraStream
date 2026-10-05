@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../middleware/RateLimiter.php';
+require_once __DIR__ . '/../middleware/Input.php';
 
 class AuthController {
     public static function hashPassword(string $password): string {
@@ -10,15 +11,10 @@ class AuthController {
     }
 
     public static function login(?array $inputData = null): void {
-        if ($inputData !== null) {
-            $data = $inputData;
-        } else {
-            $raw = file_get_contents('php://input');
-            $data = json_decode($raw, true) ?: [];
-        }
+        $data = $inputData !== null ? $inputData : Input::json();
 
-        $username = trim($data['username'] ?? '');
-        $password = $data['password'] ?? '';
+        $username = Input::string($data, 'username', 255);
+        $password = Input::string($data, 'password', 1024, false);
 
         if (empty($username) || empty($password)) {
             jsonError('Usuario y contraseña requeridos', 400);
@@ -119,15 +115,10 @@ class AuthController {
     }
 
     public static function register(?array $inputData = null): void {
-        if ($inputData !== null) {
-            $data = $inputData;
-        } else {
-            $raw = file_get_contents('php://input');
-            $data = json_decode($raw, true) ?: [];
-        }
+        $data = $inputData !== null ? $inputData : Input::json();
 
-        $username = trim($data['username'] ?? '');
-        $password = $data['password'] ?? '';
+        $username = Input::string($data, 'username', 255);
+        $password = Input::string($data, 'password', 1024, false);
 
         if (empty($username) || empty($password)) {
             jsonError('Usuario y contraseña requeridos', 400);

@@ -16,6 +16,22 @@ $uri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 setSecurityHeaders();
 
+// Query and form parameters are always scalars in this API. An array-shaped one (?type[]=x) would crash
+// string functions with a TypeError deep inside a controller, so refuse it at the door.
+foreach ([$_GET, $_POST] as $__params) {
+    foreach ($__params as $__value) {
+        if (is_array($__value)) {
+            jsonError('Parámetros de solicitud inválidos', 400);
+        }
+    }
+}
+foreach ($_COOKIE as $__name => $__value) {
+    if (is_array($__value)) {
+        unset($_COOKIE[$__name]);
+    }
+}
+unset($__params, $__value, $__name);
+
 $appStartTime = microtime(true);
 register_shutdown_function(function() use ($appStartTime, $uri) {
     if (!headers_sent() && $uri !== null && str_starts_with($uri, '/api/')) {

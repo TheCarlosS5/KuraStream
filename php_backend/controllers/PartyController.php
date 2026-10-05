@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+require_once __DIR__ . '/../middleware/Input.php';
 require_once __DIR__ . '/../middleware/RateLimiter.php';
 require_once __DIR__ . '/ShowController.php';
 
@@ -203,8 +204,11 @@ class PartyController {
         $isKids = !empty($profilePayload['is_kids']);
         $profileId = $profilePayload['profile_id'] ?? null;
 
-        $name = !empty($data['name']) ? trim($data['name']) : ("Sala de " . $user);
-        $episodeId = trim($data['episode_id'] ?? '');
+        $name = Input::string($data, 'name', 100);
+        if ($name === '') {
+            $name = "Sala de " . $user;
+        }
+        $episodeId = Input::string($data, 'episode_id', 255);
         if (empty($episodeId)) {
             jsonError('episode_id requerido para crear una sala', 400);
         }
@@ -519,7 +523,7 @@ class PartyController {
         }
 
         $user = $participant['username'];
-        $message = trim($data['message'] ?? '');
+        $message = Input::string($data, 'message', 10000);
         $message = strip_tags($message);
         $type = in_array($data['type'] ?? '', ['chat', 'reaction']) ? $data['type'] : 'chat';
 

@@ -169,3 +169,10 @@ function jsonError($message, $statusCode = 400, array $extra = []) {
     $payload = array_merge(['error' => $message], $extra);
     jsonResponse($payload, $statusCode);
 }
+
+// Global error handling: never leak stack traces, paths or SQL to clients (web entrypoint only; the CLI and the
+// test suites keep PHP's default behaviour so failures stay visible there).
+require_once __DIR__ . '/error_handling.php';
+if (php_sapi_name() !== 'cli' && !defined('TESTING_MODE')) {
+    kuraInstallErrorHandlers();
+}

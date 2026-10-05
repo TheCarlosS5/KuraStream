@@ -373,7 +373,14 @@ class HistoryController {
             jsonResponse(['favorited' => false]);
         } else {
             $ins = $db->prepare("INSERT INTO favorites (username, profile_name, show_id) VALUES (:user, :prof, :show)");
-            $ins->execute(['user' => $username, 'prof' => $profile, 'show' => $showId]);
+            try {
+                $ins->execute(['user' => $username, 'prof' => $profile, 'show' => $showId]);
+            } catch (PDOException $e) {
+                // A concurrent request already added it: the end state is the same, so answer as if we did.
+                if ((int)($e->errorInfo[1] ?? 0) !== 1062) {
+                    throw $e;
+                }
+            }
             jsonResponse(['favorited' => true]);
         }
     }
