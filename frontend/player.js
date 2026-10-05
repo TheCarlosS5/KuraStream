@@ -859,11 +859,30 @@ async function fetchFonts(episodeId) {
   return fonts;
 }
 
+// Manual subtitle delay (Z / X keys), per episode and only for this session: a file that is a little off should
+// not drag every other episode with it. Positive = subtitles later.
+const subtitleDelays = new Map();
+function subtitleDelay() {
+  return subtitleDelays.get(currentEpisodeId) || 0;
+}
+
+function subtitleClockOffset() {
+  return S.offset - subtitleDelay();
+}
+
+function nudgeSubtitleDelay(step) {
+  const next = Math.round((subtitleDelay() + step) * 100) / 100;
+  subtitleDelays.set(currentEpisodeId, Math.max(-30, Math.min(30, next)));
+  syncSubtitleClock();
+  const d = subtitleDelay();
+  showToast(d === 0 ? 'Subtítulos sincronizados' : `Subtítulos ${d > 0 ? 'retrasados' : 'adelantados'} ${Math.abs(d).toFixed(2)} s`);
+}
+
 function syncSubtitleClock() {
   if (!S.octopus) return;
-  S.octopus.timeOffset = S.offset;
+  S.octopus.timeOffset = subtitleClockOffset();
   if (typeof S.octopus.setCurrentTime === 'function' && els.video) {
-    try { S.octopus.setCurrentTime((els.video.currentTime || 0) + S.offset); } catch { /* worker not ready */ }
+    try { S.octopus.setCurrentTime((els.video.currentTime || 0) + subtitleClockOffset()); } catch { /* worker not ready */ }
   }
 }
 
@@ -905,7 +924,7 @@ async function applySubtitleTrack(track) {
       legacyWorkerUrl: '/vendor/subtitles-octopus/subtitles-octopus-worker-legacy.js',
       fallbackFont: '/vendor/subtitles-octopus/default.ttf',
       fonts,
-      timeOffset: S.offset,
+      timeOffset: subtitleClockOffset(),
       targetFps: isPerfLite() ? 24 : 30,
       renderMode: 'wasm-blend',
       container,
@@ -1978,6 +1997,11 @@ function handleKeydown(event) {
     case 'm':
       handled();
       toggleMute();
+      return;
+    case 'z':
+    case 'x':
+      handled();
+      nudgeSubtitleDelay(event.key === 'z' ? -0.25 : 0.25);
       return;
     case 'f':
       handled();
