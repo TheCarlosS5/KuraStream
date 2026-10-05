@@ -2006,3 +2006,6 @@ html.perf-lite .hero-carousel-wrapper > .billboard-hero .billboard-hero-content 
     padding-bottom: 46px;
   }
 }
+
+.recommendation-rail { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 10px; scroll-snap-type: x proximity; }
+.recommendation-rail .show-card { flex: 0 0 150px; scroll-snap-align: start; }

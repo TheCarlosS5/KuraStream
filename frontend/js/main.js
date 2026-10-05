@@ -658,6 +658,19 @@ export function renderContinueWatching(continueItems) {
   `;
 }
 
+/** "Porque viste X" rows: one rail of show cards per group the server computed. */
+export function renderRecommendations(groups) {
+  if (!Array.isArray(groups) || groups.length === 0) return '';
+  return groups.map(group => `
+    <section class="dashboard-section recommendation-section">
+      <h2 class="section-title">Porque viste ${escapeHtml((group.because && group.because.title) || '')}</h2>
+      <div class="recommendation-rail">
+        ${(group.shows || []).map(show => createShowCardHTML(show)).join('')}
+      </div>
+    </section>
+  `).join('');
+}
+
 export function createShowCardHTML(show, historyMap = new Map()) {
   const poster = show.poster_path || '';
   const posterSrc = catalogueImageUrl(poster) || '/assets/illustrations/poster_placeholder.svg';
@@ -1675,6 +1688,30 @@ export async function loadShowDetails(id) {
             safeToast('Estado guardado', 'success');
           } catch {
             safeToast('No se pudo guardar el estado', 'error');
+          }
+        };
+      }
+    }
+
+    // Personal 1-5 rating (feeds "Porque viste ...")
+    const ratingSelect = document.getElementById('detail-rating');
+    if (ratingSelect) {
+      ratingSelect.hidden = !userSession.hasProfile;
+      ratingSelect.value = '';
+      ratingSelect.onchange = null;
+      if (userSession.hasProfile) {
+        const ratingHeaders = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Authorization': `Bearer ${token}` };
+        try {
+          const res = await fetch('/api/ratings', { headers: ratingHeaders });
+          if (res.ok) ratingSelect.value = String(((await res.json()).ratings || {})[id] || '');
+        } catch {}
+        ratingSelect.onchange = async () => {
+          try {
+            const res = await fetch('/api/ratings', { method: 'POST', headers: ratingHeaders, body: JSON.stringify({ show_id: id, rating: ratingSelect.value ? Number(ratingSelect.value) : null }) });
+            if (!res.ok) throw new Error();
+            safeToast('Valoración guardada', 'success');
+          } catch {
+            safeToast('No se pudo guardar la valoración', 'error');
           }
         };
       }
@@ -3273,6 +3310,16 @@ async function initCatalogView(filterType = 'all') {
     if (!Array.isArray(continueItems)) continueItems = [];
     if (generation !== navigationGeneration) return;
 
+    // "Porque viste X": only for the plain home page, and never at the cost of the page when it fails
+    let recommendationGroups = [];
+    if (hasProfile && (!filterType || filterType === 'all')) {
+      try {
+        const recRes = await fetch('/api/recommendations', { headers: { 'Authorization': `Bearer ${token}` } });
+        if (recRes.ok) recommendationGroups = (await recRes.json()).groups || [];
+      } catch {}
+      if (generation !== navigationGeneration) return;
+    }
+
     // Hero carousel: up to five titles; "Reproducir" resumes where this profile left off.
     if (heroContainer && heroWrapper) {
       const resumeByShow = new Map();
@@ -3296,7 +3343,7 @@ async function initCatalogView(filterType = 'all') {
           <div class="shows-grid" id="catalog-grid"></div>
         </section>
       `;
-      dashboardSections.innerHTML = continueHtml + catalogHtml;
+      dashboardSections.innerHTML = continueHtml + renderRecommendations(recommendationGroups) + catalogHtml;
 
       // Cards show the progress of the episode "Continuar viendo" points at; playShow() opens it.
       catalogHistoryMap = new Map();

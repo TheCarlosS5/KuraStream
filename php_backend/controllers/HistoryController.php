@@ -439,6 +439,41 @@ class HistoryController {
         jsonResponse(['success' => true, 'watched' => $watched, 'count' => $count]);
     }
 
+    public static function getRatings(): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        jsonResponse(['success' => true, 'ratings' => (object)DbHelper::getRatings($username, $profile)]);
+    }
+
+    /** POST /api/ratings  {show_id, rating: 1-5 | null} */
+    public static function setRating(?array $inputData = null): void {
+        $data = $inputData ?? Input::json();
+        list($username, $profile) = self::resolveUserAndProfile();
+        $showId = Input::string($data, 'show_id', 255);
+        if ($showId === '') {
+            jsonError('show_id requerido', 400);
+        }
+        $rating = null;
+        if (isset($data['rating']) && $data['rating'] !== '' && $data['rating'] !== 0) {
+            if (!is_numeric($data['rating']) || (int)$data['rating'] < 1 || (int)$data['rating'] > 5 || (float)$data['rating'] != (int)$data['rating']) {
+                jsonError('La valoración debe ser un número entero de 1 a 5', 400);
+            }
+            $rating = (int)$data['rating'];
+        }
+        if (!DbHelper::getShow($showId)) {
+            jsonError('Show no encontrado', 404);
+        }
+        DbHelper::setRating($username, $profile, $showId, $rating);
+        jsonResponse(['success' => true, 'show_id' => $showId, 'rating' => $rating]);
+    }
+
+    /** GET /api/recommendations: groups of "Porque viste X" for the active profile. */
+    public static function getRecommendations(): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        require_once __DIR__ . '/ShowController.php';
+        $groups = DbHelper::getRecommendations($username, $profile, fn(array $show) => !ShowController::isRestrictedForActiveProfile($show));
+        jsonResponse(['success' => true, 'groups' => $groups], 200, true);
+    }
+
     public static function getListStatuses(): void {
         list($username, $profile) = self::resolveUserAndProfile();
         jsonResponse(['success' => true, 'statuses' => (object)DbHelper::getListStatuses($username, $profile)]);

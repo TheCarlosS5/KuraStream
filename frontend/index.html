@@ -364,7 +364,15 @@
           <button id="detail-favorite-btn" class="btn btn-secondary detail-btn-action">
             <i data-lucide="heart" id="detail-favorite-icon"></i> <span id="detail-favorite-text">Añadir a mi Lista</span>
           </button>
-          <select id="detail-list-status" class="detail-list-status" aria-label="Estado en mi lista" hidden>
+          <select id="detail-rating" class="detail-list-status" aria-label="Mi valoración" hidden>
+            <option value="">Sin valorar</option>
+            <option value="5">5 · Me encantó</option>
+            <option value="4">4 · Muy buena</option>
+            <option value="3">3 · Buena</option>
+            <option value="2">2 · Regular</option>
+            <option value="1">1 · No me gustó</option>
+          </select>
+                    <select id="detail-list-status" class="detail-list-status" aria-label="Estado en mi lista" hidden>
             <option value="">Sin estado</option>
             <option value="watching">Viendo</option>
             <option value="planned">Pendiente</option>

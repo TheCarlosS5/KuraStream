@@ -416,6 +416,18 @@ if ($uri === '/api/history/mark' && $method === 'POST') {
     HistoryController::markWatched();
 }
 
+if ($uri === '/api/ratings' && $method === 'GET') {
+    HistoryController::getRatings();
+}
+
+if ($uri === '/api/ratings' && $method === 'POST') {
+    HistoryController::setRating();
+}
+
+if ($uri === '/api/recommendations' && $method === 'GET') {
+    HistoryController::getRecommendations();
+}
+
 if ($uri === '/api/list-status' && $method === 'GET') {
     HistoryController::getListStatuses();
 }

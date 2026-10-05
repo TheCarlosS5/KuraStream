@@ -390,6 +390,94 @@ class DbHelper {
         return $st->fetchAll(PDO::FETCH_COLUMN);
     }
 
+    /** @return array<string,int> show id => 1..5 */
+    public static function getRatings(string $username, string $profile): array {
+        $st = Database::getConnection()->prepare("SELECT show_id, rating FROM show_ratings WHERE username = :u AND profile_name = :p");
+        $st->execute(['u' => $username, 'p' => $profile]);
+        return array_map('intval', $st->fetchAll(PDO::FETCH_KEY_PAIR));
+    }
+
+    /** null clears the rating. */
+    public static function setRating(string $username, string $profile, string $showId, ?int $rating): void {
+        $db = Database::getConnection();
+        if ($rating === null) {
+            $db->prepare("DELETE FROM show_ratings WHERE username = :u AND profile_name = :p AND show_id = :s")
+                ->execute(['u' => $username, 'p' => $profile, 's' => $showId]);
+            return;
+        }
+        $db->prepare("
+            INSERT INTO show_ratings (username, profile_name, show_id, rating) VALUES (:u, :p, :s, :r)
+            ON DUPLICATE KEY UPDATE rating = VALUES(rating)
+        ")->execute(['u' => $username, 'p' => $profile, 's' => $showId, 'r' => $rating]);
+    }
+
+    /** Genres as a lowercase list ("Acción, Fantasía" -> ['acción', 'fantasía']). */
+    public static function genreList($genres): array {
+        $text = is_array($genres) ? implode(',', $genres) : (string)$genres;
+        $list = array_filter(array_map(fn($g) => mb_strtolower(trim($g), 'UTF-8'), preg_split('/[,;\/]/', $text) ?: []), fn($g) => $g !== '');
+        return array_values(array_unique($list));
+    }
+
+    /**
+     * "Porque viste X": up to two groups of shows that share genres with what the profile watched most recently
+     * (or rated 4-5), leaving out what it already started and what it rated 1-2. Pure data work: the caller applies
+     * the kids / rating-cap rules to the candidates.
+     * @param callable $allowed fn(array $show): bool
+     * @return array<int, array{because: array{id:string,title:string}, shows: array}>
+     */
+    public static function getRecommendations(string $username, string $profile, callable $allowed, int $perGroup = 12): array {
+        $db = Database::getConnection();
+        $seedRows = $db->prepare("
+            SELECT e.show_id, MAX(h.updated_at) AS last_at
+            FROM watch_history h JOIN episodes e ON e.id = h.episode_id
+            WHERE h.username = :u AND h.profile_name = :p
+            GROUP BY e.show_id ORDER BY last_at DESC LIMIT 12
+        ");
+        $seedRows->execute(['u' => $username, 'p' => $profile]);
+        $recent = $seedRows->fetchAll(PDO::FETCH_COLUMN);
+
+        $ratings = self::getRatings($username, $profile);
+        $loved = array_keys(array_filter($ratings, fn($r) => $r >= 4));
+        $seedIds = array_slice(array_values(array_unique(array_merge($loved, $recent))), 0, 3);
+        if (!$seedIds) {
+            return [];
+        }
+
+        $touched = $db->prepare("SELECT DISTINCT e.show_id FROM watch_history h JOIN episodes e ON e.id = h.episode_id WHERE h.username = :u AND h.profile_name = :p");
+        $touched->execute(['u' => $username, 'p' => $profile]);
+        $exclude = array_flip(array_merge($touched->fetchAll(PDO::FETCH_COLUMN), array_keys(array_filter($ratings, fn($r) => $r <= 2))));
+
+        $catalog = $db->query('SELECT ' . self::CATALOG_COLUMNS . ' FROM shows')->fetchAll();
+        $byId = [];
+        foreach ($catalog as $row) {
+            $byId[$row['id']] = $row;
+        }
+
+        $groups = [];
+        foreach ($seedIds as $seedId) {
+            if (!isset($byId[$seedId])) continue;
+            $seed = $byId[$seedId];
+            $seedGenres = self::genreList($seed['genres'] ?? '');
+            if (!$seedGenres) continue;
+            $scored = [];
+            foreach ($byId as $id => $cand) {
+                if ($id === $seedId || isset($exclude[$id]) || !$allowed($cand)) continue;
+                $overlap = count(array_intersect($seedGenres, self::genreList($cand['genres'] ?? '')));
+                if ($overlap === 0) continue;
+                $scored[] = ['score' => $overlap * 10 + (float)$cand['rating'], 'show' => $cand];
+            }
+            usort($scored, fn($a, $b) => $b['score'] <=> $a['score']);
+            $shows = array_map(fn($x) => $x['show'], array_slice($scored, 0, $perGroup));
+            if (count($shows) >= 3) {
+                $groups[] = ['because' => ['id' => $seed['id'], 'title' => $seed['title']], 'shows' => $shows];
+                // Shows already offered in one group are not repeated in the next
+                foreach ($shows as $sh) $exclude[$sh['id']] = true;
+            }
+            if (count($groups) >= 2) break;
+        }
+        return $groups;
+    }
+
     public const LIST_STATUSES = ['watching', 'planned', 'completed', 'dropped'];
 
     /** @return array<string,string> show id => status */
@@ -1388,7 +1476,7 @@ class DbHelper {
         }
         $db->beginTransaction();
         try {
-            foreach (['watch_history', 'favorites', 'user_preferences', 'show_list_status', 'comments', 'user_profiles'] as $table) {
+            foreach (['watch_history', 'favorites', 'user_preferences', 'show_list_status', 'show_ratings', 'comments', 'user_profiles'] as $table) {
                 $db->prepare("DELETE FROM {$table} WHERE username = :u")->execute(['u' => $username]);
             }
             // Rooms they host end with them; memberships elsewhere just disappear
@@ -1658,7 +1746,7 @@ class DbHelper {
     }
 
     /** Tables whose rows belong to a profile through (username, profile_name). Comments stay as authored. */
-    private const PROFILE_DATA_TABLES = ['watch_history', 'favorites', 'user_preferences', 'show_list_status'];
+    private const PROFILE_DATA_TABLES = ['watch_history', 'favorites', 'user_preferences', 'show_list_status', 'show_ratings'];
 
     private static function moveProfileData(string $username, string $oldName, string $newName): void {
         // A rename must move history, favorites and preferences together or not at all.
