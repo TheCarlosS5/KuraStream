@@ -134,4 +134,23 @@ Para firmar builds de producción sin comprometer credenciales en el repositorio
    KURA_KEY_ALIAS=kurastream
    KURA_KEY_PASSWORD=tu_password_key
    ```
-3. Ejecuta `./gradlew assembleRelease`.
+3. Ejecuta `./gradlew assembleRelease`. Si no hay keystore (`KURA_KEYSTORE_FILE` inexistente o sin definir) el build **falla** con un mensaje claro: un APK sin firmar no se puede instalar. `assembleDebug`, los tests y lint no necesitan keystore. (Los nombres antiguos `KURASTREAM_*` siguen funcionando.)
+
+> **Guarda una copia segura del keystore y sus contraseñas.** Android solo instala una actualización si el APK está firmado con la misma clave; si la pierdes, los usuarios tendrán que desinstalar la app y perderán sus datos locales.
+
+### Publicar el APK en tu servidor
+
+1. Genera el APK firmado (`KuraStream.apk`) y los metadatos junto a él:
+   ```bash
+   cp android/app/build/outputs/apk/release/app-release.apk KuraStream.apk
+   node scripts/generate_app_release.mjs KuraStream.apk --variant release --notes "Novedades de esta versión"
+   ```
+   Esto crea `app-release.json` (versión, `versionCode`, variante y notas) y muestra el SHA-256.
+2. Copia ambos archivos a la raíz del servidor (o apunta `ANDROID_APK_PATH` / `ANDROID_APP_RELEASE_JSON` a ellos).
+3. La página `#/app` y `GET /api/app/android` muestran la versión y la **huella SHA-256 del archivo que realmente se sirve** (el servidor la calcula; el JSON nunca puede avalar otro archivo), y la descarga incluye la cabecera `X-Content-SHA256`. En una red compartida, compara esa huella con la del instalador descargado.
+
+La CI (`.github/workflows/ci.yml`, job `android-release`) hace lo mismo tras cada merge a `main` **cuando existen** los secretos `KURA_KEYSTORE_BASE64` (el `.jks` en base64), `KURA_KEYSTORE_PASSWORD`, `KURA_KEY_ALIAS` y `KURA_KEY_PASSWORD`; sin ellos el job se omite. El resultado queda como artefacto `kurastream-android-release`.
+
+### Migrar desde la versión de pruebas (debug)
+
+La variante debug se instala como `com.kurastream.app.debug`, la final como `com.kurastream.app`: son **dos aplicaciones distintas**. Quien tenga instalada la de pruebas debe desinstalarla antes de usar la versión final (la página de descarga lo avisa cuando el servidor sirve un APK debug).

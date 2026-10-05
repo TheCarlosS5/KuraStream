@@ -1806,6 +1806,9 @@ input:checked + .slider:before {
 }
 
 .app-dl-card.is-unavailable .app-dl-meta { color: var(--warning-color); }
+.app-dl-sha { margin: 8px 0 0; font-size: 0.78rem; color: var(--text-muted); }
+.app-dl-sha code { display: block; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.72rem; word-break: break-all; color: var(--text-secondary); user-select: all; }
+.app-dl-warning { margin: 8px 0 0; font-size: 0.8rem; color: var(--warning-color); }
 
 .app-dl-qr-panel {
   display: flex;

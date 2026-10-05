@@ -7,6 +7,13 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Signing values come from Gradle properties or the environment, under the KURA_* names documented in
+// android/README.md or the older KURASTREAM_* ones.
+fun signingValue(name: String): String? =
+    listOf("KURA_$name", "KURASTREAM_$name").firstNotNullOfOrNull { key ->
+        (project.findProperty(key) as? String) ?: System.getenv(key)
+    }
+
 android {
     namespace = "com.kurastream.app"
     compileSdk = 37
@@ -28,16 +35,12 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystoreFile = project.findProperty("KURASTREAM_KEYSTORE_FILE") as? String
-                ?: System.getenv("KURASTREAM_KEYSTORE_FILE")
+            val keystoreFile = signingValue("KEYSTORE_FILE")
             if (keystoreFile != null && file(keystoreFile).exists()) {
                 storeFile = file(keystoreFile)
-                storePassword = project.findProperty("KURASTREAM_KEYSTORE_PASSWORD") as? String
-                    ?: System.getenv("KURASTREAM_KEYSTORE_PASSWORD") ?: ""
-                keyAlias = project.findProperty("KURASTREAM_KEY_ALIAS") as? String
-                    ?: System.getenv("KURASTREAM_KEY_ALIAS") ?: ""
-                keyPassword = project.findProperty("KURASTREAM_KEY_PASSWORD") as? String
-                    ?: System.getenv("KURASTREAM_KEY_PASSWORD") ?: ""
+                storePassword = signingValue("KEYSTORE_PASSWORD") ?: ""
+                keyAlias = signingValue("KEY_ALIAS") ?: ""
+                keyPassword = signingValue("KEY_PASSWORD") ?: ""
             }
         }
     }
@@ -149,4 +152,19 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// An unsigned release APK cannot be installed, and silently producing one hides a missing keystore until someone
+// tries to install it. Debug builds, unit tests and lint do not need a keystore and are not affected.
+gradle.taskGraph.whenReady {
+    val buildsReleaseApk = allTasks.any { task ->
+        task.project == project && task.name.endsWith("Release") &&
+            (task.name.startsWith("assemble") || task.name.startsWith("bundle") || task.name.startsWith("package"))
+    }
+    if (buildsReleaseApk && android.signingConfigs.getByName("release").storeFile == null) {
+        throw GradleException(
+            "Release builds must be signed: set KURA_KEYSTORE_FILE (an existing file), KURA_KEYSTORE_PASSWORD, " +
+                "KURA_KEY_ALIAS and KURA_KEY_PASSWORD (see android/README.md)."
+        )
+    }
 }

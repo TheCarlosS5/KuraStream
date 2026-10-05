@@ -49,6 +49,7 @@ jobs:
         run: |
           node tests/ui_catalogue_rendering.mjs
           node tests/ui_review_regressions.mjs
+          node tests/test_generate_app_release.mjs
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
@@ -202,3 +203,71 @@ jobs:
         run: |
           cd android
           ./gradlew assembleDebug
+
+  android-release:
+    name: Android Release APK (signed)
+    runs-on: ubuntu-latest
+    needs: android
+    # Only after merging to main, and inert until the signing secrets exist (KURA_KEYSTORE_BASE64,
+    # KURA_KEYSTORE_PASSWORD, KURA_KEY_ALIAS, KURA_KEY_PASSWORD): without them every step below is skipped.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check signing secrets
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KURA_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::KURA_KEYSTORE_BASE64 is not configured; skipping the signed release APK."
+          fi
+
+      - name: Set up JDK 21
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        if: steps.signing.outputs.enabled == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode keystore
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KURA_KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build signed release APK
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          KURA_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+          KURA_KEYSTORE_PASSWORD: ${{ secrets.KURA_KEYSTORE_PASSWORD }}
+          KURA_KEY_ALIAS: ${{ secrets.KURA_KEY_ALIAS }}
+          KURA_KEY_PASSWORD: ${{ secrets.KURA_KEY_PASSWORD }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Generate release metadata
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk KuraStream.apk
+          node scripts/generate_app_release.mjs KuraStream.apk --variant release --notes "Build ${GITHUB_SHA::7}" --out app-release.json
+
+      - name: Upload release APK and metadata
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kurastream-android-release
+          path: |
+            KuraStream.apk
+            app-release.json
+          retention-days: 30

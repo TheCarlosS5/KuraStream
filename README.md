@@ -145,6 +145,8 @@ graph TD
 | `REGISTRATION_MODE` | `open` (default) lets anyone who can reach the server create an account; any other value closes sign-up | `open` |
 | `CATALOG_ACCESS` | `open` (default) lets guests browse the catalog; `members` requires a signed-in session for the catalog, episodes, calendar and comments | `open` |
 | `REGISTER_MAX_PER_HOUR` | New accounts allowed per IP address per hour | `5` |
+| `ANDROID_APK_PATH` | Path of the Android installer served at `/api/app/android/download` (default: `KuraStream.apk`, then `KuraStream-debug.apk`, in the project root) | root |
+| `ANDROID_APP_RELEASE_JSON` | Release metadata written by `scripts/generate_app_release.mjs` (default: `app-release.json` next to the APK) | next to APK |
 | `MEDIA_LIBRARY_PATH` | Absolute path to media storage directory | `./library` |
 | `TMDB_API_KEY` | Optional TMDB v3 API Key for metadata scraping | None |
 | `TMDB_READ_TOKEN` | Optional TMDB v4 API Read Access Token for metadata scraping | None |
