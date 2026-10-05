@@ -147,6 +147,9 @@ class AuthMiddleware {
         if ((int)($payload['ver'] ?? 0) !== $account['token_version']) {
             return null;
         }
+        if (!empty($account['disabled'])) {
+            return null;   // locked by an administrator: every session ends at once
+        }
         $payload['role'] = $account['role'];
 
         if (!empty($payload['profile_id']) || !empty($payload['profile_name'])) {

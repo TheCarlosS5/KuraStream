@@ -8,6 +8,7 @@ import { loadStagedImports } from './admin_staging.js';
 import { saveShowTitleAndStatus, scrapeShowCover, loadAdminPanel } from './admin_library.js';
 import { clearConsoleLogs, startAdminLogsPolling, stopAdminLogsPolling } from './admin_console.js';
 import { initImportForm } from './admin_import.js';
+import { initAdminUsers } from './admin_users.js';
 
 export function switchAdminSubView(targetId) {
   const subviews = [
@@ -15,6 +16,7 @@ export function switchAdminSubView(targetId) {
     'admin-sub-import',
     'admin-sub-library',
     'admin-sub-staging',
+    'admin-sub-users',
     'admin-sub-console'
   ];
 
@@ -60,6 +62,10 @@ export function switchAdminSubView(targetId) {
     stopAdminStatsPolling();
     stopAdminLogsPolling();
     loadAdminPanel();
+  } else if (target === 'admin-sub-users') {
+    stopAdminStatsPolling();
+    stopAdminLogsPolling();
+    initAdminUsers();
   } else if (target === 'admin-sub-console') {
     stopAdminStatsPolling();
     startAdminLogsPolling();

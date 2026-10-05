@@ -742,6 +742,10 @@
               <span>Por Organizar</span>
               <span id="staging-counter-badge" class="badge ml-auto" style="display: none;">0</span>
             </button>
+            <button class="admin-nav-item" data-target="admin-sub-users">
+              <i data-lucide="users"></i>
+              <span>Usuarios</span>
+            </button>
             <button class="admin-nav-item" data-target="admin-sub-console">
               <i data-lucide="terminal"></i>
               <span>Consola</span>
@@ -1181,6 +1185,25 @@
               <div class="admin-shows-list" id="admin-shows-list">
                 <!-- Show items with delete buttons will be injected here -->
               </div>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW: USERS -->
+          <div id="admin-sub-users" class="admin-sub-view">
+            <div class="admin-header-row">
+              <h2 class="admin-sub-title mb-0">Usuarios y Cuentas</h2>
+              <div class="admin-actions-group">
+                <span id="admin-users-count" class="admin-user-meta"></span>
+                <button type="button" class="btn btn-secondary btn-sm-action" id="btn-refresh-users">
+                  <i data-lucide="refresh-cw"></i> Actualizar
+                </button>
+              </div>
+            </div>
+            <div class="admin-card">
+              <label class="admin-user-search">Buscar cuenta
+                <input type="search" id="admin-users-filter" class="form-control" placeholder="Nombre de usuario" autocomplete="off">
+              </label>
+              <div id="admin-users-list" class="admin-users-list" aria-live="polite"></div>
             </div>
           </div>
 

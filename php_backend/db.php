@@ -1110,20 +1110,30 @@ class DbHelper {
     public static function getAccountState(string $username): ?array {
         $db = Database::getConnection();
         try {
-            $stmt = $db->prepare("SELECT username, role, token_version FROM users WHERE username = :u");
+            $stmt = $db->prepare("SELECT username, role, token_version, disabled FROM users WHERE username = :u");
             $stmt->execute(['u' => $username]);
         } catch (PDOException $e) {
             if ((int)($e->errorInfo[1] ?? 0) !== 1054) {
                 throw $e;
             }
-            $stmt = $db->prepare("SELECT username, role, 0 AS token_version FROM users WHERE username = :u");
-            $stmt->execute(['u' => $username]);
+            // Migrations 013/022 not applied yet: no token versions, no disabled accounts
+            try {
+                $stmt = $db->prepare("SELECT username, role, token_version, 0 AS disabled FROM users WHERE username = :u");
+                $stmt->execute(['u' => $username]);
+            } catch (PDOException $e2) {
+                if ((int)($e2->errorInfo[1] ?? 0) !== 1054) {
+                    throw $e2;
+                }
+                $stmt = $db->prepare("SELECT username, role, 0 AS token_version, 0 AS disabled FROM users WHERE username = :u");
+                $stmt->execute(['u' => $username]);
+            }
         }
         $row = $stmt->fetch();
         if (!$row) {
             return null;
         }
         $row['token_version'] = (int)$row['token_version'];
+        $row['disabled'] = (int)$row['disabled'] === 1;
         return $row;
     }
 
@@ -1159,6 +1169,101 @@ class DbHelper {
         $st = $db->prepare("SELECT token_version FROM users WHERE username = :u");
         $st->execute(['u' => $username]);
         return (int)$st->fetchColumn();
+    }
+
+    // ---- Account administration (AdminUsersController) -------------------------------------------------------
+
+    /** Every account with the figures an administrator needs to spot abandoned or abusive ones. */
+    public static function listUsersForAdmin(): array {
+        $db = Database::getConnection();
+        $rows = $db->query("
+            SELECT u.username, u.role, u.disabled, u.created_at, u.last_login_at,
+                   (SELECT COUNT(*) FROM user_profiles p WHERE p.username = u.username) AS profile_count,
+                   (SELECT MAX(h.updated_at) FROM watch_history h WHERE h.username = u.username) AS last_watched_at
+            FROM users u
+            ORDER BY u.created_at DESC, u.username ASC
+        ")->fetchAll();
+        return array_map(function ($r) {
+            return [
+                'username' => $r['username'],
+                'role' => $r['role'],
+                'disabled' => (int)$r['disabled'] === 1,
+                'profile_count' => (int)$r['profile_count'],
+                'created_at' => $r['created_at'],
+                'last_login_at' => $r['last_login_at'],
+                'last_watched_at' => $r['last_watched_at'],
+            ];
+        }, $rows);
+    }
+
+    public static function touchLastLogin(string $username): void {
+        try {
+            Database::getConnection()->prepare("UPDATE users SET last_login_at = UTC_TIMESTAMP() WHERE username = :u")
+                ->execute(['u' => $username]);
+        } catch (PDOException $e) {
+            // Migration 022 not applied yet: logging in must not depend on it
+        }
+    }
+
+    /** Locks or unlocks an account. Locking also revokes its sessions. Returns false when the account does not exist. */
+    public static function setUserDisabled(string $username, bool $disabled): bool {
+        $db = Database::getConnection();
+        $st = $db->prepare("UPDATE users SET disabled = :d, token_version = token_version + 1 WHERE username = :u");
+        $st->execute(['d' => $disabled ? 1 : 0, 'u' => $username]);
+        return self::userExists($username);
+    }
+
+    /** Changes the role and revokes sessions (they would pick the new role up anyway; this also ends stale ones). */
+    public static function setUserRole(string $username, string $role): bool {
+        $db = Database::getConnection();
+        $db->prepare("UPDATE users SET role = :r, token_version = token_version + 1 WHERE username = :u")
+            ->execute(['r' => $role, 'u' => $username]);
+        return self::userExists($username);
+    }
+
+    public static function userExists(string $username): bool {
+        $st = Database::getConnection()->prepare("SELECT 1 FROM users WHERE username = :u");
+        $st->execute(['u' => $username]);
+        return (bool)$st->fetchColumn();
+    }
+
+    public static function countEnabledAdmins(): int {
+        try {
+            return (int)Database::getConnection()->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0")->fetchColumn();
+        } catch (PDOException $e) {
+            return (int)Database::getConnection()->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn();
+        }
+    }
+
+    /** Deletes the account and everything it owns. Returns false when the account does not exist. */
+    public static function deleteUserAccount(string $username): bool {
+        $db = Database::getConnection();
+        if (!self::userExists($username)) {
+            return false;
+        }
+        $db->beginTransaction();
+        try {
+            foreach (['watch_history', 'favorites', 'user_preferences', 'comments', 'user_profiles'] as $table) {
+                $db->prepare("DELETE FROM {$table} WHERE username = :u")->execute(['u' => $username]);
+            }
+            // Rooms they host end with them; memberships elsewhere just disappear
+            $rooms = $db->prepare("SELECT id FROM party_rooms WHERE host_user = :u");
+            $rooms->execute(['u' => $username]);
+            foreach ($rooms->fetchAll(PDO::FETCH_COLUMN) as $roomId) {
+                $db->prepare("DELETE FROM party_messages WHERE room_id = :r")->execute(['r' => $roomId]);
+                $db->prepare("DELETE FROM party_members WHERE room_id = :r")->execute(['r' => $roomId]);
+                $db->prepare("DELETE FROM party_rooms WHERE id = :r")->execute(['r' => $roomId]);
+            }
+            $db->prepare("DELETE FROM party_members WHERE account_username = :u")->execute(['u' => $username]);
+            $db->prepare("DELETE FROM users WHERE username = :u")->execute(['u' => $username]);
+            $db->commit();
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
+        return true;
     }
 
     /**

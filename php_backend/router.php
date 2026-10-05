@@ -9,6 +9,7 @@ require_once __DIR__ . '/controllers/PlayerController.php';
 require_once __DIR__ . '/controllers/CalendarController.php';
 require_once __DIR__ . '/controllers/HistoryController.php';
 require_once __DIR__ . '/controllers/AdminController.php';
+require_once __DIR__ . '/controllers/AdminUsersController.php';
 require_once __DIR__ . '/controllers/PartyController.php';
 require_once __DIR__ . '/controllers/AppDownloadController.php';
 
@@ -706,6 +707,25 @@ if ($uri === '/api/admin/backups' && $method === 'POST') {
         error_log('[backup] ' . $e->getMessage());
         jsonError('No se pudo crear el respaldo: ' . $e->getMessage(), 500);
     }
+}
+
+// Account administration
+if ($uri === '/api/admin/users' && $method === 'GET') {
+    AdminUsersController::listUsers();
+}
+
+if (preg_match('#^/api/admin/users/([^/]+)/(disable|role|reset-password|logout-all)$#', $uri, $m) && $method === 'POST') {
+    $target = urldecode($m[1]);
+    switch ($m[2]) {
+        case 'disable': AdminUsersController::setDisabled($target); break;
+        case 'role': AdminUsersController::setRole($target); break;
+        case 'reset-password': AdminUsersController::resetPassword($target); break;
+        case 'logout-all': AdminUsersController::logoutAll($target); break;
+    }
+}
+
+if (preg_match('#^/api/admin/users/([^/]+)$#', $uri, $m) && $method === 'DELETE') {
+    AdminUsersController::deleteUser(urldecode($m[1]));
 }
 
 if (preg_match('#^/api/admin/backups/([A-Za-z0-9._-]+)$#', $uri, $m) && $method === 'GET') {

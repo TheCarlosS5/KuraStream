@@ -84,8 +84,14 @@ class AuthController {
                 $up->execute(['p' => $newHash, 'u' => $username]);
             }
 
+            if ($isPassValid && !empty($user['disabled'])) {
+                // Said only after the password is right, so the message cannot be used to probe which names exist
+                jsonError('Esta cuenta está desactivada. Habla con el administrador.', 403);
+            }
+
             if ($isPassValid) {
                 $actualUsername = $user['username'] ?? $username;
+                DbHelper::touchLastLogin($actualUsername);
                 // Ensure default profile is created for the user in DB
                 DbHelper::getUserProfiles($actualUsername);
 
