@@ -10,7 +10,7 @@ class PartyController {
 
     private static function resolveUser(array $body = []): string {
         $token = AuthMiddleware::getBearerToken();
-        $payload = AuthMiddleware::verifyToken($token);
+        $payload = AuthMiddleware::sessionPayload($token);
         if ($payload && !empty($payload['username'])) {
             return $payload['username'];
         }
@@ -59,7 +59,7 @@ class PartyController {
             );
         }
 
-        $jwt = AuthMiddleware::verifyToken($token);
+        $jwt = AuthMiddleware::sessionPayload($token);
         if (!$jwt || empty($jwt['username'])) {
             jsonError(
                 'La sesión de usuario ya no está activa. Vuelve a entrar a la sala.',
@@ -157,7 +157,7 @@ class PartyController {
         // 4. Authenticated Host session fallback
         $userToken = AuthMiddleware::getBearerToken();
         if (!empty($userToken)) {
-            $payload = AuthMiddleware::verifyToken($userToken);
+            $payload = AuthMiddleware::sessionPayload($userToken);
             if ($payload && !empty($payload['username']) && $room['host_user'] === $payload['username']) {
                 $hostMember = DbHelper::getPartyHostMember($room['id']);
                 if ($enforceProfileContext && $hostMember) {
@@ -302,7 +302,7 @@ class PartyController {
         $memberToken = 'mptk_' . bin2hex(random_bytes(32));
         $tokenHash = hash('sha256', $memberToken);
 
-        $authPayload = AuthMiddleware::verifyToken(AuthMiddleware::getBearerToken());
+        $authPayload = AuthMiddleware::sessionPayload(AuthMiddleware::getBearerToken());
         $isHost = ($authPayload !== null && !empty($authPayload['username']) && $room['host_user'] === $authPayload['username']);
         $role = $isHost ? 'host' : 'guest';
 

@@ -992,6 +992,65 @@ class DbHelper {
         return $row ?: null;
     }
 
+    /**
+     * Account fields needed to validate a session on every request: a primary-key lookup, not LOWER(), so it
+     * stays cheap. Returns null when the account does not exist. Falls back to version 0 while migration 013
+     * (users.token_version) has not been applied yet, so a deployment never turns into a login outage.
+     */
+    public static function getAccountState(string $username): ?array {
+        $db = Database::getConnection();
+        try {
+            $stmt = $db->prepare("SELECT username, role, token_version FROM users WHERE username = :u");
+            $stmt->execute(['u' => $username]);
+        } catch (PDOException $e) {
+            if ((int)($e->errorInfo[1] ?? 0) !== 1054) {
+                throw $e;
+            }
+            $stmt = $db->prepare("SELECT username, role, 0 AS token_version FROM users WHERE username = :u");
+            $stmt->execute(['u' => $username]);
+        }
+        $row = $stmt->fetch();
+        if (!$row) {
+            return null;
+        }
+        $row['token_version'] = (int)$row['token_version'];
+        return $row;
+    }
+
+    /** The profile a session token points to, as it is now (name and kids flag can change after the token was issued). */
+    public static function getSessionProfile(string $username, ?string $profileId, ?string $profileName): ?array {
+        $db = Database::getConnection();
+        if (!empty($profileId)) {
+            $stmt = $db->prepare("SELECT id, name, is_kids FROM user_profiles WHERE id = :id AND username = :u");
+            $stmt->execute(['id' => $profileId, 'u' => $username]);
+        } elseif (!empty($profileName)) {
+            $stmt = $db->prepare("SELECT id, name, is_kids FROM user_profiles WHERE name = :n AND username = :u");
+            $stmt->execute(['n' => $profileName, 'u' => $username]);
+        } else {
+            return null;
+        }
+        return $stmt->fetch() ?: null;
+    }
+
+    /** Invalidates every session token issued so far for the account. Returns the new version. */
+    public static function bumpTokenVersion(string $username): int {
+        $db = Database::getConnection();
+        $db->prepare("UPDATE users SET token_version = token_version + 1 WHERE username = :u")->execute(['u' => $username]);
+        $st = $db->prepare("SELECT token_version FROM users WHERE username = :u");
+        $st->execute(['u' => $username]);
+        return (int)$st->fetchColumn();
+    }
+
+    /** Stores a new password hash and revokes all existing sessions in one statement. Returns the new token version. */
+    public static function replacePasswordHash(string $username, string $passwordHash): int {
+        $db = Database::getConnection();
+        $db->prepare("UPDATE users SET password_hash = :p, token_version = token_version + 1 WHERE username = :u")
+            ->execute(['p' => $passwordHash, 'u' => $username]);
+        $st = $db->prepare("SELECT token_version FROM users WHERE username = :u");
+        $st->execute(['u' => $username]);
+        return (int)$st->fetchColumn();
+    }
+
     public static function sanitizeProfileForClient(array $profile): array {
         $hasPin = !empty($profile['pin']);
         unset($profile['pin']);

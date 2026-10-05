@@ -92,6 +92,7 @@ class AuthController {
                 $tokenPayload = [
                     'username' => $actualUsername,
                     'role' => $user['role'] ?? 'user',
+                    'ver' => (int)($user['token_version'] ?? 0),
                     'exp' => time() + (30 * 24 * 3600)
                 ];
                 $token = AuthMiddleware::createToken($tokenPayload);
@@ -230,10 +231,81 @@ class AuthController {
             'profile_id' => $profile['id'],
             'profile_name' => $profile['name'],
             'is_kids' => (bool)$profile['is_kids'],
+            'ver' => (int)($authUser['ver'] ?? 0),
             'exp' => time() + (30 * 24 * 3600)
         ]);
         self::setSessionCookie($token);
         return $token;
+    }
+
+    /**
+     * Fresh session token for the current device after its account's token_version changed, keeping the
+     * active profile. Every other token issued before the change stops working.
+     */
+    private static function reissueAfterRevocation(array $authUser, string $canonicalUsername, int $newVersion): string {
+        $payload = [
+            'username' => $canonicalUsername,
+            'role' => $authUser['role'] ?? 'user',
+            'ver' => $newVersion,
+            'exp' => time() + (30 * 24 * 3600)
+        ];
+        foreach (['profile_id', 'profile_name', 'is_kids'] as $claim) {
+            if (isset($authUser[$claim])) {
+                $payload[$claim] = $authUser[$claim];
+            }
+        }
+        $token = AuthMiddleware::createToken($payload);
+        self::setSessionCookie($token);
+        return $token;
+    }
+
+    /** The database account behind a session; the environment administrator has none and cannot use these endpoints. */
+    private static function requireDatabaseAccount(array $authUser): array {
+        $account = DbHelper::getUser((string)($authUser['username'] ?? ''));
+        if (!$account) {
+            jsonError('Esta cuenta se administra en la configuración del servidor (ADMIN_USER / ADMIN_PASS_HASH).', 400);
+        }
+        return $account;
+    }
+
+    public static function changePassword(): void {
+        $authUser = AuthMiddleware::requireAuth();
+        self::denyKidsSession($authUser);
+        $account = self::requireDatabaseAccount($authUser);
+
+        $data = Input::json();
+        $current = Input::string($data, 'current_password', 1024, false);
+        $new = Input::string($data, 'new_password', 1024, false);
+        if ($current === '' || $new === '') {
+            jsonError('Contraseña actual y nueva requeridas', 400);
+        }
+        if (strlen($new) < 8 || strlen($new) > 72) {
+            jsonError('La nueva contraseña debe tener entre 8 y 72 caracteres', 400);
+        }
+        if (hash_equals($current, $new)) {
+            jsonError('La nueva contraseña debe ser distinta de la actual', 400);
+        }
+
+        // Guessing the current password through a stolen session must be as hard as guessing a login.
+        $limiterKey = 'pwchange_' . strtolower($account['username']);
+        RateLimiter::enforceKey($limiterKey, 5, 900, 'Demasiados intentos. Espera unos minutos antes de volver a intentarlo.');
+        if (!password_verify($current, (string)$account['password_hash'])) {
+            jsonError('La contraseña actual es incorrecta', 403);
+        }
+        RateLimiter::clear($limiterKey);
+
+        $version = DbHelper::replacePasswordHash($account['username'], password_hash($new, PASSWORD_BCRYPT));
+        $token = self::reissueAfterRevocation($authUser, $account['username'], $version);
+        jsonResponse(['success' => true, 'token' => $token, 'message' => 'Contraseña actualizada. Se cerró la sesión en los demás dispositivos.']);
+    }
+
+    public static function logoutAll(): void {
+        $authUser = AuthMiddleware::requireAuth();
+        $account = self::requireDatabaseAccount($authUser);
+
+        $version = DbHelper::bumpTokenVersion($account['username']);
+        $token = self::reissueAfterRevocation($authUser, $account['username'], $version);
+        jsonResponse(['success' => true, 'token' => $token, 'message' => 'Se cerró la sesión en los demás dispositivos.']);
     }
 
     public static function saveProfile(): void {

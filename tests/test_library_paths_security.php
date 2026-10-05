@@ -115,7 +115,8 @@ try {
     $sock = stream_socket_server('tcp://127.0.0.1:0');
     $port = (int)substr(strrchr(stream_socket_get_name($sock, false), ':'), 1);
     fclose($sock);
-    $env = array_merge(getenv(), ['JWT_SECRET' => JWT_SECRET, 'MEDIA_LIBRARY_PATH' => $lib, 'PHP_CLI_SERVER_WORKERS' => '2']);
+    // ADMIN_USER makes the token's "admin" the environment administrator (the server validates sessions against the database).
+    $env = array_merge(getenv(), ['JWT_SECRET' => JWT_SECRET, 'MEDIA_LIBRARY_PATH' => $lib, 'ADMIN_USER' => 'admin', 'PHP_CLI_SERVER_WORKERS' => '2']);
     $server = proc_open([PHP_BINARY, '-S', "127.0.0.1:$port", __DIR__ . '/../php_backend/router.php'],
         [0 => ['pipe', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, __DIR__ . '/..', $env);
     assert(is_resource($server), 'Could not start the PHP built-in server');

@@ -207,9 +207,13 @@ KuraStream/
 - **Secret Scanning**: Automated CI scanning via Gitleaks verifies no credentials, API keys, or private keys are committed.
 - **Notice**: Any credentials or access keys committed prior to version 2.0 must be rotated immediately in external systems.
 
-### Known Post-Release Limitations
+### Sessions and revocation
 
-- **Stateless Profile JWTs**: Currently, profile-scoped JWTs are stateless and remain cryptographically valid until their expiry timestamp. Previously issued profile JWTs are not centrally revoked in the database upon switching profiles. A previously issued valid Adult JWT could still be replayed until expiration. Active watch party memberships enforce real-time profile binding and mandatory valid authentication server-side (ensuring account-bound capabilities cannot operate without a current valid JWT matching the bound profile, and preventing capability reuse across adult/kids profiles). Future architectural iterations may incorporate `session_version`, active-profile session IDs, or central token revocation.
+- **Session tokens are revocable.** Each account has a `token_version` (migration 013) that is embedded in its JWT as `ver`. `POST /api/account/password` (change password) and `POST /api/account/logout-all` increment it, which immediately invalidates every other token of the account; the calling device receives a fresh token in the response.
+- **Account state is re-read on every request.** The role, the active profile's name and its kids flag come from the database, not from the token, so demoting an admin, deleting an account, or enabling kids mode on a profile applies to every device at once instead of when the 30-day token expires.
+- **Watch Party tickets are not sessions.** Stream/SSE tickets share the signing key but carry a `type` claim and are refused wherever a login is required.
+- **PIN guesses are throttled** (5 per 15 minutes per account and profile; a correct PIN resets the counter).
+- The administrator defined by `ADMIN_USER` has no database row; its token is trusted as issued and it cannot use the password endpoints (change `ADMIN_PASS_HASH` in the server configuration instead).
 
 ---
 

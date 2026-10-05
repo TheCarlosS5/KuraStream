@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../db.php';
 
 class AuthMiddleware {
     /**
@@ -74,11 +75,73 @@ class AuthMiddleware {
     }
 
     /**
+     * Whether a session must belong to an account that still exists. Always true in production; test suites
+     * mint tokens for accounts that were never created, so there it is opt-in (see tests/test_session_revocation.php).
+     */
+    public static ?bool $strictAccounts = null;
+
+    private static function isStrictAccounts(): bool {
+        return self::$strictAccounts ?? !defined('TESTING_MODE');
+    }
+
+    /** The administrator configured in the environment has no row in `users`; its token is trusted as issued. */
+    private static function isEnvAdmin(array $payload): bool {
+        $admin = getenv('ADMIN_USER');
+        return ($payload['role'] ?? '') === 'admin'
+            && $admin !== false && $admin !== ''
+            && strcasecmp((string)($payload['username'] ?? ''), $admin) === 0;
+    }
+
+    /**
+     * Verifies a SESSION token. Unlike verifyToken() it
+     *  - refuses tokens that carry a `type` claim (Watch Party stream/SSE tickets are signed with the same key
+     *    and must never be accepted as a login), and
+     *  - re-reads the account: a deleted account, a token issued before the last password change / "sign out
+     *    everywhere" (token_version), a changed role and a profile's current name and kids flag all take effect
+     *    immediately instead of when the 30-day token expires.
+     */
+    public static function sessionPayload(?string $token): ?array {
+        $payload = self::verifyToken($token);
+        if (!$payload) {
+            return null;
+        }
+        if (isset($payload['type']) && $payload['type'] !== 'session') {
+            return null;
+        }
+        if (self::isEnvAdmin($payload)) {
+            return $payload;
+        }
+
+        $username = (string)($payload['username'] ?? '');
+        $account = $username !== '' ? DbHelper::getAccountState($username) : null;
+        if ($account === null) {
+            return self::isStrictAccounts() ? null : $payload;
+        }
+        if ((int)($payload['ver'] ?? 0) !== $account['token_version']) {
+            return null;
+        }
+        $payload['role'] = $account['role'];
+
+        if (!empty($payload['profile_id']) || !empty($payload['profile_name'])) {
+            $profile = DbHelper::getSessionProfile($account['username'], $payload['profile_id'] ?? null, $payload['profile_name'] ?? null);
+            if ($profile) {
+                $payload['profile_id'] = $profile['id'];
+                $payload['profile_name'] = $profile['name'];
+                $payload['is_kids'] = !empty($profile['is_kids']);
+            } elseif (self::isStrictAccounts()) {
+                // The profile was deleted: the session is still the account's, but without an active profile.
+                unset($payload['profile_id'], $payload['profile_name'], $payload['is_kids']);
+            }
+        }
+        return $payload;
+    }
+
+    /**
      * Enforce Admin Role Check
      */
     public static function requireAdmin(): array {
         $token = self::getBearerToken();
-        $payload = self::verifyToken($token);
+        $payload = self::sessionPayload($token);
 
         if (!$payload) {
             jsonError('Acceso denegado: Token inválido o expirado', 401);
@@ -96,7 +159,7 @@ class AuthMiddleware {
      */
     public static function requireAuth(): array {
         $token = self::getBearerToken();
-        $payload = self::verifyToken($token);
+        $payload = self::sessionPayload($token);
 
         if (!$payload) {
             jsonError('Acceso denegado: Se requiere iniciar sesión', 401);

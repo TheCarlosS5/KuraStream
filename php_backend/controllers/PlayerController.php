@@ -150,7 +150,7 @@ class PlayerController {
             jsonError('Autenticación requerida para acceder al flujo de medios', 401);
         }
 
-        $tokenData = AuthMiddleware::verifyToken($userToken);
+        $tokenData = AuthMiddleware::sessionPayload($userToken);
         if (!$tokenData) {
             jsonError('Token inválido o expirado', 401);
         }

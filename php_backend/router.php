@@ -133,6 +133,14 @@ if ($uri === '/api/logout' && $method === 'POST') {
     AuthController::logout();
 }
 
+if ($uri === '/api/account/password' && $method === 'POST') {
+    AuthController::changePassword();
+}
+
+if ($uri === '/api/account/logout-all' && $method === 'POST') {
+    AuthController::logoutAll();
+}
+
 if ($uri === '/api/health' && $method === 'GET') {
     $response = [
         'success' => true,

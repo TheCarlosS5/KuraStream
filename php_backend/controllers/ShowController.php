@@ -9,7 +9,7 @@ require_once __DIR__ . '/../middleware/RateLimiter.php';
 class ShowController {
     public static function isKidsProfileActive(): bool {
         $token = AuthMiddleware::getBearerToken();
-        $payload = AuthMiddleware::verifyToken($token);
+        $payload = AuthMiddleware::sessionPayload($token);
         if ($payload && !empty($payload['is_kids'])) {
             return true;
         }

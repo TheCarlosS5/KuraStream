@@ -215,7 +215,7 @@ class HistoryController {
     public static function getProgress(?string $episodeId = null): void {
         $token = AuthMiddleware::getBearerToken();
         if ($token) {
-            $tokenData = AuthMiddleware::verifyToken($token);
+            $tokenData = AuthMiddleware::sessionPayload($token);
             if (($tokenData['role'] ?? '') === 'admin' && empty($tokenData['profile_name']) && empty($tokenData['profile_id'])) {
                 jsonResponse(['progress' => 0, 'completed' => false, 'duration' => 0, 'admin_preview' => true]);
                 return;
@@ -239,7 +239,7 @@ class HistoryController {
     public static function saveProgress(?string $episodeId = null): void {
         $token = AuthMiddleware::getBearerToken();
         if ($token) {
-            $tokenData = AuthMiddleware::verifyToken($token);
+            $tokenData = AuthMiddleware::sessionPayload($token);
             if (($tokenData['role'] ?? '') === 'admin' && empty($tokenData['profile_name']) && empty($tokenData['profile_id'])) {
                 jsonResponse(['success' => true, 'admin_preview' => true]);
                 return;
