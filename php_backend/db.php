@@ -1551,23 +1551,42 @@ class DbHelper {
         return $deleted;
     }
 
-    public static function getComments(string $showId): array {
+    /**
+     * Comments of a show, newest first (at most 300). The login name never leaves the server; instead each comment
+     * says whether the viewer may delete it (their own, or any for an administrator).
+     */
+    public static function getComments(string $showId, ?string $viewerUsername = null, bool $viewerIsAdmin = false): array {
         $db = Database::getConnection();
         $stmt = $db->prepare("
-            SELECT c.id, c.show_id, c.episode_id, c.content, c.created_at,
+            SELECT c.id, c.show_id, c.episode_id, c.content, c.created_at, c.username AS owner,
                    COALESCE(NULLIF(c.profile_name, ''), 'Usuario') AS profile_name,
                    p.avatar, p.color as avatar_color
             FROM comments c
             LEFT JOIN user_profiles p ON p.username = c.username AND p.name = c.profile_name
-            WHERE c.show_id = :s 
+            WHERE c.show_id = :s
             ORDER BY c.created_at DESC
+            LIMIT 300
         ");
         $stmt->execute(['s' => $showId]);
-        return array_map(function ($row) {
+        return array_map(function ($row) use ($viewerUsername, $viewerIsAdmin) {
             $row['avatar'] = self::normalizeAvatarUrl($row['avatar'] ?? '');
             $row['avatar_color'] = self::normalizeProfileColor($row['avatar_color'] ?? '');
+            $row['can_delete'] = $viewerIsAdmin
+                || ($viewerUsername !== null && $viewerUsername !== '' && strcasecmp((string)$row['owner'], $viewerUsername) === 0);
+            unset($row['owner']);
             return $row;
         }, $stmt->fetchAll());
+    }
+
+    public static function getCommentOwner(string $id): ?string {
+        $st = Database::getConnection()->prepare("SELECT username FROM comments WHERE id = :id");
+        $st->execute(['id' => $id]);
+        $owner = $st->fetchColumn();
+        return $owner === false ? null : (string)$owner;
+    }
+
+    public static function deleteComment(string $id): void {
+        Database::getConnection()->prepare("DELETE FROM comments WHERE id = :id")->execute(['id' => $id]);
     }
 
     public static function addComment(string $showId, string $username, string $profile, string $content, string $episodeId = ''): array {

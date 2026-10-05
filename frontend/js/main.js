@@ -1768,7 +1768,7 @@ export async function loadShowDetails(id) {
               <div style="flex: 1;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                   <strong style="color: var(--text-main); font-size: 0.9rem;">${escapeHtml(author)}</strong>
-                  <span style="color: var(--text-muted); font-size: 0.75rem;">${escapeHtml(dateStr)}</span>
+                  <span style="color: var(--text-muted); font-size: 0.75rem;">${escapeHtml(dateStr)}${c.can_delete ? ` · <button type="button" class="comment-delete-btn" data-comment-id="${escapeHtmlAttribute(c.id)}" aria-label="Eliminar comentario">Eliminar</button>` : ''}</span>
                 </div>
                 <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0; white-space: pre-wrap;">${escapeHtml(c.content)}</p>
               </div>
@@ -1782,6 +1782,31 @@ export async function loadShowDetails(id) {
     };
 
     await loadComments();
+
+    if (commentsListContainer) {
+      // One handler for the whole list (assigned, so reopening the page never stacks listeners)
+      commentsListContainer.onclick = async (event) => {
+        const btn = event.target.closest('.comment-delete-btn');
+        if (!btn) return;
+        if (btn.dataset.armed !== '1') {
+          btn.dataset.armed = '1';
+          btn.textContent = '¿Seguro? Pulsa de nuevo';
+          setTimeout(() => { if (btn.isConnected) { btn.dataset.armed = ''; btn.textContent = 'Eliminar'; } }, 5000);
+          return;
+        }
+        try {
+          const res = await fetch(`/api/comments/${encodeURIComponent(btn.dataset.commentId)}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Authorization': `Bearer ${getAuthToken()}` }
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'No se pudo eliminar');
+          safeToast('Comentario eliminado', 'success');
+          await loadComments();
+        } catch (e) {
+          safeToast(e.message || 'No se pudo eliminar el comentario', 'error');
+        }
+      };
+    }
 
     if (btnSubmitComment && commentTextarea) {
       btnSubmitComment.onclick = async () => {

@@ -560,6 +560,10 @@ if ($uri === '/api/comments' && $method === 'GET') {
     ShowController::getComments();
 }
 
+if (preg_match('#^/api/comments/([A-Za-z0-9_]+)$#', $uri, $m) && $method === 'DELETE') {
+    ShowController::deleteComment($m[1]);
+}
+
 if ($uri === '/api/comments' && $method === 'POST') {
     ShowController::addComment();
 }

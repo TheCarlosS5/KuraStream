@@ -2263,3 +2263,6 @@ input:checked + .slider:before {
   color: var(--text-main, #f4f8f9);
   box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.5));
 }
+
+.comment-delete-btn { background: none; border: 0; padding: 0 2px; color: var(--text-muted); font: inherit; font-size: 0.75rem; text-decoration: underline; cursor: pointer; }
+.comment-delete-btn:hover, .comment-delete-btn:focus-visible { color: #ff6b6b; }

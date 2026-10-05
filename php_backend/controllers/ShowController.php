@@ -183,8 +183,29 @@ class ShowController {
             jsonError('show_id requerido', 400);
         }
 
-        $comments = DbHelper::getComments($showId);
+        // The viewer is optional (guests read comments too); it only decides which ones show a delete button
+        $viewer = AuthMiddleware::sessionPayload(AuthMiddleware::getBearerToken());
+        $comments = DbHelper::getComments(
+            $showId,
+            $viewer['username'] ?? null,
+            ($viewer['role'] ?? '') === 'admin'
+        );
         jsonResponse(['success' => true, 'comments' => $comments]);
+    }
+
+    /** The author (any profile of the account) or an administrator can remove a comment. */
+    public static function deleteComment(string $id): void {
+        $user = AuthMiddleware::requireAuth();
+        $owner = DbHelper::getCommentOwner($id);
+        if ($owner === null) {
+            jsonError('Comentario no encontrado', 404);
+        }
+        $isAdmin = ($user['role'] ?? '') === 'admin';
+        if (!$isAdmin && strcasecmp($owner, (string)($user['username'] ?? '')) !== 0) {
+            jsonError('Solo puedes eliminar tus propios comentarios', 403);
+        }
+        DbHelper::deleteComment($id);
+        jsonResponse(['success' => true]);
     }
 
     public static function addComment(?array $inputData = null): void {
