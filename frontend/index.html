@@ -364,7 +364,14 @@
           <button id="detail-favorite-btn" class="btn btn-secondary detail-btn-action">
             <i data-lucide="heart" id="detail-favorite-icon"></i> <span id="detail-favorite-text">Añadir a mi Lista</span>
           </button>
-          <button id="detail-trailer-btn" class="btn btn-secondary detail-btn-trailer" style="display: none;">
+          <select id="detail-list-status" class="detail-list-status" aria-label="Estado en mi lista" hidden>
+            <option value="">Sin estado</option>
+            <option value="watching">Viendo</option>
+            <option value="planned">Pendiente</option>
+            <option value="completed">Completado</option>
+            <option value="dropped">Abandonado</option>
+          </select>
+                    <button id="detail-trailer-btn" class="btn btn-secondary detail-btn-trailer" style="display: none;">
             <i data-lucide="play-circle"></i> <span>Ver Tráiler</span>
           </button>
         </aside>

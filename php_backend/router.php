@@ -412,6 +412,18 @@ if ($uri === '/api/favorites/check' && $method === 'GET') {
     HistoryController::checkFavorite();
 }
 
+if ($uri === '/api/history/mark' && $method === 'POST') {
+    HistoryController::markWatched();
+}
+
+if ($uri === '/api/list-status' && $method === 'GET') {
+    HistoryController::getListStatuses();
+}
+
+if ($uri === '/api/list-status' && $method === 'POST') {
+    HistoryController::setListStatus();
+}
+
 if ($uri === '/api/history' && $method === 'POST') {
     HistoryController::updateProgress();
 }

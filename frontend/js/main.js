@@ -754,10 +754,42 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
             <h4 class="episode-title">${escapeHtml(ep.title || `Capítulo ${ep.episode_number || 1}`)}</h4>
           </div>
           <p class="episode-synopsis">${escapeHtml(ep.synopsis || 'Sin descripción disponible.')}</p>
+          <button type="button" class="episode-mark-btn" data-mark-episode="${escapeHtmlAttribute(ep.id)}" data-watched="${isCompleted ? '1' : '0'}" aria-pressed="${isCompleted ? 'true' : 'false'}">${isCompleted ? 'Marcar como no visto' : 'Marcar como visto'}</button>
         </div>
       </div>
     `;
   }).join('');
+
+  // Marking is a button inside a card that opens the episode: it must not also open it
+  targetContainer.querySelectorAll('.episode-mark-btn').forEach(btn => {
+    btn.addEventListener('click', async event => {
+      event.stopPropagation();
+      const episodeId = btn.dataset.markEpisode;
+      const watched = btn.dataset.watched !== '1';
+      if (!AuthManager.getToken()) {
+        window.showToast?.('Inicia sesión para marcar episodios', 'warning');
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/history/mark', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Authorization': `Bearer ${AuthManager.getToken()}` },
+          body: JSON.stringify({ episode_ids: [episodeId], watched })
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'No se pudo actualizar');
+        const ep = epList.find(e => e.id === episodeId) || {};
+        const dur = ep.duration || 0;
+        showProgressMap[episodeId] = watched
+          ? { ...(showProgressMap[episodeId] || {}), completed: true, progress_seconds: dur, duration: dur }
+          : { completed: false, progress_seconds: 0, duration: dur };
+        renderEpisodeList(epList, targetContainer, fallbackPoster, showProgressMap);
+      } catch (e) {
+        btn.disabled = false;
+        window.showToast?.(e.message || 'No se pudo actualizar el episodio', 'error');
+      }
+    });
+  });
 
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
@@ -1621,6 +1653,30 @@ export async function loadShowDetails(id) {
         }
       } else {
         trackPrefContainer.style.display = 'none';
+      }
+    }
+
+    // Watch-list status (viewing / planned / completed / dropped) for the active profile
+    const statusSelect = document.getElementById('detail-list-status');
+    if (statusSelect) {
+      statusSelect.hidden = !userSession.hasProfile;
+      statusSelect.value = '';
+      statusSelect.onchange = null;
+      if (userSession.hasProfile) {
+        const statusHeaders = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Authorization': `Bearer ${token}` };
+        try {
+          const res = await fetch('/api/list-status', { headers: statusHeaders });
+          if (res.ok) statusSelect.value = ((await res.json()).statuses || {})[id] || '';
+        } catch {}
+        statusSelect.onchange = async () => {
+          try {
+            const res = await fetch('/api/list-status', { method: 'POST', headers: statusHeaders, body: JSON.stringify({ show_id: id, status: statusSelect.value }) });
+            if (!res.ok) throw new Error();
+            safeToast('Estado guardado', 'success');
+          } catch {
+            safeToast('No se pudo guardar el estado', 'error');
+          }
+        };
       }
     }
 

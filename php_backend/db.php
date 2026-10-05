@@ -315,6 +315,83 @@ class DbHelper {
         ]);
     }
 
+    /**
+     * Marks episodes as watched (finished, progress = their duration) or not watched (history row removed, so
+     * they also leave "continue watching"). Unknown ids are ignored. Returns how many episodes were affected.
+     * @param string[] $episodeIds
+     */
+    public static function markEpisodesWatched(string $username, string $profile, array $episodeIds, bool $watched): int {
+        $episodeIds = array_values(array_unique(array_filter($episodeIds, 'is_string')));
+        if (!$episodeIds) {
+            return 0;
+        }
+        $db = Database::getConnection();
+        $marks = implode(',', array_fill(0, count($episodeIds), '?'));
+        $st = $db->prepare("SELECT id, duration FROM episodes WHERE id IN ($marks)");
+        $st->execute($episodeIds);
+        $episodes = $st->fetchAll();
+        if (!$episodes) {
+            return 0;
+        }
+        self::transactional(function (PDO $db) use ($username, $profile, $episodes, $watched) {
+            if ($watched) {
+                $ins = $db->prepare("
+                    INSERT INTO watch_history (username, profile_name, episode_id, progress_seconds, duration, completed)
+                    VALUES (:u, :p, :e, :prog, :dur, 1)
+                    ON DUPLICATE KEY UPDATE completed = 1,
+                        progress_seconds = IF(VALUES(duration) > 0, VALUES(duration), progress_seconds),
+                        duration = IF(VALUES(duration) > 0, VALUES(duration), duration)
+                ");
+                foreach ($episodes as $ep) {
+                    $dur = (float)($ep['duration'] ?? 0);
+                    $ins->execute(['u' => $username, 'p' => $profile, 'e' => $ep['id'], 'prog' => $dur, 'dur' => $dur]);
+                }
+            } else {
+                $del = $db->prepare("DELETE FROM watch_history WHERE username = :u AND profile_name = :p AND episode_id = :e");
+                foreach ($episodes as $ep) {
+                    $del->execute(['u' => $username, 'p' => $profile, 'e' => $ep['id']]);
+                }
+            }
+        });
+        return count($episodes);
+    }
+
+    /** Episode ids of a show (optionally one season), for "mark the whole season". */
+    public static function getEpisodeIdsForShow(string $showId, ?int $season = null): array {
+        $db = Database::getConnection();
+        if ($season === null) {
+            $st = $db->prepare("SELECT id FROM episodes WHERE show_id = :s");
+            $st->execute(['s' => $showId]);
+        } else {
+            $st = $db->prepare("SELECT id FROM episodes WHERE show_id = :s AND season_number = :n");
+            $st->execute(['s' => $showId, 'n' => $season]);
+        }
+        return $st->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    public const LIST_STATUSES = ['watching', 'planned', 'completed', 'dropped'];
+
+    /** @return array<string,string> show id => status */
+    public static function getListStatuses(string $username, string $profile): array {
+        $st = Database::getConnection()->prepare("SELECT show_id, status FROM show_list_status WHERE username = :u AND profile_name = :p");
+        $st->execute(['u' => $username, 'p' => $profile]);
+        return $st->fetchAll(PDO::FETCH_KEY_PAIR);
+    }
+
+    /** null clears the status. */
+    public static function setListStatus(string $username, string $profile, string $showId, ?string $status): void {
+        $db = Database::getConnection();
+        if ($status === null) {
+            $db->prepare("DELETE FROM show_list_status WHERE username = :u AND profile_name = :p AND show_id = :s")
+                ->execute(['u' => $username, 'p' => $profile, 's' => $showId]);
+            return;
+        }
+        $db->prepare("
+            INSERT INTO show_list_status (username, profile_name, show_id, status) VALUES (:u, :p, :s, :st)
+            ON DUPLICATE KEY UPDATE status = VALUES(status)
+        ")->execute(['u' => $username, 'p' => $profile, 's' => $showId, 'st' => $status]);
+    }
+
     public static function saveShow(array $show): void {
         $db = Database::getConnection();
         $existing = self::getShow($show['id']);
@@ -1243,7 +1320,7 @@ class DbHelper {
         }
         $db->beginTransaction();
         try {
-            foreach (['watch_history', 'favorites', 'user_preferences', 'comments', 'user_profiles'] as $table) {
+            foreach (['watch_history', 'favorites', 'user_preferences', 'show_list_status', 'comments', 'user_profiles'] as $table) {
                 $db->prepare("DELETE FROM {$table} WHERE username = :u")->execute(['u' => $username]);
             }
             // Rooms they host end with them; memberships elsewhere just disappear
@@ -1481,7 +1558,7 @@ class DbHelper {
     }
 
     /** Tables whose rows belong to a profile through (username, profile_name). Comments stay as authored. */
-    private const PROFILE_DATA_TABLES = ['watch_history', 'favorites', 'user_preferences'];
+    private const PROFILE_DATA_TABLES = ['watch_history', 'favorites', 'user_preferences', 'show_list_status'];
 
     private static function moveProfileData(string $username, string $oldName, string $newName): void {
         // A rename must move history, favorites and preferences together or not at all.

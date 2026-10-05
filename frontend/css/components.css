@@ -2266,3 +2266,9 @@ input:checked + .slider:before {
 
 .comment-delete-btn { background: none; border: 0; padding: 0 2px; color: var(--text-muted); font: inherit; font-size: 0.75rem; text-decoration: underline; cursor: pointer; }
 .comment-delete-btn:hover, .comment-delete-btn:focus-visible { color: #ff6b6b; }
+
+.episode-mark-btn { margin-top: 8px; background: none; border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-muted); font: inherit; font-size: 0.75rem; padding: 3px 10px; cursor: pointer; }
+.episode-mark-btn:hover, .episode-mark-btn:focus-visible { color: var(--text-main); border-color: var(--accent-color); }
+.episode-mark-btn[aria-pressed="true"] { color: var(--accent-color); }
+.detail-list-status { background: var(--surface-control); color: var(--text-main); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 8px 10px; font: inherit; }
+.detail-list-status[hidden] { display: none; }

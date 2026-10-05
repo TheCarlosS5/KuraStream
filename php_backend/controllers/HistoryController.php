@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../middleware/Input.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/PlayerController.php';
 
@@ -387,6 +388,69 @@ class HistoryController {
             }
             jsonResponse(['favorited' => true]);
         }
+    }
+
+    /**
+     * POST /api/history/mark  {watched: bool, episode_ids: [...]}  or  {watched: bool, show_id, season?}
+     * Marks episodes (or a whole show/season) as watched or not watched for the active profile.
+     */
+    public static function markWatched(?array $inputData = null): void {
+        $data = $inputData ?? Input::json();
+        list($username, $profile) = self::resolveUserAndProfile();
+        $watched = Input::bool($data, 'watched', true);
+
+        $ids = [];
+        if (isset($data['episode_ids'])) {
+            if (!is_array($data['episode_ids'])) {
+                jsonError("El campo 'episode_ids' debe ser una lista", 400);
+            }
+            $ids = $data['episode_ids'];
+        } else {
+            $showId = Input::string($data, 'show_id', 255);
+            if ($showId === '') {
+                jsonError('episode_ids o show_id requerido', 400);
+            }
+            $season = null;
+            if (isset($data['season']) && $data['season'] !== '') {
+                if (!is_numeric($data['season'])) {
+                    jsonError("El campo 'season' debe ser un número", 400);
+                }
+                $season = (int)$data['season'];
+            }
+            $ids = DbHelper::getEpisodeIdsForShow($showId, $season);
+        }
+        if (count($ids) > 1000) {
+            jsonError('Demasiados episodios en una sola petición', 400);
+        }
+
+        $count = DbHelper::markEpisodesWatched($username, $profile, $ids, $watched);
+        jsonResponse(['success' => true, 'watched' => $watched, 'count' => $count]);
+    }
+
+    public static function getListStatuses(): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        jsonResponse(['success' => true, 'statuses' => (object)DbHelper::getListStatuses($username, $profile)]);
+    }
+
+    /** POST /api/list-status  {show_id, status: watching|planned|completed|dropped|null} */
+    public static function setListStatus(?array $inputData = null): void {
+        $data = $inputData ?? Input::json();
+        list($username, $profile) = self::resolveUserAndProfile();
+        $showId = Input::string($data, 'show_id', 255);
+        if ($showId === '') {
+            jsonError('show_id requerido', 400);
+        }
+        $status = Input::string($data, 'status', 16);
+        if ($status === '' || $status === 'none') {
+            $status = null;
+        } elseif (!in_array($status, DbHelper::LIST_STATUSES, true)) {
+            jsonError('Estado no válido (watching, planned, completed o dropped)', 400);
+        }
+        if (!DbHelper::getShow($showId)) {
+            jsonError('Show no encontrado', 404);
+        }
+        DbHelper::setListStatus($username, $profile, $showId, $status);
+        jsonResponse(['success' => true, 'show_id' => $showId, 'status' => $status]);
     }
 
     public static function getUserPreferences(): void {
