@@ -6,7 +6,7 @@
 import { AuthManager } from './core/auth.js';
 import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
-import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.04-outros';
+import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.05-security';
 import { partyManager } from './modules/party.js';
 import { updateActiveNavHighlight, initHeaderDropdowns, initAdminSidebar, stopAdminPolling } from './modules/navigation.js';
 import { initCardPopovers } from './modules/card_popover_preview.js';
@@ -41,6 +41,28 @@ export function escapeHtmlAttribute(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+/** `url("...")` for a CSS background, with the address JSON-escaped so a quote or parenthesis cannot end the string. */
+export function cssUrl(src) {
+  return `url(${JSON.stringify(String(src))})`;
+}
+
+/**
+ * Paints avatars marked with data-bg-image / data-bg-color after they were inserted. Interpolating profile data
+ * into a `style="..."` string lets a crafted value add declarations (a full-screen overlay); assigning a single
+ * style property can only ever set that property.
+ */
+export function applyDynamicBackgrounds(root) {
+  if (!root) return;
+  root.querySelectorAll('[data-bg-image]').forEach(el => {
+    el.style.backgroundImage = cssUrl(el.dataset.bgImage);
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+  });
+  root.querySelectorAll('[data-bg-color]').forEach(el => {
+    el.style.background = /^#[0-9a-fA-F]{6}$/.test(el.dataset.bgColor) ? el.dataset.bgColor : 'var(--accent-color)';
+  });
 }
 
 // Broken artwork (404, deleted file) falls back to a placeholder instead of showing alt text
@@ -131,7 +153,7 @@ export function renderAuthState() {
       if (userAvatarInitial) {
         if (activeProfile && activeProfile.avatar) {
           userAvatarInitial.textContent = '';
-          userAvatarInitial.style.backgroundImage = `url('${activeProfile.avatar}')`;
+          userAvatarInitial.style.backgroundImage = cssUrl(activeProfile.avatar);
           userAvatarInitial.style.backgroundSize = 'cover';
           userAvatarInitial.style.backgroundPosition = 'center';
         } else {
@@ -152,7 +174,7 @@ export function renderAuthState() {
         if (userAvatarInitial) {
           if (activeProfile.avatar) {
             userAvatarInitial.textContent = '';
-            userAvatarInitial.style.backgroundImage = `url('${activeProfile.avatar}')`;
+            userAvatarInitial.style.backgroundImage = cssUrl(activeProfile.avatar);
             userAvatarInitial.style.backgroundSize = 'cover';
             userAvatarInitial.style.backgroundPosition = 'center';
           } else {
@@ -1647,7 +1669,7 @@ export async function loadShowDetails(id) {
       if (commentUserAvatar) {
         if (activeProfile && activeProfile.avatar) {
           commentUserAvatar.textContent = '';
-          commentUserAvatar.style.backgroundImage = `url('${escapeHtmlAttribute(activeProfile.avatar)}')`;
+          commentUserAvatar.style.backgroundImage = cssUrl(activeProfile.avatar);
           commentUserAvatar.style.backgroundSize = 'cover';
           commentUserAvatar.style.backgroundPosition = 'center';
         } else {
@@ -1688,13 +1710,13 @@ export async function loadShowDetails(id) {
             const author = c.profile_name || 'Usuario';
             const initial = (c.profile_name || 'U')[0].toUpperCase();
             const dateStr = c.created_at ? new Date(c.created_at).toLocaleDateString() : '';
-            const avatarBg = c.avatar 
-              ? `background-image: url('${escapeHtmlAttribute(c.avatar)}'); background-size: cover; background-position: center;`
-              : `background: ${escapeHtmlAttribute(c.avatar_color || 'var(--accent-color)')};`;
+            const avatarAttrs = c.avatar
+              ? `data-bg-image="${escapeHtmlAttribute(c.avatar)}"`
+              : `data-bg-color="${escapeHtmlAttribute(c.avatar_color || '')}"`;
             const avatarContent = c.avatar ? '' : escapeHtml(initial);
             return `
               <div class="comment-item" style="display: flex; gap: 12px; margin-bottom: 16px; padding: 12px; background: var(--surface-control); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
-                <div class="user-avatar-initial" style="width: 36px; height: 36px; font-size: 0.9rem; flex-shrink: 0; ${avatarBg}">${avatarContent}</div>
+                <div class="user-avatar-initial" style="width: 36px; height: 36px; font-size: 0.9rem; flex-shrink: 0;" ${avatarAttrs}>${avatarContent}</div>
                 <div style="flex: 1;">
                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <strong style="color: var(--text-main); font-size: 0.9rem;">${escapeHtml(author)}</strong>
@@ -1705,6 +1727,7 @@ export async function loadShowDetails(id) {
               </div>
             `;
           }).join('');
+          applyDynamicBackgrounds(commentsListContainer);
         }
       } catch {
         commentsListContainer.innerHTML = '<div class="text-danger" style="padding: 12px 0;">Error al cargar comentarios.</div>';
@@ -3514,8 +3537,9 @@ async function renderLibraryAvatarChoices(grid, onPick) {
   grid.dataset.loaded = '1';
   grid.innerHTML = posters.map(item => `
     <button type="button" class="preset-avatar-option library-avatar-option" data-src="${escapeHtmlAttribute(item.src)}"
-      style="background-image: url('${escapeHtmlAttribute(item.src)}');" title="${escapeHtmlAttribute(item.title)}" aria-label="${escapeHtmlAttribute('Usar ' + item.title)}"></button>
+      data-bg-image="${escapeHtmlAttribute(item.src)}" title="${escapeHtmlAttribute(item.title)}" aria-label="${escapeHtmlAttribute('Usar ' + item.title)}"></button>
   `).join('');
+  applyDynamicBackgrounds(grid);
   grid.querySelectorAll('.library-avatar-option').forEach(btn => {
     btn.onclick = () => onPick(btn.getAttribute('data-src'));
   });
@@ -3559,7 +3583,7 @@ export function openProfileEditModal(mode = 'create', profile = null) {
     if (!avatarDisplay) return;
     if (currentEditingAvatar) {
       avatarDisplay.textContent = '';
-      avatarDisplay.style.backgroundImage = `url('${currentEditingAvatar}')`;
+      avatarDisplay.style.backgroundImage = cssUrl(currentEditingAvatar);
       avatarDisplay.style.backgroundSize = 'cover';
       avatarDisplay.style.backgroundPosition = 'center';
       avatarDisplay.style.backgroundRepeat = 'no-repeat';
@@ -3910,9 +3934,9 @@ export async function loadProfilesView() {
     const profiles = Array.isArray(data) ? data : (data.profiles || []);
 
     const cardsHtml = profiles.map(p => {
-      const avatarStyle = p.avatar 
-        ? `background-image: url('${escapeHtmlAttribute(p.avatar)}'); background-size: cover; background-position: center;`
-        : `background: ${escapeHtmlAttribute(p.color || '#818CF8')};`;
+      const avatarAttrs = p.avatar
+        ? `data-bg-image="${escapeHtmlAttribute(p.avatar)}"`
+        : `data-bg-color="${escapeHtmlAttribute(p.color || '#818CF8')}"`;
       const initial = p.avatar ? '' : escapeHtml((p.name || 'P')[0].toUpperCase());
       const editBadgeHtml = isProfileManageMode ? `
         <div class="profile-edit-badge">
@@ -3922,7 +3946,7 @@ export async function loadProfilesView() {
 
       return `
         <div class="profile-card ${isProfileManageMode ? 'profile-card-manage' : ''}" data-profile-id="${escapeHtmlAttribute(p.id)}" style="position: relative; cursor: pointer;">
-          <div class="profile-avatar ${p.avatar ? 'has-image' : ''}" style="${avatarStyle}">
+          <div class="profile-avatar ${p.avatar ? 'has-image' : ''}" ${avatarAttrs}>
             ${initial}
             ${p.is_kids ? '<span class="profile-badge-kids">KIDS</span>' : ''}
             ${editBadgeHtml}
@@ -3942,6 +3966,7 @@ export async function loadProfilesView() {
     ` : '';
 
     grid.innerHTML = cardsHtml + addCardHtml;
+    applyDynamicBackgrounds(grid);
 
     // Attach click events to cards
     grid.querySelectorAll('.profile-card[data-profile-id]').forEach(card => {

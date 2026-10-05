@@ -135,7 +135,7 @@ test('new service worker installs exact versioned shell assets and retires old c
     }
   };
   const mainScriptMatch = html.match(/src="(\/js\/main\.js\?[^"]+)"/);
-  checkModule(mainScriptMatch ? mainScriptMatch[1] : '/js/main.js?v=2026.10.04-outros');
+  checkModule(mainScriptMatch ? mainScriptMatch[1] : '/js/main.js?v=2026.10.05-security');
   handlers.activate({ waitUntil: promise => { done = promise; } });
   await done;
   assert.deepEqual(removed, ['kurastream-v2.0']);
@@ -185,3 +185,39 @@ test('purge fabricated metadata: no 8.5 rating or 2026 year fallback in frontend
   assert.ok(heroHtml.includes('N/A'), 'renderBillboardHero shows N/A for missing rating/year');
 });
 
+
+test('avatar data never reaches a style="..." string: it is applied as single DOM properties', () => {
+  // Profile data (avatar URL, colour) is user controlled and shown to other people (comments, profile grid).
+  // Interpolating it into style="..." let a crafted value add declarations such as a full-screen overlay.
+  assert.ok(!/style="[^"]*url\(['"]?\$\{/.test(app), 'main.js must not build style="...url(${...})" strings');
+  assert.ok(!/background(-image)?:\s*\$\{/.test(app), 'main.js must not interpolate backgrounds into style strings');
+  assert.ok(!/style="[^"]*\$\{avatar/.test(app), 'main.js must not put avatar values into style strings');
+
+  const assigned = [];
+  const makeEl = (data) => {
+    const style = new Proxy({}, { set(target, key, value) { assigned.push([key, value]); target[key] = value; return true; } });
+    return { dataset: data, style };
+  };
+  const hostileImage = "x');position:fixed;inset:0;z-index:99999;background-image:url('/library/avatars/uploads/y.jpg";
+  const hostileColor = 'red;position:fixed;inset:0';
+  const images = [makeEl({ bgImage: hostileImage })];
+  const colors = [makeEl({ bgColor: hostileColor }), makeEl({ bgColor: '#12ab9F' })];
+  const root = { querySelectorAll: sel => sel === '[data-bg-image]' ? images : sel === '[data-bg-color]' ? colors : [] };
+  const context = vm.createContext({});
+  for (const name of ['cssUrl', 'applyDynamicBackgrounds']) evaluate(app, name, context);
+  context.applyDynamicBackgrounds(root);
+
+  const keys = new Set(assigned.map(([key]) => key));
+  assert.deepEqual([...keys].sort(), ['background', 'backgroundImage', 'backgroundPosition', 'backgroundSize'], 'only background properties are ever assigned');
+  const image = assigned.find(([key]) => key === 'backgroundImage')[1];
+  assert.equal(image, `url(${JSON.stringify(hostileImage)})`, 'the address is passed as one JSON-quoted CSS string');
+  assert.ok(image.startsWith('url("') && image.endsWith('")'), 'the value is a single url("...") token');
+  const bgValues = assigned.filter(([key]) => key === 'background').map(([, value]) => value);
+  assert.deepEqual(bgValues, ['var(--accent-color)', '#12ab9F'], 'a non-#RRGGBB colour falls back to the accent colour');
+});
+
+test('stream and subtitle URLs never carry the account token', () => {
+  // The server ignores ?token=, but the URL is written to the access log (shown in the admin console).
+  assert.ok(!/params\.set\(\s*['"]token['"]/.test(player), 'player.js must not put the account JWT in a query string');
+  assert.ok(!/[?&]token=/.test(player), 'player.js must not build ?token= URLs');
+});

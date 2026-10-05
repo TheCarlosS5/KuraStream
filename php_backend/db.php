@@ -1051,10 +1051,39 @@ class DbHelper {
         return (int)$st->fetchColumn();
     }
 
+    /**
+     * Profile avatars live under /library/avatars/. Anything else (external URLs, quotes, parentheses, "..")
+     * is dropped: the value ends up in CSS `url(...)` on other people's screens (comments, profile grid).
+     */
+    public static function normalizeAvatarUrl($value): string {
+        $v = is_string($value) ? trim($value) : '';
+        if ($v === '' || strlen($v) > 500 || str_contains($v, '..')) {
+            return '';
+        }
+        return preg_match('#^/library/avatars/[A-Za-z0-9_./-]+$#', $v) === 1 ? $v : '';
+    }
+
+    public static function isValidProfileColor($value): bool {
+        return is_string($value) && preg_match('/^#[0-9a-fA-F]{6}$/', $value) === 1;
+    }
+
+    /** A stored colour that is not #RRGGBB (older rows, direct edits) is shown as the default instead of reaching CSS. */
+    public static function normalizeProfileColor($value, string $fallback = '#a855f7'): string {
+        return self::isValidProfileColor($value) ? $value : $fallback;
+    }
+
     public static function sanitizeProfileForClient(array $profile): array {
         $hasPin = !empty($profile['pin']);
         unset($profile['pin']);
         $profile['has_pin'] = $hasPin;
+        if (array_key_exists('avatar', $profile)) {
+            $profile['avatar'] = self::normalizeAvatarUrl($profile['avatar']);
+        }
+        foreach (['color', 'avatar_color'] as $colorKey) {
+            if (array_key_exists($colorKey, $profile)) {
+                $profile[$colorKey] = self::normalizeProfileColor($profile[$colorKey]);
+            }
+        }
         // Raw rows carry is_kids as 0/1; typed clients (the Android app) require a JSON boolean.
         $profile['is_kids'] = (bool)($profile['is_kids'] ?? false);
         return $profile;
@@ -1172,11 +1201,14 @@ class DbHelper {
                 jsonError('No se pudo guardar el avatar', 500);
             }
             $avatar = '/library/avatars/uploads/' . $filename;
-        } elseif ($avatar !== '' && !str_starts_with($avatar, '/library/avatars/') && !preg_match('#^https?://#i', $avatar)) {
-            $avatar = '';
+        } elseif ($avatar !== '') {
+            $avatar = self::normalizeAvatarUrl($avatar);
         }
 
         $color = $data['avatar_color'] ?? $data['color'] ?? '#a855f7';
+        if (!self::isValidProfileColor($color)) {
+            jsonError('El color del perfil debe tener el formato #RRGGBB', 400);
+        }
         $isKids = !empty($data['is_kids']) ? 1 : 0;
         $rawPin = trim((string)($data['pin'] ?? ''));
         $pinHash = $existing ? ($existing['pin'] ?? '') : '';
@@ -1316,7 +1348,11 @@ class DbHelper {
             ORDER BY c.created_at DESC
         ");
         $stmt->execute(['s' => $showId]);
-        return $stmt->fetchAll();
+        return array_map(function ($row) {
+            $row['avatar'] = self::normalizeAvatarUrl($row['avatar'] ?? '');
+            $row['avatar_color'] = self::normalizeProfileColor($row['avatar_color'] ?? '');
+            return $row;
+        }, $stmt->fetchAll());
     }
 
     public static function addComment(string $showId, string $username, string $profile, string $content, string $episodeId = ''): array {

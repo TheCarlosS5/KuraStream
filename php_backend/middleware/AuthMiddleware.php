@@ -52,7 +52,8 @@ class AuthMiddleware {
     /**
      * Extract token from cookie or HTTP Authorization header
      */
-    public static function getBearerToken(): ?string {
+    /** The token of an `Authorization: Bearer ...` header (never the cookie). */
+    private static function authorizationBearer(): ?string {
         $headers = null;
         if (isset($_SERVER['Authorization'])) {
             $headers = trim($_SERVER['Authorization']);
@@ -66,8 +67,34 @@ class AuthMiddleware {
         if ($headers && preg_match('/Bearer\s+(.*)$/i', $headers, $matches)) {
             return $matches[1];
         }
+        return null;
+    }
+
+    /**
+     * CSRF: the session cookie is sent by the browser on any request to this origin, including ones a page on
+     * another site (or another port of this host) makes on the user's behalf. A page cannot add a custom header
+     * to such a request without a CORS preflight, which this server only grants to ALLOWED_ORIGINS. The real
+     * clients always send `Authorization: Bearer`; anything that relies on the cookie alone must say so.
+     */
+    private static function hasCsrfProofHeader(): bool {
+        return trim((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) !== '';
+    }
+
+    /**
+     * Extract token from the Authorization header or the session cookie. The cookie is only honoured for reads
+     * (<video>, subtitles, images need it) or when the request carries X-Requested-With.
+     */
+    public static function getBearerToken(): ?string {
+        $bearer = self::authorizationBearer();
+        if ($bearer !== null) {
+            return $bearer;
+        }
 
         if (!empty($_COOKIE['kurastream_token'])) {
+            $safeMethod = in_array(strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET'), ['GET', 'HEAD', 'OPTIONS'], true);
+            if (!$safeMethod && !self::hasCsrfProofHeader()) {
+                return null;
+            }
             return trim($_COOKIE['kurastream_token']);
         }
 
@@ -151,6 +178,11 @@ class AuthMiddleware {
      * Enforce Admin Role Check
      */
     public static function requireAdmin(): array {
+        // Administration also has GET endpoints with side effects (scans, timing detection), so for any method a
+        // cookie-only request must carry the CSRF proof header.
+        if (self::authorizationBearer() === null && !self::hasCsrfProofHeader()) {
+            jsonError('Acceso denegado: Token inválido o expirado', 401);
+        }
         $token = self::getBearerToken();
         $payload = self::sessionPayload($token);
 

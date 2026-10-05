@@ -7,7 +7,7 @@
 
 import { appState } from '../../core/state.js';
 import { renderQRCodeToElement } from './qr_generator.js';
-import { initPlayer, destroyPlayer } from '../../../player.js?v=2026.10.04-outros';
+import { initPlayer, destroyPlayer } from '../../../player.js?v=2026.10.05-security';
 
 export class PlayerController {
   constructor() {

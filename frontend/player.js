@@ -280,8 +280,8 @@ function buildStreamUrl(startAt) {
     if (startAt > 0) params.set('start', formatStart(startAt));
   }
   if (partyManager.streamCapabilityToken) params.set('ticket', partyManager.streamCapabilityToken);
-  const token = AuthManager.getToken();
-  if (token) params.set('token', token);
+  // No account token in the URL: a <video> request is authorised by the HttpOnly session cookie, and a token in the
+  // query string would be written to access logs (shown in the admin console) and proxy logs.
   const query = params.toString();
   return `/api/stream/${encodeURIComponent(currentEpisodeId)}${query ? `?${query}` : ''}`;
 }
@@ -789,8 +789,6 @@ async function fetchSubtitle(episodeId, track) {
   const key = `${episodeId}|${track}`;
   if (subtitleCache.has(key)) return subtitleCache.get(key);
   const params = new URLSearchParams();
-  const token = AuthManager.getToken();
-  if (token) params.set('token', token);
   if (partyManager.streamCapabilityToken) params.set('ticket', partyManager.streamCapabilityToken);
   const res = await fetch(`/api/subtitles/${encodeURIComponent(episodeId)}/${track}?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

@@ -1,9 +1,9 @@
-const CACHE_NAME = 'kurastream-2026.10.04-outros-v1';
+const CACHE_NAME = 'kurastream-2026.10.05-security-v1';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
   '/style.css',
-  '/style.css?v=2026.10.04-outros',
+  '/style.css?v=2026.10.05-security',
   '/css/tokens.css',
   '/css/base.css',
   '/css/layout.css',
@@ -19,9 +19,9 @@ const SHELL_ASSETS = [
   '/assets/illustrations/empty_search.svg',
   '/assets/branding/brand_mark.svg',
   '/js/main.js',
-  '/js/main.js?v=2026.10.04-outros',
+  '/js/main.js?v=2026.10.05-security',
   '/player.js',
-  '/player.js?v=2026.10.04-outros',
+  '/player.js?v=2026.10.05-security',
   '/js/core/router.js',
   '/js/core/auth.js',
   '/js/core/api.js',
