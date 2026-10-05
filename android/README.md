@@ -8,12 +8,12 @@ Cliente nativo de primera clase para **KuraStream** construido en **Kotlin** y *
 
 - **JDK**: Java Development Kit 21 LTS (ej. Microsoft Build of OpenJDK 21 o Eclipse Temurin 21).
 - **Android SDK**:
-  - `compileSdk`: **37** (Android 17)
+  - `compileSdk`: **36** (AGP 8.8.2 no soporta oficialmente 37; la app sigue apuntando a Android 17 con `targetSdk` 37)
   - `targetSdk`: **37** (Android 17)
   - `minSdk`: **26** (Android 8.0 Oreo)
-  - `build-tools`: **37.0.0**
-- **Gradle**: 8.12 (gestionado vía Gradle Wrapper `./gradlew`).
-- **Android Gradle Plugin (AGP)**: 8.8.2 con compatibilidad y supresión para targetSdk 37.
+  - Plataforma instalada: `platforms;android-36`
+- **Gradle**: 8.12 (gestionado vía Gradle Wrapper `./gradlew`; en Linux, `chmod +x gradlew` o `sh gradlew`).
+- **Android Gradle Plugin (AGP)**: 8.8.2 (`android.suppressUnsupportedCompileSdk=36` en `gradle.properties`).
 
 ---
 

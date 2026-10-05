@@ -375,7 +375,7 @@ fun HomeScreen(
                                             if (notif.createdAt.isNotBlank()) {
                                                 Spacer(modifier = Modifier.height(KuraDimens.Space1))
                                                 Text(
-                                                    text = notif.createdAt,
+                                                    text = com.kurastream.app.core.util.RelativeTime.format(notif.createdAt),
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = KuraColors.TextMuted
                                                 )
