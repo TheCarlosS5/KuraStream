@@ -139,9 +139,9 @@ graph TD
 | `DB_PASS` | Database password | None |
 | `MYSQL_ROOT_PASSWORD` | Root password for MySQL Docker container | None |
 | `ADMIN_USER` | Initial administrative username | `admin` |
-| `ADMIN_PASS` | Administrative password (plaintext, local development) | None |
+| `ADMIN_PASS` | Administrative password (plaintext, local development). Placeholders such as `change_me` or `admin` are rejected | None |
 | `ADMIN_PASS_HASH` | Administrative password hash (bcrypt, production) | None |
-| `JWT_SECRET` | Secret key for signing authentication tokens | Required |
+| `JWT_SECRET` | Secret key for signing authentication tokens. At least 32 characters (`openssl rand -hex 32`); weak or placeholder values stop the server from starting | Required |
 | `MEDIA_LIBRARY_PATH` | Absolute path to media storage directory | `./library` |
 | `TMDB_API_KEY` | Optional TMDB v3 API Key for metadata scraping | None |
 | `TMDB_READ_TOKEN` | Optional TMDB v4 API Read Access Token for metadata scraping | None |

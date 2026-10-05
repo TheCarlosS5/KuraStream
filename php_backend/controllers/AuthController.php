@@ -33,7 +33,12 @@ class AuthController {
             if (!empty($adminPassHash)) {
                 $isPassValid = password_verify($password, $adminPassHash);
             } elseif (!empty($adminPass)) {
-                $isPassValid = ($password === $adminPass);
+                if (kuraAdminPasswordIsPlaceholder($adminPass)) {
+                    // Fail closed: a default such as "change_me" must never grant administrator access.
+                    error_log('[KuraStream] ADMIN_PASS is a placeholder value; environment admin login is disabled. Set a strong ADMIN_PASS or ADMIN_PASS_HASH.');
+                } else {
+                    $isPassValid = hash_equals($adminPass, (string)$password);
+                }
             }
 
             if ($isPassValid) {
@@ -73,7 +78,7 @@ class AuthController {
 
             if (password_verify($password, $storedHash)) {
                 $isPassValid = true;
-            } elseif ($storedHash === hash_hmac('sha256', $password, PASSWORD_SALT) || $storedHash === hash('sha256', $password)) {
+            } elseif ($storedHash !== '' && (hash_equals($storedHash, hash_hmac('sha256', $password, PASSWORD_SALT)) || hash_equals($storedHash, hash('sha256', $password)))) {
                 $isPassValid = true;
                 // Rehash to secure bcrypt
                 $newHash = password_hash($password, PASSWORD_BCRYPT);

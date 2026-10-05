@@ -36,7 +36,42 @@ define('DB_NAME', getenv('DB_NAME') ?: 'kurastream');
 define('DB_USER', getenv('DB_USER') ?: 'kurastream');
 define('DB_PASS', getenv('DB_PASS') !== false ? getenv('DB_PASS') : '');
 
-// Require JWT_SECRET in production
+/**
+ * Returns a human readable problem when the JWT secret is unsafe, or null when it is acceptable.
+ * Tokens (including admin ones) are only as trustworthy as this secret: with a published
+ * placeholder such as the one in .env.example anybody could forge an administrator token.
+ */
+if (!function_exists('kuraJwtSecretProblem')) {
+    function kuraJwtSecretProblem(string $secret): ?string {
+        if (strlen($secret) < 32) {
+            return 'JWT_SECRET must be at least 32 characters long (generate one with: openssl rand -hex 32).';
+        }
+        $lower = strtolower($secret);
+        foreach (['change_me', 'changeme', 'change-me', 'replace_me', 'replace-me', 'your_secret', 'your-secret', 'your_jwt', 'your-jwt'] as $placeholder) {
+            if (str_contains($lower, $placeholder)) {
+                return 'JWT_SECRET still contains a placeholder value; set a random secret (openssl rand -hex 32).';
+            }
+        }
+        if (count(array_unique(str_split($secret))) < 8) {
+            return 'JWT_SECRET is too repetitive; set a random secret (openssl rand -hex 32).';
+        }
+        return null;
+    }
+}
+
+/**
+ * True when the configured administrator password is an obvious placeholder/default value
+ * (for example the "change_me" shipped in .env.example). Such a password must never authenticate.
+ */
+if (!function_exists('kuraAdminPasswordIsPlaceholder')) {
+    function kuraAdminPasswordIsPlaceholder(string $password): bool {
+        return in_array(strtolower(trim($password)), [
+            'change_me', 'changeme', 'change-me', 'replace_me', 'admin', 'password', 'admin123', '12345678', '123456789', 'kurastream',
+        ], true);
+    }
+}
+
+// Require a strong JWT_SECRET in production
 $jwtSecret = getenv('JWT_SECRET');
 if (empty($jwtSecret)) {
     if (php_sapi_name() === 'cli' || defined('TESTING_MODE')) {
@@ -44,6 +79,18 @@ if (empty($jwtSecret)) {
     } else {
         http_response_code(500);
         die(json_encode(['error' => 'JWT_SECRET environment variable is missing and must be configured.']));
+    }
+} else {
+    $jwtSecretProblem = kuraJwtSecretProblem($jwtSecret);
+    if ($jwtSecretProblem !== null) {
+        error_log('[KuraStream] ' . $jwtSecretProblem);
+        if (php_sapi_name() === 'cli') {
+            fwrite(STDERR, '[KuraStream] ' . $jwtSecretProblem . PHP_EOL);
+            exit(1);
+        }
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+        die(json_encode(['error' => 'Server misconfigured: ' . $jwtSecretProblem]));
     }
 }
 define('JWT_SECRET', $jwtSecret);
