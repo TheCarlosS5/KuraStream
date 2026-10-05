@@ -761,7 +761,7 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
   }).join('');
 
   // Marking is a button inside a card that opens the episode: it must not also open it
-  targetContainer.querySelectorAll('.episode-mark-btn').forEach(btn => {
+  (typeof targetContainer.querySelectorAll === 'function' ? targetContainer.querySelectorAll('.episode-mark-btn') : []).forEach(btn => {
     btn.addEventListener('click', async event => {
       event.stopPropagation();
       const episodeId = btn.dataset.markEpisode;
