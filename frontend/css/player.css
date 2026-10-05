@@ -2054,3 +2054,8 @@ html.perf-lite .tracks-modal-dialog {
     display: none;
   }
 }
+
+.party-host-settings { padding: 8px 14px; border-bottom: 1px solid var(--border-color); font-size: 0.82rem; }
+.party-host-settings[hidden] { display: none; }
+.party-host-settings summary { cursor: pointer; color: var(--text-secondary); }
+.party-host-settings label { display: flex; gap: 8px; align-items: center; margin-top: 8px; color: var(--text-secondary); }

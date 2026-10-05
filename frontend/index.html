@@ -658,6 +658,12 @@
             <div id="party-avatar-stack-container" class="party-avatar-stack"></div>
             <span id="party-host-badge" class="party-host-pill"></span>
           </div>
+          <details class="party-host-settings" id="party-host-settings" hidden>
+            <summary>Ajustes de la sala</summary>
+            <label><input type="checkbox" id="party-set-public"> Sala pública (aparece en "Salas en Vivo")</label>
+            <label><input type="checkbox" id="party-set-controls"> Los invitados pueden pausar y adelantar</label>
+            <label><input type="checkbox" id="party-set-guests"> Permitir invitados sin cuenta</label>
+          </details>
           <div class="party-messages-container" id="party-messages-container"></div>
           <div class="party-reactions-bar">
             <button type="button" class="party-reaction-btn" data-reaction="flame" title="Fuego" aria-label="Fuego"><i data-lucide="flame"></i></button>

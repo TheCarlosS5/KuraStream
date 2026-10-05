@@ -301,6 +301,25 @@ class PartyManager {
     return data.room;
   }
 
+  /** Host only: changes room settings (is_public, allow_guest_controls, allow_guests, name). Resolves with the room. */
+  async updateSettings(changes) {
+    if (!this.isInRoom() || !this.isHost()) throw new Error('Solo el anfitrión puede cambiar los ajustes');
+    const res = await fetch('/api/party/settings', {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        room_id: this.activeRoom.id,
+        member_id: this.memberId,
+        member_token: this.memberToken,
+        ...changes
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.error || 'No se pudieron guardar los ajustes');
+    this.activeRoom = { ...this.activeRoom, ...data.room };
+    return this.activeRoom;
+  }
+
   async leaveRoom() {
     if (!this.isInRoom()) return;
 

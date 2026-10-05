@@ -234,7 +234,7 @@ function cacheElements() {
     'player-shortcuts-close', 'player-ambilight-canvas', 'menu-pip-btn', 'menu-ambilight-btn', 'menu-qr-btn',
     'menu-file-info-btn', 'menu-shortcuts-btn', 'player-party-sidebar', 'party-messages-container', 'party-chat-input',
     'party-input-form', 'party-btn-close-sidebar', 'party-sound-toggle', 'party-sound-icon', 'party-btn-copy-code',
-    'party-btn-copy-cta', 'party-room-code-display', 'party-btn-leave', 'party-header-title', 'party-host-badge',
+    'party-btn-copy-cta', 'party-room-code-display', 'party-btn-leave', 'party-header-title', 'party-host-badge', 'party-host-settings', 'party-set-public', 'party-set-controls', 'party-set-guests',
     'player-toast'
   ].forEach(id => { els[id] = $(id); });
   els.container = els['player-container'];
@@ -2085,10 +2085,32 @@ function renderPartyRoom(room) {
       : `${iconSvg('crown', { size: 13 })} ${escapeHtml(room.host_user || 'Anfitrión')}`;
   }
   setIcon(els['party-sound-icon'], partyManager.soundsMuted ? 'volume-x' : 'volume-2', { size: 16 });
+  // Only the host sees (and can change) the room settings
+  const hostSettings = els['party-host-settings'];
+  if (hostSettings) {
+    hostSettings.hidden = !partyManager.isHost();
+    if (els['party-set-public']) els['party-set-public'].checked = Boolean(Number(room.is_public));
+    if (els['party-set-controls']) els['party-set-controls'].checked = Boolean(Number(room.allow_guest_controls));
+    if (els['party-set-guests']) els['party-set-guests'].checked = Boolean(Number(room.allow_guests));
+  }
 }
 
 function bindParty() {
   const sidebar = els['player-party-sidebar'];
+  [['party-set-public', 'is_public'], ['party-set-controls', 'allow_guest_controls'], ['party-set-guests', 'allow_guests']].forEach(([id, field]) => {
+    const box = els[id];
+    if (!box) return;
+    box.addEventListener('change', async () => {
+      try {
+        const room = await partyManager.updateSettings({ [field]: box.checked });
+        renderPartyRoom(room);
+        showToast('Ajustes de la sala guardados');
+      } catch (error) {
+        box.checked = !box.checked;   // the server did not accept it: show what is really set
+        showToast(error.message || 'No se pudieron guardar los ajustes');
+      }
+    });
+  });
   const copyInvite = event => {
     event.stopPropagation();
     if (!partyManager.activeRoom) return;
