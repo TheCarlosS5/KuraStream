@@ -320,6 +320,11 @@ async function waitForTranscodeSlot(token) {
     } catch {
       return true;
     }
+    if (info && info.success === false && info.code === 'FFMPEG_MISSING') {
+      // The server cannot convert this file: say why, instead of a spinner that never ends
+      showError('Este video necesita conversión', info.error || 'El servidor no tiene ffmpeg instalado.');
+      return false;
+    }
     if (!info || !info.busy) return true;
     setLoading(true, `Servidor ocupado (${info.active_transcodes}/${info.max_transcodes}), reintentando…`);
     await new Promise((resolve) => setTimeout(resolve, 5000));

@@ -150,9 +150,9 @@ try {
 [$procDown, $portDown] = eh_start(['DB_HOST' => '127.0.0.1', 'DB_PORT' => '1']);
 try {
     [$code, $headers, $resp] = eh_http($portDown, 'GET', '/api/shows');
-    assert($code === 500, "Database down must be a 500 (got $code)");
+    assert($code === 503, "Database down must be a 503 (the server is fine, its database is not reachable) (got $code)");
     $json = json_decode($resp, true);
-    assert(is_array($json) && isset($json['error']), "500 body must be JSON with an error message (got: $resp)");
+    assert(is_array($json) && isset($json['error']), "503 body must be JSON with an error message (got: $resp)");
     foreach (['PDOException', 'Stack trace', '.php', 'SQLSTATE', '/home/', 'mysql:host'] as $leak) {
         assert(!str_contains($resp, $leak), "500 body must not leak '$leak' (got: $resp)");
     }

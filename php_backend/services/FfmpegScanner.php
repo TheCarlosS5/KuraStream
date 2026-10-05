@@ -50,7 +50,8 @@ class FfmpegScanner {
     /** Quick probe of just the first video stream's format: [pix_fmt, bit_depth] or null when it cannot be read. */
     public static function probeVideoFormat(string $filepath, int $timeoutSeconds = 10): ?array {
         $cmd = sprintf(
-            'ffprobe -v quiet -select_streams v:0 -show_entries stream=pix_fmt,bits_per_raw_sample -print_format json %s',
+            '%s -v quiet -select_streams v:0 -show_entries stream=pix_fmt,bits_per_raw_sample -print_format json %s',
+            self::ffprobeBin(),
             escapeshellarg($filepath)
         );
         $output = self::executeBoundedCommand($cmd, $timeoutSeconds, false);
@@ -115,7 +116,8 @@ class FfmpegScanner {
 
     public static function probeVideo(string $filepath, int $timeoutSeconds = 15): array {
         $cmd = sprintf(
-            'ffprobe -v quiet -print_format json -show_format -show_streams -show_chapters %s',
+            '%s -v quiet -print_format json -show_format -show_streams -show_chapters %s',
+            self::ffprobeBin(),
             escapeshellarg($filepath)
         );
 
@@ -259,7 +261,8 @@ class FfmpegScanner {
         if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
 
         $cmd = sprintf(
-            'ffmpeg -nostdin -y -v error -dump_attachment:t "" -i %s',
+            '%s -nostdin -y -v error -dump_attachment:t "" -i %s',
+            self::ffmpegBin(),
             escapeshellarg($videoPath)
         );
 
@@ -296,7 +299,8 @@ class FfmpegScanner {
         // fade to white/black at the seek point no longer becomes the episode's image. Scaling
         // first keeps that buffer small and the JPEG light (cards never show it above ~400px).
         $cmd = sprintf(
-            'ffmpeg -y -ss %f -i %s -vf "scale=640:-2,thumbnail=120" -frames:v 1 -q:v 3 %s',
+            '%s -y -ss %f -i %s -vf "scale=640:-2,thumbnail=120" -frames:v 1 -q:v 3 %s',
+            self::ffmpegBin(),
             $seekSeconds,
             escapeshellarg($videoPath),
             escapeshellarg($destThumbPath)
@@ -304,6 +308,23 @@ class FfmpegScanner {
         self::executeBoundedCommand($cmd, $timeoutSeconds);
         return file_exists($destThumbPath) && filesize($destThumbPath) > 0;
     }
+
+    /**
+     * The ffmpeg / ffprobe to put at the start of a shell command, quoted. It honours FFMPEG_PATH / FFPROBE_PATH and
+     * the lookup the scanner already does (PHP-FPM runs with a short PATH, so a bare "ffmpeg" can fail there while the
+     * configured path works), and falls back to the bare name so nothing changes where it already worked.
+     */
+    public static function ffmpegBin(): string {
+        // Cached per PATH: the lookup forks a shell, and the answer only changes if PATH does
+        return self::$binCache['ffmpeg|' . getenv('PATH')] ??= escapeshellarg(self::getFfmpegPath() ?? 'ffmpeg');
+    }
+
+    public static function ffprobeBin(): string {
+        return self::$binCache['ffprobe|' . getenv('PATH')] ??= escapeshellarg(self::getFfprobePath() ?? 'ffprobe');
+    }
+
+    /** @var array<string,string> */
+    private static array $binCache = [];
 
     public static function getFfmpegPath(): ?string {
         if (defined('FFMPEG_PATH') && FFMPEG_PATH !== '') {

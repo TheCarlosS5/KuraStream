@@ -253,7 +253,12 @@ if ($uri === '/api/health' && $method === 'GET') {
     $healthStatusCode = 200;
 
     try {
-        $db = Database::getConnection();
+        try {
+            Database::$throwOnConnectFailure = true;
+            $db = Database::getConnection();
+        } finally {
+            Database::$throwOnConnectFailure = false;   // PHP-FPM reuses the process: never leave it set
+        }
         $db->query('SELECT 1');
         if (Database::migrationProblem() !== null) {
             // A schema update failed: the app may be missing columns, so the operator has to look at the log.

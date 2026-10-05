@@ -3,6 +3,9 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/middleware/RateLimiter.php';
 
 class Database {
+    /** When true a failed connection throws the PDOException instead of answering 503 (used by /api/health). */
+    public static bool $throwOnConnectFailure = false;
+
     private static ?PDO $pdo = null;
 
     public static function setConnection(?PDO $customPdo): void {
@@ -31,7 +34,13 @@ class Database {
                 if (defined('TESTING_MODE')) {
                     throw new PDOException("Database connection error (sanitized)", (int)$e->getCode());
                 }
-                jsonError("Database Connection Failed. Please check server logs.", 500);
+                if (self::$throwOnConnectFailure) {
+                    throw $e;   // the caller (the health check) wants to describe the outage itself
+                }
+                // 503, not 500: the server is fine, its database is not reachable right now. Clients treat 503 as
+                // "try again in a moment" and the message is something a person can read.
+                @header('Retry-After: 5');
+                jsonError('El servidor no puede conectarse a su base de datos en este momento. Inténtalo de nuevo en unos segundos.', 503, ['code' => 'DATABASE_UNAVAILABLE']);
             }
             if (!defined('TESTING_MODE')) {
                 self::applyPendingMigrations(self::$pdo);
