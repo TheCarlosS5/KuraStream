@@ -232,6 +232,11 @@ class PartyController {
             jsonError('Contenido restringido por el perfil infantil activo', 403);
         }
 
+        // Rooms are short lived: tidy idle ones and long-silent members on a share of creations.
+        if (random_int(1, 10) === 1) {
+            try { DbHelper::runPartyHousekeeping(); } catch (Throwable $e) { error_log('[KuraStream] party housekeeping failed: ' . $e->getMessage()); }
+        }
+
         $isPublic = !empty($data['is_public']) ? 1 : 0;
         $allowGuestControls = !empty($data['allow_guest_controls']) ? 1 : 0;
         // Off unless the host opts in: a guest has no account, so no profile, no kids context and no revocation.
@@ -512,6 +517,16 @@ class PartyController {
         $isPlaying = isset($data['is_playing']) ? (bool)$data['is_playing'] : (bool)$room['is_playing'];
         $currentTime = isset($data['current_time']) ? (float)$data['current_time'] : (float)$room['current_time'];
 
+        // A host heartbeat that was built before someone else changed the room (a guest seek, a pause, an episode
+        // change) carries an outdated position and must not overwrite that change. Clients that report the room
+        // version they last saw (base_version) get this protection; others behave as before.
+        if ($action === 'heartbeat' && isset($data['base_version']) && is_numeric($data['base_version'])) {
+            $sinceLastChangeMs = (int)(microtime(true) * 1000) - (int)$room['last_sync_timestamp'];
+            if ((int)$data['base_version'] < (int)$room['version'] && $sinceLastChangeMs < 10000) {
+                jsonResponse(['success' => true, 'ignored' => true, 'room' => $room]);
+            }
+        }
+
         DbHelper::updatePartyPlayback($roomId, $isPlaying, $currentTime, $episodeId);
 
         // Optional system notice for major events (seek / episode switch)
@@ -727,11 +742,13 @@ class PartyController {
         echo "data: " . json_encode(['room' => $room, 'messages' => $initialMessages, 'members' => $activeMembers]) . "\n\n";
         flush();
 
-        $lastSyncTime = $room['last_sync_timestamp'];
-        $lastEpisode = $room['episode_id'];
-        $lastPlaying = $room['is_playing'];
-        $lastCurrentTime = $room['current_time'];
+        // The loop must reach its cleanup even when the client vanishes: PHP would otherwise end the script at the
+        // first failed write.
+        @ignore_user_abort(true);
+
+        $lastVersion = (int)$room['version'];
         $lastMemberPing = time();
+        $lastWriteAt = time();
 
         $startTime = time();
         $maxDuration = 25; // Reconnect every 25 seconds for reliable proxy / keepalive compatibility
@@ -741,7 +758,7 @@ class PartyController {
                 break;
             }
 
-            usleep(400000); // 400ms check interval
+            usleep(500000); // 0.5 s
 
             // Periodic presence heartbeat every 5s
             if (time() - $lastMemberPing >= 5) {
@@ -751,61 +768,51 @@ class PartyController {
                 $lastMemberPing = time();
             }
 
-            // Fetch room updates
-            $currentRoom = DbHelper::getPartyRoom($roomId);
-            if (!$currentRoom) {
+            // One cheap query per tick: the room's change counter and its newest message id.
+            $pulse = DbHelper::getPartyRoomPulse($roomId);
+            if ($pulse === null) {
                 echo "event: room_closed\ndata: " . json_encode(['message' => 'La sala ha sido cerrada']) . "\n\n";
                 flush();
                 break;
             }
 
-            // Detect playback state change
-            $stateChanged = ($currentRoom['last_sync_timestamp'] !== $lastSyncTime ||
-                             $currentRoom['episode_id'] !== $lastEpisode ||
-                             $currentRoom['is_playing'] !== $lastPlaying ||
-                             abs($currentRoom['current_time'] - $lastCurrentTime) > 1.5);
-
-            if ($stateChanged) {
-                $lastSyncTime = $currentRoom['last_sync_timestamp'];
-                $lastEpisode = $currentRoom['episode_id'];
-                $lastPlaying = $currentRoom['is_playing'];
-                $lastCurrentTime = $currentRoom['current_time'];
-
+            // Anything that changed the room (playback, episode, settings, participants) bumps its version.
+            if ($pulse['version'] !== $lastVersion) {
+                $currentRoom = DbHelper::getPartyRoom($roomId);
+                if (!$currentRoom) {
+                    echo "event: room_closed\ndata: " . json_encode(['message' => 'La sala ha sido cerrada']) . "\n\n";
+                    flush();
+                    break;
+                }
+                $lastVersion = $pulse['version'];
                 echo "event: sync\n";
                 echo "data: " . json_encode($currentRoom) . "\n\n";
                 flush();
+                $lastWriteAt = time();
             }
 
-            // Fetch new messages & reactions
-            $newMessages = DbHelper::getPartyMessages($roomId, $lastMsgId, 20);
-            if (!empty($newMessages)) {
-                $lastMsgId = end($newMessages)['id'];
-                echo "event: messages\n";
-                echo "data: " . json_encode($newMessages) . "\n\n";
-                flush();
-            }
-
-            // Ping heartbeat
-            echo "event: ping\ndata: {}\n\n";
-            flush();
-        }
-
-        if (connection_aborted()) {
-            if ($memberId) {
-                DbHelper::removePartyMemberById($roomId, $memberId);
-            } else {
-                $hostMember = DbHelper::getPartyHostMember($roomId);
-                if ($hostMember && !empty($hostMember['member_id'])) {
-                    DbHelper::removePartyMemberById($roomId, $hostMember['member_id']);
+            if ($pulse['last_message_id'] > $lastMsgId) {
+                $newMessages = DbHelper::getPartyMessages($roomId, $lastMsgId, 20);
+                if (!empty($newMessages)) {
+                    $lastMsgId = end($newMessages)['id'];
+                    echo "event: messages\n";
+                    echo "data: " . json_encode($newMessages) . "\n\n";
+                    flush();
+                    $lastWriteAt = time();
                 }
             }
-            $roomNow = DbHelper::getPartyRoom($roomId);
-            if ($roomNow) {
-                $newCount = DbHelper::getPartyMembersCount($roomId);
-                DbHelper::updatePartyPlayback($roomId, (bool)$roomNow['is_playing'], (float)$roomNow['current_time'], null, $newCount);
+
+            // Keep-alive (also how a vanished client is noticed: a write to a closed socket fails)
+            if (time() - $lastWriteAt >= 3) {
+                echo "event: ping\ndata: {}\n\n";
+                flush();
+                $lastWriteAt = time();
             }
         }
 
+        // A dropped connection no longer removes the member: a phone changing network or a tab being reloaded
+        // reconnects within seconds and must still be a member. Presence expires on its own (last_ping) and an
+        // explicit /leave removes it at once.
         exit();
     }
 

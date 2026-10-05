@@ -640,6 +640,8 @@ class PartyManager {
             is_playing: isPlaying ? 1 : 0,
             current_time: currentTime,
             episode_id: episodeId || (this.activeRoom ? this.activeRoom.episode_id : ''),
+            // Lets the server drop a heartbeat that predates someone else's seek/pause (see PartyController::syncPlayback)
+            base_version: this.activeRoom ? this.activeRoom.version : undefined,
             action
           })
         });

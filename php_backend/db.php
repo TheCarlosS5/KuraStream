@@ -1411,6 +1411,7 @@ class DbHelper {
                 is_public = VALUES(is_public),
                 allow_guest_controls = VALUES(allow_guest_controls),
                 allow_guests = VALUES(allow_guests),
+                version = version + 1,
                 updated_at = NOW()
         ");
 
@@ -1451,6 +1452,7 @@ class DbHelper {
         $row['allow_guest_controls'] = (bool)$row['allow_guest_controls'];
         $row['allow_guests'] = !empty($row['allow_guests']);
         $row['participants_count'] = (int)$row['participants_count'];
+        $row['version'] = (int)($row['version'] ?? 0);
         // Clients extrapolate the host position from last_sync_timestamp; this lets them measure
         // against the server clock instead of their own (the home server often runs without NTP).
         $row['server_time_ms'] = (int)(microtime(true) * 1000);
@@ -1480,7 +1482,7 @@ class DbHelper {
             $params['parts'] = max(1, $participants);
         }
 
-        $sql .= ", updated_at = NOW() WHERE id = :id";
+        $sql .= ", version = version + 1, updated_at = NOW() WHERE id = :id";
 
         $stmt = $db->prepare($sql);
         return $stmt->execute($params);
@@ -1514,7 +1516,7 @@ class DbHelper {
 
         if (empty($fields)) return true;
 
-        $sql = "UPDATE party_rooms SET " . implode(", ", $fields) . ", updated_at = NOW() WHERE id = :id";
+        $sql = "UPDATE party_rooms SET " . implode(", ", $fields) . ", version = version + 1, updated_at = NOW() WHERE id = :id";
         $stmt = $db->prepare($sql);
         return $stmt->execute($params);
     }
@@ -1601,9 +1603,38 @@ class DbHelper {
 
         if ($deleted > 0) {
             $db->exec("DELETE FROM party_messages WHERE room_id NOT IN (SELECT id FROM party_rooms)");
+            $db->exec("DELETE FROM party_members WHERE room_id NOT IN (SELECT id FROM party_rooms)");
         }
 
         return $deleted;
+    }
+
+    /**
+     * Periodic cleanup (job queue / opportunistic): rooms idle for a day with their messages and members, and
+     * members whose last ping is more than 10 minutes old (no one is going to resume those).
+     * @return array{rooms: int, members: int}
+     */
+    public static function runPartyHousekeeping(): array {
+        $db = Database::getConnection();
+        $rooms = self::cleanupExpiredPartyRooms(24);
+        $stmt = $db->prepare("DELETE FROM party_members WHERE last_ping < DATE_SUB(NOW(), INTERVAL 600 SECOND)");
+        $stmt->execute();
+        return ['rooms' => $rooms, 'members' => $stmt->rowCount()];
+    }
+
+    /**
+     * One tiny query for the SSE loop: the room's change counter and its newest message id. The full room (a join
+     * over episodes and shows) is only read when this changes.
+     */
+    public static function getPartyRoomPulse(string $roomId): ?array {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("
+            SELECT r.version, (SELECT COALESCE(MAX(m.id), 0) FROM party_messages m WHERE m.room_id = r.id) AS last_message_id
+            FROM party_rooms r WHERE r.id = :id
+        ");
+        $stmt->execute(['id' => $roomId]);
+        $row = $stmt->fetch();
+        return $row ? ['version' => (int)$row['version'], 'last_message_id' => (int)$row['last_message_id']] : null;
     }
 
     public static function recordPartyMember(
@@ -1727,11 +1758,13 @@ class DbHelper {
         $db = Database::getConnection();
         $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
         if ($driver === 'sqlite') {
-            $cleanup = $db->prepare("DELETE FROM party_members WHERE datetime(last_ping) < datetime('now', :mod)");
+            $cleanup = $db->prepare("DELETE FROM party_members WHERE room_id = :r AND datetime(last_ping) < datetime('now', :mod)");
             $sec = max(30, $timeoutSeconds * 2);
-            $cleanup->execute(['mod' => "-{$sec} seconds"]);
+            $cleanup->execute(['r' => $roomId, 'mod' => "-{$sec} seconds"]);
         } else {
-            $cleanup = $db->prepare("DELETE FROM party_members WHERE last_ping < DATE_SUB(NOW(), INTERVAL :sec SECOND)");
+            // Only this room: a global DELETE on every call scanned the whole table for every participant.
+            $cleanup = $db->prepare("DELETE FROM party_members WHERE room_id = :r AND last_ping < DATE_SUB(NOW(), INTERVAL :sec SECOND)");
+            $cleanup->bindValue(':r', $roomId);
             $cleanup->bindValue(':sec', max(30, $timeoutSeconds * 2), PDO::PARAM_INT);
             $cleanup->execute();
         }
