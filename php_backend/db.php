@@ -1082,6 +1082,53 @@ class DbHelper {
         return $show;
     }
 
+    /**
+     * Year in review for a profile: hours, episodes, shows started, the most watched show, the busiest month and
+     * the favourite genre. Works from watch_history.updated_at (UTC), so a show rewatched later counts in the later year.
+     */
+    public static function getYearSummary(string $username, string $profile, int $year): array {
+        $db = Database::getConnection();
+        $st = $db->prepare("
+            SELECT e.show_id, s.title, s.genres, MONTH(h.updated_at) AS month,
+                   CASE WHEN h.completed = 1 AND h.duration > 0 THEN h.duration ELSE COALESCE(h.progress_seconds, 0) END AS seconds
+            FROM watch_history h
+            JOIN episodes e ON e.id = h.episode_id
+            JOIN shows s ON s.id = e.show_id
+            WHERE h.username = :u AND h.profile_name = :p AND YEAR(h.updated_at) = :y
+        ");
+        $st->execute(['u' => $username, 'p' => $profile, 'y' => $year]);
+        $rows = $st->fetchAll();
+
+        $seconds = 0.0;
+        $perShow = [];
+        $perMonth = [];
+        $genres = [];
+        foreach ($rows as $r) {
+            $seconds += (float)$r['seconds'];
+            $perShow[$r['show_id']] = ($perShow[$r['show_id']] ?? ['title' => $r['title'], 'episodes' => 0, 'seconds' => 0.0]);
+            $perShow[$r['show_id']]['episodes']++;
+            $perShow[$r['show_id']]['seconds'] += (float)$r['seconds'];
+            $perMonth[(int)$r['month']] = ($perMonth[(int)$r['month']] ?? 0) + (float)$r['seconds'];
+            foreach (self::genreList($r['genres'] ?? '') as $g) {
+                $genres[$g] = ($genres[$g] ?? 0) + 1;
+            }
+        }
+        uasort($perShow, fn($a, $b) => [$b['episodes'], $b['seconds']] <=> [$a['episodes'], $a['seconds']]);
+        arsort($perMonth);
+        arsort($genres);
+        $top = $perShow ? array_slice($perShow, 0, 5, true) : [];
+
+        return [
+            'year' => $year,
+            'total_time_seconds' => (int)round($seconds),
+            'episodes_watched' => count($rows),
+            'shows_watched' => count($perShow),
+            'top_shows' => array_values(array_map(fn($id, $v) => ['id' => $id, 'title' => $v['title'], 'episodes' => $v['episodes']], array_keys($top), $top)),
+            'busiest_month' => $perMonth ? (int)array_key_first($perMonth) : null,
+            'top_genre' => $genres ? (string)array_key_first($genres) : null,
+        ];
+    }
+
     public static function getUserStats(string $username, string $profile = 'Principal'): array {
         $db = Database::getConnection();
 

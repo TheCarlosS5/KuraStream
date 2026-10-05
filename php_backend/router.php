@@ -380,6 +380,10 @@ if ($uri === '/api/user/preferences' && $method === 'POST') {
     HistoryController::saveUserPreferences();
 }
 
+if ($uri === '/api/user/summary' && $method === 'GET') {
+    HistoryController::getYearSummary();
+}
+
 if ($uri === '/api/user/stats' && $method === 'GET') {
     HistoryController::getUserStats();
 }

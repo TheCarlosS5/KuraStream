@@ -2470,6 +2470,24 @@ export async function renderStatsView() {
         `).join('')}
       </div>`;
   }
+  // "Tu año": a short summary under the numbers (a failure here never hides the stats above)
+  try {
+    const summaryRes = await fetchJson('/api/user/summary', { headers: token ? { 'Authorization': `Bearer ${token}` } : {} });
+    if (generation !== navigationGeneration) return;
+    const summary = summaryRes.summary;
+    if (summary && summary.episodes_watched > 0) {
+      const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+      cardsGrid.insertAdjacentHTML('afterend', `
+        <section class="stat-year-card" aria-label="Resumen del año">
+          <h3>Tu ${escapeHtml(summary.year)} en KuraStream</h3>
+          <p>Viste <strong>${escapeHtml(formatWatchTime(summary.total_time_seconds))}</strong>: ${summary.episodes_watched} capítulos de ${summary.shows_watched} series.
+          ${summary.busiest_month ? `Tu mes más intenso fue <strong>${months[summary.busiest_month - 1]}</strong>.` : ''}
+          ${summary.top_genre ? `Tu género favorito: <strong>${escapeHtml(genreLabel(summary.top_genre))}</strong>.` : ''}</p>
+          ${summary.top_shows && summary.top_shows.length ? `<ol>${summary.top_shows.map(show => `<li>${escapeHtml(show.title)} <span class="text-muted">(${show.episodes} cap.)</span></li>`).join('')}</ol>` : ''}
+        </section>`);
+    }
+  } catch { /* optional */ }
+
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 

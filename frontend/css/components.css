@@ -2272,3 +2272,8 @@ input:checked + .slider:before {
 .episode-mark-btn[aria-pressed="true"] { color: var(--accent-color); }
 .detail-list-status { background: var(--surface-control); color: var(--text-main); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 8px 10px; font: inherit; }
 .detail-list-status[hidden] { display: none; }
+
+.stat-year-card { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--surface-control); }
+.stat-year-card h3 { margin: 0 0 8px; font-size: 1.05rem; }
+.stat-year-card p { margin: 0 0 8px; color: var(--text-secondary); line-height: 1.5; }
+.stat-year-card ol { margin: 0; padding-left: 20px; color: var(--text-secondary); }

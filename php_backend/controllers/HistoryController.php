@@ -520,6 +520,16 @@ class HistoryController {
         jsonResponse(['success' => true]);
     }
 
+    /** GET /api/user/summary?year=2026 (defaults to the current year, UTC). */
+    public static function getYearSummary(): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        $year = isset($_GET['year']) && is_numeric($_GET['year']) ? (int)$_GET['year'] : (int)gmdate('Y');
+        if ($year < 2000 || $year > 2100) {
+            jsonError('Año no válido', 400);
+        }
+        jsonResponse(['success' => true, 'summary' => DbHelper::getYearSummary($username, $profile, $year)]);
+    }
+
     public static function getUserStats(): void {
         list($username, $profile) = self::resolveUserAndProfile();
 
