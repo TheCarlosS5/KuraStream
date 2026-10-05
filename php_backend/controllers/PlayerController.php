@@ -135,6 +135,31 @@ class TranscodeLimiter {
         }
     }
 
+    /** Whether a live stream of this session key currently holds a slot (so its next stream will take it over). */
+    public static function sessionHoldsSlot(string $sessionKey): bool {
+        $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
+        for ($i = 0; is_dir($slotDir) && $i < self::maxWorkers(); $i++) {
+            $file = $slotDir . DIRECTORY_SEPARATOR . "worker_{$i}.lock";
+            $info = is_file($file) ? json_decode((string)@file_get_contents($file), true) : null;
+            if (!is_array($info) || ($info['key'] ?? null) !== $sessionKey) {
+                continue;
+            }
+            $probe = @fopen($file, 'c+');
+            if (!$probe) {
+                continue;
+            }
+            $free = flock($probe, LOCK_EX | LOCK_NB);
+            if ($free) {
+                flock($probe, LOCK_UN);
+            }
+            fclose($probe);
+            if (!$free) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static function getActiveWorkerCount(): int {
         $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
         if (!is_dir($slotDir)) {
@@ -283,7 +308,8 @@ class PlayerController {
         jsonResponse([
             'success' => true,
             'mode' => $direct ? 'direct' : 'transcode',
-            'busy' => !$direct && $active >= $max,
+            // A viewer's own seek takes over the slot of the stream it replaces, so it is never "busy" for them.
+            'busy' => !$direct && $active >= $max && !TranscodeLimiter::sessionHoldsSlot(self::streamSessionKey($episodeId)),
             'active_transcodes' => $active,
             'max_transcodes' => $max,
         ]);

@@ -38,6 +38,8 @@ function tm_alive(int $pid): bool { return $pid > 0 && file_exists("/proc/$pid")
 function tm_stop(array $h): void {
     if (!is_resource($h[0])) { return; }   // already stopped
     @proc_terminate($h[0], 9);
+    // the fake ffmpeg inherits the slot's lock file and outlives its parent: stop it too, or the slot stays taken
+    if (!empty($h[2]) && tm_alive($h[2])) { @posix_kill($h[2], 9); usleep(100000); }
     if (is_resource($h[1][1])) { @fclose($h[1][1]); }
     @proc_close($h[0]);
 }
@@ -139,7 +141,17 @@ try {
     assert($json['mode'] === 'direct' && $json['busy'] === false, 'direct play is never "busy"');
     [$code, $h] = kura_http($port, 'GET', "/api/stream/$ep8?start=30", null, $token);
     assert($code === 503 && isset($h['retry-after']) && ($h['x-transcode-busy'] ?? '') === '1/1', "the stream answers 503 with Retry-After and X-Transcode-Busy (got $code)");
-    tm_stop($c);
+    // the same viewer's own seek is not "busy": it will take over the slot of the stream it replaces
+    $sid = 'AAAA1111';
+    tm_stop($c);   // free the other slot holder so only $own occupies the single slot
+    usleep(300000);
+    $own = tm_holder("$ep8|s:$sid", 'exec -a ffmpeg sleep 60', 1);
+    $holders[] = $own;
+    [, , $json] = kura_http($port, 'GET', "/api/stream/$ep8/availability?start=30&session=$sid", null, $token);
+    assert($json['busy'] === false, 'a viewer replacing their own stream is never told the server is busy');
+    [, , $json] = kura_http($port, 'GET', "/api/stream/$ep8/availability?start=30&session=ZZZZ9999", null, $token);
+    assert($json['busy'] === true, 'another viewer is');
+    tm_stop($own);
     echo "✓ Availability endpoint and 503 hints OK\n";
 } finally {
     kura_stop_server($server);

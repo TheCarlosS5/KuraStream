@@ -174,6 +174,8 @@ const S = {
   subtitleTrack: -1,
   lastSubtitleTrack: -1,
   direct: true,
+  streamSession: Math.random().toString(36).slice(2, 12).padEnd(10, '0'),
+  streamLoad: 0,
   offset: 0,
   pendingSeek: null,
   seekTimer: null,
@@ -278,6 +280,8 @@ function buildStreamUrl(startAt) {
   if (!S.direct) {
     params.set('audio', String(S.audioTrack));
     if (startAt > 0) params.set('start', formatStart(startAt));
+    // Identifies this player instance: a seek replaces its own previous ffmpeg instead of waiting for a free slot.
+    params.set('session', S.streamSession);
   }
   if (partyManager.streamCapabilityToken) params.set('ticket', partyManager.streamCapabilityToken);
   // No account token in the URL: a <video> request is authorised by the HttpOnly session cookie, and a token in the
@@ -297,6 +301,29 @@ function canControlPlayback(showNotice = true) {
 function sendPartySync(action) {
   if (!partyManager.isInRoom() || Date.now() < S.internalReloadUntil) return;
   partyManager.sendPlaybackSync(!els.video.paused, displayTime(), currentEpisodeId, action);
+}
+
+/**
+ * A <video> element cannot read an HTTP 503, so a busy transcoder would just look like a broken video. Ask first
+ * (GET /api/stream/:id/availability) and, while every transcode slot is taken, say so and retry.
+ * Resolves true when the stream may start (also when the probe itself fails: the stream request decides then).
+ */
+async function waitForTranscodeSlot(token) {
+  const query = new URLSearchParams({ audio: String(S.audioTrack), session: S.streamSession });
+  for (let attempt = 0; attempt < 24; attempt++) {
+    if (token !== S.streamLoad) return false;
+    let info = null;
+    try {
+      const res = await fetch(`/api/stream/${encodeURIComponent(currentEpisodeId)}/availability?${query}`, { headers: authHeaders() });
+      if (res.ok) info = await res.json();
+    } catch {
+      return true;
+    }
+    if (!info || !info.busy) return true;
+    setLoading(true, `Servidor ocupado (${info.active_transcodes}/${info.max_transcodes}), reintentando…`);
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+  return token === S.streamLoad;
 }
 
 /**
@@ -321,12 +348,21 @@ function loadStream(startAt = 0, { autoplay = null } = {}) {
     S.offset = S.direct ? 0 : startAt;
     S.internalReloadUntil = Date.now() + 1500;
     setLoading(true);
-    video.src = buildStreamUrl(startAt);
-    video.load();
-    if (S.direct && startAt > 0) {
-      listen(video, 'loadedmetadata', () => { video.currentTime = startAt; }, { once: true });
+    const token = ++S.streamLoad;
+    const begin = () => {
+      if (token !== S.streamLoad) return;   // a newer load (another seek, episode or audio change) replaced this one
+      video.src = buildStreamUrl(startAt);
+      video.load();
+      if (S.direct && startAt > 0) {
+        listen(video, 'loadedmetadata', () => { video.currentTime = startAt; }, { once: true });
+      }
+      if (S.scrubPreview && S.direct) S.scrubPreview.updateSource(buildStreamUrl(0));
+    };
+    if (S.direct) {
+      begin();
+    } else {
+      waitForTranscodeSlot(token).then((ok) => { if (ok) begin(); });
     }
-    if (S.scrubPreview && S.direct) S.scrubPreview.updateSource(buildStreamUrl(0));
   }
   video.playbackRate = currentBaseRate();
   syncSubtitleClock();
