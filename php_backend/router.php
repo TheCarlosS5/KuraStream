@@ -33,6 +33,12 @@ foreach ($_COOKIE as $__name => $__value) {
 }
 unset($__params, $__value, $__name);
 
+// A NUL or other control byte (also percent-encoded: %00) in the path has no legitimate use here. It used to reach
+// realpath()/filesystem calls, which throw a ValueError (a 500 for every such request): refuse it at the door.
+if (is_string($uri) && preg_match('/[\x00-\x1F\x7F]/', rawurldecode($uri))) {
+    jsonError('Ruta no válida', 400);
+}
+
 $appStartTime = microtime(true);
 register_shutdown_function(function() use ($appStartTime, $uri) {
     if (!headers_sent() && $uri !== null && str_starts_with($uri, '/api/')) {
