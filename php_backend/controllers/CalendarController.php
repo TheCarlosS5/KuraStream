@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+require_once __DIR__ . '/../middleware/RateLimiter.php';
 
 /**
  * Weekly simulcast schedule: { Monday: [...], ..., Sunday: [...], TBA: [...] }.
@@ -58,7 +60,17 @@ class CalendarController {
     }
 
     public static function getSchedule(): void {
+        AuthMiddleware::requireCatalogAccess();
         $force = !empty($_GET['force']);
+        if ($force) {
+            // A forced refresh fans out to AniList (up to 4 requests, 6 s each) and holds a worker: anonymous
+            // callers just get the cached schedule, and signed-in ones are limited per address.
+            if (AuthMiddleware::sessionPayload(AuthMiddleware::getBearerToken()) === null) {
+                $force = false;
+            } else {
+                RateLimiter::enforce('calendar_force', 3, 600);
+            }
+        }
         $cacheFile = self::cacheFile();
         $cacheAge = is_file($cacheFile) ? time() - filemtime($cacheFile) : PHP_INT_MAX;
 

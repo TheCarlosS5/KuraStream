@@ -185,6 +185,7 @@ class PlayerController {
     }
 
     public static function getEpisodeDetails(string $id): void {
+        AuthMiddleware::requireCatalogAccess();
         $ep = DbHelper::getEpisode($id);
         if (!$ep) {
             jsonError('Episodio no encontrado', 404);

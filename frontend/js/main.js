@@ -1684,8 +1684,9 @@ export async function loadShowDetails(id) {
             return;
           }
           commentsListContainer.innerHTML = comments.map(c => {
-            const author = c.profile_name ? `${c.username} (${c.profile_name})` : (c.username || 'Usuario');
-            const initial = (c.profile_name || c.username || 'U')[0].toUpperCase();
+            // The API deliberately does not send account (login) names; comments show the profile name.
+            const author = c.profile_name || 'Usuario';
+            const initial = (c.profile_name || 'U')[0].toUpperCase();
             const dateStr = c.created_at ? new Date(c.created_at).toLocaleDateString() : '';
             const avatarBg = c.avatar 
               ? `background-image: url('${escapeHtmlAttribute(c.avatar)}'); background-size: cover; background-position: center;`

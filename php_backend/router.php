@@ -83,6 +83,66 @@ if (!function_exists('serveStaticFile')) {
     }
 }
 
+if (!function_exists('serveBackdropLoop')) {
+    /**
+     * Serves a show's ambient background clip (library/<Anime|Movies>/<show>/loop_*.mp4|webm) with HTTP Range
+     * support. Browsers need byte ranges to loop and seek a video; plain readfile() made them fail, and the
+     * blanket "no video from /library" rule blocked the clips altogether. Only this exact file shape is served.
+     */
+    function serveBackdropLoop(string $root, string $relativePath): void {
+        $realRoot = realpath($root);
+        $file = $realRoot !== false ? realpath($realRoot . DIRECTORY_SEPARATOR . $relativePath) : false;
+        if ($file === false || !is_file($file) || !str_starts_with($file, rtrim($realRoot, '/\\') . DIRECTORY_SEPARATOR)) {
+            return; // not found: the caller falls through to the normal 404
+        }
+
+        $size = filesize($file);
+        $start = 0;
+        $end = max(0, $size - 1);
+        $status = 200;
+        $range = $_SERVER['HTTP_RANGE'] ?? '';
+        if ($range !== '' && preg_match('/^bytes=(\d*)-(\d*)$/', trim($range), $m) && ($m[1] !== '' || $m[2] !== '')) {
+            if ($m[1] === '') {                       // suffix range: the last N bytes
+                $start = max(0, $size - (int)$m[2]);
+            } else {
+                $start = (int)$m[1];
+                if ($m[2] !== '') $end = min((int)$m[2], $size - 1);
+            }
+            if ($size === 0 || $start > $end || $start >= $size || ($m[1] === '' && (int)$m[2] === 0)) {
+                http_response_code(416);
+                header("Content-Range: bytes */{$size}");
+                exit();
+            }
+            $status = 206;
+            header("Content-Range: bytes {$start}-{$end}/{$size}");
+        }
+        // Any other Range syntax (multiple ranges, units) is ignored and the whole file is sent, as the RFC allows.
+
+        $length = $size === 0 ? 0 : $end - $start + 1;
+        http_response_code($status);
+        header('Content-Type: ' . (str_ends_with(strtolower($file), '.webm') ? 'video/webm' : 'video/mp4'));
+        header('Accept-Ranges: bytes');
+        header('Content-Length: ' . $length);
+        header('Cache-Control: public, max-age=3600');
+        header('X-Content-Type-Options: nosniff');
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'HEAD' || $length === 0) {
+            exit();
+        }
+
+        $fp = fopen($file, 'rb');
+        fseek($fp, $start);
+        while ($length > 0 && !feof($fp) && !connection_aborted()) {
+            $chunk = fread($fp, min(65536, $length));
+            if ($chunk === false || $chunk === '') break;
+            echo $chunk;
+            $length -= strlen($chunk);
+            flush();
+        }
+        fclose($fp);
+        exit();
+    }
+}
+
 if ($uri === '/' || $uri === '/index.html') {
     header('Content-Type: text/html; charset=utf-8');
     header('Cache-Control: no-cache, no-store, must-revalidate');
@@ -102,10 +162,23 @@ if ($decodedUri === '/library/logo.png' && !is_file($libraryDir . '/logo.png')) 
 
 if (str_starts_with($decodedUri, '/library/')) {
     $rel = substr($decodedUri, strlen('/library/'));
-    $ext = strtolower(pathinfo(parse_url($rel, PHP_URL_PATH) ?: $rel, PATHINFO_EXTENSION));
+    $relPath = parse_url($rel, PHP_URL_PATH) ?: $rel;
+    $ext = strtolower(pathinfo($relPath, PATHINFO_EXTENSION));
+
+    // Ambient background clips are the one kind of video the library serves directly.
+    if (preg_match('#^(Anime|Movies)/(?!\.{1,2}/)[^/]+/loop_[A-Za-z0-9_.-]+\.(mp4|webm)$#i', $relPath)) {
+        serveBackdropLoop($libraryDir, $relPath);
+    }
+
     $videoExts = ['mkv', 'mp4', 'webm', 'ts', 'avi', 'mov', 'm4v'];
     if (in_array($ext, $videoExts, true)) {
         jsonError('Direct video download forbidden. Use /api/stream/{id}', 403);
+    }
+    // Allow-list, not block-list: artwork and avatars only. Sidecar subtitles, other containers (.mka, .m2ts,
+    // .flv...), notes and anything a scan or upload leaves behind must not be downloadable by URL. SVG is excluded
+    // on purpose: served from this origin it would be active content.
+    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) {
+        jsonError('Tipo de archivo no permitido', 403);
     }
     serveStaticFile($libraryDir, $rel, 'public, max-age=3600');
     serveStaticFile($libraryDir, str_replace('_', ' ', $rel), 'public, max-age=3600');
@@ -149,7 +222,6 @@ if ($uri === '/api/health' && $method === 'GET') {
         'status' => 'healthy',
         'database' => 'connected',
         'storage' => is_readable(LIBRARY_DIR) ? 'readable' : 'unreadable',
-        'php_version' => PHP_VERSION,
         'timestamp' => date('c')
     ];
 
@@ -165,7 +237,12 @@ if ($uri === '/api/health' && $method === 'GET') {
         if (defined('TESTING_MODE')) throw new ExitException(json_encode($response), 503, $response);
         exit();
     }
-    
+
+    // The runtime version helps an attacker pick exploits; only administrators get it.
+    $healthSession = AuthMiddleware::sessionPayload(AuthMiddleware::getBearerToken());
+    if ($healthSession && ($healthSession['role'] ?? '') === 'admin') {
+        $response['php_version'] = PHP_VERSION;
+    }
     jsonResponse($response);
 }
 

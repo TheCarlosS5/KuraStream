@@ -35,6 +35,7 @@ class ShowController {
     }
 
     public static function getShows(): void {
+        AuthMiddleware::requireCatalogAccess();
         $type = $_GET['type'] ?? 'all';
         $statusParam = $_GET['status'] ?? 'all';
         $sortParam = $_GET['sort'] ?? 'default';
@@ -130,6 +131,7 @@ class ShowController {
     }
 
     public static function getShowDetails(string $id): void {
+        AuthMiddleware::requireCatalogAccess();
         try {
             $show = DbHelper::getShow($id);
             if (!$show) {
@@ -202,6 +204,7 @@ class ShowController {
     }
 
     public static function getComments(): void {
+        AuthMiddleware::requireCatalogAccess();
         $showId = trim((string)($_GET['show_id'] ?? ($_GET['showId'] ?? '')));
         if (empty($showId)) {
             jsonError('show_id requerido', 400);
@@ -267,6 +270,7 @@ class ShowController {
     }
 
     public static function getRandomShow(): void {
+        AuthMiddleware::requireCatalogAccess();
         $isKids = self::isKidsProfileActive();
         $show = DbHelper::getRandomShow($isKids);
         jsonResponse([

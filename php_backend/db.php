@@ -1307,7 +1307,9 @@ class DbHelper {
     public static function getComments(string $showId): array {
         $db = Database::getConnection();
         $stmt = $db->prepare("
-            SELECT c.*, p.avatar, p.color as avatar_color
+            SELECT c.id, c.show_id, c.episode_id, c.content, c.created_at,
+                   COALESCE(NULLIF(c.profile_name, ''), 'Usuario') AS profile_name,
+                   p.avatar, p.color as avatar_color
             FROM comments c
             LEFT JOIN user_profiles p ON p.username = c.username AND p.name = c.profile_name
             WHERE c.show_id = :s 
@@ -1337,8 +1339,7 @@ class DbHelper {
             'id' => $id,
             'show_id' => $showId,
             'episode_id' => $episodeId,
-            'username' => $username,
-            'profile_name' => $profile,
+            'profile_name' => $profile !== '' ? $profile : 'Usuario',
             'content' => $content,
             'created_at' => date('Y-m-d H:i:s')
         ];

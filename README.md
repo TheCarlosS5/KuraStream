@@ -143,6 +143,7 @@ graph TD
 | `ADMIN_PASS_HASH` | Administrative password hash (bcrypt, production) | None |
 | `JWT_SECRET` | Secret key for signing authentication tokens. At least 32 characters (`openssl rand -hex 32`); weak or placeholder values stop the server from starting | Required |
 | `REGISTRATION_MODE` | `open` (default) lets anyone who can reach the server create an account; any other value closes sign-up | `open` |
+| `CATALOG_ACCESS` | `open` (default) lets guests browse the catalog; `members` requires a signed-in session for the catalog, episodes, calendar and comments | `open` |
 | `REGISTER_MAX_PER_HOUR` | New accounts allowed per IP address per hour | `5` |
 | `MEDIA_LIBRARY_PATH` | Absolute path to media storage directory | `./library` |
 | `TMDB_API_KEY` | Optional TMDB v3 API Key for metadata scraping | None |

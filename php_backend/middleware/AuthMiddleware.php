@@ -137,6 +137,17 @@ class AuthMiddleware {
     }
 
     /**
+     * Catalog browsing (shows, episodes, calendar, comments) is open to guests by default, as the web client
+     * expects. CATALOG_ACCESS=members makes it require a signed-in session, so an anonymous visitor on the
+     * network can neither list the library nor see titles regardless of kids mode.
+     */
+    public static function requireCatalogAccess(): void {
+        if (strtolower(trim((string)getenv('CATALOG_ACCESS'))) === 'members') {
+            self::requireAuth();
+        }
+    }
+
+    /**
      * Enforce Admin Role Check
      */
     public static function requireAdmin(): array {
