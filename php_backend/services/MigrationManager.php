@@ -39,34 +39,77 @@ class MigrationManager {
     }
 
     /**
-     * Parse SQL file content into individual executable statements,
-     * stripping block comments and line comments cleanly before splitting by semicolon.
+     * Splits a migration file into statements. A real scanner, not explode(';'): semicolons inside quoted strings,
+     * backtick identifiers and comments do not end a statement, and `--`, `#` and block comments are dropped
+     * (MySQL's executable `/*! ... *\/` comments are kept).
      */
     public static function parseSqlStatements(string $sql): array {
-        // Strip block comments /* ... */
-        $clean = preg_replace('!/\*.*?\*/!s', '', $sql);
+        return array_column(self::parseSqlStatementsDetailed($sql), 'sql');
+    }
 
-        // Strip single line comments (-- and #)
-        $lines = explode("\n", $clean);
-        $filteredLines = [];
-        foreach ($lines as $line) {
-            $trimmed = trim($line);
-            if (str_starts_with($trimmed, '--') || str_starts_with($trimmed, '#')) {
+    /**
+     * Like parseSqlStatements, but says which statements are `optional`: a `-- @optional` comment line right before a
+     * statement means a failure of that statement (say a foreign key that cannot be added to a database imported from
+     * a dump with different collations) is logged and skipped instead of failing the whole migration.
+     * @return array<int, array{sql: string, optional: bool}>
+     */
+    public static function parseSqlStatementsDetailed(string $sql): array {
+        $statements = [];
+        $optionalNext = false;
+        $current = '';
+        $len = strlen($sql);
+        for ($i = 0; $i < $len; $i++) {
+            $c = $sql[$i];
+            $next = $i + 1 < $len ? $sql[$i + 1] : '';
+
+            if ($c === "'" || $c === '"' || $c === '`') {
+                $quote = $c;
+                $current .= $c;
+                for ($i++; $i < $len; $i++) {
+                    $ch = $sql[$i];
+                    $current .= $ch;
+                    if ($ch === '\\' && $quote !== '`' && $i + 1 < $len) {   // backslash escape inside a string
+                        $current .= $sql[++$i];
+                        continue;
+                    }
+                    if ($ch === $quote) {
+                        if ($i + 1 < $len && $sql[$i + 1] === $quote) {      // doubled quote = literal quote
+                            $current .= $sql[++$i];
+                            continue;
+                        }
+                        break;
+                    }
+                }
                 continue;
             }
-            $filteredLines[] = $line;
-        }
-        $clean = implode("\n", $filteredLines);
-
-        // Split by semicolon
-        $rawStatements = explode(';', $clean);
-        $statements = [];
-        foreach ($rawStatements as $stmt) {
-            $trimmed = trim($stmt);
-            if (!empty($trimmed)) {
-                $statements[] = $trimmed;
+            if (($c === '-' && $next === '-' && ($i + 2 >= $len || ctype_space($sql[$i + 2]))) || $c === '#') {
+                $start = $i;
+                while ($i < $len && $sql[$i] !== "\n") $i++;
+                if (trim($current) === '' && preg_match('/^(?:--|#)\s*@optional\s*$/', trim(substr($sql, $start, $i - $start)))) {
+                    $optionalNext = true;
+                }
+                $current .= "\n";
+                continue;
             }
+            if ($c === '/' && $next === '*' && ($i + 2 >= $len || $sql[$i + 2] !== '!')) {
+                $end = strpos($sql, '*/', $i + 2);
+                $i = $end === false ? $len : $end + 1;
+                $current .= ' ';
+                continue;
+            }
+            if ($c === ';') {
+                $trimmed = trim($current);
+                if ($trimmed !== '') {
+                    $statements[] = ['sql' => $trimmed, 'optional' => $optionalNext];
+                    $optionalNext = false;
+                }
+                $current = '';
+                continue;
+            }
+            $current .= $c;
         }
+        $trimmed = trim($current);
+        if ($trimmed !== '') $statements[] = ['sql' => $trimmed, 'optional' => $optionalNext];
         return $statements;
     }
 
@@ -148,13 +191,17 @@ class MigrationManager {
                 continue;
             }
 
-            $statements = self::parseSqlStatements($sql);
+            $statements = self::parseSqlStatementsDetailed($sql);
 
-            foreach ($statements as $statement) {
+            foreach ($statements as ['sql' => $statement, 'optional' => $optional]) {
                 if (!empty($statement)) {
                     try {
                         $db->exec($statement);
                     } catch (Throwable $e) {
+                        if ($optional) {
+                            error_log("KuraStream migration {$version}: optional statement skipped: " . $e->getMessage());
+                            continue;
+                        }
                         throw new RuntimeException(
                             "Database migration failed in '{$version}': " . $e->getMessage() . "\nFailed Query:\n" . $statement,
                             (int)$e->getCode(),

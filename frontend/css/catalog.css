@@ -1171,6 +1171,30 @@ html.perf-lite .hero-carousel-wrapper > .billboard-hero .billboard-hero-content 
   transition: all var(--transition-fast);
 }
 
+.episode-item.is-missing {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.episode-item.is-missing:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--border-color);
+}
+
+.episode-thumbnail-container .badge-missing {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .episode-item:hover {
   background: var(--surface-raised);
   border-color: var(--accent-color);

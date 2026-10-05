@@ -71,7 +71,7 @@ class HistoryController {
             $placeholders = implode(',', array_fill(0, count($showIds), '?'));
             $q = $db->prepare("
                 SELECT id, show_id, season_number, episode_number, title, thumbnail_path, duration
-                FROM episodes WHERE show_id IN ($placeholders)
+                FROM episodes WHERE show_id IN ($placeholders) AND availability_status <> 'missing'
             ");
             $q->execute(array_values($showIds));
             return $q->fetchAll();
@@ -228,7 +228,8 @@ class HistoryController {
             jsonError('episode_id requerido', 400);
         }
 
-        $prog = DbHelper::getProgress($username, $profile, $epId);
+        $canonical = DbHelper::getEpisode($epId);
+        $prog = DbHelper::getProgress($username, $profile, $canonical ? (string)$canonical['id'] : $epId);
         if (!$prog) {
             jsonResponse(['progress' => 0, 'completed' => false, 'duration' => 0]);
         } else {
@@ -304,7 +305,10 @@ class HistoryController {
             'outro_start' => $canonicalEp['outro_start'] ?? null,
         ]);
 
-        DbHelper::saveProgress($username, $profile, $epId, $progress, $effectiveDuration, $completed);
+        $clientTime = isset($data['client_ts']) && is_numeric($data['client_ts']) ? (int)$data['client_ts'] : null;
+        // Always under the canonical id: getEpisode also accepts spelling variants of an id, and a row saved under
+        // the variant would never join its episode (history without title, "continue watching" without a next episode).
+        DbHelper::saveProgress($username, $profile, (string)$canonicalEp['id'], $progress, $effectiveDuration, $completed, $clientTime);
         jsonResponse(['success' => true]);
     }
 

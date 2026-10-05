@@ -594,7 +594,7 @@ class PartyController {
                 'type' => $type,
                 'role' => $role,
                 'member_id' => $memberId,
-                'created_at' => date('Y-m-d H:i:s')
+                'created_at' => gmdate('Y-m-d H:i:s')
             ]
         ]);
     }
@@ -739,7 +739,7 @@ class PartyController {
         $activeMembers = DbHelper::getActivePartyMembers($roomId);
 
         echo "event: init\n";
-        echo "data: " . json_encode(['room' => $room, 'messages' => $initialMessages, 'members' => $activeMembers]) . "\n\n";
+        echo "data: " . json_encode(kuraIsoDates(['room' => $room, 'messages' => $initialMessages, 'members' => $activeMembers])) . "\n\n";
         flush();
 
         // The loop must reach its cleanup even when the client vanishes: PHP would otherwise end the script at the
@@ -786,7 +786,7 @@ class PartyController {
                 }
                 $lastVersion = $pulse['version'];
                 echo "event: sync\n";
-                echo "data: " . json_encode($currentRoom) . "\n\n";
+                echo "data: " . json_encode(kuraIsoDates($currentRoom)) . "\n\n";
                 flush();
                 $lastWriteAt = time();
             }
@@ -796,7 +796,7 @@ class PartyController {
                 if (!empty($newMessages)) {
                     $lastMsgId = end($newMessages)['id'];
                     echo "event: messages\n";
-                    echo "data: " . json_encode($newMessages) . "\n\n";
+                    echo "data: " . json_encode(kuraIsoDates($newMessages)) . "\n\n";
                     flush();
                     $lastWriteAt = time();
                 }

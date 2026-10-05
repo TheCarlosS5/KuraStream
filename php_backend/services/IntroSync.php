@@ -58,7 +58,7 @@ class IntroSync {
 
     private static function retryDue(?string $source, ?string $checkedAt): bool {
         if (in_array($source, ['aniskip_none', 'none'], true) && !empty($checkedAt)) {
-            return (time() - strtotime($checkedAt)) / 86400 >= self::RETRY_DAYS;
+            return (time() - strtotime($checkedAt . ' UTC')) / 86400 >= self::RETRY_DAYS;
         }
         return true;
     }

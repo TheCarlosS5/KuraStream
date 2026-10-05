@@ -1366,7 +1366,9 @@ function saveProgress(force = false) {
       progress_seconds: time,
       duration,
       username: who.username,
-      profile_name: who.profileName
+      profile_name: who.profileName,
+      // The newest write wins on the server, whichever device it comes from.
+      client_ts: Date.now()
     })
   }).catch(() => { /* retried on the next tick */ });
 }

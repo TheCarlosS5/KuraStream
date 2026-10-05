@@ -20,7 +20,10 @@ class Database {
                     [
                         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                        PDO::ATTR_TIMEOUT => 2
+                        PDO::ATTR_TIMEOUT => 2,
+                        // Every timestamp is stored and read in UTC whatever the database server's own zone is
+                        // (a MySQL container is UTC, a Debian host is local time); responses add the "Z".
+                        PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '+00:00'"
                     ]
                 );
             } catch (PDOException $e) {
@@ -37,9 +40,28 @@ class Database {
         return self::$pdo;
     }
 
+    private static function schemaMarkerKey(): string {
+        return md5(DB_HOST . '|' . DB_PORT . '|' . DB_NAME);
+    }
+
+    /** How long a failed migration is left alone before another request may retry it. */
+    private const MIGRATION_RETRY_SECONDS = 300;
+
+    /**
+     * The last migration failure for this database ({error, latest, at}), or null. /api/health reports it as
+     * "degraded"; requests do not keep re-running a migration that just failed.
+     */
+    public static function migrationProblem(): ?array {
+        $file = sys_get_temp_dir() . '/kurastream_schema_failed_' . self::schemaMarkerKey() . '.json';
+        $data = is_file($file) ? json_decode((string)@file_get_contents($file), true) : null;
+        return is_array($data) ? $data : null;
+    }
+
     /**
      * Brings the schema up to date after a code update, so new columns exist before any query uses them.
      * A marker file keyed on the newest migration keeps this to a filesystem check on normal requests.
+     * Nothing runs unless this process holds the migration lock, and a failure stops the attempts for a while
+     * instead of repeating the same failing statement on every request.
      */
     private static function applyPendingMigrations(PDO $pdo): void {
         $files = glob(__DIR__ . '/migrations/*.sql') ?: [];
@@ -48,23 +70,33 @@ class Database {
         }
         sort($files);
         $latest = basename(end($files));
-        $marker = sys_get_temp_dir() . '/kurastream_schema_' . md5(DB_HOST . '|' . DB_PORT . '|' . DB_NAME) . '.txt';
+        $key = self::schemaMarkerKey();
+        $marker = sys_get_temp_dir() . '/kurastream_schema_' . $key . '.txt';
+        $failMarker = sys_get_temp_dir() . '/kurastream_schema_failed_' . $key . '.json';
         if (@file_get_contents($marker) === $latest) {
+            return;
+        }
+        $problem = self::migrationProblem();
+        if ($problem && ($problem['latest'] ?? '') === $latest && time() - (int)($problem['at'] ?? 0) < self::MIGRATION_RETRY_SECONDS) {
             return;
         }
 
         require_once __DIR__ . '/services/MigrationManager.php';
         // Several server workers can get here at once; only one may run the ALTER statements.
         $locked = (int)$pdo->query("SELECT GET_LOCK('kurastream_migrations', 30)")->fetchColumn() === 1;
+        if (!$locked) {
+            error_log('KuraStream: could not get the migration lock; migrations not run by this process');
+            return;
+        }
         try {
             MigrationManager::runPending($pdo);
             @file_put_contents($marker, $latest);
+            @unlink($failMarker);
         } catch (Throwable $e) {
             error_log('KuraStream migration error: ' . $e->getMessage());
+            @file_put_contents($failMarker, json_encode(['error' => 'Migration failed', 'detail' => mb_substr($e->getMessage(), 0, 500), 'latest' => $latest, 'at' => time()]));
         } finally {
-            if ($locked) {
-                $pdo->query("SELECT RELEASE_LOCK('kurastream_migrations')");
-            }
+            $pdo->query("SELECT RELEASE_LOCK('kurastream_migrations')");
         }
     }
 
@@ -117,6 +149,60 @@ class DbHelper {
         }, $shows);
     }
 
+    /** Columns the catalogue cards need. cast_members (a LONGTEXT only the detail page uses) is left out of lists. */
+    private const CATALOG_COLUMNS = 'id, title, synopsis, rating, year, studio, director, writer, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating, status, tmdb_id, created_at';
+
+    /** SQL condition for "suitable for a kids profile": the same rule as ShowController::isAdultOrMaturityRestricted. */
+    private const KIDS_SAFE_SQL = "UPPER(TRIM(COALESCE(age_rating, ''))) NOT IN ('R', 'TV-MA', '18+', 'NC-17', 'RX', 'R18')
+        AND LOWER(COALESCE(genres, '')) NOT LIKE '%ecchi%' AND LOWER(COALESCE(genres, '')) NOT LIKE '%hentai%' AND LOWER(COALESCE(genres, '')) NOT LIKE '%erotica%'";
+
+    /**
+     * The catalogue list, filtered, sorted and paged in SQL.
+     * @param array{type?:string,status?:string,sort?:string,kids?:bool,limit?:int,offset?:int} $opts
+     * @return array{items: array, total: int}
+     */
+    public static function getCatalogShows(array $opts = []): array {
+        $db = Database::getConnection();
+        $where = [];
+        $params = [];
+        if (($opts['type'] ?? 'all') !== 'all') {
+            $where[] = 'media_type = :type';
+            $params['type'] = $opts['type'];
+        }
+        if (($opts['status'] ?? 'all') !== 'all') {
+            $where[] = "COALESCE(status, 'finished') = :status";
+            $params['status'] = $opts['status'];
+        }
+        if (!empty($opts['kids'])) {
+            $where[] = '(' . self::KIDS_SAFE_SQL . ')';
+        }
+        $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+        $order = match ($opts['sort'] ?? 'default') {
+            'year_desc' => 'COALESCE(year, 0) DESC, title ASC',
+            'year_asc' => 'COALESCE(year, 0) ASC, title ASC',
+            'rating_desc' => 'rating DESC, title ASC',
+            'title_asc' => 'title ASC',
+            default => 'id ASC',
+        };
+
+        $total = $db->prepare('SELECT COUNT(*) FROM shows' . $whereSql);
+        $total->execute($params);
+
+        $sql = 'SELECT ' . self::CATALOG_COLUMNS . ' FROM shows' . $whereSql . ' ORDER BY ' . $order;
+        $limit = isset($opts['limit']) ? max(1, min(1000, (int)$opts['limit'])) : null;
+        if ($limit !== null) {
+            $sql .= ' LIMIT ' . $limit . ' OFFSET ' . max(0, (int)($opts['offset'] ?? 0));
+        }
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $items = array_map(function ($s) {
+            $s['rating'] = (float)$s['rating'];
+            $s['year'] = $s['year'] !== null ? (int)$s['year'] : null;
+            return $s;
+        }, $stmt->fetchAll());
+        return ['items' => $items, 'total' => (int)$total->fetchColumn()];
+    }
+
     public static function getShow($id): ?array {
         $db = Database::getConnection();
         $stmt = $db->prepare("SELECT * FROM shows WHERE id = :id");
@@ -133,26 +219,29 @@ class DbHelper {
         $cleanFolder = str_replace('_', ' ', $folder);
         $cleanTitle = trim($title);
 
-        $prefix = '%' . trim(str_replace('_', '%', $folder)) . '%';
+        // Exact matches first (primary key and the title index): the usual case, and it must win over a looser
+        // pattern match that happens to hit another show.
         $stmt = $db->prepare("
-            SELECT * FROM shows 
-            WHERE id = :f1 
-               OR id = :f2 
-               OR LOWER(title) = LOWER(:t1) 
-               OR LOWER(title) = LOWER(:t2)
-               OR LOWER(title) LIKE LOWER(:p1)
-               OR LOWER(id) LIKE LOWER(:p2)
+            SELECT * FROM shows
+            WHERE id IN (:f1, :f2) OR title = :t1 OR title = :t2
+            ORDER BY (id = :f3) DESC
             LIMIT 1
         ");
         $stmt->execute([
             'f1' => $folder,
             'f2' => strtolower(preg_replace('/[^A-Za-z0-9]+/', '_', $folder)),
+            'f3' => $folder,
             't1' => $cleanFolder,
             't2' => $cleanTitle,
-            'p1' => $prefix,
-            'p2' => $prefix
         ]);
         $show = $stmt->fetch();
+        if (!$show) {
+            // Looser: the folder name as a pattern inside a title or id.
+            $prefix = '%' . trim(str_replace('_', '%', $folder)) . '%';
+            $stmt = $db->prepare("SELECT * FROM shows WHERE title LIKE :p1 OR id LIKE :p2 ORDER BY title ASC LIMIT 1");
+            $stmt->execute(['p1' => $prefix, 'p2' => $prefix]);
+            $show = $stmt->fetch();
+        }
         if (!$show) return null;
         $show['rating'] = (float)$show['rating'];
         $show['year'] = $show['year'] !== null ? (int)$show['year'] : null;
@@ -172,9 +261,17 @@ class DbHelper {
         ];
     }
 
-    public static function saveProgress(string $username, string $profile, string $episodeId, float $progress, float $duration = 0, ?bool $completed = null): void {
+    /**
+     * Stores watch progress.
+     *  - The episode id must be the canonical one (HistoryController resolves it), or the row would not join its episode.
+     *  - `completed` only ever goes up: watching the first minutes of a finished episode again does not unmark it
+     *    (unmarking is an explicit delete from the history).
+     *  - $clientTimeMs (the device's clock) makes the newest write win: an older write, for example a phone that
+     *    reconnects and uploads stale progress, is ignored for position and duration.
+     */
+    public static function saveProgress(string $username, string $profile, string $episodeId, float $progress, float $duration = 0, ?bool $completed = null, ?int $clientTimeMs = null): void {
         $db = Database::getConnection();
-        
+
         if ($duration <= 0) {
             $ep = self::getEpisode($episodeId);
             if ($ep && !empty($ep['duration'])) {
@@ -192,13 +289,20 @@ class DbHelper {
             $completed = (bool)$completed;
         }
 
+        // A clock more than a day ahead is a wrong clock, not "newer than everything": ignore it.
+        if ($clientTimeMs !== null && ($clientTimeMs <= 0 || $clientTimeMs > (time() + 86400) * 1000)) {
+            $clientTimeMs = null;
+        }
+
+        // Assignments run left to right and see earlier ones, so client_updated_at is assigned last.
         $stmt = $db->prepare("
-            INSERT INTO watch_history (username, profile_name, episode_id, progress_seconds, duration, completed)
-            VALUES (:u, :p, :e, :prog, :dur, :comp)
-            ON DUPLICATE KEY UPDATE 
-                progress_seconds = VALUES(progress_seconds),
-                duration = IF(VALUES(duration) > 0, VALUES(duration), duration),
-                completed = VALUES(completed)
+            INSERT INTO watch_history (username, profile_name, episode_id, progress_seconds, duration, completed, client_updated_at)
+            VALUES (:u, :p, :e, :prog, :dur, :comp, :ts)
+            ON DUPLICATE KEY UPDATE
+                progress_seconds = IF(VALUES(client_updated_at) IS NULL OR client_updated_at IS NULL OR VALUES(client_updated_at) >= client_updated_at, VALUES(progress_seconds), progress_seconds),
+                duration = IF(VALUES(duration) > 0 AND (VALUES(client_updated_at) IS NULL OR client_updated_at IS NULL OR VALUES(client_updated_at) >= client_updated_at), VALUES(duration), duration),
+                completed = GREATEST(completed, VALUES(completed)),
+                client_updated_at = IF(VALUES(client_updated_at) IS NULL, client_updated_at, GREATEST(IFNULL(client_updated_at, 0), VALUES(client_updated_at)))
         ");
         $stmt->execute([
             'u' => $username,
@@ -206,7 +310,8 @@ class DbHelper {
             'e' => $episodeId,
             'prog' => $progress,
             'dur' => $duration,
-            'comp' => $completed ? 1 : 0
+            'comp' => $completed ? 1 : 0,
+            'ts' => $clientTimeMs
         ]);
     }
 
@@ -615,7 +720,10 @@ class DbHelper {
             'created_at' => $ep['created_at'] ?? null,
             'stream_url' => "/api/stream/" . urlencode($ep['id']),
             'direct_playable' => $isDirect,
-            'container' => $container
+            'container' => $container,
+            // The file was not found by the last scans (moved, deleted, disk not mounted); see LibraryScanner.
+            'availability_status' => $ep['availability_status'] ?? 'available',
+            'available' => ($ep['availability_status'] ?? 'available') !== 'missing'
         ];
     }
 
@@ -777,21 +885,9 @@ class DbHelper {
 
     public static function getRandomShow(bool $isKids = false): ?array {
         $db = Database::getConnection();
-        $shows = $db->query("SELECT * FROM shows")->fetchAll();
-        if (empty($shows)) return null;
-
-        if ($isKids) {
-            $shows = array_values(array_filter($shows, function($s) {
-                $rating = strtoupper(trim((string)($s['age_rating'] ?? '')));
-                if (in_array($rating, ['R', 'TV-MA', '18+', 'NC-17', 'RX', 'R18'])) return false;
-                $genres = strtolower((string)($s['genres'] ?? ''));
-                if (str_contains($genres, 'ecchi') || str_contains($genres, 'hentai') || str_contains($genres, 'erotica')) return false;
-                return true;
-            }));
-            if (empty($shows)) return null;
-        }
-
-        $show = $shows[array_rand($shows)];
+        $sql = 'SELECT * FROM shows' . ($isKids ? ' WHERE ' . self::KIDS_SAFE_SQL : '') . ' ORDER BY RAND() LIMIT 1';
+        $show = $db->query($sql)->fetch();
+        if (!$show) return null;
         $show['rating'] = (float)$show['rating'];
         $show['year'] = $show['year'] !== null ? (int)$show['year'] : null;
         return $show;
@@ -911,7 +1007,7 @@ class DbHelper {
                 $isUnread = true;
                 $unreadCount++;
             } else {
-                $isUnread = (strtotime($createdAt) > strtotime($lastSeenAt));
+                $isUnread = (strtotime($createdAt . ' UTC') > strtotime($lastSeenAt . ' UTC'));
                 if ($isUnread) {
                     $unreadCount++;
                 }
@@ -1391,7 +1487,7 @@ class DbHelper {
             'episode_id' => $episodeId,
             'profile_name' => $profile !== '' ? $profile : 'Usuario',
             'content' => $content,
-            'created_at' => date('Y-m-d H:i:s')
+            'created_at' => gmdate('Y-m-d H:i:s')   // the connection is UTC
         ];
     }
 

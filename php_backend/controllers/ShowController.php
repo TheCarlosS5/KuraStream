@@ -36,47 +36,21 @@ class ShowController {
 
     public static function getShows(): void {
         AuthMiddleware::requireCatalogAccess();
-        $type = $_GET['type'] ?? 'all';
-        $statusParam = $_GET['status'] ?? 'all';
-        $sortParam = $_GET['sort'] ?? 'default';
+        $type = (string)($_GET['type'] ?? 'all');
+        $status = (string)($_GET['status'] ?? 'all');
+        $sort = (string)($_GET['sort'] ?? 'default');
 
-        $shows = DbHelper::getShows($type);
-
-        if (!defined('TESTING_MODE')) {
-            $shows = array_values(array_filter($shows, function($s) {
-                $id = strtolower($s['id'] ?? '');
-                $title = strtolower($s['title'] ?? '');
-                return !str_starts_with($id, 'show_pin_test')
-                    && !str_starts_with($id, 'test_')
-                    && !str_starts_with($id, 'show_party_')
-                    && !str_starts_with($id, 'notif_show')
-                    && !str_starts_with($id, 'show_sec_')
-                    && !str_starts_with($id, 'mock_')
-                    && !str_ends_with($id, '_test')
-                    && !str_contains($id, '_test_')
-                    && !preg_match('/\btest\b/i', $title);
-            }));
+        $opts = ['type' => $type, 'status' => $status, 'sort' => $sort, 'kids' => self::isKidsProfileActive()];
+        // Optional paging (the web and the Android app still ask for everything at once).
+        $paged = isset($_GET['limit']) && is_numeric($_GET['limit']);
+        if ($paged) {
+            $opts['limit'] = (int)$_GET['limit'];
+            $opts['offset'] = isset($_GET['offset']) && is_numeric($_GET['offset']) ? (int)$_GET['offset'] : 0;
         }
 
-        if (self::isKidsProfileActive()) {
-            $shows = array_values(array_filter($shows, fn($s) => !self::isAdultOrMaturityRestricted($s)));
-        }
-
-        if ($statusParam !== 'all') {
-            $shows = array_values(array_filter($shows, fn($s) => ($s['status'] ?? 'finished') === $statusParam));
-        }
-
-        if ($sortParam === 'year_desc') {
-            usort($shows, fn($a, $b) => ($b['year'] ?? 0) - ($a['year'] ?? 0));
-        } else if ($sortParam === 'year_asc') {
-            usort($shows, fn($a, $b) => ($a['year'] ?? 0) - ($b['year'] ?? 0));
-        } else if ($sortParam === 'rating_desc') {
-            usort($shows, fn($a, $b) => ($b['rating'] ?? 0) <=> ($a['rating'] ?? 0));
-        } else if ($sortParam === 'title_asc') {
-            usort($shows, fn($a, $b) => strcasecmp($a['title'], $b['title']));
-        }
-
-        jsonResponse($shows);
+        $result = DbHelper::getCatalogShows($opts);
+        @header('X-Total-Count: ' . $result['total']);
+        jsonResponse($result['items'], 200, true);
     }
 
     private static function getTmdbSearchCache(string $key): ?array {
@@ -160,17 +134,16 @@ class ShowController {
             // Own poster/banner/synopsis per season (see SeasonSync); `seasons` keeps its old shape.
             $seasonInfo = array_map([DbHelper::class, 'serializeSeasonForClient'], DbHelper::getShowSeasons($show['id']));
 
-            $show['episodes'] = $episodes;
-            $show['seasons'] = $seasons;
-            $show['season_info'] = $seasonInfo;
-
+            // Show fields at the top level (what the clients read), plus a `show` object with the same fields for
+            // older callers. The episode lists are sent once at the top level: they used to be repeated inside
+            // `show` as well, so every episode travelled four times.
             $response = $show;
             $response['show'] = $show;
             $response['episodes'] = $episodes;
             $response['seasons'] = $seasons;
             $response['season_info'] = $seasonInfo;
 
-            jsonResponse($response);
+            jsonResponse($response, 200, true);
         } catch (Throwable $e) {
             if (get_class($e) === 'ExitException' || get_class($e) === 'Exception' && $e->getMessage() === 'ExitException') {
                 throw $e;

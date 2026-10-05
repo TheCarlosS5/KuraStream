@@ -430,6 +430,11 @@ export function setupCatalogueActions() {
     if (card.dataset.catalogueRoute !== undefined) {
       window.location.hash = card.dataset.catalogueRoute;
     } else if (card.dataset.episodeId) {
+      if (card.classList && card.classList.contains('is-missing')) {
+        // The file is not in the library right now (moved, deleted, disk offline): say so instead of failing in the player.
+        window.showToast?.('Este episodio no está disponible en la biblioteca ahora mismo', 'error');
+        return;
+      }
       if (typeof window.showEpisodeDetails === 'function') {
         window.showEpisodeDetails(card.dataset.episodeId);
       } else {
@@ -689,11 +694,12 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
     ` : '';
 
     return `
-      <div class="episode-item" role="button" tabindex="0" data-episode-id="${escapeHtmlAttribute(ep.id)}">
+      <div class="episode-item${ep.available === false ? ' is-missing' : ''}" role="button" tabindex="0"${ep.available === false ? ' aria-disabled="true"' : ''} data-episode-id="${escapeHtmlAttribute(ep.id)}">
         <div class="episode-thumbnail-container">
           <img class="episode-thumb" src="${escapeHtmlAttribute(thumbSrc)}" alt="${escapeHtmlAttribute(ep.title || 'Episodio')}" loading="lazy">
           ${durationMin > 0 ? `<div class="episode-duration-pill">${durationMin}m</div>` : ''}
           ${completedBadgeHTML}
+          ${ep.available === false ? '<div class="badge-missing">No disponible</div>' : ''}
           ${progressBarHTML}
           <div class="episode-play-overlay">
             <span class="play-icon-small"><i data-lucide="play"></i></span>

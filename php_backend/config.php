@@ -164,11 +164,51 @@ function setCorsHeaders() {
     }
 }
 
-function jsonResponse($data, $statusCode = 200) {
+/**
+ * Database timestamps ("2026-10-05 14:03:00", always UTC: see Database::getConnection) leave the API as ISO-8601 with
+ * a zone ("2026-10-05T14:03:00Z"), so a browser or phone in any time zone shows the right local time. Only string
+ * values of keys that are timestamps (`*_at`, `timestamp`, `last_ping`) in that exact format are converted.
+ */
+function kuraIsoDates($data) {
+    if (!is_array($data)) {
+        return $data;
+    }
+    foreach ($data as $key => $value) {
+        if (is_array($value)) {
+            $data[$key] = kuraIsoDates($value);
+        } elseif (is_string($value) && is_string($key)
+            && ($key === 'timestamp' || $key === 'last_ping' || str_ends_with($key, '_at'))
+            && preg_match('/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(?:\.\d+)?$/', $value, $m)) {
+            $data[$key] = $m[1] . 'T' . $m[2] . 'Z';
+        }
+    }
+    return $data;
+}
+
+/**
+ * @param bool $revalidate send an ETag and answer 304 when the client already has this exact body. For read-mostly,
+ *                         per-viewer lists (the catalogue): `Cache-Control: private, no-cache` makes the browser ask
+ *                         every time, and an unchanged answer costs a few bytes instead of the whole list.
+ */
+function jsonResponse($data, $statusCode = 200, bool $revalidate = false) {
+    $data = kuraIsoDates($data);
     setCorsHeaders();
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($revalidate && $statusCode === 200) {
+        $etag = '"' . md5($json) . '"';
+        @header('ETag: ' . $etag);
+        @header('Cache-Control: private, no-cache');
+        $sent = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
+        if ($sent !== '' && in_array($etag, array_map('trim', explode(',', str_replace('W/', '', $sent))), true)) {
+            @http_response_code(304);
+            if (defined('TESTING_MODE')) {
+                throw new ExitException('', 304, $data);
+            }
+            exit();
+        }
+    }
     @http_response_code($statusCode);
     @header('Content-Type: application/json; charset=utf-8');
-    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     echo $json;
     if (defined('TESTING_MODE')) {
         throw new ExitException($json, $statusCode, $data);

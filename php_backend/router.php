@@ -224,10 +224,18 @@ if ($uri === '/api/health' && $method === 'GET') {
         'storage' => is_readable(LIBRARY_DIR) ? 'readable' : 'unreadable',
         'timestamp' => date('c')
     ];
+    $healthStatusCode = 200;
 
     try {
         $db = Database::getConnection();
         $db->query('SELECT 1');
+        if (Database::migrationProblem() !== null) {
+            // A schema update failed: the app may be missing columns, so the operator has to look at the log.
+            $healthStatusCode = 503;
+            $response['success'] = false;
+            $response['status'] = 'degraded';
+            $response['migrations'] = 'failed';
+        }
     } catch (Throwable $e) {
         @http_response_code(503);
         $response['success'] = false;
@@ -243,7 +251,7 @@ if ($uri === '/api/health' && $method === 'GET') {
     if ($healthSession && ($healthSession['role'] ?? '') === 'admin') {
         $response['php_version'] = PHP_VERSION;
     }
-    jsonResponse($response);
+    jsonResponse($response, $healthStatusCode);
 }
 
 if ($uri === '/api/app/android' && $method === 'GET') {
