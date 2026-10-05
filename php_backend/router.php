@@ -332,6 +332,10 @@ if (preg_match('#^/api/episodes/([^/]+)$#', $uri, $m) && $method === 'GET') {
     PlayerController::getEpisodeDetails(urldecode($m[1]));
 }
 
+if (preg_match('#^/api/stream/([^/]+)/availability$#', $uri, $m) && $method === 'GET') {
+    PlayerController::streamAvailability(urldecode($m[1]));
+}
+
 if (preg_match('#^/api/stream/([^/]+)$#', $uri, $m) && in_array($method, ['GET', 'HEAD'])) {
     PlayerController::streamVideo(urldecode($m[1]));
 }

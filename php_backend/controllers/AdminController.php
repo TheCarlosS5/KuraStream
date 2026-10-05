@@ -352,7 +352,7 @@ class AdminController {
         jsonResponse([
             'success' => true,
             'active_workers' => $workerCount,
-            'max_workers' => TranscodeLimiter::$maxWorkers,
+            'max_workers' => TranscodeLimiter::maxWorkers(),
             'active_streams' => $workerCount
         ]);
     }
@@ -1293,8 +1293,8 @@ class AdminController {
             ],
             'transcode' => [
                 'active_workers' => $activeWorkers,
-                'max_workers' => TranscodeLimiter::$maxWorkers,
-                'label' => "{$activeWorkers} / " . TranscodeLimiter::$maxWorkers
+                'max_workers' => TranscodeLimiter::maxWorkers(),
+                'label' => "{$activeWorkers} / " . TranscodeLimiter::maxWorkers()
             ]
         ];
 

@@ -22,6 +22,46 @@ class FfmpegScanner {
         return $fps > 0 ? $fps : 0.0;
     }
 
+    /** 8 for yuv420p/nv12/rgb24..., 10 for yuv420p10le/p010le..., 12 for yuv444p12le (the digits after p/gray). */
+    public static function bitDepthFromPixFmt(?string $pixFmt): int {
+        $pixFmt = strtolower(trim((string)$pixFmt));
+        if ($pixFmt === '') {
+            return 8;
+        }
+        // Semi-planar high bit depth (p010le, p012le, p016le): the depth is written with a leading zero.
+        if (preg_match('/^p0?(10|12|16)(?:le|be)?$/', $pixFmt, $m)) {
+            return (int)$m[1];
+        }
+        if (preg_match('/(?:p|gray|gbrp|rgb|bgr|argb|rgba|bgra)(9|10|12|14|16)(?:le|be)?$/', $pixFmt, $m)) {
+            return (int)$m[1];
+        }
+        return 8;
+    }
+
+    /** Bit depth of a video stream from ffprobe's fields (bits_per_raw_sample wins, then the pixel format). */
+    public static function bitDepthOfStream(array $stream): int {
+        $raw = (int)($stream['bits_per_raw_sample'] ?? 0);
+        if ($raw >= 8 && $raw <= 16) {
+            return $raw;
+        }
+        return self::bitDepthFromPixFmt($stream['pix_fmt'] ?? '');
+    }
+
+    /** Quick probe of just the first video stream's format: [pix_fmt, bit_depth] or null when it cannot be read. */
+    public static function probeVideoFormat(string $filepath, int $timeoutSeconds = 10): ?array {
+        $cmd = sprintf(
+            'ffprobe -v quiet -select_streams v:0 -show_entries stream=pix_fmt,bits_per_raw_sample -print_format json %s',
+            escapeshellarg($filepath)
+        );
+        $output = self::executeBoundedCommand($cmd, $timeoutSeconds, false);
+        $data = $output ? json_decode($output, true) : null;
+        $stream = $data['streams'][0] ?? null;
+        if (!is_array($stream) || empty($stream['pix_fmt'])) {
+            return null;
+        }
+        return ['pix_fmt' => (string)$stream['pix_fmt'], 'bit_depth' => self::bitDepthOfStream($stream)];
+    }
+
     /**
      * @param bool $mergeStderr false for binary stdout (raw PCM, images): stderr text would corrupt it.
      */
@@ -107,6 +147,8 @@ class FfmpegScanner {
         $height = isset($videoStream['height']) ? (int)$videoStream['height'] : 0;
         $resolution = $height > 0 ? "{$height}p" : 'unknown';
         $videoCodec = (string)($videoStream['codec_name'] ?? 'unknown');
+        $pixFmt = (string)($videoStream['pix_fmt'] ?? '');
+        $bitDepth = self::bitDepthOfStream($videoStream);
         
         $fps = self::parseFrameRate((string)($videoStream['r_frame_rate'] ?? ''));
         
@@ -197,6 +239,8 @@ class FfmpegScanner {
             'duration' => $duration,
             'resolution' => $resolution,
             'video_codec' => $videoCodec,
+            'pix_fmt' => $pixFmt,
+            'bit_depth' => $bitDepth,
             'fps' => $fps,
             'audio_tracks' => $audioTracks,
             'subtitle_tracks' => $subtitleTracks,

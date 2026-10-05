@@ -364,6 +364,9 @@ class LibraryScanner {
                             'intro_end' => $existingEp['intro_end'] ?? null,
                             'outro_start' => $existingEp['outro_start'] ?? null
                         ]);
+                        if (!empty($probe['pix_fmt'])) {
+                            DbHelper::setEpisodeVideoFormat($epId, $probe['pix_fmt'], (int)$probe['bit_depth']);
+                        }
                         $scannedCount++;
                     }
                 }

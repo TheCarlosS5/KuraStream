@@ -595,6 +595,8 @@ class DbHelper {
             'duration' => (float)($ep['duration'] ?? 0.0),
             'size' => (int)($ep['size'] ?? 0),
             'video_codec' => $ep['video_codec'] ?? '',
+            'pix_fmt' => $ep['pix_fmt'] ?? null,
+            'bit_depth' => isset($ep['bit_depth']) ? (int)$ep['bit_depth'] : null,
             'audio_codec' => $ep['audio_codec'] ?? '',
             'resolution' => $ep['resolution'] ?? '',
             'fps' => (float)($ep['fps'] ?? 0.0),
@@ -615,6 +617,18 @@ class DbHelper {
             'direct_playable' => $isDirect,
             'container' => $container
         ];
+    }
+
+    /** Records the pixel format and bit depth of an episode's video (separate from saveEpisode: scans and edits must not overwrite it). */
+    public static function setEpisodeVideoFormat(string $episodeId, ?string $pixFmt, ?int $bitDepth): void {
+        try {
+            Database::getConnection()->prepare("UPDATE episodes SET pix_fmt = :p, bit_depth = :b WHERE id = :id")
+                ->execute(['p' => $pixFmt, 'b' => $bitDepth, 'id' => $episodeId]);
+        } catch (PDOException $e) {
+            if ((int)($e->errorInfo[1] ?? 0) !== 1054) { // 1054: migration 017 not applied yet
+                throw $e;
+            }
+        }
     }
 
     public static function saveEpisode(array $ep): void {
