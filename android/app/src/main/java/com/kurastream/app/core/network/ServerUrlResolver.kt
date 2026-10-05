@@ -98,8 +98,15 @@ object ServerUrlResolver {
      */
     fun isLocalAddress(host: String): Boolean {
         val h = host.lowercase().trim()
-        if (h == "localhost" || h.endsWith(".local") || h.endsWith(".lan")) {
+        if (h == "localhost" || h.endsWith(".local") || h.endsWith(".lan") || h.endsWith(".home.arpa")) {
             return true
+        }
+
+        // IPv6 literals (with or without brackets): loopback, unique local (fc00::/7) and link-local (fe80::/10)
+        val v6 = h.removePrefix("[").removeSuffix("]").substringBefore('%')
+        if (v6.contains(':')) {
+            return v6 == "::1" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe8") ||
+                v6.startsWith("fe9") || v6.startsWith("fea") || v6.startsWith("feb")
         }
 
         if (IPV4_PATTERN.matcher(h).matches()) {
@@ -113,6 +120,8 @@ object ServerUrlResolver {
                 if (parts[0] == 192 && parts[1] == 168) return true
                 // 172.16.0.0/12
                 if (parts[0] == 172 && parts[1] in 16..31) return true
+                // 100.64.0.0/10 carrier-grade NAT (Tailscale and some hotspots)
+                if (parts[0] == 100 && parts[1] in 64..127) return true
                 // 169.254.0.0/16 Link-local
                 if (parts[0] == 169 && parts[1] == 254) return true
             }

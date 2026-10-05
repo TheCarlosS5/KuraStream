@@ -230,8 +230,10 @@ object AppModule {
     fun provideAuthRepository(
         apiService: KuraApiService,
         tokenStorage: TokenStorage,
-        preferencesDataSource: KuraPreferencesDataSource
-    ): AuthRepository = AuthRepository(apiService, tokenStorage, preferencesDataSource)
+        preferencesDataSource: KuraPreferencesDataSource,
+        showDao: ShowDao,
+        historyDao: HistoryDao
+    ): AuthRepository = AuthRepository(apiService, tokenStorage, preferencesDataSource, showDao, historyDao)
 
     @Provides
     @Singleton

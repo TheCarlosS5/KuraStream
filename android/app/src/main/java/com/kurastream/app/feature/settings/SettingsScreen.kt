@@ -444,7 +444,7 @@ fun SettingsScreen(
                             onClick = {
                                 val report = """
                                     KuraStream Android Diagnostic Report
-                                    App Version: 2.0.0 (API 37 Target)
+                                    App Version: ${com.kurastream.app.BuildConfig.VERSION_NAME} (${com.kurastream.app.BuildConfig.VERSION_CODE})
                                     Server: $serverUrlSanitized
                                     Protocol: ${if (isHttps) "HTTPS" else "HTTP"}
                                     Profile: ${prefs.activeProfileName ?: "Default"} (Kids: ${prefs.isKidsMode})
@@ -485,7 +485,7 @@ fun SettingsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "KuraStream para Android v2.0.0",
+                        text = "KuraStream para Android v${com.kurastream.app.BuildConfig.VERSION_NAME}",
                         style = MaterialTheme.typography.labelSmall,
                         color = KuraColors.TextMuted
                     )

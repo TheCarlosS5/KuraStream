@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.firstOrNull
 class AuthRepository(
     private val apiService: KuraApiService,
     private val tokenStorage: TokenStorage,
-    private val preferencesDataSource: KuraPreferencesDataSource
+    private val preferencesDataSource: KuraPreferencesDataSource,
+    private val showDao: com.kurastream.app.core.database.ShowDao,
+    private val historyDao: com.kurastream.app.core.database.HistoryDao
 ) {
     suspend fun login(username: String, password: String): Result<User> {
         return try {
@@ -123,6 +125,11 @@ class AuthRepository(
             val activeServerId = preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerId
             tokenStorage.clearToken(activeServerId)
             preferencesDataSource.clearSession()
+            // The next person to sign in on this phone must not see the previous one's catalog or history
+            try {
+                showDao.clearAllShows()
+                historyDao.clearAllHistory()
+            } catch (_: Exception) {}
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())

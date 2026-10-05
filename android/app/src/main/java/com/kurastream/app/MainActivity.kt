@@ -1,6 +1,11 @@
 package com.kurastream.app
 
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import com.kurastream.app.core.network.ServerUrlResolver
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
@@ -44,6 +49,20 @@ class MainActivity : ComponentActivity() {
     /** Where the app starts; null while it is being worked out (the splash screen stays up until it is known). */
     private val startRoute = MutableStateFlow<String?>(null)
 
+    /** Android 17 blocks LAN traffic until the user allows it; the answer itself needs no handling here. */
+    private val localNetworkPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    private fun requestLocalNetworkAccessIfNeeded(serverUrl: String?) {
+        if (Build.VERSION.SDK_INT < 37 || serverUrl.isNullOrBlank()) return
+        val host = runCatching { android.net.Uri.parse(serverUrl).host }.getOrNull() ?: return
+        if (!ServerUrlResolver.isLocalAddress(host)) return
+        val permission = "android.permission.ACCESS_LOCAL_NETWORK"
+        if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+            localNetworkPermission.launch(permission)
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -67,6 +86,8 @@ class MainActivity : ComponentActivity() {
             startRoute.value = try {
                 val prefs = preferencesDataSource.preferencesFlow.firstOrNull()
                 val hasServer = !prefs?.activeServerUrl.isNullOrBlank()
+                // A server saved before the phone moved to Android 17 would otherwise fail silently on the first call
+                runOnUiThread { requestLocalNetworkAccessIfNeeded(prefs?.activeServerUrl) }
                 val hasToken = tokenStorage.hasToken()
                 val hasProfile = !prefs?.activeProfileId.isNullOrBlank()
                 when {

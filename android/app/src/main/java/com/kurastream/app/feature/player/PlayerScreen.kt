@@ -214,6 +214,12 @@ fun PlayerScreen(
 
         onDispose {
             PlayerOrientationManager.exitPlayer(activity, view)
+            // Hand the brightness back to the system: the gesture override must not outlive the player
+            activity?.window?.let { w ->
+                val lp = w.attributes
+                lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                w.attributes = lp
+            }
         }
     }
 

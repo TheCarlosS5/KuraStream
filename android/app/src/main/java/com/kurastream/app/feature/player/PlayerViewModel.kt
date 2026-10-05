@@ -469,12 +469,14 @@ class PlayerViewModel @Inject constructor(
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ->
                 "Error de conexión con el servidor multimedia. Comprueba la red local."
             PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
-                when {
-                    causeMsg.contains("401") -> "Sesión expirada o no autorizada para reproducir este flujo."
-                    causeMsg.contains("403") -> "Acceso denegado: contenido restringido para este perfil."
-                    causeMsg.contains("404") -> "El archivo de video no fue encontrado en el servidor."
-                    causeMsg.contains("416") -> "Rango de reproducción inválido."
-                    else -> "El servidor devolvió un error de reproducción HTTP ($causeMsg)"
+                // Classified by the HTTP status the data source reports, not by searching its message text
+                when (val code = invalidResponseCode?.responseCode) {
+                    401 -> "Tu sesión expiró. Vuelve a iniciar sesión para reproducir."
+                    403 -> "No tienes permiso para reproducir este contenido con este perfil."
+                    404 -> "El archivo de video no fue encontrado en el servidor."
+                    416 -> "Rango de reproducción inválido."
+                    null -> "El servidor devolvió un error de reproducción HTTP ($causeMsg)"
+                    else -> "El servidor devolvió un error de reproducción (HTTP $code)"
                 }
             }
             else -> "Error en la reproducción: ${error.localizedMessage ?: "formato no compatible"}"
