@@ -4,6 +4,7 @@ require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/ShowController.php';
 require_once __DIR__ . '/PartyController.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+require_once __DIR__ . '/../services/SubtitleCache.php';
 
 class TranscodeLimiter {
     /** Concurrent ffmpeg workers. TRANSCODE_MAX_WORKERS, else half the CPU cores (at least 2). */
@@ -481,27 +482,13 @@ class PlayerController {
         }
 
         $filepath = $ep['filepath'];
-        $trackIndex = -1;
-        $tracks = !empty($ep['subtitle_tracks']) ? (is_array($ep['subtitle_tracks']) ? $ep['subtitle_tracks'] : json_decode($ep['subtitle_tracks'], true)) : [];
-        $t = null;
-        if (is_array($tracks) && count($tracks) > 0) {
-            $t = array_values(array_filter($tracks, fn($x) => isset($x['track_number']) && (string)$x['track_number'] === (string)$trackNum))[0] ?? null;
-            if (!$t && isset($tracks[(int)$trackNum])) {
-                $t = $tracks[(int)$trackNum];
-            }
-            if (!$t) {
-                $t = array_values(array_filter($tracks, fn($x) => isset($x['index']) && (string)$x['index'] === (string)$trackNum))[0] ?? null;
-            }
-            if ($t && isset($t['index'])) {
-                $trackIndex = is_numeric($t['index']) ? (int)$t['index'] : -1;
-            }
-        }
+        [$t, $trackIndex] = SubtitleCache::resolveTrack($ep, $trackNum);
 
         if ($t && !empty($t['is_bitmap'])) {
             jsonError('Pista de subtítulos bitmap (PGS/VobSub) no compatible con renderizador de texto libass', 400);
         }
 
-        $cacheDir = sys_get_temp_dir() . '/kura_subs_cache';
+        $cacheDir = SubtitleCache::dir();
         if (!is_dir($cacheDir)) {
             @mkdir($cacheDir, 0777, true);
         }
@@ -528,14 +515,8 @@ class PlayerController {
                 exit();
             } else {
                 // Convert SRT/VTT to ASS and cache
-                $sidecarCacheKey = md5($sidecarPath . '_' . filemtime($sidecarPath));
-                $sidecarCacheFile = $cacheDir . '/' . $sidecarCacheKey . '.ass';
-                if (!file_exists($sidecarCacheFile) || filesize($sidecarCacheFile) === 0) {
-                    require_once __DIR__ . '/../services/FfmpegScanner.php';
-                    $cmd = sprintf('ffmpeg -y -v error -i %s -f ass %s', escapeshellarg($sidecarPath), escapeshellarg($sidecarCacheFile));
-                    FfmpegScanner::executeBoundedCommand($cmd, 15);
-                }
-                if (file_exists($sidecarCacheFile) && filesize($sidecarCacheFile) > 0) {
+                $sidecarCacheFile = SubtitleCache::ensureSidecarAss($sidecarPath);
+                if ($sidecarCacheFile !== null) {
                     @header('Content-Type: text/plain; charset=utf-8');
                     setCorsHeaders();
                     @header('Cache-Control: public, max-age=86400');
@@ -549,9 +530,6 @@ class PlayerController {
             }
         }
 
-        $cacheKey = md5($filepath . '_' . $trackIndex . '_' . (int)$trackNum . '_' . @filemtime($filepath));
-        $cacheFile = $cacheDir . '/' . $cacheKey . '.ass';
-
         @header('Content-Type: text/plain; charset=utf-8');
         setCorsHeaders();
         @header('Cache-Control: public, max-age=86400');
@@ -560,50 +538,18 @@ class PlayerController {
             ob_end_clean();
         }
 
-        if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
-            $content = file_get_contents($cacheFile);
-            if ($startOffset > 0) $content = self::shiftAssTimestamps($content, $startOffset);
-            echo $content;
-            if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream cached success", 200, $content);
-            exit();
-        }
+        // Pre-extracted by the worker in most cases; otherwise extracted now, atomically and with a bounded
+        // number of concurrent ffmpeg processes.
+        $cacheFile = SubtitleCache::ensureTrack($filepath, $trackIndex, $trackNum);
 
-        $mapArg = ($trackIndex !== -1) ? "-map 0:{$trackIndex}" : "-map 0:s:" . (int)$trackNum . "?";
-        $cmd = sprintf('ffmpeg -y -v error -i %s %s -f ass %s', escapeshellarg($filepath), $mapArg, escapeshellarg($cacheFile));
-
-        $descriptors = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w']
-        ];
-        $subProc = @proc_open($cmd, $descriptors, $pipes);
-        if (is_resource($subProc)) {
-            @fclose($pipes[0]);
-            $subStart = time();
-            $subTimeout = 20; // 20s hard timeout
-            while (time() - $subStart < $subTimeout) {
-                $status = proc_get_status($subProc);
-                if (!$status['running']) {
-                    break;
-                }
-                usleep(50000);
-            }
-            $status = proc_get_status($subProc);
-            if ($status['running']) {
-                @proc_terminate($subProc, 9);
-            }
-            @fclose($pipes[1]);
-            @fclose($pipes[2]);
-            @proc_close($subProc);
-        }
-
-        if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
+        if ($cacheFile !== null) {
             $content = file_get_contents($cacheFile);
             if ($startOffset > 0) $content = self::shiftAssTimestamps($content, $startOffset);
             echo $content;
             if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200, $content);
         } else {
             @http_response_code(404);
+            @header('Cache-Control: no-store');
             echo "Subtitle track not available";
             if (defined('TESTING_MODE')) throw new ExitException("Subtitle not found", 404);
         }
@@ -964,15 +910,17 @@ class PlayerController {
             jsonError('Episodio no encontrado', 404);
         }
 
-        $cacheDir = sys_get_temp_dir() . '/kura_subs_cache/fonts/' . md5($ep['filepath']);
+        $cacheDir = SubtitleCache::fontsDir($ep['filepath']);
         $fontPath = $cacheDir . '/' . $cleanFont;
 
-        if (!file_exists($fontPath)) {
-            require_once __DIR__ . '/../services/FfmpegScanner.php';
-            FfmpegScanner::extractFonts($ep['filepath'], $cacheDir);
+        if (str_starts_with($cleanFont, '.')) {
+            jsonError('Nombre de fuente inválido', 400);
+        }
+        if (!is_file($fontPath)) {
+            SubtitleCache::ensureFonts($ep['filepath']);
         }
 
-        if (!file_exists($fontPath)) {
+        if (!is_file($fontPath)) {
             jsonError('Fuente no encontrada', 404);
         }
 
@@ -1005,22 +953,12 @@ class PlayerController {
             jsonError('Episodio no encontrado', 404);
         }
 
-        $cacheDir = sys_get_temp_dir() . '/kura_subs_cache/fonts/' . md5($ep['filepath']);
-        if (!is_dir($cacheDir)) {
-            require_once __DIR__ . '/../services/FfmpegScanner.php';
-            FfmpegScanner::extractFonts($ep['filepath'], $cacheDir);
-        }
-
         $fonts = [];
-        if (is_dir($cacheDir)) {
-            $files = glob($cacheDir . '/*.{ttf,otf,woff,woff2}', GLOB_BRACE) ?: [];
-            foreach ($files as $f) {
-                $base = basename($f);
-                $fonts[] = [
-                    'name' => $base,
-                    'url' => "/api/episodes/" . urlencode($episodeId) . "/fonts/" . urlencode($base)
-                ];
-            }
+        foreach (SubtitleCache::ensureFonts($ep['filepath']) as $base) {
+            $fonts[] = [
+                'name' => $base,
+                'url' => "/api/episodes/" . urlencode($episodeId) . "/fonts/" . urlencode($base)
+            ];
         }
         jsonResponse(['fonts' => $fonts]);
     }

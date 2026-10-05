@@ -393,6 +393,25 @@ export function initAdminSidebar() {
   setupAdminActionButtons();
 }
 
+/** Polls a background job until it is done or failed. Resolves {success, result} / {success:false, error}. */
+async function waitForAdminJob(jobId, timeoutMs = 30 * 60 * 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const res = await fetch(`/api/admin/jobs/${encodeURIComponent(jobId)}`, { headers: getAuthHeaders() });
+      const data = await res.json().catch(() => ({}));
+      const job = data.job;
+      if (!res.ok || !job) continue;
+      if (job.status === 'done') return { success: true, result: job.result };
+      if (job.status === 'failed') return { success: false, error: job.error || 'El trabajo falló' };
+    } catch {
+      // a network blip: keep waiting
+    }
+  }
+  return { success: false, error: 'El trabajo sigue en curso; revisa el panel más tarde' };
+}
+
 async function runLibraryScan(btn, endpoint) {
   if (btn.disabled) return;
   const originalHtml = btn.innerHTML;
@@ -400,8 +419,15 @@ async function runLibraryScan(btn, endpoint) {
   btn.textContent = 'Escaneando biblioteca...';
   try {
     const res = await fetch(endpoint, { method: 'POST', headers: getAuthHeaders() });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && data.success) {
+    let data = await res.json().catch(() => ({}));
+    if (res.status === 202 && data.job_id) {
+      // The server's background worker runs the scan: follow the job until it ends.
+      btn.textContent = 'Escaneando en segundo plano...';
+      data = await waitForAdminJob(data.job_id);
+      if (data.success) data = data.result || {};
+      data.success = data.success !== false && !data.error;
+    }
+    if (data.success) {
       window.showToast?.(`Escaneo completado: ${data.shows_count ?? 0} títulos, ${data.scanned_count ?? 0} archivos`, 'success');
       fetchAdminStats();
     } else {

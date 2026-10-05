@@ -615,9 +615,69 @@ if ($uri === '/api/party/sse-ticket' && $method === 'POST') {
 
 // Rescan / Repair trigger
 if (($uri === '/api/admin/scan' || $uri === '/api/admin/repair-library') && $method === 'POST') {
-    AuthMiddleware::requireAdmin();
+    $admin = AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/JobQueue.php';
+    if (JobQueue::shouldQueue()) {
+        // Scanning probes every new file with ffprobe: too slow for a web request, so the worker does it.
+        $job = JobQueue::enqueue('library_scan', [], (string)($admin['username'] ?? ''));
+        jsonResponse(['success' => true, 'queued' => true, 'job_id' => $job['id'], 'already_queued' => $job['existing']], 202);
+    }
     $res = LibraryScanner::runScan();
     jsonResponse($res);
+}
+
+// Background jobs (worker.php): status for the admin panel, and database backups
+if ($uri === '/api/admin/jobs' && $method === 'GET') {
+    AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/JobQueue.php';
+    jsonResponse(['success' => true, 'worker_alive' => JobQueue::workerAlive(), 'jobs' => JobQueue::recent((int)($_GET['limit'] ?? 30))]);
+}
+
+if (preg_match('#^/api/admin/jobs/(\d+)$#', $uri, $m) && $method === 'GET') {
+    AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/JobQueue.php';
+    $job = JobQueue::get((int)$m[1]);
+    if (!$job) jsonError('Trabajo no encontrado', 404);
+    jsonResponse(['success' => true, 'job' => $job]);
+}
+
+if ($uri === '/api/admin/backups' && $method === 'GET') {
+    AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/BackupService.php';
+    jsonResponse(['success' => true, 'available' => BackupService::isAvailable(), 'backups' => BackupService::list()]);
+}
+
+if ($uri === '/api/admin/backups' && $method === 'POST') {
+    $admin = AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/JobQueue.php';
+    require_once __DIR__ . '/services/BackupService.php';
+    if (!BackupService::isAvailable()) {
+        jsonError('mysqldump no está instalado en el servidor', 501);
+    }
+    if (JobQueue::shouldQueue()) {
+        $job = JobQueue::enqueue('backup', [], (string)($admin['username'] ?? ''));
+        jsonResponse(['success' => true, 'queued' => true, 'job_id' => $job['id']], 202);
+    }
+    @set_time_limit(300);
+    try {
+        jsonResponse(['success' => true] + BackupService::run());
+    } catch (Throwable $e) {
+        error_log('[backup] ' . $e->getMessage());
+        jsonError('No se pudo crear el respaldo: ' . $e->getMessage(), 500);
+    }
+}
+
+if (preg_match('#^/api/admin/backups/([A-Za-z0-9._-]+)$#', $uri, $m) && $method === 'GET') {
+    AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/BackupService.php';
+    $path = BackupService::path($m[1]);
+    if ($path === null) jsonError('Respaldo no encontrado', 404);
+    header('Content-Type: application/gzip');
+    header('Content-Disposition: attachment; filename="' . basename($path) . '"');
+    header('Content-Length: ' . filesize($path));
+    header('Cache-Control: no-store');
+    readfile($path);
+    exit;
 }
 
 // 404 fallback

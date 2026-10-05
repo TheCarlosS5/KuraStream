@@ -1240,7 +1240,7 @@ class AdminController {
         require_once __DIR__ . '/PlayerController.php';
         $activeWorkers = TranscodeLimiter::getActiveWorkerCount();
 
-        $subsCacheDir = sys_get_temp_dir() . '/kura_subs_cache';
+        $subsCacheDir = SubtitleCache::dir();
         if (!is_dir($subsCacheDir)) {
             @mkdir($subsCacheDir, 0777, true);
         }
@@ -1320,10 +1320,18 @@ class AdminController {
 
     /** Re-fetches a show's per-season art/metadata and looks up its intros on AniSkip. */
     public static function syncShowSeasons(string $showId): void {
-        AuthMiddleware::requireAdmin();
+        $admin = AuthMiddleware::requireAdmin();
         require_once __DIR__ . '/../services/IntroSync.php';
         $data = json_decode(file_get_contents('php://input'), true) ?: [];
         $force = !empty($data['force']) || !empty($_GET['force']);
+        require_once __DIR__ . '/../services/JobQueue.php';
+        if (JobQueue::shouldQueue()) {
+            if (!DbHelper::getShow($showId)) {
+                jsonError('Show no encontrado', 404);
+            }
+            $job = JobQueue::enqueue('season_sync', ['show_id' => $showId, 'force' => $force], (string)($admin['username'] ?? ''));
+            jsonResponse(['success' => true, 'queued' => true, 'job_id' => $job['id']], 202);
+        }
         @set_time_limit(300);
         $seasons = SeasonSync::syncShow($showId, $force);
         if (!empty($seasons['error'])) {

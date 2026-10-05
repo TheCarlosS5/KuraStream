@@ -249,19 +249,25 @@ class FfmpegScanner {
         ];
     }
 
-    public static function extractFonts(string $videoPath, string $destDir): array {
+    /**
+     * @param bool|null $finished set to whether ffmpeg ran to the end (false on a timeout or when it could not start);
+     *                            ffmpeg exits non-zero here ("no output file"), so only a kill counts as failure.
+     */
+    public static function extractFonts(string $videoPath, string $destDir, int $timeoutSeconds = 15, &$finished = null): array {
+        $finished = false;
         if (!file_exists($videoPath) || !is_file($videoPath)) return [];
         if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
 
         $cmd = sprintf(
-            'ffmpeg -y -v error -dump_attachment:t "" -i %s',
+            'ffmpeg -nostdin -y -v error -dump_attachment:t "" -i %s',
             escapeshellarg($videoPath)
         );
 
         $cwd = getcwd();
         @chdir($destDir);
-        self::executeBoundedCommand($cmd, 15);
+        $output = self::executeBoundedCommand($cmd, $timeoutSeconds);
         if ($cwd) @chdir($cwd);
+        $finished = $output !== null;
 
         $extracted = [];
         if (is_dir($destDir)) {
