@@ -749,6 +749,10 @@
               <span>Por Organizar</span>
               <span id="staging-counter-badge" class="badge ml-auto" style="display: none;">0</span>
             </button>
+            <button class="admin-nav-item" data-target="admin-sub-timings">
+              <i data-lucide="timer"></i>
+              <span>Intro y créditos</span>
+            </button>
             <button class="admin-nav-item" data-target="admin-sub-users">
               <i data-lucide="users"></i>
               <span>Usuarios</span>
@@ -1192,6 +1196,18 @@
               <div class="admin-shows-list" id="admin-shows-list">
                 <!-- Show items with delete buttons will be injected here -->
               </div>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW: TIMINGS -->
+          <div id="admin-sub-timings" class="admin-sub-view">
+            <h2 class="admin-sub-title">Intro y créditos</h2>
+            <div class="admin-card">
+              <label class="admin-user-search">Serie
+                <select id="admin-timings-show" class="form-control"></select>
+              </label>
+              <p class="admin-user-meta">Segundos desde el inicio del episodio. "Copiar a la temporada" aplica intro y créditos de ese episodio a toda su temporada.</p>
+              <div id="admin-timings-list" class="admin-users-list"></div>
             </div>
           </div>
 
