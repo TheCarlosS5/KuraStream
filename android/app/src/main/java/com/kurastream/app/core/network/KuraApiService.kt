@@ -127,6 +127,12 @@ interface KuraApiService {
     @GET("api/comments")
     suspend fun getComments(@Query("show_id") showId: String): CommentsResponseDto
 
+    @POST("api/comments")
+    suspend fun addComment(@Body body: AddCommentRequestDto): BaseResponseDto
+
+    @DELETE("api/comments/{id}")
+    suspend fun deleteComment(@Path("id") id: String): BaseResponseDto
+
     // Watch Party
     @POST("api/party/create")
     suspend fun createPartyRoom(@Body body: PartyCreateRequestDto): PartyCreateResponseDto

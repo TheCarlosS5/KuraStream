@@ -485,10 +485,17 @@ data class CommentsResponseDto(
 @Serializable
 data class CommentDto(
     val id: String,
-    val username: String = "",
     @SerialName("profile_name") val profileName: String = "",
     val content: String = "",
-    @SerialName("created_at") val createdAt: String = ""
+    @SerialName("created_at") val createdAt: String = "",
+    /** The viewer is the author, or an administrator. */
+    @SerialName("can_delete") val canDelete: Boolean = false
+)
+
+@Serializable
+data class AddCommentRequestDto(
+    @SerialName("show_id") val showId: String,
+    val content: String
 )
 
 /** GET /api/app/android: what the server offers for download. */

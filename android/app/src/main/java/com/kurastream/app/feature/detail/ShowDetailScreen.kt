@@ -389,6 +389,95 @@ fun ShowDetailScreen(
                                     .padding(horizontal = KuraDimens.Space4, vertical = KuraDimens.Space2)
                             )
                         }
+
+                        item {
+                            CommentsSection(
+                                state = uiState,
+                                onOpen = viewModel::loadComments,
+                                onDraftChange = viewModel::onCommentDraftChanged,
+                                onPost = viewModel::postComment,
+                                onDelete = viewModel::deleteComment,
+                                modifier = Modifier.padding(horizontal = KuraDimens.Space4, vertical = KuraDimens.Space4)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Comments of the show: opened on demand, post as the active profile, delete your own. */
+@Composable
+private fun CommentsSection(
+    state: ShowDetailUiState,
+    onOpen: () -> Unit,
+    onDraftChange: (String) -> Unit,
+    onPost: () -> Unit,
+    onDelete: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(KuraDimens.Space2)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable {
+                expanded = !expanded
+                if (expanded && !state.commentsLoaded) onOpen()
+            },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (state.commentsLoaded) "Comentarios (${state.comments.size})" else "Comentarios",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = KuraColors.TextMain,
+                modifier = Modifier.weight(1f)
+            )
+            Text(if (expanded) "Ocultar" else "Ver", color = KuraColors.TextSecondary)
+        }
+        if (!expanded) return@Column
+
+        OutlinedTextField(
+            value = state.commentDraft,
+            onValueChange = onDraftChange,
+            label = { Text("Escribe un comentario") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 2,
+            supportingText = { Text("${state.commentDraft.length}/1000") }
+        )
+        Button(onClick = onPost, enabled = state.commentDraft.isNotBlank() && !state.isPostingComment) {
+            Text(if (state.isPostingComment) "Publicando…" else "Publicar")
+        }
+        state.commentsError?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
+        when {
+            state.commentsLoading && !state.commentsLoaded -> CircularProgressIndicator()
+            state.commentsLoaded && state.comments.isEmpty() ->
+                Text("No hay comentarios todavía. ¡Sé el primero!", color = KuraColors.TextSecondary)
+            else -> state.comments.forEach { c ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(KuraColors.Surface, KuraShapes.Card)
+                        .padding(KuraDimens.Space3)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = c.profileName.ifBlank { "Usuario" },
+                            fontWeight = FontWeight.SemiBold,
+                            color = KuraColors.TextMain,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = com.kurastream.app.core.util.RelativeTime.format(c.createdAt),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = KuraColors.TextMuted
+                        )
+                    }
+                    Text(c.content, color = KuraColors.TextSecondary, style = MaterialTheme.typography.bodyMedium)
+                    if (c.canDelete) {
+                        TextButton(onClick = { onDelete(c.id) }) { Text("Eliminar") }
                     }
                 }
             }
