@@ -158,6 +158,7 @@ data class EpisodeDto(
     val size: Long? = 0L,
     @SerialName("video_codec") val videoCodec: String? = "",
     @SerialName("audio_codec") val audioCodec: String? = "",
+    @SerialName("bit_depth") val bitDepth: Int? = null,
     val resolution: String? = "",
     val fps: Float? = 0f,
     @SerialName("audio_tracks") val audioTracks: List<AudioTrackDto>? = emptyList(),

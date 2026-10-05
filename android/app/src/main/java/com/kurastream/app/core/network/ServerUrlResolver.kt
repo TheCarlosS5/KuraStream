@@ -179,7 +179,8 @@ object ServerUrlResolver {
         startSeconds: Float? = null,
         audioTrack: Int? = null,
         forceH264: Boolean = false,
-        downmixStereo: Boolean = false
+        downmixStereo: Boolean = false,
+        direct: Boolean = false
     ): String {
         val baseClean = baseUrl.trimEnd('/')
         val encodedEp = HttpUrl.Builder()
@@ -201,6 +202,10 @@ object ServerUrlResolver {
         }
         if (downmixStereo) {
             params.add("downmix=stereo")
+        }
+        if (direct) {
+            // The player picks audio/subtitles itself and can decode the file: serve the raw bytes (HTTP Range)
+            params.add("direct=1")
         }
 
         val query = if (params.isNotEmpty()) "?" + params.joinToString("&") else ""

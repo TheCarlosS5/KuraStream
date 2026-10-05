@@ -253,6 +253,7 @@ class CatalogRepository(
         size = size ?: 0L,
         videoCodec = videoCodec ?: "",
         audioCodec = audioCodec ?: "",
+        bitDepth = bitDepth ?: 0,
         resolution = resolution ?: "",
         fps = fps ?: 0f,
         audioTracks = audioTracks?.map { track ->
