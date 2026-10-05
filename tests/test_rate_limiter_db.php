@@ -52,6 +52,7 @@ echo "✓ $procs concurrent processes share one limit atomically OK\n";
 class RlBrokenPdo extends PDO {
     public function __construct() {}
     public function beginTransaction(): bool { $e = new PDOException('MySQL server has gone away'); $e->errorInfo = ['HY000', 2006, 'gone away']; throw $e; }
+    public function prepare(string $query, array $options = []): PDOStatement|false { $e = new PDOException('MySQL server has gone away'); $e->errorInfo = ['HY000', 2006, 'gone away']; throw $e; }
 }
 Database::setConnection(new RlBrokenPdo());
 $prev = ini_set('error_log', '/dev/null');

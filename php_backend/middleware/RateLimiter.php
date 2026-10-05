@@ -27,30 +27,43 @@ class RateLimiter {
             $now = time();
             $hash = md5($key);
 
-            $db->beginTransaction();
-            try {
-                $db->prepare("INSERT IGNORE INTO rate_limits (k, hits, expires_at) VALUES (:k, '[]', :e)")
-                    ->execute(['k' => $hash, 'e' => $now + $windowSeconds]);
-                $stmt = $db->prepare("SELECT hits FROM rate_limits WHERE k = :k FOR UPDATE");
-                $stmt->execute(['k' => $hash]);
-                $data = json_decode((string)$stmt->fetchColumn(), true) ?: [];
+            // The row is created outside the transaction: INSERT IGNORE inside it, next to concurrent SELECT ... FOR UPDATE
+            // on the same key, deadlocks on MySQL 8 and the loser used to be refused as if the store had failed.
+            $db->prepare("INSERT IGNORE INTO rate_limits (k, hits, expires_at) VALUES (:k, '[]', :e)")
+                ->execute(['k' => $hash, 'e' => $now + $windowSeconds]);
 
-                $records = array_values(array_filter($data, fn($ts) => ($now - $ts) < $windowSeconds));
-                if (count($records) >= $maxAttempts) {
-                    $retryAfter = max(1, ($records[0] + $windowSeconds) - $now);
-                    $allowed = false;
-                } else {
-                    $records[] = $now;
-                    $db->prepare("UPDATE rate_limits SET hits = :h, expires_at = :e WHERE k = :k")
-                        ->execute(['h' => json_encode($records), 'e' => $now + $windowSeconds, 'k' => $hash]);
-                    $allowed = true;
+            $allowed = null;
+            for ($attempt = 1; $allowed === null; $attempt++) {
+                try {
+                    $db->beginTransaction();
+                    $stmt = $db->prepare("SELECT hits FROM rate_limits WHERE k = :k FOR UPDATE");
+                    $stmt->execute(['k' => $hash]);
+                    $data = json_decode((string)$stmt->fetchColumn(), true) ?: [];
+
+                    $records = array_values(array_filter($data, fn($ts) => ($now - $ts) < $windowSeconds));
+                    if (count($records) >= $maxAttempts) {
+                        $retryAfter = max(1, ($records[0] + $windowSeconds) - $now);
+                        $verdict = false;
+                    } else {
+                        $records[] = $now;
+                        $db->prepare("UPDATE rate_limits SET hits = :h, expires_at = :e WHERE k = :k")
+                            ->execute(['h' => json_encode($records), 'e' => $now + $windowSeconds, 'k' => $hash]);
+                        $verdict = true;
+                    }
+                    $db->commit();
+                    $allowed = $verdict;
+                } catch (Throwable $e) {
+                    if ($db->inTransaction()) {
+                        $db->rollBack();
+                    }
+                    // Deadlock (1213) or lock wait timeout (1205) under heavy concurrency: the work is safe to repeat
+                    $code = (int)(($e instanceof PDOException ? ($e->errorInfo[1] ?? 0) : 0));
+                    if (($code === 1213 || $code === 1205) && $attempt < 5) {
+                        usleep(random_int(2000, 20000) * $attempt);
+                        continue;
+                    }
+                    throw $e;
                 }
-                $db->commit();
-            } catch (Throwable $e) {
-                if ($db->inTransaction()) {
-                    $db->rollBack();
-                }
-                throw $e;
             }
 
             // Housekeeping on a small share of requests keeps the table from growing.
