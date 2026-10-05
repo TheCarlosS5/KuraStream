@@ -77,7 +77,14 @@ class RateLimiter {
 
     public static function enforce(string $action, int $maxAttempts, int $windowSeconds): void {
         $ip = self::getClientIp();
-        $key = "{$action}_{$ip}";
+        self::enforceKey("{$action}_{$ip}", $maxAttempts, $windowSeconds);
+    }
+
+    /**
+     * Atomically consumes one attempt for an arbitrary key and answers 429 once the allowance is spent.
+     * The attempt is counted before the protected check runs, so parallel requests cannot all slip through.
+     */
+    public static function enforceKey(string $key, int $maxAttempts, int $windowSeconds, string $message = 'Demasiadas peticiones. Por favor espera...'): void {
         $retryAfter = 0;
         if (!self::check($key, $maxAttempts, $windowSeconds, $retryAfter)) {
             @http_response_code(429);
@@ -85,7 +92,7 @@ class RateLimiter {
             @header('Content-Type: application/json; charset=utf-8');
             $payload = [
                 'success' => false,
-                'error' => 'Demasiadas peticiones. Por favor espera...',
+                'error' => $message,
                 'retry_after' => $retryAfter
             ];
             echo json_encode($payload);
@@ -94,6 +101,32 @@ class RateLimiter {
             }
             exit();
         }
+    }
+
+    public const PIN_MAX_ATTEMPTS = 5;
+    public const PIN_WINDOW_SECONDS = 900;
+
+    private static function pinKey(string $username, string $profileId): string {
+        return 'pin_' . strtolower($username) . '_' . $profileId;
+    }
+
+    /**
+     * Counts one PIN guess for this profile (answers 429 after PIN_MAX_ATTEMPTS within PIN_WINDOW_SECONDS).
+     * Keyed by account and profile, not by IP, so changing address (or using a kids session of the same
+     * account) does not multiply the attempts: a 4-digit PIN would otherwise fall in about a minute.
+     */
+    public static function consumePinAttempt(string $username, string $profileId): void {
+        self::enforceKey(
+            self::pinKey($username, $profileId),
+            self::PIN_MAX_ATTEMPTS,
+            self::PIN_WINDOW_SECONDS,
+            'Demasiados intentos de PIN. Espera unos minutos antes de volver a intentarlo.'
+        );
+    }
+
+    /** A correct PIN resets the allowance. */
+    public static function clearPinAttempts(string $username, string $profileId): void {
+        self::clear(self::pinKey($username, $profileId));
     }
 
     public static function clear(string $key): void {

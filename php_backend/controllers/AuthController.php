@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+require_once __DIR__ . '/../middleware/RateLimiter.php';
 
 class AuthController {
     public static function hashPassword(string $password): string {
@@ -291,9 +292,12 @@ class AuthController {
         }
 
         if (!empty($profile['pin'])) {
+            // Every guess counts (a 4-digit PIN has only 10,000 values); a correct PIN resets the allowance.
+            RateLimiter::consumePinAttempt($username, (string)$profile['id']);
             if (empty($pin) || !password_verify($pin, $profile['pin'])) {
                 jsonError('PIN incorrecto', 403);
             }
+            RateLimiter::clearPinAttempts($username, (string)$profile['id']);
         }
 
         $token = self::issueProfileToken($authUser, $profile);

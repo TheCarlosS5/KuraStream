@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/middleware/RateLimiter.php';
 
 class Database {
     private static ?PDO $pdo = null;
@@ -1050,9 +1051,11 @@ class DbHelper {
                 }
                 if (!empty($existing['pin'])) {
                     $currentPin = trim((string)($data['current_pin'] ?? ''));
+                    RateLimiter::consumePinAttempt($username, (string)$existing['id']);
                     if (empty($currentPin) || !password_verify($currentPin, $existing['pin'])) {
                         jsonError('PIN actual requerido o incorrecto para modificar este perfil', 403);
                     }
+                    RateLimiter::clearPinAttempts($username, (string)$existing['id']);
                 }
             } else {
                 // Client supplied an id that doesn't exist: ignore it and generate a secure random ID
@@ -1104,6 +1107,9 @@ class DbHelper {
         $rawPin = trim((string)($data['pin'] ?? ''));
         $pinHash = $existing ? ($existing['pin'] ?? '') : '';
         if ($rawPin !== '') {
+            if (!preg_match('/^[0-9]{4,6}$/', $rawPin)) {
+                jsonError('El PIN debe tener entre 4 y 6 dígitos', 400);
+            }
             // Always hash with bcrypt - never accept raw unverified hash prefixes
             $pinHash = password_hash($rawPin, PASSWORD_BCRYPT);
         } elseif (!empty($data['remove_pin'])) {
@@ -1200,8 +1206,12 @@ class DbHelper {
         if (($existing['name'] ?? '') === 'Principal') {
             jsonError('No se puede eliminar el perfil principal', 400);
         }
-        if (!empty($existing['pin']) && ($pin === '' || !password_verify($pin, $existing['pin']))) {
-            jsonError('PIN actual requerido o incorrecto para eliminar este perfil', 403);
+        if (!empty($existing['pin'])) {
+            RateLimiter::consumePinAttempt($username, (string)$existing['id']);
+            if ($pin === '' || !password_verify($pin, $existing['pin'])) {
+                jsonError('PIN actual requerido o incorrecto para eliminar este perfil', 403);
+            }
+            RateLimiter::clearPinAttempts($username, (string)$existing['id']);
         }
 
         $deleted = self::transactional(function (PDO $db) use ($username, $id, $existing) {
