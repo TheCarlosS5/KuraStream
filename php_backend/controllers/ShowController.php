@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../services/TmdbScraper.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+require_once __DIR__ . '/../services/LibraryPaths.php';
 require_once __DIR__ . '/../middleware/RateLimiter.php';
 
 class ShowController {
@@ -276,44 +277,44 @@ class ShowController {
 
     public static function deleteShow(string $id): void {
         AuthMiddleware::requireAdmin();
+
+        // The id comes from the URL (already percent-decoded by the router). "." / ".." / "x/../y" must never
+        // be turned into a path: they would resolve to a whole category directory such as Anime/.
+        if (!LibraryPaths::isSafeSegment($id)) {
+            jsonError('Identificador de show inválido', 400);
+        }
+
         $show = DbHelper::getShow($id);
 
-        $realId = $show ? $show['id'] : $id;
-        $mediaType = $show['media_type'] ?? 'anime';
-        $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
+        // Unknown id: nothing to delete. The filesystem is never searched by similarity.
+        if ($show) {
+            $mediaType = $show['media_type'] ?? 'anime';
+            $folderPath = LibraryPaths::showDir($mediaType, $show['id']);
 
-        // Delete only the selected show's canonical source directory. The
-        // library scanner imports every folder containing video files, so this
-        // must happen before the database record is removed.
-        $folderPath = LIBRARY_DIR . '/' . $catFolder . '/' . $realId;
-        $realLibPath = realpath(LIBRARY_DIR);
-        if (is_dir($folderPath)) {
-            $realFolderPath = realpath($folderPath);
-            if ($realFolderPath && $realLibPath && str_starts_with($realFolderPath, $realLibPath . DIRECTORY_SEPARATOR)) {
-                if (!self::deleteDirectoryRecursive($realFolderPath)) {
-                    jsonError('No se pudo eliminar la carpeta de medios. Revisa los permisos e inténtalo de nuevo.', 500);
+            if ($folderPath !== null) {
+                // Delete only the selected show's canonical source directory. The library scanner imports every
+                // folder containing video files, so this must happen before the database record is removed.
+                if (is_link($folderPath)) {
+                    // A symlinked show folder: remove the link itself, never its target.
+                    if (!@unlink($folderPath) && !@rmdir($folderPath)) {
+                        jsonError('No se pudo eliminar la carpeta de medios. Revisa los permisos e inténtalo de nuevo.', 500);
+                    }
+                } elseif (is_dir($folderPath)) {
+                    $realFolderPath = LibraryPaths::resolveExistingShowDir($mediaType, $show['id']);
+                    if ($realFolderPath === null) {
+                        jsonError('La carpeta del show está fuera de la biblioteca; no se eliminó nada.', 403);
+                    }
+                    if (!LibraryPaths::deleteTree($realFolderPath)) {
+                        jsonError('No se pudo eliminar la carpeta de medios. Revisa los permisos e inténtalo de nuevo.', 500);
+                    }
                 }
             }
-        }
 
-        // Only remove the catalog entry after the media source is gone.
-        DbHelper::deleteShow($realId);
+            // Only remove the catalog entry after the media source is gone.
+            DbHelper::deleteShow($show['id']);
+        }
 
         jsonResponse(['success' => true]);
-    }
-
-    private static function deleteDirectoryRecursive(string $dir): bool {
-        if (!is_dir($dir)) return false;
-        $files = array_diff(scandir($dir), ['.', '..']);
-        foreach ($files as $file) {
-            $path = $dir . '/' . $file;
-            if (is_dir($path)) {
-                self::deleteDirectoryRecursive($path);
-            } else {
-                @unlink($path);
-            }
-        }
-        return @rmdir($dir);
     }
 }
 

@@ -5,6 +5,7 @@ require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../services/LibraryScanner.php';
 require_once __DIR__ . '/../services/FfmpegScanner.php';
 require_once __DIR__ . '/../services/TmdbScraper.php';
+require_once __DIR__ . '/../services/LibraryPaths.php';
 
 class AdminController {
     public static function isPathWithinAllowedRoots(string $path, array $allowedRoots = []): bool {
@@ -516,6 +517,9 @@ class AdminController {
         $cleanTitle = !empty($title) ? $title : ($details['title'] ?? 'Nuevo Show');
         $sanitizedDir = str_replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], '_', $cleanTitle);
         $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
+        if (!LibraryPaths::isSafeSegment($sanitizedDir)) {
+            jsonError('Título inválido para crear la carpeta del show', 400);
+        }
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $sanitizedDir;
 
         if (!is_dir($showDir)) {
@@ -588,6 +592,9 @@ class AdminController {
 
         $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
         $sanitizedDir = str_replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], '_', $title);
+        if (!LibraryPaths::isSafeSegment($sanitizedDir)) {
+            jsonError('Título inválido para crear la carpeta del show', 400);
+        }
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $sanitizedDir;
 
         if ($mediaType === 'anime') {
@@ -620,7 +627,15 @@ class AdminController {
             if (!file_exists($sourcePath)) {
                 jsonError('Archivo fuente no encontrado', 404);
             }
-            if (!self::isPathWithinAllowedRoots($sourcePath)) {
+            // Import sources may live in the library, downloads/ or staging/. The system temp directory is
+            // deliberately excluded: it is world-writable and would let any file there be copied into /library.
+            // An empty list must deny (isPathWithinAllowedRoots() falls back to its defaults, temp included).
+            $importRoots = array_values(array_filter([
+                realpath(LIBRARY_DIR),
+                realpath(ROOT_DIR . '/downloads'),
+                realpath(ROOT_DIR . '/staging'),
+            ]));
+            if (empty($importRoots) || !self::isPathWithinAllowedRoots($sourcePath, $importRoots)) {
                 jsonError('Ruta de archivo fuente no permitida', 403);
             }
             $origName = basename($sourcePath);
@@ -750,6 +765,9 @@ class AdminController {
         $realId = $show ? $show['id'] : $showId;
         $mediaType = $show['media_type'] ?? 'anime';
         $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
+        if (!LibraryPaths::isSafeSegment($realId)) {
+            jsonError('Identificador de show inválido', 400);
+        }
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realId;
         if (!is_dir($showDir)) @mkdir($showDir, 0755, true);
 
@@ -797,6 +815,9 @@ class AdminController {
         $show = DbHelper::getShow($showId) ?: DbHelper::findShowByFolderOrTitle($showId, $showId);
         $realId = $show ? $show['id'] : $showId;
         $catFolder = ($show['media_type'] ?? 'anime') === 'movie' ? 'Movies' : 'Anime';
+        if (!LibraryPaths::isSafeSegment($realId)) {
+            jsonError('Identificador de show inválido', 400);
+        }
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realId;
         if (!is_dir($showDir)) @mkdir($showDir, 0755, true);
 
@@ -872,6 +893,9 @@ class AdminController {
 
         $show = DbHelper::getShow($ep['show_id']);
         $catFolder = ($show['media_type'] ?? 'anime') === 'movie' ? 'Movies' : 'Anime';
+        if (!LibraryPaths::isSafeSegment($ep['show_id'])) {
+            jsonError('Identificador de show inválido', 400);
+        }
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $ep['show_id'];
         $thumbName = "ep_{$ep['season_number']}_{$ep['episode_number']}_thumb.jpg";
         $dest = $showDir . '/' . $thumbName;
@@ -912,6 +936,9 @@ class AdminController {
         $mediaType = $show['media_type'] ?? $mediaType;
         $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
         $realShowId = $show ? $show['id'] : $showId;
+        if (!LibraryPaths::isSafeSegment($realShowId)) {
+            jsonError('showId inválido o requerido', 400);
+        }
 
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realShowId;
         if (!is_dir($showDir)) {
