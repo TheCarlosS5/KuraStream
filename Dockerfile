@@ -1,6 +1,6 @@
 # KuraStream application image: PHP-FPM (two pools, see deploy/php-fpm) + the background worker.
 # nginx has its own image (docker/nginx.Dockerfile). Everything is wired together by docker-compose.yml.
-FROM php:8.4-fpm-bookworm
+FROM php:8.5-fpm-bookworm
 
 # ffmpeg for scans/remux/subtitles, mariadb-client for the database backups the worker makes
 RUN apt-get update && apt-get install -y --no-install-recommends \
