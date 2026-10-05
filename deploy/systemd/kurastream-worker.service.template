@@ -1,0 +1,18 @@
+[Unit]
+Description=KuraStream background worker (scans, backups, subtitles, housekeeping)
+After=network.target mariadb.service
+Wants=mariadb.service
+
+[Service]
+Type=simple
+User=${KURA_USER}
+Group=${KURA_GROUP}
+WorkingDirectory=${KURA_APP_DIR}
+ExecStart=${KURA_PHP_BIN} ${KURA_APP_DIR}/php_backend/worker.php
+Restart=always
+RestartSec=5
+# A scan can be running: give it a moment to finish before systemd stops the process.
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

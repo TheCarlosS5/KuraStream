@@ -52,7 +52,7 @@ export async function loadShowsCatalog() {
       return `
         <div class="show-card" onclick="location.hash='#/show/${showId}'" style="cursor: pointer;">
           <div class="show-poster-wrap">
-            <img src="${poster}" class="show-poster" alt="${title}" onerror="this.src='/assets/illustrations/poster_placeholder.svg'">
+            <img src="${poster}" class="show-poster" alt="${title}" data-fallback-src="/assets/illustrations/poster_placeholder.svg">
             <div class="show-badge">${show.media_type === 'movie' ? 'Película' : 'Anime'}</div>
             <div class="show-rating">${rating !== 'N/A' ? `<i data-lucide="star" style="width: 12px; height: 12px; display: inline-block;"></i> ${rating}` : 'N/A'}</div>
           </div>
@@ -103,7 +103,7 @@ export async function loadShowDetail(showId) {
     container.innerHTML = `
       <div class="show-detail-hero" style="background-image: linear-gradient(to bottom, rgba(8,10,16,0.4), var(--bg-color)), url('${backdrop}');">
         <div class="show-detail-content">
-          <img src="${poster}" class="show-detail-poster" alt="${title}" onerror="this.src='/assets/illustrations/poster_placeholder.svg'">
+          <img src="${poster}" class="show-detail-poster" alt="${title}" data-fallback-src="/assets/illustrations/poster_placeholder.svg">
           <div class="show-detail-main">
             <h1 class="show-detail-title">${title}</h1>
             <div class="show-detail-badges">

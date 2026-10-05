@@ -1,5 +1,6 @@
 package com.kurastream.app.feature.party
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kurastream.app.core.model.PartyMessage
@@ -28,12 +29,16 @@ data class WatchPartyUiState(
 
 @HiltViewModel
 class WatchPartyViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     private val partyRepository: WatchPartyRepository,
     private val preferencesDataSource: KuraPreferencesDataSource,
     private val partyPlaybackContext: com.kurastream.app.core.player.PartyPlaybackContext
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(WatchPartyUiState())
+    // kurastream://party/{roomId} pre-fills the code. Joining stays a tap away: a link must not put anyone in a room
+    private val _uiState = MutableStateFlow(
+        WatchPartyUiState(roomIdInput = savedStateHandle.get<String>("roomId")?.trim()?.take(64).orEmpty())
+    )
     val uiState: StateFlow<WatchPartyUiState> = _uiState.asStateFlow()
 
     init {
@@ -89,7 +94,15 @@ class WatchPartyViewModel @Inject constructor(
                     }
                     is PartyRealtimeEvent.RoomClosed -> {
                         partyPlaybackContext.clear()
-                        _uiState.update { it.copy(errorMessage = "La sala ha sido cerrada por el anfitrión") }
+                        // The repository already dropped the session; the screen must stop showing the room too.
+                        _uiState.update {
+                            it.copy(
+                                activeSession = null,
+                                members = emptyList(),
+                                messages = emptyList(),
+                                errorMessage = "La sala ya no está disponible (la cerró el anfitrión o se perdió el acceso)"
+                            )
+                        }
                     }
                     is PartyRealtimeEvent.ConnectionError -> {
                         _uiState.update { it.copy(errorMessage = "Problema de conexión con la sala. Reintentando...") }

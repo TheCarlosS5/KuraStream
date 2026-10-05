@@ -22,8 +22,19 @@ echo "    -> Security Headers function OK\n";
 // 2. Test Dockerfile Hardening
 echo "  [2/4] Testing Dockerfile unprivileged user configuration...\n";
 $dockerfile = file_get_contents(__DIR__ . '/../Dockerfile');
-if (!str_contains($dockerfile, 'USER kurastream')) {
-    $errors[] = "Dockerfile does not switch to non-root USER kurastream";
+// The PHP-FPM master must run as root to drop its pools to another user, so the unprivileged account is enforced in
+// the pool definitions and for the worker container instead of a Dockerfile USER line.
+foreach (['api', 'stream'] as $pool) {
+    $poolTemplate = file_get_contents(__DIR__ . "/../deploy/php-fpm/kurastream-$pool.conf.template");
+    if (!preg_match('/^user = \$\{KURA_USER\}/m', $poolTemplate)) {
+        $errors[] = "PHP-FPM pool $pool does not drop privileges to KURA_USER";
+    }
+}
+if (!str_contains($dockerfile, 'KURA_USER=kurastream')) {
+    $errors[] = "Dockerfile does not render the FPM pools for the kurastream user";
+}
+if (!preg_match('/worker:.*?user: kurastream/s', (string)file_get_contents(__DIR__ . '/../docker-compose.yml'))) {
+    $errors[] = "docker-compose.yml does not run the worker as the kurastream user";
 }
 if (!str_contains($dockerfile, 'useradd')) {
     $errors[] = "Dockerfile does not create unprivileged user with useradd";
@@ -83,7 +94,7 @@ echo "  [5/5] Testing Service Worker Cache Versioning and Activation Cleanup...\
 $swContent = file_get_contents(__DIR__ . '/../frontend/sw.js');
 $indexHtml = file_get_contents(__DIR__ . '/../frontend/index.html');
 
-$expectedVersion = '2026.10.04-outros';
+$expectedVersion = '2026.10.05-security';
 $expectedCacheName = "kurastream-{$expectedVersion}";
 
 if (!str_contains($swContent, $expectedCacheName)) {

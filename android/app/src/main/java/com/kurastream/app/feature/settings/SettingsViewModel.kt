@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.Coil
 import com.kurastream.app.core.database.ShowDao
-import com.kurastream.app.core.model.UserPreferences
+import com.kurastream.app.core.model.UserPreferencesPatch
 import com.kurastream.app.core.model.UserStats
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import com.kurastream.app.core.preferences.UserSessionPreferences
@@ -63,15 +63,7 @@ class SettingsViewModel @Inject constructor(
                 subLang = current.preferredSubtitleLanguage,
                 seekSeconds = current.doubleTapSeekSeconds
             )
-            historyRepository.saveUserPreferences(
-                UserPreferences(
-                    autoSkipIntro = enabled,
-                    autoSkipOutro = current.autoSkipOutro,
-                    autoPlayNext = current.autoPlayNext,
-                    preferredAudioLanguage = current.preferredAudioLanguage,
-                    preferredSubtitleLanguage = current.preferredSubtitleLanguage
-                )
-            )
+            historyRepository.patchUserPreferences(UserPreferencesPatch(autoSkipIntro = enabled))
         }
     }
 
@@ -100,14 +92,7 @@ class SettingsViewModel @Inject constructor(
                 subLang = current.preferredSubtitleLanguage,
                 seekSeconds = current.doubleTapSeekSeconds
             )
-            historyRepository.saveUserPreferences(
-                UserPreferences(
-                    autoSkipIntro = current.autoSkipIntro,
-                    autoPlayNext = enabled,
-                    preferredAudioLanguage = current.preferredAudioLanguage,
-                    preferredSubtitleLanguage = current.preferredSubtitleLanguage
-                )
-            )
+            historyRepository.patchUserPreferences(UserPreferencesPatch(autoPlayNext = enabled))
         }
     }
 
@@ -122,12 +107,7 @@ class SettingsViewModel @Inject constructor(
                 subLang = current.preferredSubtitleLanguage,
                 seekSeconds = current.doubleTapSeekSeconds
             )
-            historyRepository.saveUserPreferences(
-                UserPreferences(
-                    preferredAudioLanguage = lang,
-                    preferredSubtitleLanguage = current.preferredSubtitleLanguage
-                )
-            )
+            historyRepository.patchUserPreferences(UserPreferencesPatch(preferredAudioLanguage = lang))
         }
     }
 
@@ -142,12 +122,7 @@ class SettingsViewModel @Inject constructor(
                 subLang = lang,
                 seekSeconds = current.doubleTapSeekSeconds
             )
-            historyRepository.saveUserPreferences(
-                UserPreferences(
-                    preferredAudioLanguage = current.preferredAudioLanguage,
-                    preferredSubtitleLanguage = lang
-                )
-            )
+            historyRepository.patchUserPreferences(UserPreferencesPatch(preferredSubtitleLanguage = lang))
         }
     }
 

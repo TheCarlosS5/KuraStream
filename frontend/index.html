@@ -1,48 +1,8 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <script>
-    // Lightweight mode must be decided before the first paint (no flash of heavy glass effects).
-    (function () {
-      try {
-        var mode = localStorage.getItem('kurastream_perf_mode'); // 'lite' | 'full' | null (auto)
-        var lowEnd = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
-          (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
-          (window.matchMedia && window.matchMedia('(prefers-reduced-transparency: reduce)').matches);
-        if (mode === 'lite' || (mode !== 'full' && lowEnd)) {
-          document.documentElement.className += (document.documentElement.className ? ' ' : '') + 'perf-lite';
-        }
-      } catch (e) { /* storage blocked: keep full mode */ }
-    })();
-  </script>
-  <script>
-    (function() {
-      function sendLog(type, msg, stack) {
-        fetch('/api/debug-log', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: type, message: msg, stack: stack || '' })
-        }).catch(err => {});
-      }
-      window.onerror = function(message, source, lineno, colno, error) {
-        sendLog('WINDOW_ERROR', message + ' at ' + source + ':' + lineno + ':' + colno, error ? error.stack : '');
-        return false;
-      };
-      window.onunhandledrejection = function(event) {
-        sendLog('UNHANDLED_REJECTION', event.reason ? (event.reason.message || event.reason) : 'Promise rejected', event.reason ? event.reason.stack : '');
-      };
-      const originalConsoleError = console.error;
-      console.error = function() {
-        originalConsoleError.apply(console, arguments);
-        const args = Array.prototype.slice.call(arguments).map(a => {
-          if (a instanceof Error) return a.message + '\n' + a.stack;
-          if (typeof a === 'object') return JSON.stringify(a);
-          return String(a);
-        }).join(' ');
-        sendLog('CONSOLE_ERROR', args);
-      };
-    })();
-  </script>
+  <script src="/js/boot/perf_mode.js"></script>
+  <script src="/js/boot/error_log.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="KuraStream - Centro de entretenimiento local offline premium.">
@@ -52,9 +12,9 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/branding/icon-32.png">
   <link rel="apple-touch-icon" href="/assets/branding/icon-192.png">
   <!-- Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Fonts are self-hosted (css/fonts.css, imported by style.css): nothing is requested from Google. -->
+  <link rel="preload" href="/assets/fonts/inter-latin-300-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/outfit-latin-400-800.woff2" as="font" type="font/woff2" crossorigin>
   <!-- style.css @imports these; preloading fetches them in parallel instead of one by one -->
   <link rel="preload" href="/css/tokens.css" as="style">
   <link rel="preload" href="/css/base.css" as="style">
@@ -64,7 +24,7 @@
   <link rel="preload" href="/css/player.css" as="style">
   <link rel="preload" href="/css/admin.css" as="style">
   <link rel="preload" href="/css/responsive.css" as="style">
-  <link rel="stylesheet" href="style.css?v=2026.10.04-outros">
+  <link rel="stylesheet" href="style.css?v=2026.10.05-security">
 </head>
 <body>
   <!-- Offline Status Banner -->
@@ -76,7 +36,7 @@
   <!-- App Header -->
   <header class="app-header">
     <a href="#/" class="header-logo" id="header-logo">
-      <img id="custom-logo" src="/library/logo.png" alt="KuraStream Logo" onerror="this.style.display='none'; document.getElementById('fallback-logo').style.display='inline-flex';" class="custom-logo">
+      <img id="custom-logo" src="/library/logo.png" alt="KuraStream Logo" data-error-hide-show="fallback-logo" class="custom-logo">
       <div id="fallback-logo" class="fallback-logo" style="display: none;">
         <span class="logo-icon">蔵</span>
       </div>
@@ -91,12 +51,12 @@
         <div class="nav-dropdown-menu" id="nav-explore-menu">
           <a href="#/movies" class="dropdown-item" id="nav-movies"><i data-lucide="film"></i> Películas</a>
           <a href="#/genres" class="dropdown-item" id="nav-genres"><i data-lucide="layout-grid"></i> Géneros</a>
-          <a href="javascript:void(0)" id="btn-random-anime" class="dropdown-item"><i data-lucide="sparkles"></i> Descubrimiento Aleatorio</a>
+          <a href="#" id="btn-random-anime" class="dropdown-item"><i data-lucide="sparkles"></i> Descubrimiento Aleatorio</a>
         </div>
       </div>
       <a href="#/my-list" class="nav-link" id="nav-mylist"><i data-lucide="heart"></i> Mi Lista</a>
       <a href="#/history" class="nav-link" id="nav-history"><i data-lucide="history"></i> Historial</a>
-      <a href="javascript:void(0)" class="nav-link nav-link-party" id="nav-party"><i data-lucide="users"></i> Watch Party</a>
+      <a href="#" class="nav-link nav-link-party" id="nav-party"><i data-lucide="users"></i> Watch Party</a>
     </nav>
     <div class="header-right">
       <button id="pwa-install-btn" class="btn btn-primary" style="display: none;">
@@ -130,13 +90,13 @@
             <div id="dropdown-profiles-list" class="dropdown-profiles-list">
               <!-- Dynamic list of other profiles -->
             </div>
-            <a href="javascript:void(0)" id="btn-switch-profile" class="user-dropdown-item"><i data-lucide="users"></i> Administrar Perfiles</a>
+            <a href="#" id="btn-switch-profile" class="user-dropdown-item"><i data-lucide="users"></i> Administrar Perfiles</a>
             <a href="#/stats" class="user-dropdown-item" id="btn-user-stats"><i data-lucide="bar-chart-2"></i> Mis Estadísticas</a>
             <a href="#/settings" class="user-dropdown-item" id="nav-settings"><i data-lucide="settings"></i> Ajustes</a>
             <a href="#/app" class="user-dropdown-item" id="nav-app-download"><i data-lucide="smartphone"></i> App para Android</a>
-            <a href="javascript:void(0)" id="btn-admin-direct" class="user-dropdown-item" style="display: none;"><i data-lucide="shield-check"></i> Panel Admin</a>
+            <a href="#" id="btn-admin-direct" class="user-dropdown-item" style="display: none;"><i data-lucide="shield-check"></i> Panel Admin</a>
             <hr class="dropdown-divider">
-            <a href="javascript:void(0)" id="btn-logout" class="user-dropdown-item btn-logout-item"><i data-lucide="log-out"></i> Cerrar Sesión</a>
+            <a href="#" id="btn-logout" class="user-dropdown-item btn-logout-item"><i data-lucide="log-out"></i> Cerrar Sesión</a>
           </div>
         </div>
       </div>
@@ -330,6 +290,8 @@
               <i data-lucide="download"></i> Descargar APK
             </a>
             <p class="app-dl-meta" id="app-dl-meta">Comprobando disponibilidad…</p>
+            <p class="app-dl-sha" id="app-dl-sha" hidden>Huella SHA-256 del instalador: <code id="app-dl-sha-value"></code></p>
+            <p class="app-dl-warning" id="app-dl-warning" hidden></p>
           </div>
           <div class="app-dl-qr-panel">
             <div class="app-dl-qr" id="app-dl-qr" aria-label="Código QR de descarga"></div>
@@ -383,7 +345,7 @@
       <div class="detail-main-layout">
         <!-- Sidebar: Poster and Technical Quick Info -->
         <aside class="detail-sidebar">
-          <img id="detail-poster" src="/assets/illustrations/poster_placeholder.svg" alt="Poster" class="detail-poster" onerror="this.onerror=null;this.src='/assets/illustrations/poster_placeholder.svg';">
+          <img id="detail-poster" src="/assets/illustrations/poster_placeholder.svg" alt="Poster" class="detail-poster" data-fallback-src="/assets/illustrations/poster_placeholder.svg">
           <div class="quick-stats">
             <div class="stat-item rating-stars">
               <i data-lucide="star" class="star-icon"></i>
@@ -402,7 +364,22 @@
           <button id="detail-favorite-btn" class="btn btn-secondary detail-btn-action">
             <i data-lucide="heart" id="detail-favorite-icon"></i> <span id="detail-favorite-text">Añadir a mi Lista</span>
           </button>
-          <button id="detail-trailer-btn" class="btn btn-secondary detail-btn-trailer" style="display: none;">
+          <select id="detail-rating" class="detail-list-status" aria-label="Mi valoración" hidden>
+            <option value="">Sin valorar</option>
+            <option value="5">5 · Me encantó</option>
+            <option value="4">4 · Muy buena</option>
+            <option value="3">3 · Buena</option>
+            <option value="2">2 · Regular</option>
+            <option value="1">1 · No me gustó</option>
+          </select>
+                    <select id="detail-list-status" class="detail-list-status" aria-label="Estado en mi lista" hidden>
+            <option value="">Sin estado</option>
+            <option value="watching">Viendo</option>
+            <option value="planned">Pendiente</option>
+            <option value="completed">Completado</option>
+            <option value="dropped">Abandonado</option>
+          </select>
+                    <button id="detail-trailer-btn" class="btn btn-secondary detail-btn-trailer" style="display: none;">
             <i data-lucide="play-circle"></i> <span>Ver Tráiler</span>
           </button>
         </aside>
@@ -689,6 +666,12 @@
             <div id="party-avatar-stack-container" class="party-avatar-stack"></div>
             <span id="party-host-badge" class="party-host-pill"></span>
           </div>
+          <details class="party-host-settings" id="party-host-settings" hidden>
+            <summary>Ajustes de la sala</summary>
+            <label><input type="checkbox" id="party-set-public"> Sala pública (aparece en "Salas en Vivo")</label>
+            <label><input type="checkbox" id="party-set-controls"> Los invitados pueden pausar y adelantar</label>
+            <label><input type="checkbox" id="party-set-guests"> Permitir invitados sin cuenta</label>
+          </details>
           <div class="party-messages-container" id="party-messages-container"></div>
           <div class="party-reactions-bar">
             <button type="button" class="party-reaction-btn" data-reaction="flame" title="Fuego" aria-label="Fuego"><i data-lucide="flame"></i></button>
@@ -742,6 +725,7 @@
               <div><kbd>M</kbd><span>Silenciar</span></div>
               <div><kbd>F</kbd><span>Pantalla completa</span></div>
               <div><kbd>C</kbd><span>Subtítulos sí / no</span></div>
+              <div><kbd>Z</kbd><kbd>X</kbd><span>Subtítulos antes / después</span></div>
               <div><kbd>N</kbd><span>Siguiente episodio</span></div>
               <div><kbd>S</kbd><kbd>&lt;</kbd><kbd>&gt;</kbd><span>Velocidad</span></div>
               <div><kbd>B</kbd><span>Volumen extra</span></div>
@@ -779,6 +763,14 @@
               <i data-lucide="inbox"></i>
               <span>Por Organizar</span>
               <span id="staging-counter-badge" class="badge ml-auto" style="display: none;">0</span>
+            </button>
+            <button class="admin-nav-item" data-target="admin-sub-timings">
+              <i data-lucide="timer"></i>
+              <span>Intro y créditos</span>
+            </button>
+            <button class="admin-nav-item" data-target="admin-sub-users">
+              <i data-lucide="users"></i>
+              <span>Usuarios</span>
             </button>
             <button class="admin-nav-item" data-target="admin-sub-console">
               <i data-lucide="terminal"></i>
@@ -834,6 +826,35 @@
                   <span class="stat-label">Horas de Video</span>
                 </div>
               </div>
+            </div>
+
+            <!-- Live system health, database backups and background jobs -->
+            <div class="admin-card" id="admin-system-card">
+              <div class="admin-panel-header">
+                <div class="admin-header-title-group">
+                  <i data-lucide="activity" class="admin-header-icon"></i>
+                  <h3 class="admin-card-title">Salud del Sistema</h3>
+                </div>
+                <span id="system-worker-badge" class="badge">--</span>
+              </div>
+              <div class="admin-storage-grid" id="system-health-grid" aria-live="polite"></div>
+
+              <div class="admin-panel-header admin-subpanel-header">
+                <div class="admin-header-title-group">
+                  <i data-lucide="database" class="admin-header-icon"></i>
+                  <h3 class="admin-card-title">Respaldos de la base de datos</h3>
+                </div>
+                <button type="button" class="btn btn-secondary" id="btn-create-backup"><i data-lucide="download"></i> Crear respaldo ahora</button>
+              </div>
+              <ul class="admin-simple-list" id="backup-list"></ul>
+
+              <div class="admin-panel-header admin-subpanel-header">
+                <div class="admin-header-title-group">
+                  <i data-lucide="list-checks" class="admin-header-icon"></i>
+                  <h3 class="admin-card-title">Trabajos en segundo plano</h3>
+                </div>
+              </div>
+              <ul class="admin-simple-list" id="jobs-list"></ul>
             </div>
 
             <!-- System Storage & Disk Space Card -->
@@ -1193,6 +1214,37 @@
             </div>
           </div>
 
+          <!-- SUB-VIEW: TIMINGS -->
+          <div id="admin-sub-timings" class="admin-sub-view">
+            <h2 class="admin-sub-title">Intro y créditos</h2>
+            <div class="admin-card">
+              <label class="admin-user-search">Serie
+                <select id="admin-timings-show" class="form-control"></select>
+              </label>
+              <p class="admin-user-meta">Segundos desde el inicio del episodio. "Copiar a la temporada" aplica intro y créditos de ese episodio a toda su temporada.</p>
+              <div id="admin-timings-list" class="admin-users-list"></div>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW: USERS -->
+          <div id="admin-sub-users" class="admin-sub-view">
+            <div class="admin-header-row">
+              <h2 class="admin-sub-title mb-0">Usuarios y Cuentas</h2>
+              <div class="admin-actions-group">
+                <span id="admin-users-count" class="admin-user-meta"></span>
+                <button type="button" class="btn btn-secondary btn-sm-action" id="btn-refresh-users">
+                  <i data-lucide="refresh-cw"></i> Actualizar
+                </button>
+              </div>
+            </div>
+            <div class="admin-card">
+              <label class="admin-user-search">Buscar cuenta
+                <input type="search" id="admin-users-filter" class="form-control" placeholder="Nombre de usuario" autocomplete="off">
+              </label>
+              <div id="admin-users-list" class="admin-users-list" aria-live="polite"></div>
+            </div>
+          </div>
+
           <!-- SUB-VIEW: CONSOLE -->
           <div id="admin-sub-console" class="admin-sub-view">
             <h2 class="admin-sub-title">Consola y Eventos del Servidor</h2>
@@ -1479,6 +1531,16 @@
             <input type="checkbox" id="profile-kids-input"> Perfil infantil
           </label>
 
+          <label class="profile-field-label" for="profile-max-rating-input">Clasificación máxima</label>
+          <select id="profile-max-rating-input" class="input-text">
+            <option value="">Sin límite</option>
+            <option value="G">G · Todo público</option>
+            <option value="PG">PG · Guía parental</option>
+            <option value="PG-13">PG-13 · Mayores de 13</option>
+          </select>
+          <label class="profile-field-label" for="profile-daily-limit-input">Tiempo de pantalla al día (minutos, vacío = sin límite)</label>
+          <input type="number" id="profile-daily-limit-input" class="input-text" min="15" max="1440" step="5" inputmode="numeric" placeholder="Ej: 90">
+
           <label class="profile-field-label" for="profile-pin-input">PIN (opcional)</label>
           <input type="password" id="profile-pin-input" class="input-text" placeholder="4 dígitos para proteger el perfil" maxlength="4" inputmode="numeric" autocomplete="new-password">
           <label class="form-checkbox-label" id="profile-remove-pin-row" style="display: none;">
@@ -1523,10 +1585,10 @@
       <p id="pin-entry-profile-name" class="pin-profile-name"></p>
       
       <div class="pin-inputs-row">
-        <input type="password" id="pin-digit-1" class="pin-digit-input" maxlength="1">
-        <input type="password" id="pin-digit-2" class="pin-digit-input" maxlength="1">
-        <input type="password" id="pin-digit-3" class="pin-digit-input" maxlength="1">
-        <input type="password" id="pin-digit-4" class="pin-digit-input" maxlength="1">
+        <input type="password" id="pin-digit-1" class="pin-digit-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Dígito 1 del PIN">
+        <input type="password" id="pin-digit-2" class="pin-digit-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Dígito 2 del PIN">
+        <input type="password" id="pin-digit-3" class="pin-digit-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Dígito 3 del PIN">
+        <input type="password" id="pin-digit-4" class="pin-digit-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Dígito 4 del PIN">
       </div>
       
       <div id="pin-entry-error" class="login-error-msg" style="display: none;">PIN incorrecto</div>
@@ -1542,24 +1604,26 @@
     <div class="pin-modal login-modal-dialog">
       <!-- Tabs -->
       <div class="login-tabs-header">
-        <button id="tab-login" class="login-tab active">Iniciar Sesión</button>
-        <button id="tab-register" class="login-tab">Registrarse</button>
+        <button type="button" id="tab-login" class="login-tab active">Iniciar Sesión</button>
+        <button type="button" id="tab-register" class="login-tab">Registrarse</button>
       </div>
 
       <h3 id="login-modal-title" class="modal-title">Inicia sesión en tu cuenta</h3>
       
-      <div class="form-group">
-        <input type="text" id="login-username-input" class="input-text" placeholder="Nombre de usuario">
-      </div>
-      <div class="form-group">
-        <input type="password" id="login-password-input" class="input-text" placeholder="Contraseña">
-      </div>
-      <div id="login-error-msg" class="login-error-msg" style="display: none;">Usuario o contraseña incorrectos</div>
-      
-      <div class="pin-buttons pin-buttons-end">
-        <button class="btn btn-secondary" id="login-modal-cancel">Cancelar</button>
-        <button class="btn btn-primary" id="login-modal-submit">Iniciar Sesión</button>
-      </div>
+      <form id="login-form" novalidate>
+        <div class="form-group">
+          <input type="text" id="login-username-input" class="input-text" placeholder="Nombre de usuario" aria-label="Nombre de usuario" autocomplete="username" autocapitalize="none" spellcheck="false">
+        </div>
+        <div class="form-group">
+          <input type="password" id="login-password-input" class="input-text" placeholder="Contraseña" aria-label="Contraseña" autocomplete="current-password">
+        </div>
+        <div id="login-error-msg" class="login-error-msg" role="alert" style="display: none;">Usuario o contraseña incorrectos</div>
+
+        <div class="pin-buttons pin-buttons-end">
+          <button type="button" class="btn btn-secondary" id="login-modal-cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="login-modal-submit">Iniciar Sesión</button>
+        </div>
+      </form>
       <a href="#/app" class="login-app-link" id="login-app-link"><i data-lucide="smartphone"></i> Descargar la app para Android</a>
     </div>
   </div>
@@ -1631,6 +1695,13 @@
             </label>
             <label for="party-create-controls-check" class="party-toggle-label">Permitir que los invitados controlen la reproducción</label>
           </div>
+          <div class="party-toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="party-create-guests-check">
+              <span class="toggle-slider"></span>
+            </label>
+            <label for="party-create-guests-check" class="party-toggle-label">Permitir invitados sin cuenta (sin perfil ni control parental)</label>
+          </div>
           <div id="party-create-error" class="login-error-msg" style="display: none;"></div>
           <div class="party-actions-end">
             <button class="btn btn-secondary" id="party-create-cancel-btn">Cerrar</button>
@@ -1668,21 +1739,9 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="/js/main.js?v=2026.10.04-outros" type="module"></script>
-  <script src="player.js?v=2026.10.04-outros" type="module"></script>
-  <!-- Service Worker Registration for PWA -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-          .then((registration) => {
-            console.log('[PWA] Service Worker registered with scope:', registration.scope);
-          })
-          .catch((error) => {
-            console.warn('[PWA] Service Worker registration failed:', error);
-          });
-      });
-    }
-  </script>
+  <script src="/js/main.js?v=2026.10.05-security" type="module"></script>
+  <script src="player.js?v=2026.10.05-security" type="module"></script>
+  <!-- Service Worker Registration for PWA (+ "new version available" prompt) -->
+  <script src="/js/boot/sw_register.js"></script>
 </body>
 </html>

@@ -3,12 +3,13 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../services/TmdbScraper.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+require_once __DIR__ . '/../services/LibraryPaths.php';
 require_once __DIR__ . '/../middleware/RateLimiter.php';
 
 class ShowController {
     public static function isKidsProfileActive(): bool {
         $token = AuthMiddleware::getBearerToken();
-        $payload = AuthMiddleware::verifyToken($token);
+        $payload = AuthMiddleware::sessionPayload($token);
         if ($payload && !empty($payload['is_kids'])) {
             return true;
         }
@@ -16,6 +17,25 @@ class ShowController {
             return true;
         }
         return false;
+    }
+
+    /** Highest age-rating level (0-3) the active profile may open, or null when it has no cap. */
+    public static function activeMaxLevel(): ?int {
+        $payload = AuthMiddleware::sessionPayload(AuthMiddleware::getBearerToken());
+        return isset($payload['max_level']) && $payload['max_level'] !== null ? (int)$payload['max_level'] : null;
+    }
+
+    /** Kids rules plus the profile's own rating cap: the one question every catalogue path asks. */
+    public static function isRestrictedForActiveProfile(array $show): bool {
+        if (self::isKidsProfileActive() && self::isAdultOrMaturityRestricted($show)) {
+            return true;
+        }
+        $max = self::activeMaxLevel();
+        if ($max === null) {
+            return false;
+        }
+        $rating = $show['rating_mpaa'] ?? ($show['age_rating'] ?? '');
+        return DbHelper::ratingLevel((string)$rating) > $max;
     }
 
     public static function isAdultOrMaturityRestricted(array $show): bool {
@@ -34,47 +54,22 @@ class ShowController {
     }
 
     public static function getShows(): void {
-        $type = $_GET['type'] ?? 'all';
-        $statusParam = $_GET['status'] ?? 'all';
-        $sortParam = $_GET['sort'] ?? 'default';
+        AuthMiddleware::requireCatalogAccess();
+        $type = (string)($_GET['type'] ?? 'all');
+        $status = (string)($_GET['status'] ?? 'all');
+        $sort = (string)($_GET['sort'] ?? 'default');
 
-        $shows = DbHelper::getShows($type);
-
-        if (!defined('TESTING_MODE')) {
-            $shows = array_values(array_filter($shows, function($s) {
-                $id = strtolower($s['id'] ?? '');
-                $title = strtolower($s['title'] ?? '');
-                return !str_starts_with($id, 'show_pin_test')
-                    && !str_starts_with($id, 'test_')
-                    && !str_starts_with($id, 'show_party_')
-                    && !str_starts_with($id, 'notif_show')
-                    && !str_starts_with($id, 'show_sec_')
-                    && !str_starts_with($id, 'mock_')
-                    && !str_ends_with($id, '_test')
-                    && !str_contains($id, '_test_')
-                    && !preg_match('/\btest\b/i', $title);
-            }));
+        $opts = ['type' => $type, 'status' => $status, 'sort' => $sort, 'kids' => self::isKidsProfileActive(), 'max_level' => self::activeMaxLevel()];
+        // Optional paging (the web and the Android app still ask for everything at once).
+        $paged = isset($_GET['limit']) && is_numeric($_GET['limit']);
+        if ($paged) {
+            $opts['limit'] = (int)$_GET['limit'];
+            $opts['offset'] = isset($_GET['offset']) && is_numeric($_GET['offset']) ? (int)$_GET['offset'] : 0;
         }
 
-        if (self::isKidsProfileActive()) {
-            $shows = array_values(array_filter($shows, fn($s) => !self::isAdultOrMaturityRestricted($s)));
-        }
-
-        if ($statusParam !== 'all') {
-            $shows = array_values(array_filter($shows, fn($s) => ($s['status'] ?? 'finished') === $statusParam));
-        }
-
-        if ($sortParam === 'year_desc') {
-            usort($shows, fn($a, $b) => ($b['year'] ?? 0) - ($a['year'] ?? 0));
-        } else if ($sortParam === 'year_asc') {
-            usort($shows, fn($a, $b) => ($a['year'] ?? 0) - ($b['year'] ?? 0));
-        } else if ($sortParam === 'rating_desc') {
-            usort($shows, fn($a, $b) => ($b['rating'] ?? 0) <=> ($a['rating'] ?? 0));
-        } else if ($sortParam === 'title_asc') {
-            usort($shows, fn($a, $b) => strcasecmp($a['title'], $b['title']));
-        }
-
-        jsonResponse($shows);
+        $result = DbHelper::getCatalogShows($opts);
+        @header('X-Total-Count: ' . $result['total']);
+        jsonResponse($result['items'], 200, true);
     }
 
     private static function getTmdbSearchCache(string $key): ?array {
@@ -122,13 +117,14 @@ class ShowController {
             self::setTmdbSearchCache($cacheKey, $results, 300);
         }
 
-        if (self::isKidsProfileActive()) {
-            $results = array_values(array_filter($results, fn($s) => !self::isAdultOrMaturityRestricted($s)));
+        if (self::isKidsProfileActive() || self::activeMaxLevel() !== null) {
+            $results = array_values(array_filter($results, fn($s) => !self::isRestrictedForActiveProfile($s)));
         }
         jsonResponse($results);
     }
 
     public static function getShowDetails(string $id): void {
+        AuthMiddleware::requireCatalogAccess();
         try {
             $show = DbHelper::getShow($id);
             if (!$show) {
@@ -138,8 +134,8 @@ class ShowController {
                 jsonError('Show no encontrado', 404);
             }
 
-            if (self::isKidsProfileActive() && self::isAdultOrMaturityRestricted($show)) {
-                jsonError('Contenido restringido por el perfil infantil activo', 403);
+            if (self::isRestrictedForActiveProfile($show)) {
+                jsonError('Contenido restringido por el perfil activo', 403);
             }
 
             $rawEpisodes = DbHelper::getEpisodesForShow($show['id']);
@@ -157,17 +153,16 @@ class ShowController {
             // Own poster/banner/synopsis per season (see SeasonSync); `seasons` keeps its old shape.
             $seasonInfo = array_map([DbHelper::class, 'serializeSeasonForClient'], DbHelper::getShowSeasons($show['id']));
 
-            $show['episodes'] = $episodes;
-            $show['seasons'] = $seasons;
-            $show['season_info'] = $seasonInfo;
-
+            // Show fields at the top level (what the clients read), plus a `show` object with the same fields for
+            // older callers. The episode lists are sent once at the top level: they used to be repeated inside
+            // `show` as well, so every episode travelled four times.
             $response = $show;
             $response['show'] = $show;
             $response['episodes'] = $episodes;
             $response['seasons'] = $seasons;
             $response['season_info'] = $seasonInfo;
 
-            jsonResponse($response);
+            jsonResponse($response, 200, true);
         } catch (Throwable $e) {
             if (get_class($e) === 'ExitException' || get_class($e) === 'Exception' && $e->getMessage() === 'ExitException') {
                 throw $e;
@@ -201,13 +196,35 @@ class ShowController {
     }
 
     public static function getComments(): void {
+        AuthMiddleware::requireCatalogAccess();
         $showId = trim((string)($_GET['show_id'] ?? ($_GET['showId'] ?? '')));
         if (empty($showId)) {
             jsonError('show_id requerido', 400);
         }
 
-        $comments = DbHelper::getComments($showId);
+        // The viewer is optional (guests read comments too); it only decides which ones show a delete button
+        $viewer = AuthMiddleware::sessionPayload(AuthMiddleware::getBearerToken());
+        $comments = DbHelper::getComments(
+            $showId,
+            $viewer['username'] ?? null,
+            ($viewer['role'] ?? '') === 'admin'
+        );
         jsonResponse(['success' => true, 'comments' => $comments]);
+    }
+
+    /** The author (any profile of the account) or an administrator can remove a comment. */
+    public static function deleteComment(string $id): void {
+        $user = AuthMiddleware::requireAuth();
+        $owner = DbHelper::getCommentOwner($id);
+        if ($owner === null) {
+            jsonError('Comentario no encontrado', 404);
+        }
+        $isAdmin = ($user['role'] ?? '') === 'admin';
+        if (!$isAdmin && strcasecmp($owner, (string)($user['username'] ?? '')) !== 0) {
+            jsonError('Solo puedes eliminar tus propios comentarios', 403);
+        }
+        DbHelper::deleteComment($id);
+        jsonResponse(['success' => true]);
     }
 
     public static function addComment(?array $inputData = null): void {
@@ -266,8 +283,9 @@ class ShowController {
     }
 
     public static function getRandomShow(): void {
+        AuthMiddleware::requireCatalogAccess();
         $isKids = self::isKidsProfileActive();
-        $show = DbHelper::getRandomShow($isKids);
+        $show = DbHelper::getRandomShow($isKids, self::activeMaxLevel());
         jsonResponse([
             'success' => true,
             'show' => $show
@@ -276,44 +294,44 @@ class ShowController {
 
     public static function deleteShow(string $id): void {
         AuthMiddleware::requireAdmin();
+
+        // The id comes from the URL (already percent-decoded by the router). "." / ".." / "x/../y" must never
+        // be turned into a path: they would resolve to a whole category directory such as Anime/.
+        if (!LibraryPaths::isSafeSegment($id)) {
+            jsonError('Identificador de show inválido', 400);
+        }
+
         $show = DbHelper::getShow($id);
 
-        $realId = $show ? $show['id'] : $id;
-        $mediaType = $show['media_type'] ?? 'anime';
-        $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
+        // Unknown id: nothing to delete. The filesystem is never searched by similarity.
+        if ($show) {
+            $mediaType = $show['media_type'] ?? 'anime';
+            $folderPath = LibraryPaths::showDir($mediaType, $show['id']);
 
-        // Delete only the selected show's canonical source directory. The
-        // library scanner imports every folder containing video files, so this
-        // must happen before the database record is removed.
-        $folderPath = LIBRARY_DIR . '/' . $catFolder . '/' . $realId;
-        $realLibPath = realpath(LIBRARY_DIR);
-        if (is_dir($folderPath)) {
-            $realFolderPath = realpath($folderPath);
-            if ($realFolderPath && $realLibPath && str_starts_with($realFolderPath, $realLibPath . DIRECTORY_SEPARATOR)) {
-                if (!self::deleteDirectoryRecursive($realFolderPath)) {
-                    jsonError('No se pudo eliminar la carpeta de medios. Revisa los permisos e inténtalo de nuevo.', 500);
+            if ($folderPath !== null) {
+                // Delete only the selected show's canonical source directory. The library scanner imports every
+                // folder containing video files, so this must happen before the database record is removed.
+                if (is_link($folderPath)) {
+                    // A symlinked show folder: remove the link itself, never its target.
+                    if (!@unlink($folderPath) && !@rmdir($folderPath)) {
+                        jsonError('No se pudo eliminar la carpeta de medios. Revisa los permisos e inténtalo de nuevo.', 500);
+                    }
+                } elseif (is_dir($folderPath)) {
+                    $realFolderPath = LibraryPaths::resolveExistingShowDir($mediaType, $show['id']);
+                    if ($realFolderPath === null) {
+                        jsonError('La carpeta del show está fuera de la biblioteca; no se eliminó nada.', 403);
+                    }
+                    if (!LibraryPaths::deleteTree($realFolderPath)) {
+                        jsonError('No se pudo eliminar la carpeta de medios. Revisa los permisos e inténtalo de nuevo.', 500);
+                    }
                 }
             }
-        }
 
-        // Only remove the catalog entry after the media source is gone.
-        DbHelper::deleteShow($realId);
+            // Only remove the catalog entry after the media source is gone.
+            DbHelper::deleteShow($show['id']);
+        }
 
         jsonResponse(['success' => true]);
-    }
-
-    private static function deleteDirectoryRecursive(string $dir): bool {
-        if (!is_dir($dir)) return false;
-        $files = array_diff(scandir($dir), ['.', '..']);
-        foreach ($files as $file) {
-            $path = $dir . '/' . $file;
-            if (is_dir($path)) {
-                self::deleteDirectoryRecursive($path);
-            } else {
-                @unlink($path);
-            }
-        }
-        return @rmdir($dir);
     }
 }
 

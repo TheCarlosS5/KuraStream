@@ -1,0 +1,29 @@
+; KuraStream PHP-FPM pool "stream": long requests (video remux/transcode, Watch Party SSE, admin uploads and scans).
+; Workers are created on demand and leave after 30 s idle, so the many-connections ceiling costs nothing at rest.
+[kurastream-stream]
+user = ${KURA_USER}
+group = ${KURA_GROUP}
+listen = ${KURA_STREAM_LISTEN}
+listen.owner = ${KURA_WEB_USER}
+listen.group = ${KURA_WEB_GROUP}
+listen.mode = 0660
+listen.backlog = 511
+
+pm = ondemand
+pm.max_children = 120
+pm.process_idle_timeout = 30s
+pm.max_requests = 200
+
+request_terminate_timeout = 0
+clear_env = no
+catch_workers_output = yes
+decorate_workers_output = no
+
+php_admin_value[error_log] = ${KURA_PHP_ERROR_LOG}
+php_admin_flag[log_errors] = on
+php_admin_flag[display_errors] = off
+php_admin_value[memory_limit] = 256M
+php_admin_value[max_execution_time] = 0
+php_admin_value[post_max_size] = 4096M
+php_admin_value[upload_max_filesize] = 4096M
+php_admin_value[max_input_time] = 3600

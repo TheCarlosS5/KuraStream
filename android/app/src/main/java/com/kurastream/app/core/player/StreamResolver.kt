@@ -10,7 +10,12 @@ data class ResolvedStream(
     val isDirectPlay: Boolean,
     val streamStartOffsetSeconds: Float,
     val requiresInternalSeek: Boolean,
-    val targetSeekPositionSeconds: Float
+    val targetSeekPositionSeconds: Float,
+    /**
+     * True when the server sends the raw file (`?direct=1`): every audio/subtitle track is inside it and the player
+     * must pick the right one itself, because the server no longer remuxes a single track for it.
+     */
+    val clientSelectsTracks: Boolean = false
 )
 
 object StreamResolver {
@@ -39,6 +44,31 @@ object StreamResolver {
         return isDirectContainer && isDirectCodec && isDefaultAudio
     }
 
+    private val RAW_CONTAINERS = setOf("mkv", "mp4", "m4v", "webm", "mov")
+    private val RAW_AUDIO_CODECS = setOf("aac", "mp3", "opus", "vorbis", "flac", "ac3", "eac3", "alac", "pcm_s16le", "pcm_s24le")
+
+    /**
+     * True when this device can play the file as it is stored (any container ExoPlayer reads, any video codec the
+     * phone decodes in hardware/software, every track chosen on the client). The server then only serves bytes.
+     * An episode whose audio is something ExoPlayer cannot decode (DTS, TrueHD) is left to the server.
+     */
+    fun canRawDirectPlay(
+        episode: Episode,
+        decoders: VideoDecoderSupport,
+        needsDownmix: Boolean = false,
+        forceH264: Boolean = false
+    ): Boolean {
+        if (forceH264 || needsDownmix) return false
+        if (episode.container.lowercase().trim() !in RAW_CONTAINERS) return false
+        val codec = episode.videoCodec.lowercase().trim()
+        if (codec.isEmpty()) return false   // not probed yet: only the server knows what is inside
+        val bitDepth = if (episode.bitDepth > 0) episode.bitDepth else 8
+        if (!decoders.canDecode(codec, bitDepth)) return false
+        val audioCodecs = episode.audioTracks.map { it.codec.lowercase().trim() }
+            .ifEmpty { listOf(episode.audioCodec.lowercase().trim()) }
+        return audioCodecs.all { it.isEmpty() || it in RAW_AUDIO_CODECS }
+    }
+
     /**
      * Resolves the stream URL and start offsets for playback.
      */
@@ -48,8 +78,26 @@ object StreamResolver {
         requestedResumePositionSeconds: Float,
         selectedAudioTrackIndex: Int = 0,
         needsDownmix: Boolean = false,
-        forceH264: Boolean = false
+        forceH264: Boolean = false,
+        decoders: VideoDecoderSupport = VideoDecoderSupport.None
     ): ResolvedStream {
+        if (canRawDirectPlay(episode, decoders, needsDownmix, forceH264)) {
+            // Range requests handle every seek; the container's own tracks are selected by the player
+            val url = ServerUrlResolver.buildStreamUrl(
+                baseUrl = baseUrl,
+                episodeId = episode.id,
+                direct = true
+            )
+            return ResolvedStream(
+                streamUrl = url,
+                isDirectPlay = true,
+                streamStartOffsetSeconds = 0f,
+                requiresInternalSeek = requestedResumePositionSeconds > 2f,
+                targetSeekPositionSeconds = requestedResumePositionSeconds,
+                clientSelectsTracks = true
+            )
+        }
+
         val isDirect = canDirectPlay(
             episode = episode,
             selectedAudioTrackIndex = selectedAudioTrackIndex,

@@ -77,11 +77,15 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
 
   // 1. Offscreen Video Clone (only when canDirectPlay is true)
   let offscreenVideo = null;
+  let deferredSrc = '';
+  let sourceRequested = false;
   if (canDirectPlay) {
     offscreenVideo = document.createElement('video');
     offscreenVideo.muted = true;
     offscreenVideo.defaultMuted = true;
-    offscreenVideo.preload = 'auto';
+    // 'none' until the viewer first hovers the timeline: a second <video> that loads at once doubled the bandwidth
+    // of every playing episode (with 30 viewers, the Wi-Fi's most precious resource) for a feature few use.
+    offscreenVideo.preload = 'none';
     offscreenVideo.playsInline = true;
     offscreenVideo.style.display = 'none';
 
@@ -91,16 +95,8 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
       offscreenVideo.crossOrigin = options.crossOrigin;
     }
 
-    const rawSrc = options.src || (mainVideoEl ? (mainVideoEl.currentSrc || mainVideoEl.src) : '') || '';
-    if (rawSrc) {
-      const initialSrc = rawSrc.includes('?') ? `${rawSrc}&preview=1` : `${rawSrc}?preview=1`;
-      offscreenVideo.src = initialSrc;
-      try {
-        offscreenVideo.load();
-      } catch {
-        // Ignore load errors during init
-      }
-    }
+    // The source is remembered and only attached on first hover (showTooltip -> updateSource).
+    deferredSrc = options.src || '';
   }
 
   // 2. DOM Tooltip Creation (singleton container)
@@ -276,10 +272,12 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
     tooltip.style.visibility = 'visible';
     tooltip.style.opacity = '1';
 
-    // Synchronize video source if missing
-    if (offscreenVideo && !offscreenVideo.src && mainVideoEl) {
-      const src = mainVideoEl.currentSrc || mainVideoEl.src;
+    // First hover: only now does the preview video start loading
+    if (offscreenVideo && !offscreenVideo.src) {
+      const src = deferredSrc || (mainVideoEl ? (mainVideoEl.currentSrc || mainVideoEl.src) : '');
       if (src) {
+        sourceRequested = true;
+        offscreenVideo.preload = 'metadata';
         updateSource(src);
       }
     }
@@ -358,6 +356,11 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
     if (isDestroyed || !offscreenVideo) return;
     const rawSrc = newSrc || (mainVideoEl ? (mainVideoEl.currentSrc || mainVideoEl.src) : '') || '';
     const src = rawSrc ? (rawSrc.includes('?') ? `${rawSrc}&preview=1` : `${rawSrc}?preview=1`) : '';
+    if (!sourceRequested) {
+      // Not hovered yet: remember the address for later instead of downloading it now.
+      deferredSrc = rawSrc;
+      return;
+    }
     if (src && offscreenVideo.src !== src) {
       offscreenVideo.src = src;
       try {

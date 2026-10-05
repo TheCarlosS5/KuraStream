@@ -4,9 +4,12 @@
  */
 
 import { AuthManager } from './core/auth.js';
+import { fetchJson, loadErrorState } from './core/http.js';
+import { readLanguagePrefs } from './player/tracks.js';
+import { initDialogs } from './core/dialogs.js';
 import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
-import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.04-outros';
+import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.05-security';
 import { partyManager } from './modules/party.js';
 import { updateActiveNavHighlight, initHeaderDropdowns, initAdminSidebar, stopAdminPolling } from './modules/navigation.js';
 import { initCardPopovers } from './modules/card_popover_preview.js';
@@ -41,6 +44,69 @@ export function escapeHtmlAttribute(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+// Bumped on every route change. A view that awaits the network compares it afterwards and stops when the person
+// has already moved on, so a slow answer for show A can no longer paint over show B.
+let navigationGeneration = 0;
+
+// One catalogue request shared by every view that needs the list (home, genres, "popular", avatar picker): it used
+// to be fetched again, and parsed again, in seven places. Cached for 30 s per signed-in token; the server also
+// answers 304 when nothing changed.
+let catalogLoad = null;
+let catalogLoadedAt = 0;
+let catalogToken = null;
+
+export function loadCatalog({ force = false } = {}) {
+  const token = (typeof AuthManager !== 'undefined' && AuthManager.getToken) ? AuthManager.getToken() : null;
+  const usable = catalogLoad && token === catalogToken && (catalogLoadedAt === 0 || Date.now() - catalogLoadedAt < 30000);
+  if (!force && usable) return catalogLoad;
+  const load = fetchJson('/api/shows').then(data => (Array.isArray(data) ? data : (data.shows || [])));
+  catalogLoad = load;
+  catalogLoadedAt = 0;
+  catalogToken = token;
+  load.then(() => { if (catalogLoad === load) catalogLoadedAt = Date.now(); }, () => { if (catalogLoad === load) catalogLoad = null; });
+  return load;
+}
+
+// Lists (catalogue, history...) come back to where the person left them; every other view starts at the top.
+const scrollPositions = new Map();
+const SCROLL_RESTORED_ROUTES = new Set(['/', '/airing', '/movies', '/my-list', '/history', '/calendar', '/stats']);
+let scrollRouteKey = null;
+
+function trackRouteScroll(path) {
+  if (scrollRouteKey !== null && typeof window.scrollY === 'number') scrollPositions.set(scrollRouteKey, window.scrollY);
+  scrollRouteKey = path === '' ? '/' : path;
+}
+
+function restoreScrollFor(path) {
+  if (typeof window.scrollTo !== 'function') return;
+  const target = SCROLL_RESTORED_ROUTES.has(path) ? (scrollPositions.get(path) || 0) : 0;
+  window.scrollTo(0, target);
+  // The list is painted after its data arrives: try again while it grows.
+  if (target > 0) [150, 500, 1200].forEach((ms) => setTimeout(() => window.scrollTo(0, target), ms));
+}
+
+/** `url("...")` for a CSS background, with the address JSON-escaped so a quote or parenthesis cannot end the string. */
+export function cssUrl(src) {
+  return `url(${JSON.stringify(String(src))})`;
+}
+
+/**
+ * Paints avatars marked with data-bg-image / data-bg-color after they were inserted. Interpolating profile data
+ * into a `style="..."` string lets a crafted value add declarations (a full-screen overlay); assigning a single
+ * style property can only ever set that property.
+ */
+export function applyDynamicBackgrounds(root) {
+  if (!root) return;
+  root.querySelectorAll('[data-bg-image]').forEach(el => {
+    el.style.backgroundImage = cssUrl(el.dataset.bgImage);
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+  });
+  root.querySelectorAll('[data-bg-color]').forEach(el => {
+    el.style.background = /^#[0-9a-fA-F]{6}$/.test(el.dataset.bgColor) ? el.dataset.bgColor : 'var(--accent-color)';
+  });
 }
 
 // Broken artwork (404, deleted file) falls back to a placeholder instead of showing alt text
@@ -131,7 +197,7 @@ export function renderAuthState() {
       if (userAvatarInitial) {
         if (activeProfile && activeProfile.avatar) {
           userAvatarInitial.textContent = '';
-          userAvatarInitial.style.backgroundImage = `url('${activeProfile.avatar}')`;
+          userAvatarInitial.style.backgroundImage = cssUrl(activeProfile.avatar);
           userAvatarInitial.style.backgroundSize = 'cover';
           userAvatarInitial.style.backgroundPosition = 'center';
         } else {
@@ -152,7 +218,7 @@ export function renderAuthState() {
         if (userAvatarInitial) {
           if (activeProfile.avatar) {
             userAvatarInitial.textContent = '';
-            userAvatarInitial.style.backgroundImage = `url('${activeProfile.avatar}')`;
+            userAvatarInitial.style.backgroundImage = cssUrl(activeProfile.avatar);
             userAvatarInitial.style.backgroundSize = 'cover';
             userAvatarInitial.style.backgroundPosition = 'center';
           } else {
@@ -221,6 +287,8 @@ export function openAuthModal(mode = 'login') {
   if (passInput) passInput.value = '';
 
   modal.dataset.mode = (mode === 'register') ? 'register' : (mode === 'admin' ? 'admin' : 'login');
+  // Tells the browser/password manager whether to fill a saved password or offer to save a new one.
+  if (passInput) passInput.setAttribute('autocomplete', mode === 'register' ? 'new-password' : 'current-password');
 
   if (mode === 'register') {
     if (tabLogin) {
@@ -378,23 +446,20 @@ export function setupAuthModalListeners() {
     }
   };
 
-  if (submitBtn) {
+  // A real <form>: Enter in either field and the button both submit it, and password managers recognise it.
+  const loginForm = document.getElementById('login-form');
+  if (loginForm) {
+    loginForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handleAuthSubmit();
+    });
+  } else if (submitBtn) {
     submitBtn.addEventListener('click', handleAuthSubmit);
   }
 
-  const handleKeydown = (e) => {
-    if (modal && modal.style.display !== 'none' && modal.style.display !== '') {
-      if (e.key === 'Escape') {
-        closeAuthModal();
-      } else if (e.key === 'Enter') {
-        if (document.activeElement === userInput || document.activeElement === passInput) {
-          e.preventDefault();
-          handleAuthSubmit();
-        }
-      }
-    }
-  };
-  document.addEventListener('keydown', handleKeydown);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal && modal.style.display !== 'none' && modal.style.display !== '') closeAuthModal();
+  });
 }
 
 // -------------------------------------------------------------
@@ -408,6 +473,11 @@ export function setupCatalogueActions() {
     if (card.dataset.catalogueRoute !== undefined) {
       window.location.hash = card.dataset.catalogueRoute;
     } else if (card.dataset.episodeId) {
+      if (card.classList && card.classList.contains('is-missing')) {
+        // The file is not in the library right now (moved, deleted, disk offline): say so instead of failing in the player.
+        window.showToast?.('Este episodio no está disponible en la biblioteca ahora mismo', 'error');
+        return;
+      }
       if (typeof window.showEpisodeDetails === 'function') {
         window.showEpisodeDetails(card.dataset.episodeId);
       } else {
@@ -588,6 +658,19 @@ export function renderContinueWatching(continueItems) {
   `;
 }
 
+/** "Porque viste X" rows: one rail of show cards per group the server computed. */
+export function renderRecommendations(groups) {
+  if (!Array.isArray(groups) || groups.length === 0) return '';
+  return groups.map(group => `
+    <section class="dashboard-section recommendation-section">
+      <h2 class="section-title">Porque viste ${escapeHtml((group.because && group.because.title) || '')}</h2>
+      <div class="recommendation-rail">
+        ${(group.shows || []).map(show => createShowCardHTML(show)).join('')}
+      </div>
+    </section>
+  `).join('');
+}
+
 export function createShowCardHTML(show, historyMap = new Map()) {
   const poster = show.poster_path || '';
   const posterSrc = catalogueImageUrl(poster) || '/assets/illustrations/poster_placeholder.svg';
@@ -616,7 +699,7 @@ export function createShowCardHTML(show, historyMap = new Map()) {
   ` : '';
 
   return `
-    <div class="show-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}">
+    <a class="show-card" href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}">
       <div class="card-img-wrapper">
         <img class="show-card-poster" src="${escapeHtmlAttribute(posterSrc)}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy" decoding="async" data-fallback-src="/assets/illustrations/poster_placeholder.svg">
         <div class="card-rating-badge">
@@ -631,7 +714,7 @@ export function createShowCardHTML(show, historyMap = new Map()) {
           <span>${show.media_type === 'movie' ? 'Película' : 'Anime'}${show.year ? ` · ${escapeHtml(show.year)}` : ''}</span>
         </div>
       </div>
-    </div>
+    </a>
   `;
 }
 
@@ -667,11 +750,12 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
     ` : '';
 
     return `
-      <div class="episode-item" role="button" tabindex="0" data-episode-id="${escapeHtmlAttribute(ep.id)}">
+      <div class="episode-item${ep.available === false ? ' is-missing' : ''}" role="button" tabindex="0"${ep.available === false ? ' aria-disabled="true"' : ''} data-episode-id="${escapeHtmlAttribute(ep.id)}">
         <div class="episode-thumbnail-container">
           <img class="episode-thumb" src="${escapeHtmlAttribute(thumbSrc)}" alt="${escapeHtmlAttribute(ep.title || 'Episodio')}" loading="lazy">
           ${durationMin > 0 ? `<div class="episode-duration-pill">${durationMin}m</div>` : ''}
           ${completedBadgeHTML}
+          ${ep.available === false ? '<div class="badge-missing">No disponible</div>' : ''}
           ${progressBarHTML}
           <div class="episode-play-overlay">
             <span class="play-icon-small"><i data-lucide="play"></i></span>
@@ -683,10 +767,42 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
             <h4 class="episode-title">${escapeHtml(ep.title || `Capítulo ${ep.episode_number || 1}`)}</h4>
           </div>
           <p class="episode-synopsis">${escapeHtml(ep.synopsis || 'Sin descripción disponible.')}</p>
+          <button type="button" class="episode-mark-btn" data-mark-episode="${escapeHtmlAttribute(ep.id)}" data-watched="${isCompleted ? '1' : '0'}" aria-pressed="${isCompleted ? 'true' : 'false'}">${isCompleted ? 'Marcar como no visto' : 'Marcar como visto'}</button>
         </div>
       </div>
     `;
   }).join('');
+
+  // Marking is a button inside a card that opens the episode: it must not also open it
+  (typeof targetContainer.querySelectorAll === 'function' ? targetContainer.querySelectorAll('.episode-mark-btn') : []).forEach(btn => {
+    btn.addEventListener('click', async event => {
+      event.stopPropagation();
+      const episodeId = btn.dataset.markEpisode;
+      const watched = btn.dataset.watched !== '1';
+      if (!AuthManager.getToken()) {
+        window.showToast?.('Inicia sesión para marcar episodios', 'warning');
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/history/mark', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Authorization': `Bearer ${AuthManager.getToken()}` },
+          body: JSON.stringify({ episode_ids: [episodeId], watched })
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'No se pudo actualizar');
+        const ep = epList.find(e => e.id === episodeId) || {};
+        const dur = ep.duration || 0;
+        showProgressMap[episodeId] = watched
+          ? { ...(showProgressMap[episodeId] || {}), completed: true, progress_seconds: dur, duration: dur }
+          : { completed: false, progress_seconds: 0, duration: dur };
+        renderEpisodeList(epList, targetContainer, fallbackPoster, showProgressMap);
+      } catch (e) {
+        btn.disabled = false;
+        window.showToast?.(e.message || 'No se pudo actualizar el episodio', 'error');
+      }
+    });
+  });
 
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
@@ -898,9 +1014,7 @@ export function showEpisodeDetails(episodeId) {
         }
       });
 
-      const savedAudioPref = (typeof localStorage !== 'undefined') ? (localStorage.getItem('kura_pref_audio_lang') || localStorage.getItem('kurastream_preferred_audio_language')) : null;
-      const userAudioPref = (typeof window !== 'undefined' && window.userPreferences?.preferred_audio_language) || null;
-      const prefAudio = savedAudioPref || userAudioPref || 'spa';
+      const prefAudio = readLanguagePrefs(typeof localStorage !== 'undefined' ? localStorage : null, typeof window !== 'undefined' ? window.userPreferences : null).audio;
 
       const matchesLang = (trackLang, pref) => {
         if (!trackLang || !pref) return false;
@@ -992,6 +1106,7 @@ export function showEpisodeDetails(episodeId) {
 }
 
 export async function loadShowDetails(id) {
+  const generation = navigationGeneration;
   const detailTitle = document.getElementById('detail-title');
   const detailSynopsis = document.getElementById('detail-synopsis');
   const detailPoster = document.getElementById('detail-poster');
@@ -1020,6 +1135,7 @@ export async function loadShowDetails(id) {
       throw new Error(`Error ${res.status}: no se pudo cargar el show`);
     }
     const data = await res.json();
+    if (generation !== navigationGeneration) return;   // the person already left this show
     const show = data.show || data;
     const episodes = Array.isArray(data.episodes) ? data.episodes : (show.episodes || []);
     currentShowEpisodes = episodes;
@@ -1484,8 +1600,9 @@ export async function loadShowDetails(id) {
       if (hasAudioChoice || hasSubChoice) {
         trackPrefContainer.style.display = 'flex';
 
-        let currentAudioPref = localStorage.getItem('kura_pref_audio_lang') || 'jpn';
-        let currentSubPref = localStorage.getItem('kura_pref_sub_lang') || 'spa';
+        const languagePrefs = readLanguagePrefs(localStorage, window.userPreferences);
+        let currentAudioPref = languagePrefs.audio;
+        let currentSubPref = languagePrefs.subtitle;
 
         // Render Audio Pills
         if (audioTracksMap.size > 0) {
@@ -1549,6 +1666,54 @@ export async function loadShowDetails(id) {
         }
       } else {
         trackPrefContainer.style.display = 'none';
+      }
+    }
+
+    // Watch-list status (viewing / planned / completed / dropped) for the active profile
+    const statusSelect = document.getElementById('detail-list-status');
+    if (statusSelect) {
+      statusSelect.hidden = !userSession.hasProfile;
+      statusSelect.value = '';
+      statusSelect.onchange = null;
+      if (userSession.hasProfile) {
+        const statusHeaders = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Authorization': `Bearer ${token}` };
+        try {
+          const res = await fetch('/api/list-status', { headers: statusHeaders });
+          if (res.ok) statusSelect.value = ((await res.json()).statuses || {})[id] || '';
+        } catch {}
+        statusSelect.onchange = async () => {
+          try {
+            const res = await fetch('/api/list-status', { method: 'POST', headers: statusHeaders, body: JSON.stringify({ show_id: id, status: statusSelect.value }) });
+            if (!res.ok) throw new Error();
+            safeToast('Estado guardado', 'success');
+          } catch {
+            safeToast('No se pudo guardar el estado', 'error');
+          }
+        };
+      }
+    }
+
+    // Personal 1-5 rating (feeds "Porque viste ...")
+    const ratingSelect = document.getElementById('detail-rating');
+    if (ratingSelect) {
+      ratingSelect.hidden = !userSession.hasProfile;
+      ratingSelect.value = '';
+      ratingSelect.onchange = null;
+      if (userSession.hasProfile) {
+        const ratingHeaders = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Authorization': `Bearer ${token}` };
+        try {
+          const res = await fetch('/api/ratings', { headers: ratingHeaders });
+          if (res.ok) ratingSelect.value = String(((await res.json()).ratings || {})[id] || '');
+        } catch {}
+        ratingSelect.onchange = async () => {
+          try {
+            const res = await fetch('/api/ratings', { method: 'POST', headers: ratingHeaders, body: JSON.stringify({ show_id: id, rating: ratingSelect.value ? Number(ratingSelect.value) : null }) });
+            if (!res.ok) throw new Error();
+            safeToast('Valoración guardada', 'success');
+          } catch {
+            safeToast('No se pudo guardar la valoración', 'error');
+          }
+        };
       }
     }
 
@@ -1647,7 +1812,7 @@ export async function loadShowDetails(id) {
       if (commentUserAvatar) {
         if (activeProfile && activeProfile.avatar) {
           commentUserAvatar.textContent = '';
-          commentUserAvatar.style.backgroundImage = `url('${escapeHtmlAttribute(activeProfile.avatar)}')`;
+          commentUserAvatar.style.backgroundImage = cssUrl(activeProfile.avatar);
           commentUserAvatar.style.backgroundSize = 'cover';
           commentUserAvatar.style.backgroundPosition = 'center';
         } else {
@@ -1675,42 +1840,66 @@ export async function loadShowDetails(id) {
       if (!commentsListContainer) return;
       commentsListContainer.innerHTML = '<div class="state-box-loading">Cargando comentarios...</div>';
       try {
-        const cRes = await fetch(`/api/comments?show_id=${encodeURIComponent(id)}`);
-        if (cRes.ok) {
-          const cData = await cRes.json();
-          const comments = Array.isArray(cData.comments) ? cData.comments : [];
-          if (comments.length === 0) {
-            commentsListContainer.innerHTML = '<div class="empty-state text-muted" style="padding: 24px 0; text-align: center;">No hay comentarios todavía. ¡Sé el primero en comentar!</div>';
-            return;
-          }
-          commentsListContainer.innerHTML = comments.map(c => {
-            const author = c.profile_name ? `${c.username} (${c.profile_name})` : (c.username || 'Usuario');
-            const initial = (c.profile_name || c.username || 'U')[0].toUpperCase();
-            const dateStr = c.created_at ? new Date(c.created_at).toLocaleDateString() : '';
-            const avatarBg = c.avatar 
-              ? `background-image: url('${escapeHtmlAttribute(c.avatar)}'); background-size: cover; background-position: center;`
-              : `background: ${escapeHtmlAttribute(c.avatar_color || 'var(--accent-color)')};`;
-            const avatarContent = c.avatar ? '' : escapeHtml(initial);
-            return `
-              <div class="comment-item" style="display: flex; gap: 12px; margin-bottom: 16px; padding: 12px; background: var(--surface-control); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
-                <div class="user-avatar-initial" style="width: 36px; height: 36px; font-size: 0.9rem; flex-shrink: 0; ${avatarBg}">${avatarContent}</div>
-                <div style="flex: 1;">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <strong style="color: var(--text-main); font-size: 0.9rem;">${escapeHtml(author)}</strong>
-                    <span style="color: var(--text-muted); font-size: 0.75rem;">${escapeHtml(dateStr)}</span>
-                  </div>
-                  <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0; white-space: pre-wrap;">${escapeHtml(c.content)}</p>
-                </div>
-              </div>
-            `;
-          }).join('');
+        const cData = await fetchJson(`/api/comments?show_id=${encodeURIComponent(id)}`);
+        const comments = Array.isArray(cData.comments) ? cData.comments : [];
+        if (comments.length === 0) {
+          commentsListContainer.innerHTML = '<div class="empty-state text-muted" style="padding: 24px 0; text-align: center;">No hay comentarios todavía. ¡Sé el primero en comentar!</div>';
+          return;
         }
-      } catch {
-        commentsListContainer.innerHTML = '<div class="text-danger" style="padding: 12px 0;">Error al cargar comentarios.</div>';
+        commentsListContainer.innerHTML = comments.map(c => {
+          // The API deliberately does not send account (login) names; comments show the profile name.
+          const author = c.profile_name || 'Usuario';
+          const initial = (c.profile_name || 'U')[0].toUpperCase();
+          const dateStr = c.created_at ? new Date(c.created_at).toLocaleDateString() : '';
+          const avatarAttrs = c.avatar
+            ? `data-bg-image="${escapeHtmlAttribute(c.avatar)}"`
+            : `data-bg-color="${escapeHtmlAttribute(c.avatar_color || '')}"`;
+          const avatarContent = c.avatar ? '' : escapeHtml(initial);
+          return `
+            <div class="comment-item" style="display: flex; gap: 12px; margin-bottom: 16px; padding: 12px; background: var(--surface-control); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+              <div class="user-avatar-initial" style="width: 36px; height: 36px; font-size: 0.9rem; flex-shrink: 0;" ${avatarAttrs}>${avatarContent}</div>
+              <div style="flex: 1;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <strong style="color: var(--text-main); font-size: 0.9rem;">${escapeHtml(author)}</strong>
+                  <span style="color: var(--text-muted); font-size: 0.75rem;">${escapeHtml(dateStr)}${c.can_delete ? ` · <button type="button" class="comment-delete-btn" data-comment-id="${escapeHtmlAttribute(c.id)}" aria-label="Eliminar comentario">Eliminar</button>` : ''}</span>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0; white-space: pre-wrap;">${escapeHtml(c.content)}</p>
+              </div>
+            </div>
+          `;
+        }).join('');
+        applyDynamicBackgrounds(commentsListContainer);
+      } catch (error) {
+        renderLoadErrorState(commentsListContainer, error, 'los comentarios', loadComments);
       }
     };
 
     await loadComments();
+
+    if (commentsListContainer) {
+      // One handler for the whole list (assigned, so reopening the page never stacks listeners)
+      commentsListContainer.onclick = async (event) => {
+        const btn = event.target.closest('.comment-delete-btn');
+        if (!btn) return;
+        if (btn.dataset.armed !== '1') {
+          btn.dataset.armed = '1';
+          btn.textContent = '¿Seguro? Pulsa de nuevo';
+          setTimeout(() => { if (btn.isConnected) { btn.dataset.armed = ''; btn.textContent = 'Eliminar'; } }, 5000);
+          return;
+        }
+        try {
+          const res = await fetch(`/api/comments/${encodeURIComponent(btn.dataset.commentId)}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Authorization': `Bearer ${getAuthToken()}` }
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'No se pudo eliminar');
+          safeToast('Comentario eliminado', 'success');
+          await loadComments();
+        } catch (e) {
+          safeToast(e.message || 'No se pudo eliminar el comentario', 'error');
+        }
+      };
+    }
 
     if (btnSubmitComment && commentTextarea) {
       btnSubmitComment.onclick = async () => {
@@ -1761,6 +1950,28 @@ export async function loadShowDetails(id) {
   }
 }
 
+/**
+ * Shows why a list could not be loaded (no connection, expired session, server error) with the right action,
+ * instead of the "empty" illustration that made a failure look like the user having no data.
+ */
+function renderLoadErrorState(container, error, what, retry) {
+  const info = loadErrorState(error, what);
+  const icon = info.kind === 'network' ? 'wifi-off' : (info.kind === 'auth' ? 'user' : 'triangle-alert');
+  container.innerHTML = `
+    <div class="empty-state-card col-span-all load-error-state" role="alert" data-error-kind="${escapeHtmlAttribute(info.kind)}">
+      <h3><i data-lucide="${icon}"></i> ${escapeHtml(info.title)}</h3>
+      <p>${escapeHtml(info.message)}</p>
+      ${info.retry ? '<button type="button" class="btn btn-primary" data-action="retry-load"><i data-lucide="refresh-cw"></i> Reintentar</button>' : ''}
+      ${info.login ? '<button type="button" class="btn btn-primary" data-action="login-again"><i data-lucide="user"></i> Iniciar sesión</button>' : ''}
+    </div>
+  `;
+  const retryBtn = container.querySelector('[data-action="retry-load"]');
+  if (retryBtn && typeof retry === 'function') retryBtn.onclick = retry;
+  const loginBtn = container.querySelector('[data-action="login-again"]');
+  if (loginBtn) loginBtn.onclick = () => openAuthModal('login');
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
 function renderLoginRequiredState(container, title, message, illustration) {
   const needsProfileOnly = AuthManager.isAuthenticated();
   container.innerHTML = `
@@ -1784,6 +1995,7 @@ function renderLoginRequiredState(container, title, message, illustration) {
 export async function renderMyListView() {
   const container = document.getElementById('mylist-grid');
   if (!container) return;
+  const generation = navigationGeneration;
 
   container.innerHTML = `<div class="shows-grid"><div class="show-card skeleton" style="height:250px;"></div><div class="show-card skeleton" style="height:250px;"></div><div class="show-card skeleton" style="height:250px;"></div><div class="show-card skeleton" style="height:250px;"></div></div>`;
   const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
@@ -1795,15 +2007,15 @@ export async function renderMyListView() {
   }
 
   try {
-    const res = await fetch(`/api/favorites?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, {
+    favorites = await fetchJson(`/api/favorites?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
-    if (res.ok) {
-      favorites = await res.json();
-    }
-  } catch (e) {
-    console.warn('Error fetching favorites:', e);
+  } catch (error) {
+    if (generation !== navigationGeneration) return;
+    renderLoadErrorState(container, error, 'tu lista', renderMyListView);
+    return;
   }
+  if (generation !== navigationGeneration) return;
 
   if (!Array.isArray(favorites) || favorites.length === 0) {
     container.innerHTML = `
@@ -1840,6 +2052,7 @@ export async function renderMyListView() {
 export async function renderHistoryView() {
   const container = document.getElementById('history-list');
   if (!container) return;
+  const generation = navigationGeneration;
 
   container.innerHTML = `<div class="history-list-container"><div class="history-item skeleton" style="height:80px;"></div><div class="history-item skeleton" style="height:80px;"></div><div class="history-item skeleton" style="height:80px;"></div></div>`;
   const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
@@ -1854,13 +2067,13 @@ export async function renderHistoryView() {
 
   try {
     const headers = { 'Authorization': `Bearer ${token}` };
-    const res = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
-    if (res.ok) {
-      historyItems = await res.json();
-    }
-  } catch (e) {
-    console.warn('Error fetching history:', e);
+    historyItems = await fetchJson(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
+  } catch (error) {
+    if (generation !== navigationGeneration) return;
+    renderLoadErrorState(container, error, 'tu historial', renderHistoryView);
+    return;
   }
+  if (generation !== navigationGeneration) return;
 
   if (!Array.isArray(historyItems) || historyItems.length === 0) {
     container.innerHTML = `
@@ -1939,8 +2152,7 @@ export async function loadPopularSidebar(currentShowId) {
   if (!popularSidebar) return;
 
   try {
-    const res = await fetch('/api/shows');
-    const allShows = await res.json();
+    const allShows = await loadCatalog();
     const isTestShow = (s) => {
       const id = String(s.id || '').toLowerCase();
       const title = String(s.title || '').toLowerCase();
@@ -2183,6 +2395,7 @@ export async function renderStatsView() {
   const cardsGrid = document.getElementById('stats-cards-grid');
   const chartContainer = document.getElementById('stats-genre-chart');
   if (!cardsGrid || !chartContainer) return;
+  const generation = navigationGeneration;
 
   const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
   const chartCard = document.getElementById('stats-chart-card');
@@ -2208,13 +2421,15 @@ export async function renderStatsView() {
   try {
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(`/api/user/stats?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
-    if (res.ok) {
-      const data = await res.json();
-      stats = data.stats || data || stats;
-    }
-  } catch (e) {
-    console.warn('Error fetching stats:', e);
+    const data = await fetchJson(`/api/user/stats?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, { headers });
+    stats = data.stats || data || stats;
+    if (generation !== navigationGeneration) return;
+  } catch (error) {
+    if (generation !== navigationGeneration) return;
+    renderLoadErrorState(cardsGrid, error, 'tus estadísticas', renderStatsView);
+    chartContainer.innerHTML = '';
+    if (chartCard) chartCard.style.display = 'none';
+    return;
   }
 
   const formattedTime = formatWatchTime(stats.total_time_seconds || 0);
@@ -2255,6 +2470,24 @@ export async function renderStatsView() {
         `).join('')}
       </div>`;
   }
+  // "Tu año": a short summary under the numbers (a failure here never hides the stats above)
+  try {
+    const summaryRes = await fetchJson('/api/user/summary', { headers: token ? { 'Authorization': `Bearer ${token}` } : {} });
+    if (generation !== navigationGeneration) return;
+    const summary = summaryRes.summary;
+    if (summary && summary.episodes_watched > 0) {
+      const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+      cardsGrid.insertAdjacentHTML('afterend', `
+        <section class="stat-year-card" aria-label="Resumen del año">
+          <h3>Tu ${escapeHtml(summary.year)} en KuraStream</h3>
+          <p>Viste <strong>${escapeHtml(formatWatchTime(summary.total_time_seconds))}</strong>: ${summary.episodes_watched} capítulos de ${summary.shows_watched} series.
+          ${summary.busiest_month ? `Tu mes más intenso fue <strong>${months[summary.busiest_month - 1]}</strong>.` : ''}
+          ${summary.top_genre ? `Tu género favorito: <strong>${escapeHtml(genreLabel(summary.top_genre))}</strong>.` : ''}</p>
+          ${summary.top_shows && summary.top_shows.length ? `<ol>${summary.top_shows.map(show => `<li>${escapeHtml(show.title)} <span class="text-muted">(${show.episodes} cap.)</span></li>`).join('')}</ol>` : ''}
+        </section>`);
+    }
+  } catch { /* optional */ }
+
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
@@ -2313,7 +2546,7 @@ export async function loadNotifications() {
 
         return `
           <a href="${escapeHtmlAttribute(targetHash)}" class="notification-item${readClass}" data-show-id="${escapeHtmlAttribute(item.show_id || '')}" data-episode-id="${escapeHtmlAttribute(item.episode_id || '')}">
-            <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(title)}" class="notification-poster" onerror="this.onerror=null;this.src='/api/placeholder-poster?title=Show';">
+            <img src="${escapeHtmlAttribute(catalogueImageUrl(poster))}" alt="${escapeHtmlAttribute(title)}" class="notification-poster" data-fallback-src="/api/placeholder-poster?title=Show">
             <div class="notification-info">
               <span class="notification-title">${escapeHtml(title)}</span>
               <span class="notification-ep">Episodio ${escapeHtml(epNum)} ${escapeHtml(seasonNum ? `(Temporada ${seasonNum})` : '')}</span>
@@ -2542,6 +2775,7 @@ export function setupWatchPartyModal() {
   const epSelect = document.getElementById('party-create-episode-select');
   const pubCheck = document.getElementById('party-create-public-check');
   const ctrlCheck = document.getElementById('party-create-controls-check');
+  const guestsCheck = document.getElementById('party-create-guests-check');
   const createError = document.getElementById('party-create-error');
 
   if (createSubmitBtn) {
@@ -2576,6 +2810,7 @@ export function setupWatchPartyModal() {
       const partyName = createNameInput ? createNameInput.value.trim() : '';
       const isPublic = Boolean(pubCheck && pubCheck.checked);
       const allowGuestControls = Boolean(ctrlCheck && ctrlCheck.checked);
+      const allowGuests = Boolean(guestsCheck && guestsCheck.checked);
 
       createSubmitBtn.disabled = true;
       try {
@@ -2583,7 +2818,8 @@ export function setupWatchPartyModal() {
           episodeId: epId,
           name: partyName,
           isPublic,
-          allowGuestControls
+          allowGuestControls,
+          allowGuests
         });
         closeModal();
         showToast(`Sala "${room.name || room.id}" creada con éxito`, 'success');
@@ -2660,13 +2896,25 @@ export function hideAllViews() {
 
 export function setupRouter() {
   const handleRoute = async () => {
+    navigationGeneration++;
     if (typeof renderAuthState === 'function') renderAuthState();
 
     const rawHash = window.location.hash || '#/';
     const [routeWithPrefix] = rawHash.split('?');
     const path = routeWithPrefix.replace(/^#/, '') || '/';
+    if (typeof trackRouteScroll === 'function') trackRouteScroll(path);
     
     if (typeof updateActiveNavHighlight === 'function') updateActiveNavHighlight(rawHash);
+
+    // The show page's ambient background clip keeps decoding (and downloading) if it is left in the DOM.
+    if (!path.startsWith('/show/') && typeof document.querySelectorAll === 'function') {
+      document.querySelectorAll('.ambient-loop-video').forEach((clip) => {
+        clip.pause();
+        clip.removeAttribute('src');
+        clip.load();
+        clip.remove();
+      });
+    }
 
     // If leaving player view, destroy player cleanly
     const mainHeader = document.querySelector('.app-header');
@@ -2818,7 +3066,11 @@ export function setupRouter() {
         admView.classList.add('active');
         admView.style.display = 'flex';
       }
-      if (typeof initAdminSidebar === 'function') initAdminSidebar();
+      if (typeof initAdminSidebar === 'function') {
+        Promise.resolve(initAdminSidebar()).catch(() => {
+          window.showToast?.('No se pudo cargar el panel de administración. Revisa la conexión.', 'error');
+        });
+      }
     } else if (path === '/profiles') {
       currentView = 'profiles';
       const profView = document.getElementById('profile-switcher-view');
@@ -2869,7 +3121,13 @@ export function setupRouter() {
 
       const roomId = decodeURIComponent(path.replace(/^\/party\/?/, '')).trim();
       if (roomId) {
-        if (typeof joinWatchPartyByCode === 'function') await joinWatchPartyByCode(roomId);
+        // A link must not drop someone into a room (and show their name to it) without asking.
+        const wantsToJoin = typeof window.confirm !== 'function' || window.confirm(`¿Unirte al Watch Party ${roomId}?`);
+        if (!wantsToJoin) {
+          window.location.hash = '#/';
+        } else if (typeof joinWatchPartyByCode === 'function') {
+          await joinWatchPartyByCode(roomId);
+        }
       } else {
         openWatchPartyModal('join');
       }
@@ -2884,6 +3142,7 @@ export function setupRouter() {
     }
 
     if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof restoreScrollFor === 'function') restoreScrollFor(path);
   };
 
   // hashchange alone covers links, back/forward and programmatic hash changes; also listening to
@@ -3041,11 +3300,11 @@ async function initCatalogView(filterType = 'all') {
   const heroContainer = document.getElementById('hero-carousel-container');
   const heroWrapper = document.getElementById('hero-carousel-wrapper');
   const dashboardSections = document.getElementById('dashboard-sections');
+  const generation = navigationGeneration;
 
   try {
-    const res = await fetch('/api/shows');
-    const data = await res.json();
-    let shows = Array.isArray(data) ? data : (data.shows || []);
+    let shows = await loadCatalog();
+    if (generation !== navigationGeneration) return;
     if (filterType === 'movie') {
       shows = shows.filter(s => s.media_type === 'movie' || s.type === 'movie');
     }
@@ -3067,6 +3326,17 @@ async function initCatalogView(filterType = 'all') {
       } catch {}
     }
     if (!Array.isArray(continueItems)) continueItems = [];
+    if (generation !== navigationGeneration) return;
+
+    // "Porque viste X": only for the plain home page, and never at the cost of the page when it fails
+    let recommendationGroups = [];
+    if (hasProfile && (!filterType || filterType === 'all')) {
+      try {
+        const recRes = await fetch('/api/recommendations', { headers: { 'Authorization': `Bearer ${token}` } });
+        if (recRes.ok) recommendationGroups = (await recRes.json()).groups || [];
+      } catch {}
+      if (generation !== navigationGeneration) return;
+    }
 
     // Hero carousel: up to five titles; "Reproducir" resumes where this profile left off.
     if (heroContainer && heroWrapper) {
@@ -3091,7 +3361,7 @@ async function initCatalogView(filterType = 'all') {
           <div class="shows-grid" id="catalog-grid"></div>
         </section>
       `;
-      dashboardSections.innerHTML = continueHtml + catalogHtml;
+      dashboardSections.innerHTML = continueHtml + renderRecommendations(recommendationGroups) + catalogHtml;
 
       // Cards show the progress of the episode "Continuar viendo" points at; playShow() opens it.
       catalogHistoryMap = new Map();
@@ -3108,6 +3378,11 @@ async function initCatalogView(filterType = 'all') {
     if (typeof lucide !== 'undefined') lucide.createIcons();
   } catch (err) {
     console.error('Error initializing catalog view:', err);
+    // A failed catalogue must not look like an empty library.
+    if (dashboardSections) {
+      if (heroWrapper) heroWrapper.style.display = 'none';
+      renderLoadErrorState(dashboardSections, err, 'el catálogo', () => initCatalogView(filterType));
+    }
   }
 }
 
@@ -3196,16 +3471,17 @@ async function renderGenresView(activeGenre = '') {
   const catalogTitle = document.getElementById('genre-catalog-title');
   const catalogGrid = document.getElementById('genre-catalog-grid');
   if (!genresGrid) return;
+  const generation = navigationGeneration;
 
   let shows = [];
   try {
-    const res = await fetch('/api/shows');
-    if (res.ok) {
-      const data = await res.json();
-      shows = Array.isArray(data) ? data : (data.shows || []);
-    }
-  } catch (e) {
-    console.warn('Error loading catalog for genres:', e);
+    shows = await loadCatalog();
+    if (generation !== navigationGeneration) return;
+  } catch (error) {
+    if (generation !== navigationGeneration) return;
+    renderLoadErrorState(genresGrid, error, 'los géneros', () => renderGenresView(activeGenre));
+    if (catalogSection) catalogSection.style.display = 'none';
+    return;
   }
 
   // Genres come from the catalog's own metadata (TMDB names such as "Sci-Fi & Fantasy").
@@ -3333,9 +3609,12 @@ async function loadSettingsView() {
           saveSuccessToast.style.display = 'block';
           setTimeout(() => { saveSuccessToast.style.display = 'none'; }, 2500);
         }
+      } else {
+        window.showToast?.(res.status === 401 || res.status === 403 ? 'Tu sesión terminó: inicia sesión para guardar tus ajustes' : 'No se pudieron guardar tus ajustes', 'error');
       }
     } catch (err) {
       console.warn('Error saving preferences:', err);
+      window.showToast?.('Sin conexión: no se guardaron tus ajustes', 'error');
     }
   };
 
@@ -3371,15 +3650,50 @@ let isProfileManageMode = false;
 let currentEditingAvatar = '';
 let currentEditingColor = '#818CF8';
 
-/** Returns the entered 4-digit PIN, or null if the user cancelled or typed something invalid. */
+/**
+ * Asks for the profile's current 4-digit PIN in an accessible dialog (it used to be window.prompt, which shows the
+ * digits in clear text and cannot be styled or read well by assistive technology).
+ * Resolves with the PIN, or null when cancelled.
+ */
 function askCurrentProfilePin(profile) {
-  const pin = window.prompt(`Introduce el PIN actual del perfil "${profile.name}"`);
-  if (pin === null) return null;
-  if (!/^\d{4}$/.test(pin.trim())) {
-    showToast('El PIN debe contener exactamente 4 dígitos', 'error');
-    return null;
-  }
-  return pin.trim();
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'pin-modal-overlay';
+    overlay.style.display = 'flex';
+    overlay.style.zIndex = '2200';
+    overlay.innerHTML = `
+      <form class="pin-modal pin-modal-compact" novalidate>
+        <h3 class="modal-title">PIN actual</h3>
+        <p class="pin-profile-name">${escapeHtml(profile.name || '')}</p>
+        <input type="password" class="input-text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="PIN actual de 4 dígitos">
+        <div class="login-error-msg" role="alert" style="display: none;">El PIN debe contener exactamente 4 dígitos</div>
+        <div class="pin-buttons pin-buttons-end">
+          <button type="button" class="btn btn-secondary" data-dialog-close>Cancelar</button>
+          <button type="submit" class="btn btn-primary">Continuar</button>
+        </div>
+      </form>
+    `;
+    document.body.appendChild(overlay);
+    const form = overlay.querySelector('form');
+    const input = overlay.querySelector('input');
+    const error = overlay.querySelector('.login-error-msg');
+    const finish = (value) => {
+      overlay.remove();
+      resolve(value);
+    };
+    overlay.querySelector('[data-dialog-close]').addEventListener('click', () => finish(null));
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const pin = input.value.trim();
+      if (!/^\d{4}$/.test(pin)) {
+        error.style.display = 'block';
+        input.focus();
+        return;
+      }
+      finish(pin);
+    });
+    input.focus();
+  });
 }
 
 const AVATAR_OUTPUT_SIZE = 512;
@@ -3492,9 +3806,7 @@ async function renderLibraryAvatarChoices(grid, onPick) {
   let shows = appState.get ? appState.get('catalog') : null;
   if (!Array.isArray(shows) || shows.length === 0) {
     try {
-      const res = await fetch('/api/shows');
-      const data = await res.json();
-      shows = Array.isArray(data) ? data : (data.shows || []);
+      shows = await loadCatalog();
     } catch {
       shows = [];
     }
@@ -3510,8 +3822,9 @@ async function renderLibraryAvatarChoices(grid, onPick) {
   grid.dataset.loaded = '1';
   grid.innerHTML = posters.map(item => `
     <button type="button" class="preset-avatar-option library-avatar-option" data-src="${escapeHtmlAttribute(item.src)}"
-      style="background-image: url('${escapeHtmlAttribute(item.src)}');" title="${escapeHtmlAttribute(item.title)}" aria-label="${escapeHtmlAttribute('Usar ' + item.title)}"></button>
+      data-bg-image="${escapeHtmlAttribute(item.src)}" title="${escapeHtmlAttribute(item.title)}" aria-label="${escapeHtmlAttribute('Usar ' + item.title)}"></button>
   `).join('');
+  applyDynamicBackgrounds(grid);
   grid.querySelectorAll('.library-avatar-option').forEach(btn => {
     btn.onclick = () => onPick(btn.getAttribute('data-src'));
   });
@@ -3543,6 +3856,10 @@ export function openProfileEditModal(mode = 'create', profile = null) {
 
   if (nameInput) nameInput.value = isEdit ? (profile.name || '') : '';
   if (kidsInput) kidsInput.checked = Boolean(isEdit && profile.is_kids);
+  const maxRatingInput = document.getElementById('profile-max-rating-input');
+  const dailyLimitInput = document.getElementById('profile-daily-limit-input');
+  if (maxRatingInput) maxRatingInput.value = (isEdit && profile.max_rating) || '';
+  if (dailyLimitInput) dailyLimitInput.value = (isEdit && profile.daily_limit_minutes) || '';
   if (pinInput) pinInput.value = '';
   // The API could always clear a PIN (remove_pin), but there was no way to ask for it.
   const removePinRow = document.getElementById('profile-remove-pin-row');
@@ -3555,7 +3872,7 @@ export function openProfileEditModal(mode = 'create', profile = null) {
     if (!avatarDisplay) return;
     if (currentEditingAvatar) {
       avatarDisplay.textContent = '';
-      avatarDisplay.style.backgroundImage = `url('${currentEditingAvatar}')`;
+      avatarDisplay.style.backgroundImage = cssUrl(currentEditingAvatar);
       avatarDisplay.style.backgroundSize = 'cover';
       avatarDisplay.style.backgroundPosition = 'center';
       avatarDisplay.style.backgroundRepeat = 'no-repeat';
@@ -3664,7 +3981,7 @@ export function openProfileEditModal(mode = 'create', profile = null) {
       deleteBtn.style.display = 'inline-flex';
       deleteBtn.onclick = async () => {
         if (!confirm(`¿Eliminar el perfil "${profile.name}"? Esta acción no se puede deshacer.`)) return;
-        const deletePin = profile.has_pin ? askCurrentProfilePin(profile) : '';
+        const deletePin = profile.has_pin ? await askCurrentProfilePin(profile) : '';
         if (deletePin === null) return;
         deleteBtn.disabled = true;
         try {
@@ -3735,7 +4052,9 @@ export function openProfileEditModal(mode = 'create', profile = null) {
         name,
         color: currentEditingColor,
         avatar: currentEditingAvatar || null,
-        is_kids: kidsInput && kidsInput.checked ? 1 : 0
+        is_kids: kidsInput && kidsInput.checked ? 1 : 0,
+        max_rating: maxRatingInput ? maxRatingInput.value : '',
+        daily_limit_minutes: dailyLimitInput && dailyLimitInput.value !== '' ? Number(dailyLimitInput.value) : null
       };
 
       if (isEdit && profile.id) {
@@ -3760,7 +4079,7 @@ export function openProfileEditModal(mode = 'create', profile = null) {
 
       // The backend requires the current PIN to modify a PIN-protected profile.
       if (isEdit && profile.has_pin) {
-        const currentPin = askCurrentProfilePin(profile);
+        const currentPin = await askCurrentProfilePin(profile);
         if (currentPin === null) {
           saveBtn.disabled = false;
           return;
@@ -3864,6 +4183,16 @@ export function openPinModal(profile) {
         digits[idx - 1].focus();
       }
     };
+
+    // Pasting "1234" (from a password manager or a message) fills every box.
+    d.onpaste = (e) => {
+      const pasted = ((e.clipboardData || window.clipboardData)?.getData('text') || '').replace(/\D/g, '').slice(0, digits.length);
+      if (pasted.length < 2) return;
+      e.preventDefault();
+      pasted.split('').forEach((char, i) => { if (digits[i]) digits[i].value = char; });
+      digits[Math.min(pasted.length, digits.length) - 1].focus();
+      digits[Math.min(pasted.length, digits.length) - 1].dispatchEvent(new Event('input'));
+    };
   });
 }
 
@@ -3906,9 +4235,9 @@ export async function loadProfilesView() {
     const profiles = Array.isArray(data) ? data : (data.profiles || []);
 
     const cardsHtml = profiles.map(p => {
-      const avatarStyle = p.avatar 
-        ? `background-image: url('${escapeHtmlAttribute(p.avatar)}'); background-size: cover; background-position: center;`
-        : `background: ${escapeHtmlAttribute(p.color || '#818CF8')};`;
+      const avatarAttrs = p.avatar
+        ? `data-bg-image="${escapeHtmlAttribute(p.avatar)}"`
+        : `data-bg-color="${escapeHtmlAttribute(p.color || '#818CF8')}"`;
       const initial = p.avatar ? '' : escapeHtml((p.name || 'P')[0].toUpperCase());
       const editBadgeHtml = isProfileManageMode ? `
         <div class="profile-edit-badge">
@@ -3917,27 +4246,28 @@ export async function loadProfilesView() {
       ` : '';
 
       return `
-        <div class="profile-card ${isProfileManageMode ? 'profile-card-manage' : ''}" data-profile-id="${escapeHtmlAttribute(p.id)}" style="position: relative; cursor: pointer;">
-          <div class="profile-avatar ${p.avatar ? 'has-image' : ''}" style="${avatarStyle}">
+        <button type="button" class="profile-card ${isProfileManageMode ? 'profile-card-manage' : ''}" data-profile-id="${escapeHtmlAttribute(p.id)}" aria-label="${escapeHtmlAttribute(isProfileManageMode ? `Editar perfil ${p.name}` : `Entrar como ${p.name}`)}" style="position: relative; cursor: pointer;">
+          <div class="profile-avatar ${p.avatar ? 'has-image' : ''}" ${avatarAttrs}>
             ${initial}
             ${p.is_kids ? '<span class="profile-badge-kids">KIDS</span>' : ''}
             ${editBadgeHtml}
           </div>
           <div class="profile-name">${escapeHtml(p.name)}</div>
-        </div>
+        </button>
       `;
     }).join('');
 
     const addCardHtml = isProfileManageMode ? `
-      <div class="profile-card profile-card-add" id="card-add-profile" style="cursor: pointer;">
+      <button type="button" class="profile-card profile-card-add" id="card-add-profile" style="cursor: pointer;">
         <div class="profile-avatar">
           <i data-lucide="plus" style="width: 32px; height: 32px;"></i>
         </div>
         <div class="profile-name">Agregar perfil</div>
-      </div>
+      </button>
     ` : '';
 
     grid.innerHTML = cardsHtml + addCardHtml;
+    applyDynamicBackgrounds(grid);
 
     // Attach click events to cards
     grid.querySelectorAll('.profile-card[data-profile-id]').forEach(card => {
@@ -4036,12 +4366,20 @@ if (typeof window !== 'undefined') {
 document.addEventListener('DOMContentLoaded', () => {
   console.log('[KuraStream] v2.0 Platform initialized successfully.');
   setupCatalogueActions();
+  initDialogs();
   setupWatchPartyModal();
   initHeaderDropdowns();
   setupRouter();
   loadNotifications();
   renderAuthState();
   setupAuthModalListeners();
+
+  // A reload keeps the Watch Party this tab was in (the room code is remembered for the tab's lifetime).
+  partyManager.restoreSession().then(room => {
+    if (room && room.episode_id && !window.location.hash.startsWith('#/player/')) {
+      window.location.hash = `#/player/${encodeURIComponent(room.episode_id)}`;
+    }
+  }).catch(() => {});
 
   // Load user preferences globally into window.userPreferences
   try {

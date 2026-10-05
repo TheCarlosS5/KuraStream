@@ -65,7 +65,8 @@ $_COOKIE['kurastream_token'] = $hostToken;
 $_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$hostToken}";
 $GLOBALS['_MOCKED_JSON_INPUT'] = [
     'episode_id' => 'ep_party_sec_01',
-    'name' => 'Security Party Room'
+    'name' => 'Security Party Room',
+    'allow_guests' => true // the test joins a guest; rooms admit them only when the host opts in
 ];
 
 $roomCreated = false;

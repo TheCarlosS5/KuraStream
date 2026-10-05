@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../db.php';
 
 class AuthMiddleware {
     /**
@@ -51,7 +52,8 @@ class AuthMiddleware {
     /**
      * Extract token from cookie or HTTP Authorization header
      */
-    public static function getBearerToken(): ?string {
+    /** The token of an `Authorization: Bearer ...` header (never the cookie). */
+    private static function authorizationBearer(): ?string {
         $headers = null;
         if (isset($_SERVER['Authorization'])) {
             $headers = trim($_SERVER['Authorization']);
@@ -65,8 +67,34 @@ class AuthMiddleware {
         if ($headers && preg_match('/Bearer\s+(.*)$/i', $headers, $matches)) {
             return $matches[1];
         }
+        return null;
+    }
+
+    /**
+     * CSRF: the session cookie is sent by the browser on any request to this origin, including ones a page on
+     * another site (or another port of this host) makes on the user's behalf. A page cannot add a custom header
+     * to such a request without a CORS preflight, which this server only grants to ALLOWED_ORIGINS. The real
+     * clients always send `Authorization: Bearer`; anything that relies on the cookie alone must say so.
+     */
+    private static function hasCsrfProofHeader(): bool {
+        return trim((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) !== '';
+    }
+
+    /**
+     * Extract token from the Authorization header or the session cookie. The cookie is only honoured for reads
+     * (<video>, subtitles, images need it) or when the request carries X-Requested-With.
+     */
+    public static function getBearerToken(): ?string {
+        $bearer = self::authorizationBearer();
+        if ($bearer !== null) {
+            return $bearer;
+        }
 
         if (!empty($_COOKIE['kurastream_token'])) {
+            $safeMethod = in_array(strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET'), ['GET', 'HEAD', 'OPTIONS'], true);
+            if (!$safeMethod && !self::hasCsrfProofHeader()) {
+                return null;
+            }
             return trim($_COOKIE['kurastream_token']);
         }
 
@@ -74,11 +102,109 @@ class AuthMiddleware {
     }
 
     /**
+     * Whether a session must belong to an account that still exists. Always true in production; test suites
+     * mint tokens for accounts that were never created, so there it is opt-in (see tests/test_session_revocation.php).
+     */
+    public static ?bool $strictAccounts = null;
+
+    private static function isStrictAccounts(): bool {
+        return self::$strictAccounts ?? !defined('TESTING_MODE');
+    }
+
+    /** The administrator configured in the environment has no row in `users`; its token is trusted as issued. */
+    private static function isEnvAdmin(array $payload): bool {
+        $admin = getenv('ADMIN_USER');
+        return ($payload['role'] ?? '') === 'admin'
+            && $admin !== false && $admin !== ''
+            && strcasecmp((string)($payload['username'] ?? ''), $admin) === 0;
+    }
+
+    /**
+     * Verifies a SESSION token. Unlike verifyToken() it
+     *  - refuses tokens that carry a `type` claim (Watch Party stream/SSE tickets are signed with the same key
+     *    and must never be accepted as a login), and
+     *  - re-reads the account: a deleted account, a token issued before the last password change / "sign out
+     *    everywhere" (token_version), a changed role and a profile's current name and kids flag all take effect
+     *    immediately instead of when the 30-day token expires.
+     */
+    /** Per-request memo of resolved sessions: one request asks several times (kids, rating cap, screen time). */
+    private static array $sessionMemo = [];
+
+    public static function sessionPayload(?string $token): ?array {
+        // Not in tests: they change the account between calls and expect the new state
+        if ($token === null || defined('TESTING_MODE')) {
+            return self::resolveSession($token);
+        }
+        if (!array_key_exists($token, self::$sessionMemo)) {
+            self::$sessionMemo[$token] = self::resolveSession($token);
+        }
+        return self::$sessionMemo[$token];
+    }
+
+    private static function resolveSession(?string $token): ?array {
+        $payload = self::verifyToken($token);
+        if (!$payload) {
+            return null;
+        }
+        if (isset($payload['type']) && $payload['type'] !== 'session') {
+            return null;
+        }
+        if (self::isEnvAdmin($payload)) {
+            return $payload;
+        }
+
+        $username = (string)($payload['username'] ?? '');
+        $account = $username !== '' ? DbHelper::getAccountState($username) : null;
+        if ($account === null) {
+            return self::isStrictAccounts() ? null : $payload;
+        }
+        if ((int)($payload['ver'] ?? 0) !== $account['token_version']) {
+            return null;
+        }
+        if (!empty($account['disabled'])) {
+            return null;   // locked by an administrator: every session ends at once
+        }
+        $payload['role'] = $account['role'];
+
+        if (!empty($payload['profile_id']) || !empty($payload['profile_name'])) {
+            $profile = DbHelper::getSessionProfile($account['username'], $payload['profile_id'] ?? null, $payload['profile_name'] ?? null);
+            if ($profile) {
+                $payload['profile_id'] = $profile['id'];
+                $payload['profile_name'] = $profile['name'];
+                $payload['is_kids'] = !empty($profile['is_kids']);
+                $payload['max_level'] = isset($profile['max_rating']) && isset(DbHelper::MAX_RATING_LEVEL[$profile['max_rating']])
+                    ? DbHelper::MAX_RATING_LEVEL[$profile['max_rating']] : null;
+                $payload['daily_limit_minutes'] = isset($profile['daily_limit_minutes']) ? (int)$profile['daily_limit_minutes'] : null;
+            } elseif (self::isStrictAccounts()) {
+                // The profile was deleted: the session is still the account's, but without an active profile.
+                unset($payload['profile_id'], $payload['profile_name'], $payload['is_kids']);
+            }
+        }
+        return $payload;
+    }
+
+    /**
+     * Catalog browsing (shows, episodes, calendar, comments) is open to guests by default, as the web client
+     * expects. CATALOG_ACCESS=members makes it require a signed-in session, so an anonymous visitor on the
+     * network can neither list the library nor see titles regardless of kids mode.
+     */
+    public static function requireCatalogAccess(): void {
+        if (strtolower(trim((string)getenv('CATALOG_ACCESS'))) === 'members') {
+            self::requireAuth();
+        }
+    }
+
+    /**
      * Enforce Admin Role Check
      */
     public static function requireAdmin(): array {
+        // Administration also has GET endpoints with side effects (scans, timing detection), so for any method a
+        // cookie-only request must carry the CSRF proof header.
+        if (self::authorizationBearer() === null && !self::hasCsrfProofHeader()) {
+            jsonError('Acceso denegado: Token inválido o expirado', 401);
+        }
         $token = self::getBearerToken();
-        $payload = self::verifyToken($token);
+        $payload = self::sessionPayload($token);
 
         if (!$payload) {
             jsonError('Acceso denegado: Token inválido o expirado', 401);
@@ -96,7 +222,7 @@ class AuthMiddleware {
      */
     public static function requireAuth(): array {
         $token = self::getBearerToken();
-        $payload = self::verifyToken($token);
+        $payload = self::sessionPayload($token);
 
         if (!$payload) {
             jsonError('Acceso denegado: Se requiere iniciar sesión', 401);

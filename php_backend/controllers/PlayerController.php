@@ -4,20 +4,94 @@ require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/ShowController.php';
 require_once __DIR__ . '/PartyController.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+require_once __DIR__ . '/../services/SubtitleCache.php';
 
 class TranscodeLimiter {
-    public static int $maxWorkers = 8;
+    /** Concurrent ffmpeg workers. TRANSCODE_MAX_WORKERS, else half the CPU cores (at least 2). */
+    public static int $maxWorkers = 0;
     private static array $activeLocks = [];
 
-    public static function acquireSlot(int $timeoutSeconds = 2): bool {
+    public static function maxWorkers(): int {
+        if (self::$maxWorkers > 0) {
+            return self::$maxWorkers;
+        }
+        $configured = (int)getenv('TRANSCODE_MAX_WORKERS');
+        if ($configured > 0) {
+            return self::$maxWorkers = $configured;
+        }
+        $cores = 0;
+        if (is_readable('/proc/cpuinfo')) {
+            $cores = preg_match_all('/^processor\s*:/m', (string)@file_get_contents('/proc/cpuinfo'));
+        }
+        if ($cores < 1) {
+            $cores = 4;
+        }
+        return self::$maxWorkers = max(2, intdiv($cores, 2));
+    }
+
+    private static function slotDir(): string {
         $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
         if (!is_dir($slotDir)) {
             @mkdir($slotDir, 0777, true);
         }
+        return $slotDir;
+    }
 
+    private static function writeSlotInfo($fp, array $info): void {
+        @ftruncate($fp, 0);
+        @rewind($fp);
+        @fwrite($fp, json_encode($info));
+        @fflush($fp);
+    }
+
+    /**
+     * A new stream for the same session replaces the previous one: seeking in a remuxed stream starts a new ffmpeg,
+     * and the old one used to keep its slot until a write to the closed socket failed (so the third seek got a 503).
+     * Only a process that is still holding the slot AND is really an ffmpeg is signalled.
+     */
+    private static function terminateSession(string $slotDir, string $sessionKey): bool {
+        $killed = false;
+        for ($i = 0; $i < self::maxWorkers(); $i++) {
+            $file = $slotDir . DIRECTORY_SEPARATOR . "worker_{$i}.lock";
+            $info = is_file($file) ? json_decode((string)@file_get_contents($file), true) : null;
+            if (!is_array($info) || ($info['key'] ?? null) !== $sessionKey || empty($info['pid']) || !is_int($info['pid'])) {
+                continue;
+            }
+            $probe = @fopen($file, 'c+');
+            if (!$probe) {
+                continue;
+            }
+            $free = flock($probe, LOCK_EX | LOCK_NB);   // free: nobody is streaming on this slot any more
+            if ($free) {
+                flock($probe, LOCK_UN);
+            }
+            fclose($probe);
+            if ($free) {
+                continue;
+            }
+            $cmdline = @file_get_contents('/proc/' . $info['pid'] . '/cmdline');
+            if ($cmdline === false || !str_contains($cmdline, 'ffmpeg')) {
+                continue;
+            }
+            if (function_exists('posix_kill')) {
+                $killed = @posix_kill($info['pid'], 9) || $killed;
+            } else {
+                @exec('kill -9 ' . (int)$info['pid'] . ' 2>/dev/null');
+                $killed = true;
+            }
+        }
+        return $killed;
+    }
+
+    public static function acquireSlot(int $timeoutSeconds = 2, ?string $sessionKey = null): bool {
+        $slotDir = self::slotDir();
         $start = time();
+        $terminated = false;
         do {
-            for ($i = 0; $i < self::$maxWorkers; $i++) {
+            if ($sessionKey !== null && !$terminated) {
+                $terminated = self::terminateSession($slotDir, $sessionKey);
+            }
+            for ($i = 0; $i < self::maxWorkers(); $i++) {
                 if (isset(self::$activeLocks[$i])) {
                     continue; // Already holding this slot in this process
                 }
@@ -25,6 +99,7 @@ class TranscodeLimiter {
                 $fp = @fopen($file, 'c+');
                 if ($fp && flock($fp, LOCK_EX | LOCK_NB)) {
                     self::$activeLocks[$i] = $fp;
+                    self::writeSlotInfo($fp, ['key' => $sessionKey, 'pid' => null, 'php' => getmypid()]);
                     return true;
                 }
                 if ($fp) {
@@ -39,15 +114,50 @@ class TranscodeLimiter {
         return false;
     }
 
+    /** Records the ffmpeg pid on the slot this process holds so a newer stream of the same session can stop it. */
+    public static function setProcessPid(int $pid, ?string $sessionKey): void {
+        if (empty(self::$activeLocks)) {
+            return;
+        }
+        $keys = array_keys(self::$activeLocks);
+        self::writeSlotInfo(self::$activeLocks[end($keys)], ['key' => $sessionKey, 'pid' => $pid, 'php' => getmypid()]);
+    }
+
     public static function releaseSlot(): void {
         if (!empty(self::$activeLocks)) {
             $keys = array_keys(self::$activeLocks);
             $lastIndex = end($keys);
             $fp = self::$activeLocks[$lastIndex];
+            self::writeSlotInfo($fp, ['key' => null, 'pid' => null]);
             @flock($fp, LOCK_UN);
             @fclose($fp);
             unset(self::$activeLocks[$lastIndex]);
         }
+    }
+
+    /** Whether a live stream of this session key currently holds a slot (so its next stream will take it over). */
+    public static function sessionHoldsSlot(string $sessionKey): bool {
+        $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
+        for ($i = 0; is_dir($slotDir) && $i < self::maxWorkers(); $i++) {
+            $file = $slotDir . DIRECTORY_SEPARATOR . "worker_{$i}.lock";
+            $info = is_file($file) ? json_decode((string)@file_get_contents($file), true) : null;
+            if (!is_array($info) || ($info['key'] ?? null) !== $sessionKey) {
+                continue;
+            }
+            $probe = @fopen($file, 'c+');
+            if (!$probe) {
+                continue;
+            }
+            $free = flock($probe, LOCK_EX | LOCK_NB);
+            if ($free) {
+                flock($probe, LOCK_UN);
+            }
+            fclose($probe);
+            if (!$free) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static function getActiveWorkerCount(): int {
@@ -56,7 +166,7 @@ class TranscodeLimiter {
             return 0;
         }
         $active = 0;
-        for ($i = 0; $i < self::$maxWorkers; $i++) {
+        for ($i = 0; $i < self::maxWorkers(); $i++) {
             if (isset(self::$activeLocks[$i])) {
                 $active++;
                 continue;
@@ -96,6 +206,115 @@ class TranscodeLimiter {
 }
 
 class PlayerController {
+    /**
+     * Bit depth of an episode's video. Scans record it; for a library scanned before that existed it is probed once
+     * on first playback and stored. Unknown or unreadable counts as 8-bit (the behaviour before this existed).
+     */
+    public static function resolveBitDepth(array $ep, string $realPath): int {
+        if (isset($ep['bit_depth']) && $ep['bit_depth'] !== null && $ep['bit_depth'] !== '') {
+            return (int)$ep['bit_depth'];
+        }
+        $codec = strtolower($ep['video_codec'] ?? '');
+        if (!in_array($codec, ['', 'h264', 'avc1', 'avc'], true)) {
+            return 8; // transcoded anyway
+        }
+        $format = FfmpegScanner::probeVideoFormat($realPath);
+        if ($format === null) {
+            return 8;
+        }
+        if (!empty($ep['id'])) {
+            DbHelper::setEpisodeVideoFormat($ep['id'], $format['pix_fmt'], $format['bit_depth']);
+        }
+        return $format['bit_depth'];
+    }
+
+    /**
+     * Whether a stream can be served as plain HTTP-Range file bytes (no ffmpeg): an H.264 8-bit MP4/WebM/M4V, default
+     * audio track, no downmix/forced transcode and no start offset. Shared by streamVideo and the availability probe.
+     * @param array $query the request's query parameters (audio, downmix, transcode, start)
+     */
+    public static function canDirectPlay(array $ep, string $realPath, array $query): bool {
+        // A native player (ExoPlayer) that knows its decoders asks for the raw file with ?direct=1: any container
+        // and codec, audio/subtitle tracks chosen on the client. Only server-side processing the client also
+        // requested (downmix, forced transcode) overrides it.
+        if (($query['direct'] ?? '') === '1' && ($query['downmix'] ?? '') !== 'stereo' && ($query['transcode'] ?? '') != '1') {
+            return true;
+        }
+        $ext = strtolower(pathinfo($realPath, PATHINFO_EXTENSION));
+        $videoCodec = strtolower($ep['video_codec'] ?? '');
+        $tracks = !empty($ep['audio_tracks']) ? (is_array($ep['audio_tracks']) ? $ep['audio_tracks'] : json_decode($ep['audio_tracks'], true)) : [];
+        if (!is_array($tracks)) {
+            $tracks = [];
+        }
+        $audioTrack = isset($query['audio']) ? (int)$query['audio'] : -1;
+        $isDirectContainer = in_array($ext, ['mp4', 'webm', 'm4v'], true);
+        $isDirectCodec = in_array($videoCodec, ['', 'h264', 'avc1', 'avc'], true);
+        $isDefaultAudio = ($audioTrack <= 0 || count($tracks) <= 1);
+        $downmix = (($query['downmix'] ?? '') === 'stereo');
+        $forced = (($query['transcode'] ?? '') == '1');
+        $start = isset($query['start']) ? (float)$query['start'] : 0.0;
+        if (!($isDirectContainer && $isDirectCodec && $isDefaultAudio && !$downmix && !$forced && $start <= 0)) {
+            return false;
+        }
+        // Only 10-bit-and-deeper H.264 needs a transcode even though container and codec look playable.
+        return self::resolveBitDepth($ep, $realPath) <= 8;
+    }
+
+    /**
+     * True when nginx fronts PHP and can serve the file itself. nginx sets SERVER_SOFTWARE for FastCGI; X_ACCEL=1/0
+     * overrides the detection (for a setup where PHP sits behind another kind of proxy, or to disable it).
+     */
+    public static function useAccelRedirect(): bool {
+        $force = getenv('X_ACCEL');
+        if ($force === '0') return false;
+        if ($force === '1') return true;
+        return str_contains(strtolower((string)($_SERVER['SERVER_SOFTWARE'] ?? '')), 'nginx');
+    }
+
+    /** The internal nginx URI (`/_media/...`) of a library file, or null when it lies outside the library. */
+    public static function accelUri(string $realPath, string $realLibrary): ?string {
+        $prefix = rtrim($realLibrary, '/\\') . DIRECTORY_SEPARATOR;
+        if (!str_starts_with($realPath, $prefix)) {
+            return null;
+        }
+        $rel = str_replace('\\', '/', substr($realPath, strlen($prefix)));
+        return '/_media/' . implode('/', array_map('rawurlencode', explode('/', $rel)));
+    }
+
+    /** A stable key for "this viewer's current stream of this episode" (the player sends a per-instance `session`). */
+    public static function streamSessionKey(string $episodeId): string {
+        $session = (string)($_GET['session'] ?? '');
+        if (preg_match('/^[A-Za-z0-9_-]{8,64}$/', $session)) {
+            return $episodeId . '|s:' . $session;
+        }
+        return $episodeId . '|ip:' . RateLimiter::getClientIp();
+    }
+
+    /** GET /api/stream/{id}/availability: how the episode would be served and whether a transcode slot is free. */
+    public static function streamAvailability(string $episodeId): void {
+        self::authorizeStreamAccess($episodeId);
+        $ep = DbHelper::getEpisode($episodeId);
+        if (!$ep) {
+            jsonError('Episodio no encontrado en el catálogo', 404);
+        }
+        $realPath = realpath($ep['filepath'] ?? '');
+        $realLibrary = realpath(LIBRARY_DIR);
+        if (!$realPath || !is_file($realPath) || !$realLibrary || !str_starts_with($realPath, rtrim($realLibrary, '/\\') . DIRECTORY_SEPARATOR)) {
+            jsonError('Archivo de video no disponible', 404);
+        }
+        $direct = self::canDirectPlay($ep, $realPath, $_GET);
+        $active = TranscodeLimiter::getActiveWorkerCount();
+        $max = TranscodeLimiter::maxWorkers();
+        jsonResponse([
+            'success' => true,
+            'mode' => $direct ? 'direct' : 'transcode',
+            // A viewer's own seek takes over the slot of the stream it replaces, so it is never "busy" for them.
+            'busy' => !$direct && $active >= $max && !TranscodeLimiter::sessionHoldsSlot(self::streamSessionKey($episodeId)),
+            'active_transcodes' => $active,
+            'max_transcodes' => $max,
+        ]);
+    }
+
     public static function authorizeStreamAccess(string $episodeId): void {
         if (defined('TESTING_MODE') && empty($_SERVER['HTTP_AUTHORIZATION']) && empty($_COOKIE['kurastream_token']) && empty($_GET['ticket']) && empty($_GET['capability'])) {
             return;
@@ -122,6 +341,9 @@ class PlayerController {
                 if (!$room || empty($room['episode_id'])) {
                     jsonError('Sala no encontrada o inactiva', 404);
                 }
+                if (DbHelper::isGuestMember($member) && empty($room['allow_guests'])) {
+                    jsonError('Esta sala ya no admite invitados sin cuenta', 403);
+                }
                 if ($room['episode_id'] !== $episodeId) {
                     jsonError('El ticket no corresponde al episodio activo de la sala', 403);
                 }
@@ -141,7 +363,11 @@ class PlayerController {
 
                 return;
             }
-            jsonError('Ticket de reproducción inválido o expirado', 403);
+            // An expired or foreign room ticket must not lock out someone who is also signed in (the Android app
+            // sends both): fall back to the session. Without a session the ticket is all there is, and it is refused.
+            if (AuthMiddleware::getBearerToken() === null) {
+                jsonError('Ticket de reproducción inválido o expirado', 403);
+            }
         }
 
         // 2. Authenticated user session
@@ -150,7 +376,7 @@ class PlayerController {
             jsonError('Autenticación requerida para acceder al flujo de medios', 401);
         }
 
-        $tokenData = AuthMiddleware::verifyToken($userToken);
+        $tokenData = AuthMiddleware::sessionPayload($userToken);
         if (!$tokenData) {
             jsonError('Token inválido o expirado', 401);
         }
@@ -171,17 +397,45 @@ class PlayerController {
         }
     }
 
-    public static function checkKidsModeAccess(string $showId): void {
-        if (!ShowController::isKidsProfileActive()) {
-            return;
+    /**
+     * Whether the active profile may open this show: kids rules, its rating cap and, when $enforceScreenTime,
+     * its daily screen-time budget (progress saves skip that last one so the final position is still stored).
+     */
+    public static function checkKidsModeAccess(string $showId, bool $enforceScreenTime = true): void {
+        // Most profiles have no restriction at all: then there is no need to load the show
+        if (ShowController::isKidsProfileActive() || ShowController::activeMaxLevel() !== null) {
+            $show = DbHelper::getShow($showId);
+            if ($show && ShowController::isRestrictedForActiveProfile($show)) {
+                jsonError('Contenido restringido por el perfil activo', 403);
+            }
         }
-        $show = DbHelper::getShow($showId);
-        if ($show && ShowController::isAdultOrMaturityRestricted($show)) {
-            jsonError('Contenido restringido por el perfil infantil activo', 403);
+        if ($enforceScreenTime) {
+            self::enforceScreenTime();
+        }
+    }
+
+    /** @return array{limit_seconds:int, used_seconds:int}|null null when the active profile has no daily limit */
+    public static function screenTimeStatus(): ?array {
+        $payload = AuthMiddleware::sessionPayload(AuthMiddleware::getBearerToken());
+        $limit = (int)($payload['daily_limit_minutes'] ?? 0);
+        if (!$payload || $limit <= 0 || empty($payload['profile_name'])) {
+            return null;
+        }
+        return [
+            'limit_seconds' => $limit * 60,
+            'used_seconds' => DbHelper::getWatchSecondsToday((string)$payload['username'], (string)$payload['profile_name']),
+        ];
+    }
+
+    private static function enforceScreenTime(): void {
+        $status = self::screenTimeStatus();
+        if ($status !== null && $status['used_seconds'] >= $status['limit_seconds']) {
+            jsonError('Se alcanzó el tiempo de pantalla de hoy para este perfil', 403, ['code' => 'SCREEN_TIME_LIMIT']);
         }
     }
 
     public static function getEpisodeDetails(string $id): void {
+        AuthMiddleware::requireCatalogAccess();
         $ep = DbHelper::getEpisode($id);
         if (!$ep) {
             jsonError('Episodio no encontrado', 404);
@@ -312,27 +566,13 @@ class PlayerController {
         }
 
         $filepath = $ep['filepath'];
-        $trackIndex = -1;
-        $tracks = !empty($ep['subtitle_tracks']) ? (is_array($ep['subtitle_tracks']) ? $ep['subtitle_tracks'] : json_decode($ep['subtitle_tracks'], true)) : [];
-        $t = null;
-        if (is_array($tracks) && count($tracks) > 0) {
-            $t = array_values(array_filter($tracks, fn($x) => isset($x['track_number']) && (string)$x['track_number'] === (string)$trackNum))[0] ?? null;
-            if (!$t && isset($tracks[(int)$trackNum])) {
-                $t = $tracks[(int)$trackNum];
-            }
-            if (!$t) {
-                $t = array_values(array_filter($tracks, fn($x) => isset($x['index']) && (string)$x['index'] === (string)$trackNum))[0] ?? null;
-            }
-            if ($t && isset($t['index'])) {
-                $trackIndex = is_numeric($t['index']) ? (int)$t['index'] : -1;
-            }
-        }
+        [$t, $trackIndex] = SubtitleCache::resolveTrack($ep, $trackNum);
 
         if ($t && !empty($t['is_bitmap'])) {
             jsonError('Pista de subtítulos bitmap (PGS/VobSub) no compatible con renderizador de texto libass', 400);
         }
 
-        $cacheDir = sys_get_temp_dir() . '/kura_subs_cache';
+        $cacheDir = SubtitleCache::dir();
         if (!is_dir($cacheDir)) {
             @mkdir($cacheDir, 0777, true);
         }
@@ -359,14 +599,8 @@ class PlayerController {
                 exit();
             } else {
                 // Convert SRT/VTT to ASS and cache
-                $sidecarCacheKey = md5($sidecarPath . '_' . filemtime($sidecarPath));
-                $sidecarCacheFile = $cacheDir . '/' . $sidecarCacheKey . '.ass';
-                if (!file_exists($sidecarCacheFile) || filesize($sidecarCacheFile) === 0) {
-                    require_once __DIR__ . '/../services/FfmpegScanner.php';
-                    $cmd = sprintf('ffmpeg -y -v error -i %s -f ass %s', escapeshellarg($sidecarPath), escapeshellarg($sidecarCacheFile));
-                    FfmpegScanner::executeBoundedCommand($cmd, 15);
-                }
-                if (file_exists($sidecarCacheFile) && filesize($sidecarCacheFile) > 0) {
+                $sidecarCacheFile = SubtitleCache::ensureSidecarAss($sidecarPath);
+                if ($sidecarCacheFile !== null) {
                     @header('Content-Type: text/plain; charset=utf-8');
                     setCorsHeaders();
                     @header('Cache-Control: public, max-age=86400');
@@ -380,9 +614,6 @@ class PlayerController {
             }
         }
 
-        $cacheKey = md5($filepath . '_' . $trackIndex . '_' . (int)$trackNum . '_' . @filemtime($filepath));
-        $cacheFile = $cacheDir . '/' . $cacheKey . '.ass';
-
         @header('Content-Type: text/plain; charset=utf-8');
         setCorsHeaders();
         @header('Cache-Control: public, max-age=86400');
@@ -391,50 +622,18 @@ class PlayerController {
             ob_end_clean();
         }
 
-        if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
-            $content = file_get_contents($cacheFile);
-            if ($startOffset > 0) $content = self::shiftAssTimestamps($content, $startOffset);
-            echo $content;
-            if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream cached success", 200, $content);
-            exit();
-        }
+        // Pre-extracted by the worker in most cases; otherwise extracted now, atomically and with a bounded
+        // number of concurrent ffmpeg processes.
+        $cacheFile = SubtitleCache::ensureTrack($filepath, $trackIndex, $trackNum);
 
-        $mapArg = ($trackIndex !== -1) ? "-map 0:{$trackIndex}" : "-map 0:s:" . (int)$trackNum . "?";
-        $cmd = sprintf('ffmpeg -y -v error -i %s %s -f ass %s', escapeshellarg($filepath), $mapArg, escapeshellarg($cacheFile));
-
-        $descriptors = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w']
-        ];
-        $subProc = @proc_open($cmd, $descriptors, $pipes);
-        if (is_resource($subProc)) {
-            @fclose($pipes[0]);
-            $subStart = time();
-            $subTimeout = 20; // 20s hard timeout
-            while (time() - $subStart < $subTimeout) {
-                $status = proc_get_status($subProc);
-                if (!$status['running']) {
-                    break;
-                }
-                usleep(50000);
-            }
-            $status = proc_get_status($subProc);
-            if ($status['running']) {
-                @proc_terminate($subProc, 9);
-            }
-            @fclose($pipes[1]);
-            @fclose($pipes[2]);
-            @proc_close($subProc);
-        }
-
-        if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
+        if ($cacheFile !== null) {
             $content = file_get_contents($cacheFile);
             if ($startOffset > 0) $content = self::shiftAssTimestamps($content, $startOffset);
             echo $content;
             if (defined('TESTING_MODE')) throw new ExitException("Subtitle stream success", 200, $content);
         } else {
             @http_response_code(404);
+            @header('Cache-Control: no-store');
             echo "Subtitle track not available";
             if (defined('TESTING_MODE')) throw new ExitException("Subtitle not found", 404);
         }
@@ -488,19 +687,12 @@ class PlayerController {
 
         $epData = $ep;
         $tracks = !empty($epData['audio_tracks']) ? (is_array($epData['audio_tracks']) ? $epData['audio_tracks'] : json_decode($epData['audio_tracks'], true)) : [];
-        $videoCodec = strtolower($epData['video_codec'] ?? '');
-        $isDirectCodec = ($videoCodec === '' || $videoCodec === 'h264' || $videoCodec === 'avc1' || $videoCodec === 'avc');
-        $isDirectContainer = ($ext === 'mp4' || $ext === 'webm' || $ext === 'm4v');
-        $isDownmixRequested = (isset($_GET['downmix']) && $_GET['downmix'] === 'stereo');
-        $isForceTranscode = isset($_GET['transcode']) && $_GET['transcode'] == '1';
-
         if (!is_array($tracks)) {
             $tracks = [];
         }
-        $isDefaultAudio = ($audioTrack <= 0 || count($tracks) <= 1);
 
-        // Can we Direct Play using HTTP Range?
-        $canDirectPlay = $isDirectContainer && $isDirectCodec && $isDefaultAudio && !$isDownmixRequested && !$isForceTranscode && ($start <= 0);
+        // Can we Direct Play using HTTP Range? (container, codec, 8-bit depth, audio track, no offset)
+        $canDirectPlay = self::canDirectPlay($ep, $realPath, $_GET);
 
         $isHead = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'HEAD';
 
@@ -530,9 +722,11 @@ class PlayerController {
             }
 
             // Concurrency guard for FFmpeg transcode workers
-            if (!TranscodeLimiter::acquireSlot(2)) {
+            $sessionKey = self::streamSessionKey($episodeId);
+            if (!TranscodeLimiter::acquireSlot(2, $sessionKey)) {
                 @http_response_code(503);
                 @header('Retry-After: 5');
+                @header('X-Transcode-Busy: ' . TranscodeLimiter::getActiveWorkerCount() . '/' . TranscodeLimiter::maxWorkers());
                 echo "Servidor de transcodificación ocupado, por favor intenta en unos instantes.";
                 if (defined('TESTING_MODE')) throw new ExitException("Transcode limiter busy", 503);
                 exit();
@@ -585,7 +779,9 @@ class PlayerController {
             $epData = $ep;
             $videoCodec = strtolower($epData['video_codec'] ?? '');
             $forceH264 = isset($_GET['codec']) && strtolower($_GET['codec']) === 'h264';
-            $needTranscodeVideo = $forceH264 || ($videoCodec !== '' && $videoCodec !== 'h264' && $videoCodec !== 'avc1' && $videoCodec !== 'avc');
+            $bitDepth = self::resolveBitDepth($ep, $realPath);
+            // Hi10P and deeper H.264 is copied by a plain remux but cannot be decoded by browsers or most phones.
+            $needTranscodeVideo = $forceH264 || $bitDepth > 8 || ($videoCodec !== '' && $videoCodec !== 'h264' && $videoCodec !== 'avc1' && $videoCodec !== 'avc');
 
             $vCodecArg = $needTranscodeVideo
                 ? '-vf "scale=min(iw\\,1280):-2" -c:v libx264 -preset ultrafast -tune fastdecode,zerolatency -crf 25 -pix_fmt yuv420p'
@@ -633,6 +829,11 @@ class PlayerController {
 
             $process = @proc_open($cmd, $descriptors, $pipes);
             if (is_resource($process)) {
+                $procStatus = proc_get_status($process);
+                if (!empty($procStatus['pid'])) {
+                    // A newer stream of this session (a seek) can now stop this ffmpeg instead of waiting for it.
+                    TranscodeLimiter::setProcessPid((int)$procStatus['pid'], $sessionKey);
+                }
                 @fclose($pipes[0]);
                 stream_set_blocking($pipes[1], false);
                 stream_set_blocking($pipes[2], false);
@@ -689,6 +890,27 @@ class PlayerController {
             exit();
         }
 
+        $mimeTypes = [
+            'mp4' => 'video/mp4',
+            'webm' => 'video/webm',
+            'mkv' => 'video/x-matroska',
+            'avi' => 'video/x-msvideo',
+            'mov' => 'video/quicktime',
+            'm4v' => 'video/mp4',
+            'ts' => 'video/mp2t'
+        ];
+
+        // Behind nginx, PHP only authorizes: nginx sends the bytes (sendfile, ranges, HEAD, aborted clients) so a
+        // viewer no longer occupies a PHP process for the whole episode.
+        if (self::useAccelRedirect() && ($accelUri = self::accelUri($realPath, $realLibrary)) !== null) {
+            setCorsHeaders();
+            @header('Content-Type: ' . ($mimeTypes[$ext] ?? (@mime_content_type($realPath) ?: 'video/mp4')));
+            @header('X-Accel-Redirect: ' . $accelUri);
+            @header('Cache-Control: private, no-cache');
+            if (defined('TESTING_MODE')) throw new ExitException("Stream accel redirect", 200, $accelUri);
+            exit();
+        }
+
         $fileSize = filesize($realPath);
         $offset = 0;
         $length = $fileSize;
@@ -739,13 +961,6 @@ class PlayerController {
         }
 
         // Detect correct video MIME type
-        $mimeTypes = [
-            'mp4' => 'video/mp4',
-            'webm' => 'video/webm',
-            'avi' => 'video/x-msvideo',
-            'mov' => 'video/quicktime',
-            'm4v' => 'video/mp4'
-        ];
         $mime = $mimeTypes[$ext] ?? (@mime_content_type($realPath) ?: 'video/mp4');
 
         setCorsHeaders();
@@ -793,15 +1008,17 @@ class PlayerController {
             jsonError('Episodio no encontrado', 404);
         }
 
-        $cacheDir = sys_get_temp_dir() . '/kura_subs_cache/fonts/' . md5($ep['filepath']);
+        $cacheDir = SubtitleCache::fontsDir($ep['filepath']);
         $fontPath = $cacheDir . '/' . $cleanFont;
 
-        if (!file_exists($fontPath)) {
-            require_once __DIR__ . '/../services/FfmpegScanner.php';
-            FfmpegScanner::extractFonts($ep['filepath'], $cacheDir);
+        if (str_starts_with($cleanFont, '.')) {
+            jsonError('Nombre de fuente inválido', 400);
+        }
+        if (!is_file($fontPath)) {
+            SubtitleCache::ensureFonts($ep['filepath']);
         }
 
-        if (!file_exists($fontPath)) {
+        if (!is_file($fontPath)) {
             jsonError('Fuente no encontrada', 404);
         }
 
@@ -834,22 +1051,12 @@ class PlayerController {
             jsonError('Episodio no encontrado', 404);
         }
 
-        $cacheDir = sys_get_temp_dir() . '/kura_subs_cache/fonts/' . md5($ep['filepath']);
-        if (!is_dir($cacheDir)) {
-            require_once __DIR__ . '/../services/FfmpegScanner.php';
-            FfmpegScanner::extractFonts($ep['filepath'], $cacheDir);
-        }
-
         $fonts = [];
-        if (is_dir($cacheDir)) {
-            $files = glob($cacheDir . '/*.{ttf,otf,woff,woff2}', GLOB_BRACE) ?: [];
-            foreach ($files as $f) {
-                $base = basename($f);
-                $fonts[] = [
-                    'name' => $base,
-                    'url' => "/api/episodes/" . urlencode($episodeId) . "/fonts/" . urlencode($base)
-                ];
-            }
+        foreach (SubtitleCache::ensureFonts($ep['filepath']) as $base) {
+            $fonts[] = [
+                'name' => $base,
+                'url' => "/api/episodes/" . urlencode($episodeId) . "/fonts/" . urlencode($base)
+            ];
         }
         jsonResponse(['fonts' => $fonts]);
     }

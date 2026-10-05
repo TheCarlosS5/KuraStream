@@ -7,6 +7,7 @@ import com.kurastream.app.core.model.Episode
 import com.kurastream.app.core.model.ShowDetail
 import com.kurastream.app.core.model.UiState
 import com.kurastream.app.core.model.WatchHistoryItem
+import com.kurastream.app.core.network.dto.CommentDto
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import com.kurastream.app.core.repository.CatalogRepository
 import com.kurastream.app.core.repository.HistoryRepository
@@ -24,7 +25,13 @@ data class ShowDetailUiState(
     val selectedSeason: Int = 1,
     val episodeProgressMap: Map<String, Float> = emptyMap(),
     val episodeCompletedMap: Map<String, Boolean> = emptyMap(),
-    val baseUrl: String = ""
+    val baseUrl: String = "",
+    val comments: List<CommentDto> = emptyList(),
+    val commentsLoaded: Boolean = false,
+    val commentsLoading: Boolean = false,
+    val commentsError: String? = null,
+    val commentDraft: String = "",
+    val isPostingComment: Boolean = false
 )
 
 @HiltViewModel
@@ -99,6 +106,49 @@ class ShowDetailViewModel @Inject constructor(
         }
     }
 
+    /** Comments load on demand (the first time the section opens), not for every visit to the page. */
+    fun loadComments() {
+        if (_uiState.value.commentsLoading) return
+        _uiState.update { it.copy(commentsLoading = true, commentsError = null) }
+        viewModelScope.launch {
+            val res = catalogRepository.getComments(showId)
+            _uiState.update {
+                if (res.isSuccess) it.copy(comments = res.getOrThrow(), commentsLoaded = true, commentsLoading = false)
+                else it.copy(commentsLoading = false, commentsError = res.exceptionOrNull()?.message ?: "No se pudieron cargar los comentarios")
+            }
+        }
+    }
+
+    fun onCommentDraftChanged(text: String) {
+        if (text.length <= MAX_COMMENT_LENGTH) _uiState.update { it.copy(commentDraft = text) }
+    }
+
+    fun postComment() {
+        val text = _uiState.value.commentDraft.trim()
+        if (text.isEmpty() || _uiState.value.isPostingComment) return
+        _uiState.update { it.copy(isPostingComment = true, commentsError = null) }
+        viewModelScope.launch {
+            val res = catalogRepository.addComment(showId, text)
+            if (res.isSuccess) {
+                _uiState.update { it.copy(isPostingComment = false, commentDraft = "") }
+                loadComments()
+            } else {
+                _uiState.update { it.copy(isPostingComment = false, commentsError = res.exceptionOrNull()?.message) }
+            }
+        }
+    }
+
+    fun deleteComment(id: String) {
+        viewModelScope.launch {
+            val res = catalogRepository.deleteComment(id)
+            if (res.isSuccess) {
+                _uiState.update { s -> s.copy(comments = s.comments.filterNot { it.id == id }) }
+            } else {
+                _uiState.update { it.copy(commentsError = res.exceptionOrNull()?.message) }
+            }
+        }
+    }
+
     fun selectSeason(seasonNumber: Int) {
         _uiState.update { it.copy(selectedSeason = seasonNumber) }
     }
@@ -160,5 +210,6 @@ class ShowDetailViewModel @Inject constructor(
 
     private companion object {
         const val HISTORY_REFRESH_DELAY_MS = 800L
+        const val MAX_COMMENT_LENGTH = 1000
     }
 }

@@ -120,6 +120,19 @@
   pointer-events: none !important;
 }
 
+/* The browser refused to autoplay: keep the big play button on screen until the person presses it. */
+.player-container.autoplay-blocked.controls-hidden {
+  cursor: default;
+}
+
+.player-container.autoplay-blocked.controls-hidden .player-controls-overlay {
+  opacity: 1;
+}
+
+.player-container.autoplay-blocked.controls-hidden .player-controls-overlay .center-action-btn {
+  pointer-events: auto !important;
+}
+
 .player-top-bar {
   display: flex;
   align-items: center;
@@ -2041,3 +2054,8 @@ html.perf-lite .tracks-modal-dialog {
     display: none;
   }
 }
+
+.party-host-settings { padding: 8px 14px; border-bottom: 1px solid var(--border-color); font-size: 0.82rem; }
+.party-host-settings[hidden] { display: none; }
+.party-host-settings summary { cursor: pointer; color: var(--text-secondary); }
+.party-host-settings label { display: flex; gap: 8px; align-items: center; margin-top: 8px; color: var(--text-secondary); }

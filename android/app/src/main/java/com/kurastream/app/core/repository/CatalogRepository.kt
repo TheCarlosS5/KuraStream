@@ -5,6 +5,8 @@ import com.kurastream.app.core.database.CachedShowEntity
 import com.kurastream.app.core.database.ShowDao
 import com.kurastream.app.core.model.*
 import com.kurastream.app.core.network.KuraApiService
+import com.kurastream.app.core.network.dto.CommentDto
+import com.kurastream.app.core.network.dto.AddCommentRequestDto
 import com.kurastream.app.core.network.dto.EpisodeDto
 import com.kurastream.app.core.network.dto.ShowDto
 import com.kurastream.app.core.network.dto.ToggleFavoriteRequestDto
@@ -116,6 +118,26 @@ class CatalogRepository(
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
+    }
+
+    suspend fun getComments(showId: String): Result<List<CommentDto>> = try {
+        Result.success(apiService.getComments(showId).comments)
+    } catch (e: Exception) {
+        Result.failure(e.toUserFacingError())
+    }
+
+    suspend fun addComment(showId: String, content: String): Result<Unit> = try {
+        val res = apiService.addComment(AddCommentRequestDto(showId, content))
+        if (res.success) Result.success(Unit) else Result.failure(Exception(res.error ?: "No se pudo publicar el comentario"))
+    } catch (e: Exception) {
+        Result.failure(e.toUserFacingError())
+    }
+
+    suspend fun deleteComment(id: String): Result<Unit> = try {
+        val res = apiService.deleteComment(id)
+        if (res.success) Result.success(Unit) else Result.failure(Exception(res.error ?: "No se pudo eliminar el comentario"))
+    } catch (e: Exception) {
+        Result.failure(e.toUserFacingError())
     }
 
     suspend fun getEpisodeDetails(episodeId: String): Result<Episode> {
@@ -253,6 +275,7 @@ class CatalogRepository(
         size = size ?: 0L,
         videoCodec = videoCodec ?: "",
         audioCodec = audioCodec ?: "",
+        bitDepth = bitDepth ?: 0,
         resolution = resolution ?: "",
         fps = fps ?: 0f,
         audioTracks = audioTracks?.map { track ->

@@ -65,6 +65,8 @@ data class Episode(
     val size: Long = 0L,
     val videoCodec: String = "",
     val audioCodec: String = "",
+    /** Bits per video sample (8, 10…); 0 when the server has not probed it yet. */
+    val bitDepth: Int = 0,
     val resolution: String = "",
     val fps: Float = 0f,
     val audioTracks: List<AudioTrack> = emptyList(),

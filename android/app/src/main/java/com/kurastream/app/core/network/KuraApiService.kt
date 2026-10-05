@@ -14,6 +14,10 @@ interface KuraApiService {
         @Header("X-No-Auth") noAuth: String? = "true"
     ): ServerHealthDto
 
+    /** Public: the build the server offers, used to offer in-app updates. */
+    @GET("api/app/android")
+    suspend fun getAppInfo(): AppInfoDto
+
     // Auth
     @POST("api/login")
     suspend fun login(@Body body: LoginRequestDto): AuthResponseDto
@@ -36,6 +40,10 @@ interface KuraApiService {
 
     @DELETE("api/profiles/{id}")
     suspend fun deleteProfile(@Path("id") id: String): BaseResponseDto
+
+    /** Same as DELETE, but able to carry the profile's PIN when it has one. */
+    @POST("api/profiles/delete")
+    suspend fun deleteProfileWithPin(@Body body: DeleteProfileRequestDto): BaseResponseDto
 
     // Catalog & Shows
     @GET("api/shows")
@@ -82,7 +90,7 @@ interface KuraApiService {
     suspend fun saveProgress(
         @Path("episodeId") episodeId: String,
         @Body body: SaveProgressRequestDto
-    ): BaseResponseDto
+    ): SaveProgressResponseDto
 
     // Favorites
     @GET("api/favorites")
@@ -119,6 +127,12 @@ interface KuraApiService {
     @GET("api/comments")
     suspend fun getComments(@Query("show_id") showId: String): CommentsResponseDto
 
+    @POST("api/comments")
+    suspend fun addComment(@Body body: AddCommentRequestDto): BaseResponseDto
+
+    @DELETE("api/comments/{id}")
+    suspend fun deleteComment(@Path("id") id: String): BaseResponseDto
+
     // Watch Party
     @POST("api/party/create")
     suspend fun createPartyRoom(@Body body: PartyCreateRequestDto): PartyCreateResponseDto
@@ -133,6 +147,14 @@ interface KuraApiService {
         @Query("room_id") roomId: String,
         @Query("member_id") memberIdQuery: String = memberId
     ): BaseResponseDto
+
+    /** The stream ticket lasts 15 minutes; the repository renews it every 8. */
+    @POST("api/party/refresh-ticket")
+    suspend fun refreshPartyTicket(
+        @Header("X-Party-Member-Id") memberId: String,
+        @Header("X-Party-Member-Token") memberToken: String,
+        @Body body: PartyTicketRequestDto
+    ): PartyTicketResponseDto
 
     @POST("api/party/sync")
     suspend fun syncPartyPlayback(

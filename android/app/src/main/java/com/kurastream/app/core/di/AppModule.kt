@@ -149,18 +149,26 @@ object AppModule {
             }
 
             if (isMatchingServer) {
-                // If caller didn't pass explicit stream capability header, inject active party stream ticket
+                // The room's stream ticket only ever goes to the stream of the room's current episode, never to
+                // other episodes or other endpoints.
                 val partySession = watchPartyRepositoryProvider.get().activeSession.value
+                val streamedEpisode = original.url.pathSegments.let { segments ->
+                    val i = segments.indexOf("stream")
+                    if (i >= 0 && i + 1 < segments.size) segments[i + 1] else null
+                }
+                val roomEpisode = partySession?.room?.episodeId
+                val ticketApplies = streamedEpisode != null && (roomEpisode == null || streamedEpisode == roomEpisode)
+
                 val streamTicket = original.header("X-Stream-Capability")
-                    ?: partyPlaybackContextProvider.get().streamCapabilityToken.value
-                    ?: partySession?.streamTicket
+                    ?: (if (ticketApplies) (partyPlaybackContextProvider.get().streamCapabilityToken.value ?: partySession?.streamTicket) else null)
 
                 if (!streamTicket.isNullOrBlank() && original.header("X-Stream-Capability") == null) {
                     builder.header("X-Stream-Capability", streamTicket)
                 }
 
-                // If caller didn't pass explicit authorization or stream capability, use active bearer token
-                if (original.header("Authorization") == null && original.header("X-Stream-Capability") == null && streamTicket.isNullOrBlank()) {
+                // The signed-in session goes along with the ticket: when the ticket has just expired the server
+                // falls back to the session instead of answering 403 (the stream died 15 minutes into a party).
+                if (original.header("Authorization") == null) {
                     val token = tokenStorage.getToken(activeServerId)
                     if (!token.isNullOrBlank()) {
                         builder.header("Authorization", "Bearer $token")
@@ -205,9 +213,18 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideWatchPartyClient(okHttpClient: OkHttpClient, json: Json): WatchPartyClient {
-        return WatchPartyClient(okHttpClient, json)
+    fun provideWatchPartyClient(@ApplicationContext context: Context, okHttpClient: OkHttpClient, json: Json): WatchPartyClient {
+        return WatchPartyClient(okHttpClient, json, context)
     }
+
+    @Provides
+    @Singleton
+    fun provideAppUpdateRepository(
+        @ApplicationContext context: Context,
+        apiService: KuraApiService,
+        @Named("media") downloadClient: OkHttpClient
+    ): com.kurastream.app.core.update.AppUpdateRepository =
+        com.kurastream.app.core.update.AppUpdateRepository(context, apiService, downloadClient, com.kurastream.app.BuildConfig.VERSION_CODE)
 
     @Provides
     @Singleton
@@ -222,8 +239,10 @@ object AppModule {
     fun provideAuthRepository(
         apiService: KuraApiService,
         tokenStorage: TokenStorage,
-        preferencesDataSource: KuraPreferencesDataSource
-    ): AuthRepository = AuthRepository(apiService, tokenStorage, preferencesDataSource)
+        preferencesDataSource: KuraPreferencesDataSource,
+        showDao: ShowDao,
+        historyDao: HistoryDao
+    ): AuthRepository = AuthRepository(apiService, tokenStorage, preferencesDataSource, showDao, historyDao)
 
     @Provides
     @Singleton

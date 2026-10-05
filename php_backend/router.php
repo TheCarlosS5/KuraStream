@@ -9,12 +9,35 @@ require_once __DIR__ . '/controllers/PlayerController.php';
 require_once __DIR__ . '/controllers/CalendarController.php';
 require_once __DIR__ . '/controllers/HistoryController.php';
 require_once __DIR__ . '/controllers/AdminController.php';
+require_once __DIR__ . '/controllers/AdminUsersController.php';
 require_once __DIR__ . '/controllers/PartyController.php';
 require_once __DIR__ . '/controllers/AppDownloadController.php';
 
 $uri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 setSecurityHeaders();
+
+// Query and form parameters are always scalars in this API. An array-shaped one (?type[]=x) would crash
+// string functions with a TypeError deep inside a controller, so refuse it at the door.
+foreach ([$_GET, $_POST] as $__params) {
+    foreach ($__params as $__value) {
+        if (is_array($__value)) {
+            jsonError('Parámetros de solicitud inválidos', 400);
+        }
+    }
+}
+foreach ($_COOKIE as $__name => $__value) {
+    if (is_array($__value)) {
+        unset($_COOKIE[$__name]);
+    }
+}
+unset($__params, $__value, $__name);
+
+// A NUL or other control byte (also percent-encoded: %00) in the path has no legitimate use here. It used to reach
+// realpath()/filesystem calls, which throw a ValueError (a 500 for every such request): refuse it at the door.
+if (is_string($uri) && preg_match('/[\x00-\x1F\x7F]/', rawurldecode($uri))) {
+    jsonError('Ruta no válida', 400);
+}
 
 $appStartTime = microtime(true);
 register_shutdown_function(function() use ($appStartTime, $uri) {
@@ -67,14 +90,93 @@ if (!function_exists('serveStaticFile')) {
     }
 }
 
+if (!function_exists('serveBackdropLoop')) {
+    /**
+     * Serves a show's ambient background clip (library/<Anime|Movies>/<show>/loop_*.mp4|webm) with HTTP Range
+     * support. Browsers need byte ranges to loop and seek a video; plain readfile() made them fail, and the
+     * blanket "no video from /library" rule blocked the clips altogether. Only this exact file shape is served.
+     */
+    function serveBackdropLoop(string $root, string $relativePath): void {
+        $realRoot = realpath($root);
+        $file = $realRoot !== false ? realpath($realRoot . DIRECTORY_SEPARATOR . $relativePath) : false;
+        if ($file === false || !is_file($file) || !str_starts_with($file, rtrim($realRoot, '/\\') . DIRECTORY_SEPARATOR)) {
+            return; // not found: the caller falls through to the normal 404
+        }
+
+        $size = filesize($file);
+        $start = 0;
+        $end = max(0, $size - 1);
+        $status = 200;
+        $range = $_SERVER['HTTP_RANGE'] ?? '';
+        if ($range !== '' && preg_match('/^bytes=(\d*)-(\d*)$/', trim($range), $m) && ($m[1] !== '' || $m[2] !== '')) {
+            if ($m[1] === '') {                       // suffix range: the last N bytes
+                $start = max(0, $size - (int)$m[2]);
+            } else {
+                $start = (int)$m[1];
+                if ($m[2] !== '') $end = min((int)$m[2], $size - 1);
+            }
+            if ($size === 0 || $start > $end || $start >= $size || ($m[1] === '' && (int)$m[2] === 0)) {
+                http_response_code(416);
+                header("Content-Range: bytes */{$size}");
+                exit();
+            }
+            $status = 206;
+            header("Content-Range: bytes {$start}-{$end}/{$size}");
+        }
+        // Any other Range syntax (multiple ranges, units) is ignored and the whole file is sent, as the RFC allows.
+
+        $length = $size === 0 ? 0 : $end - $start + 1;
+        http_response_code($status);
+        header('Content-Type: ' . (str_ends_with(strtolower($file), '.webm') ? 'video/webm' : 'video/mp4'));
+        header('Accept-Ranges: bytes');
+        header('Content-Length: ' . $length);
+        header('Cache-Control: public, max-age=3600');
+        header('X-Content-Type-Options: nosniff');
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'HEAD' || $length === 0) {
+            exit();
+        }
+
+        $fp = fopen($file, 'rb');
+        fseek($fp, $start);
+        while ($length > 0 && !feof($fp) && !connection_aborted()) {
+            $chunk = fread($fp, min(65536, $length));
+            if ($chunk === false || $chunk === '') break;
+            echo $chunk;
+            $length -= strlen($chunk);
+            flush();
+        }
+        fclose($fp);
+        exit();
+    }
+}
+
+// `npm run build` writes frontend/dist (hashed, minified files). It is served automatically when present;
+// KURA_USE_DIST=0 serves the readable sources instead (development, E2E tests).
+$distDir = $frontendDir . '/dist';
+$useDist = getenv('KURA_USE_DIST') !== '0' && is_file($distDir . '/index.html');
+
 if ($uri === '/' || $uri === '/index.html') {
     header('Content-Type: text/html; charset=utf-8');
     header('Cache-Control: no-cache, no-store, must-revalidate');
-    readfile($frontendDir . '/index.html');
+    readfile($useDist ? $distDir . '/index.html' : $frontendDir . '/index.html');
+    exit();
+}
+
+if ($useDist && $uri === '/sw.js') {
+    // The service worker must live at the root to control the whole site; the built one lists this build's files.
+    header('Content-Type: application/javascript; charset=utf-8');
+    header('Cache-Control: no-cache');
+    header('Service-Worker-Allowed: /');
+    readfile($distDir . '/sw.js');
     exit();
 }
 
 $decodedUri = urldecode($uri);
+
+// Hashed build files never change: cache them for a year.
+if (str_starts_with($decodedUri, '/dist/')) {
+    serveStaticFile($frontendDir, $decodedUri, 'public, max-age=31536000, immutable');
+}
 
 serveStaticFile($frontendDir, $decodedUri);
 
@@ -86,10 +188,23 @@ if ($decodedUri === '/library/logo.png' && !is_file($libraryDir . '/logo.png')) 
 
 if (str_starts_with($decodedUri, '/library/')) {
     $rel = substr($decodedUri, strlen('/library/'));
-    $ext = strtolower(pathinfo(parse_url($rel, PHP_URL_PATH) ?: $rel, PATHINFO_EXTENSION));
+    $relPath = parse_url($rel, PHP_URL_PATH) ?: $rel;
+    $ext = strtolower(pathinfo($relPath, PATHINFO_EXTENSION));
+
+    // Ambient background clips are the one kind of video the library serves directly.
+    if (preg_match('#^(Anime|Movies)/(?!\.{1,2}/)[^/]+/loop_[A-Za-z0-9_.-]+\.(mp4|webm)$#i', $relPath)) {
+        serveBackdropLoop($libraryDir, $relPath);
+    }
+
     $videoExts = ['mkv', 'mp4', 'webm', 'ts', 'avi', 'mov', 'm4v'];
     if (in_array($ext, $videoExts, true)) {
         jsonError('Direct video download forbidden. Use /api/stream/{id}', 403);
+    }
+    // Allow-list, not block-list: artwork and avatars only. Sidecar subtitles, other containers (.mka, .m2ts,
+    // .flv...), notes and anything a scan or upload leaves behind must not be downloadable by URL. SVG is excluded
+    // on purpose: served from this origin it would be active content.
+    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) {
+        jsonError('Tipo de archivo no permitido', 403);
     }
     serveStaticFile($libraryDir, $rel, 'public, max-age=3600');
     serveStaticFile($libraryDir, str_replace('_', ' ', $rel), 'public, max-age=3600');
@@ -110,11 +225,21 @@ if ($uri === '/api/login' && $method === 'POST') {
 
 if ($uri === '/api/register' && $method === 'POST') {
     RateLimiter::enforce('auth', 10, 300);
+    // Per address; behind a reverse proxy set TRUSTED_PROXIES or every user shares one bucket.
+    RateLimiter::enforce('register', max(1, (int)(getenv('REGISTER_MAX_PER_HOUR') ?: 5)), 3600);
     AuthController::register();
 }
 
 if ($uri === '/api/logout' && $method === 'POST') {
     AuthController::logout();
+}
+
+if ($uri === '/api/account/password' && $method === 'POST') {
+    AuthController::changePassword();
+}
+
+if ($uri === '/api/account/logout-all' && $method === 'POST') {
+    AuthController::logoutAll();
 }
 
 if ($uri === '/api/health' && $method === 'GET') {
@@ -123,13 +248,20 @@ if ($uri === '/api/health' && $method === 'GET') {
         'status' => 'healthy',
         'database' => 'connected',
         'storage' => is_readable(LIBRARY_DIR) ? 'readable' : 'unreadable',
-        'php_version' => PHP_VERSION,
         'timestamp' => date('c')
     ];
+    $healthStatusCode = 200;
 
     try {
         $db = Database::getConnection();
         $db->query('SELECT 1');
+        if (Database::migrationProblem() !== null) {
+            // A schema update failed: the app may be missing columns, so the operator has to look at the log.
+            $healthStatusCode = 503;
+            $response['success'] = false;
+            $response['status'] = 'degraded';
+            $response['migrations'] = 'failed';
+        }
     } catch (Throwable $e) {
         @http_response_code(503);
         $response['success'] = false;
@@ -139,8 +271,13 @@ if ($uri === '/api/health' && $method === 'GET') {
         if (defined('TESTING_MODE')) throw new ExitException(json_encode($response), 503, $response);
         exit();
     }
-    
-    jsonResponse($response);
+
+    // The runtime version helps an attacker pick exploits; only administrators get it.
+    $healthSession = AuthMiddleware::sessionPayload(AuthMiddleware::getBearerToken());
+    if ($healthSession && ($healthSession['role'] ?? '') === 'admin') {
+        $response['php_version'] = PHP_VERSION;
+    }
+    jsonResponse($response, $healthStatusCode);
 }
 
 if ($uri === '/api/app/android' && $method === 'GET') {
@@ -229,6 +366,10 @@ if (preg_match('#^/api/episodes/([^/]+)$#', $uri, $m) && $method === 'GET') {
     PlayerController::getEpisodeDetails(urldecode($m[1]));
 }
 
+if (preg_match('#^/api/stream/([^/]+)/availability$#', $uri, $m) && $method === 'GET') {
+    PlayerController::streamAvailability(urldecode($m[1]));
+}
+
 if (preg_match('#^/api/stream/([^/]+)$#', $uri, $m) && in_array($method, ['GET', 'HEAD'])) {
     PlayerController::streamVideo(urldecode($m[1]));
 }
@@ -243,6 +384,10 @@ if ($uri === '/api/user/preferences' && $method === 'GET') {
 
 if ($uri === '/api/user/preferences' && $method === 'POST') {
     HistoryController::saveUserPreferences();
+}
+
+if ($uri === '/api/user/summary' && $method === 'GET') {
+    HistoryController::getYearSummary();
 }
 
 if ($uri === '/api/user/stats' && $method === 'GET') {
@@ -275,6 +420,30 @@ if (preg_match('#^/api/subtitles?/([^/]+)/([^/]+)$#', $uri, $m) && $method === '
 
 if ($uri === '/api/favorites/check' && $method === 'GET') {
     HistoryController::checkFavorite();
+}
+
+if ($uri === '/api/history/mark' && $method === 'POST') {
+    HistoryController::markWatched();
+}
+
+if ($uri === '/api/ratings' && $method === 'GET') {
+    HistoryController::getRatings();
+}
+
+if ($uri === '/api/ratings' && $method === 'POST') {
+    HistoryController::setRating();
+}
+
+if ($uri === '/api/recommendations' && $method === 'GET') {
+    HistoryController::getRecommendations();
+}
+
+if ($uri === '/api/list-status' && $method === 'GET') {
+    HistoryController::getListStatuses();
+}
+
+if ($uri === '/api/list-status' && $method === 'POST') {
+    HistoryController::setListStatus();
 }
 
 if ($uri === '/api/history' && $method === 'POST') {
@@ -425,6 +594,10 @@ if ($uri === '/api/comments' && $method === 'GET') {
     ShowController::getComments();
 }
 
+if (preg_match('#^/api/comments/([A-Za-z0-9_]+)$#', $uri, $m) && $method === 'DELETE') {
+    ShowController::deleteComment($m[1]);
+}
+
 if ($uri === '/api/comments' && $method === 'POST') {
     ShowController::addComment();
 }
@@ -508,9 +681,102 @@ if ($uri === '/api/party/sse-ticket' && $method === 'POST') {
 
 // Rescan / Repair trigger
 if (($uri === '/api/admin/scan' || $uri === '/api/admin/repair-library') && $method === 'POST') {
-    AuthMiddleware::requireAdmin();
+    $admin = AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/JobQueue.php';
+    if (JobQueue::shouldQueue()) {
+        // Scanning probes every new file with ffprobe: too slow for a web request, so the worker does it.
+        $job = JobQueue::enqueue('library_scan', [], (string)($admin['username'] ?? ''));
+        jsonResponse(['success' => true, 'queued' => true, 'job_id' => $job['id'], 'already_queued' => $job['existing']], 202);
+    }
     $res = LibraryScanner::runScan();
     jsonResponse($res);
+}
+
+// Live health of the machine for the admin panel (worker, jobs, backups, disks, ffmpeg, Watch Party viewers, load)
+if ($uri === '/api/admin/system' && $method === 'GET') {
+    AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/JobQueue.php';
+    require_once __DIR__ . '/services/BackupService.php';
+    jsonResponse([
+        'success' => true,
+        'system' => AdminController::systemHealth(),
+        'transcode' => ['active' => TranscodeLimiter::getActiveWorkerCount(), 'max' => TranscodeLimiter::maxWorkers()],
+        'jobs' => JobQueue::recent(8),
+        'backups' => array_slice(BackupService::list(), 0, 10),
+    ]);
+}
+
+// Background jobs (worker.php): status for the admin panel, and database backups
+if ($uri === '/api/admin/jobs' && $method === 'GET') {
+    AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/JobQueue.php';
+    jsonResponse(['success' => true, 'worker_alive' => JobQueue::workerAlive(), 'jobs' => JobQueue::recent((int)($_GET['limit'] ?? 30))]);
+}
+
+if (preg_match('#^/api/admin/jobs/(\d+)$#', $uri, $m) && $method === 'GET') {
+    AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/JobQueue.php';
+    $job = JobQueue::get((int)$m[1]);
+    if (!$job) jsonError('Trabajo no encontrado', 404);
+    jsonResponse(['success' => true, 'job' => $job]);
+}
+
+if ($uri === '/api/admin/backups' && $method === 'GET') {
+    AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/BackupService.php';
+    jsonResponse(['success' => true, 'available' => BackupService::isAvailable(), 'backups' => BackupService::list()]);
+}
+
+if ($uri === '/api/admin/backups' && $method === 'POST') {
+    $admin = AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/JobQueue.php';
+    require_once __DIR__ . '/services/BackupService.php';
+    if (!BackupService::isAvailable()) {
+        jsonError('mysqldump no está instalado en el servidor', 501);
+    }
+    if (JobQueue::shouldQueue()) {
+        $job = JobQueue::enqueue('backup', [], (string)($admin['username'] ?? ''));
+        jsonResponse(['success' => true, 'queued' => true, 'job_id' => $job['id']], 202);
+    }
+    @set_time_limit(300);
+    try {
+        jsonResponse(['success' => true] + BackupService::run());
+    } catch (Throwable $e) {
+        error_log('[backup] ' . $e->getMessage());
+        jsonError('No se pudo crear el respaldo: ' . $e->getMessage(), 500);
+    }
+}
+
+// Account administration
+if ($uri === '/api/admin/users' && $method === 'GET') {
+    AdminUsersController::listUsers();
+}
+
+if (preg_match('#^/api/admin/users/([^/]+)/(disable|role|reset-password|logout-all)$#', $uri, $m) && $method === 'POST') {
+    $target = urldecode($m[1]);
+    switch ($m[2]) {
+        case 'disable': AdminUsersController::setDisabled($target); break;
+        case 'role': AdminUsersController::setRole($target); break;
+        case 'reset-password': AdminUsersController::resetPassword($target); break;
+        case 'logout-all': AdminUsersController::logoutAll($target); break;
+    }
+}
+
+if (preg_match('#^/api/admin/users/([^/]+)$#', $uri, $m) && $method === 'DELETE') {
+    AdminUsersController::deleteUser(urldecode($m[1]));
+}
+
+if (preg_match('#^/api/admin/backups/([A-Za-z0-9._-]+)$#', $uri, $m) && $method === 'GET') {
+    AuthMiddleware::requireAdmin();
+    require_once __DIR__ . '/services/BackupService.php';
+    $path = BackupService::path($m[1]);
+    if ($path === null) jsonError('Respaldo no encontrado', 404);
+    header('Content-Type: application/gzip');
+    header('Content-Disposition: attachment; filename="' . basename($path) . '"');
+    header('Content-Length: ' . filesize($path));
+    header('Cache-Control: no-store');
+    readfile($path);
+    exit;
 }
 
 // 404 fallback

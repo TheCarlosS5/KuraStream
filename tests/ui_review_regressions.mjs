@@ -34,7 +34,7 @@ test('notification metadata stays in text and quoted attributes, with encoded ro
 test('router decodes IDs only after separating the actual query string', () => {
   for (const kind of ['show', 'player']) {
     let received;
-    const context = vm.createContext({ console, window: { location: { hash: `#/${kind}/Show%3Fpart%2Fone_S1_E1?t=42` }, addEventListener() {} }, document: { querySelector: () => ({ style: { removeProperty() {} } }), querySelectorAll: () => [], getElementById: () => null }, updateMosaicBgVisibility() {}, updateActiveNavHighlight() {}, resetChameleonTheme() {}, currentView: '', loadShowDetails: id => { received = id; }, initPlayer: id => { received = id; } });
+    const context = vm.createContext({ navigationGeneration: 0, console, window: { location: { hash: `#/${kind}/Show%3Fpart%2Fone_S1_E1?t=42` }, addEventListener() {} }, document: { querySelector: () => ({ style: { removeProperty() {} } }), querySelectorAll: () => [], getElementById: () => null }, updateMosaicBgVisibility() {}, updateActiveNavHighlight() {}, resetChameleonTheme() {}, currentView: '', loadShowDetails: id => { received = id; }, initPlayer: id => { received = id; } });
     evaluate(app, 'setupRouter', context);
     context.setupRouter();
     assert.equal(received, 'Show?part/one_S1_E1');
@@ -55,6 +55,7 @@ for (const entry of ['code', 'modal']) {
         'party-join-name-input': { value: 'Viewer' }
       };
       const context = vm.createContext({
+        navigationGeneration: 0,
         console,
         window: { location: { hash: '' }, addEventListener() {} },
         document: { getElementById: key => nodes[key] || null, addEventListener() {} },
@@ -82,7 +83,7 @@ for (const entry of ['code', 'modal']) {
 test('decoded IDs retain question marks and slashes through API URL construction', async () => {
   let requested;
   const stop = new Error('Stop after first API request');
-  const context = vm.createContext({ console: { error() {} }, document: { getElementById: () => null }, fetch: async url => { requested = url; throw stop; } });
+  const context = vm.createContext({ navigationGeneration: 0, console: { error() {} }, document: { getElementById: () => null }, fetch: async url => { requested = url; throw stop; } });
   evaluate(player, 'getShowIdFromEpisodeId', context);
   evaluate(player, 'showApiUrl', context);
   // The player loads its episode through showApiUrl(getShowIdFromEpisodeId(id)).
@@ -107,7 +108,7 @@ test('new service worker installs exact versioned shell assets and retires old c
   const cacheModes = [];
   const removed = [];
   let cacheName;
-  const context = vm.createContext({ URL, Request, console, self: { location: { origin: 'https://kura.test' }, addEventListener: (type, handler) => { handlers[type] = handler; }, skipWaiting() {}, clients: { claim() {} } }, caches: { open: async name => { cacheName = name; return { addAll: async assets => { cacheModes.push(...assets.map(asset => asset.cache)); installed.push(...assets.map(asset => typeof asset === 'string' ? asset : new URL(asset.url).pathname + new URL(asset.url).search)); } }; }, keys: async () => ['kurastream-v2.0', cacheName], delete: async name => { removed.push(name); } } });
+  const context = vm.createContext({ URL, Request, console, self: { location: { origin: 'https://kura.test' }, addEventListener: (type, handler) => { handlers[type] = handler; }, skipWaiting() {}, clients: { claim() {} } }, caches: { open: async name => { cacheName = name; const record = assets => { cacheModes.push(...assets.map(asset => asset.cache)); installed.push(...assets.map(asset => typeof asset === 'string' ? asset : new URL(asset.url).pathname + new URL(asset.url).search)); }; return { addAll: async assets => record(assets), add: async asset => record([asset]) }; }, keys: async () => ['kurastream-v2.0', cacheName], delete: async name => { removed.push(name); } } });
   vm.runInContext(sw, context);
   let done;
   handlers.install({ waitUntil: promise => { done = promise; } });
@@ -135,7 +136,7 @@ test('new service worker installs exact versioned shell assets and retires old c
     }
   };
   const mainScriptMatch = html.match(/src="(\/js\/main\.js\?[^"]+)"/);
-  checkModule(mainScriptMatch ? mainScriptMatch[1] : '/js/main.js?v=2026.10.04-outros');
+  checkModule(mainScriptMatch ? mainScriptMatch[1] : '/js/main.js?v=2026.10.05-security');
   handlers.activate({ waitUntil: promise => { done = promise; } });
   await done;
   assert.deepEqual(removed, ['kurastream-v2.0']);
@@ -178,9 +179,55 @@ test('purge fabricated metadata: no 8.5 rating or 2026 year fallback in frontend
     escapeHtmlAttribute: s => String(s || ''),
     catalogueImageUrl: s => s
   });
-  evaluate(app, 'renderBillboardHero', context);
+  // renderBillboardHero builds its genre tags with these two pure helpers.
+  for (const name of ['showGenreList', 'genreLabel', 'renderBillboardHero']) evaluate(app, name, context);
   const heroHtml = context.renderBillboardHero({ title: 'Test Anime' });
   assert.ok(!heroHtml.includes('8.5'), 'renderBillboardHero must not fabricate 8.5 rating');
   assert.ok(heroHtml.includes('N/A'), 'renderBillboardHero shows N/A for missing rating/year');
 });
 
+
+test('avatar data never reaches a style="..." string: it is applied as single DOM properties', () => {
+  // Profile data (avatar URL, colour) is user controlled and shown to other people (comments, profile grid).
+  // Interpolating it into style="..." let a crafted value add declarations such as a full-screen overlay.
+  assert.ok(!/style="[^"]*url\(['"]?\$\{/.test(app), 'main.js must not build style="...url(${...})" strings');
+  assert.ok(!/background(-image)?:\s*\$\{/.test(app), 'main.js must not interpolate backgrounds into style strings');
+  assert.ok(!/style="[^"]*\$\{avatar/.test(app), 'main.js must not put avatar values into style strings');
+
+  const assigned = [];
+  const makeEl = (data) => {
+    const style = new Proxy({}, { set(target, key, value) { assigned.push([key, value]); target[key] = value; return true; } });
+    return { dataset: data, style };
+  };
+  const hostileImage = "x');position:fixed;inset:0;z-index:99999;background-image:url('/library/avatars/uploads/y.jpg";
+  const hostileColor = 'red;position:fixed;inset:0';
+  const images = [makeEl({ bgImage: hostileImage })];
+  const colors = [makeEl({ bgColor: hostileColor }), makeEl({ bgColor: '#12ab9F' })];
+  const root = { querySelectorAll: sel => sel === '[data-bg-image]' ? images : sel === '[data-bg-color]' ? colors : [] };
+  const context = vm.createContext({});
+  for (const name of ['cssUrl', 'applyDynamicBackgrounds']) evaluate(app, name, context);
+  context.applyDynamicBackgrounds(root);
+
+  const keys = new Set(assigned.map(([key]) => key));
+  assert.deepEqual([...keys].sort(), ['background', 'backgroundImage', 'backgroundPosition', 'backgroundSize'], 'only background properties are ever assigned');
+  const image = assigned.find(([key]) => key === 'backgroundImage')[1];
+  assert.equal(image, `url(${JSON.stringify(hostileImage)})`, 'the address is passed as one JSON-quoted CSS string');
+  assert.ok(image.startsWith('url("') && image.endsWith('")'), 'the value is a single url("...") token');
+  const bgValues = assigned.filter(([key]) => key === 'background').map(([, value]) => value);
+  assert.deepEqual(bgValues, ['var(--accent-color)', '#12ab9F'], 'a non-#RRGGBB colour falls back to the accent colour');
+});
+
+test('stream and subtitle URLs never carry the account token', () => {
+  // The server ignores ?token=, but the URL is written to the access log (shown in the admin console).
+  assert.ok(!/params\.set\(\s*['"]token['"]/.test(player), 'player.js must not put the account JWT in a query string');
+  assert.ok(!/[?&]token=/.test(player), 'player.js must not build ?token= URLs');
+});
+
+test('language preference resolves the same way everywhere: device, then profile, then the file default', async () => {
+  const { readLanguagePrefs } = await import('../frontend/js/player/tracks.js');
+  const store = values => ({ getItem: key => (key in values ? values[key] : null) });
+  assert.deepEqual(readLanguagePrefs(store({}), null), { audio: 'default', subtitle: 'default' }, 'no fixed "spa"/"jpn" fallback');
+  assert.deepEqual(readLanguagePrefs(store({}), { preferred_audio_language: 'jpn', preferred_subtitle_language: 'spa' }), { audio: 'jpn', subtitle: 'spa' }, 'profile preference');
+  assert.deepEqual(readLanguagePrefs(store({ kura_pref_audio_lang: 'eng', kurastream_preferred_subtitle_language: 'off' }), { preferred_audio_language: 'jpn', preferred_subtitle_language: 'spa' }), { audio: 'eng', subtitle: 'off' }, 'this device wins (either key)');
+  assert.deepEqual(readLanguagePrefs({ getItem() { throw new Error('blocked'); } }, null), { audio: 'default', subtitle: 'default' }, 'blocked storage is tolerated');
+});

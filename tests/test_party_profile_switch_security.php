@@ -586,6 +586,7 @@ DbHelper::createPartyRoom([
     'episode_id' => 'ep_sw_safe_01',
     'is_public' => 1,
     'allow_guest_controls' => 0,
+    'allow_guests' => 1, // section 5 joins anonymous guests; rooms admit them only when the host opts in
     'is_playing' => 0,
     'current_time' => 0.0
 ]);
@@ -613,6 +614,9 @@ echo "    ✓ Rejoin safe room succeeded with new membership bound to Kids profi
 echo "  [4/5] Testing live profile property change: updating profile to is_kids in DB...\n";
 // Create another adult room and user
 $singleProfUser = 'user_prop_test';
+// This section flips the profile to kids mode in the database; start from a clean account so reruns behave like the first run.
+$db->prepare("DELETE FROM user_profiles WHERE username = :u")->execute(['u' => $singleProfUser]);
+$db->prepare("DELETE FROM users WHERE username = :u")->execute(['u' => $singleProfUser]);
 DbHelper::registerUser($singleProfUser, 'Password123!');
 $pList = DbHelper::getUserProfiles($singleProfUser);
 $pId = $pList[0]['id'];

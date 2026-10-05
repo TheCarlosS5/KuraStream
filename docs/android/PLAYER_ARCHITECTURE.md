@@ -28,9 +28,11 @@ A diferencia de clientes básicos que incrustan el `PlayerView` estándar con su
 
 ## 2. Resolución de Stream: Direct Play vs. Remux con Offset Absoluto
 
-El backend KuraStream combina dos estrategias de entrega de video:
-1. **Direct Play (HTTP Range 206)**: Para archivos MP4/WebM codificados en H.264 con pista de audio por defecto.
-2. **Remux / Transcode Dinámico**: Para contenedores MKV, selección de pistas de audio secundarias, o forzado de H.264/downmix estéreo. En estos casos, FFmpeg inicia la salida desde el segundo solicitado (`?start=X&audio=Y`), entregando un stream cuyo tiempo interno parte de `00:00`.
+El backend KuraStream combina tres estrategias de entrega de video; `StreamResolver` elige una en este orden:
+
+1. **Direct Play crudo (`?direct=1`, HTTP Range 206)**: el móvil consulta `MediaCodecList` (`DeviceVideoDecoders`) y, si decodifica el códec y la profundidad de bits del episodio (H.264, HEVC, VP9, AV1; también 10 bits si el decodificador lo soporta) y sus pistas de audio (AAC, AC3, EAC3, Opus, FLAC…), pide el archivo tal cual, MKV incluido. FFmpeg no interviene: los saltos son instantáneos y las pistas de audio se cambian en el reproductor con `TrackSelectionOverride`, sin recargar. Solo se muestra el subtítulo sideload (`/api/subtitles`, id `kura-sideloaded-subtitle`); los subtítulos propios del contenedor se desactivan para no duplicarlos.
+2. **Direct Play clásico (HTTP Range 206)**: archivos MP4/WebM en H.264 de 8 bits con pista de audio por defecto, cuando el móvil no puede usar el modo crudo.
+3. **Remux / Transcode Dinámico**: sin decodificador compatible (p. ej. H.264 Hi10P o HEVC en un móvil sin hardware), audio DTS/TrueHD, downmix estéreo o tras un fallo de decodificador (`forceH264`). FFmpeg inicia la salida desde el segundo solicitado (`?start=X&audio=Y`), entregando un stream cuyo tiempo interno parte de `00:00`.
 
 ### El Modelo de Tiempo Absoluto
 
@@ -91,8 +93,8 @@ El área del reproductor implementa un controlador de puntero Compose no bloquea
 - **Media OkHttp DataSource y Autenticación de Stream**:
   - `DefaultMediaSourceFactory` está configurado con `OkHttpDataSource.Factory(mediaOkHttpClient)`.
   - `MediaAuthInterceptor` adjunta automáticamente:
-    - Cabecera estándar `Authorization: Bearer <token>` para streams regulares.
-    - Cabecera `X-Stream-Capability: <capability_token>` cuando la reproducción proviene de una sala de Watch Party.
+    - Cabecera estándar `Authorization: Bearer <token>` en todas las peticiones.
+    - Cabecera `X-Stream-Capability: <capability_token>` además, cuando la reproducción proviene de una sala de Watch Party y solo para el episodio de esa sala. El ticket dura 15 minutos y `WatchPartyRepository` lo renueva cada 8 (`/api/party/refresh-ticket`); si caduca, el servidor recurre a la sesión.
   - No expone tokens ni capabilities en URLs ni query parameters.
 
 - **Notificación y Lockscreen**:

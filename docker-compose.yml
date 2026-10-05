@@ -1,11 +1,36 @@
+# KuraStream: nginx (port 3000) -> PHP-FPM (app) -> MySQL, plus a background worker.
+#   cp .env.example .env   # fill in JWT_SECRET, DB_PASS, MYSQL_ROOT_PASSWORD and the admin credentials
+#   docker compose up -d --build
+# Hardening applied to every service: no-new-privileges, memory/process limits (override with the *_MEM_LIMIT variables
+# in .env) and two networks. `data` is internal (no route to the outside): only the app, the worker and MySQL are on
+# it, so nginx cannot reach the database and MySQL cannot call out.
 services:
-  kurastream:
-    build: .
-    container_name: kurastream
+  nginx:
+    build:
+      context: .
+      dockerfile: docker/nginx.Dockerfile
+    container_name: kurastream-nginx
     ports:
-      - "3000:3000"
-    environment:
-      - PORT=3000
+      - "${PORT:-3000}:80"
+    volumes:
+      - ./library:/app/library:ro
+    depends_on:
+      app:
+        condition: service_started
+    restart: unless-stopped
+    networks: [edge]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${NGINX_MEM_LIMIT:-256m}
+    pids_limit: 512
+
+  app:
+    build:
+      context: .
+      args:
+        APP_UID: ${KURA_UID:-1000}
+        APP_GID: ${KURA_GID:-1000}
+    container_name: kurastream
+    environment: &app-env
       - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET in .env before starting Docker}
       - TMDB_API_KEY=${TMDB_API_KEY:-}
       - TMDB_READ_TOKEN=${TMDB_READ_TOKEN:-}
@@ -14,7 +39,16 @@ services:
       - ADMIN_PASS_HASH=${ADMIN_PASS_HASH:-}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
+      - REGISTRATION_MODE=${REGISTRATION_MODE:-open}
+      - REGISTER_MAX_PER_HOUR=${REGISTER_MAX_PER_HOUR:-5}
+      - RATE_LIMIT_MULTIPLIER=${RATE_LIMIT_MULTIPLIER:-1}
+      - CATALOG_ACCESS=${CATALOG_ACCESS:-open}
+      - TRANSCODE_MAX_WORKERS=${TRANSCODE_MAX_WORKERS:-}
+      - APP_TIMEZONE=${APP_TIMEZONE:-UTC}
+      - JOBS_MODE=${JOBS_MODE:-auto}
       - MEDIA_LIBRARY_PATH=/app/library
+      - SUBTITLE_CACHE_DIR=/var/cache/kurastream/subtitles
+      - BACKUP_DIR=/backups
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_NAME=kurastream
@@ -22,7 +56,42 @@ services:
       - DB_PASS=${DB_PASS:?Set DB_PASS in .env before starting Docker}
     volumes:
       - ./library:/app/library
+      - kurastream_cache:/var/cache/kurastream
+      - kurastream_backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "php -r 'exit(@fsockopen(\"127.0.0.1\", 9000) ? 0 : 1);'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
+    networks: [edge, data]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${APP_MEM_LIMIT:-4g}
+    pids_limit: 1024
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # Library scans, season sync, daily database backups, subtitle/font pre-extraction and housekeeping.
+  worker:
+    build:
+      context: .
+      args:
+        APP_UID: ${KURA_UID:-1000}
+        APP_GID: ${KURA_GID:-1000}
+    container_name: kurastream-worker
+    user: kurastream
+    command: ["php", "/app/php_backend/worker.php"]
+    environment: *app-env
+    volumes:
+      - ./library:/app/library
+      - kurastream_cache:/var/cache/kurastream
+      - kurastream_backups:/backups
+    restart: unless-stopped
+    networks: [edge, data]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${WORKER_MEM_LIMIT:-2g}
+    pids_limit: 512
     depends_on:
       mysql:
         condition: service_healthy
@@ -42,6 +111,16 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    networks: [data]
+    mem_limit: ${MYSQL_MEM_LIMIT:-2g}
+    pids_limit: 512
+
+networks:
+  edge:
+  data:
+    internal: true
 
 volumes:
   kurastream_mysql:
+  kurastream_cache:
+  kurastream_backups:

@@ -162,6 +162,7 @@ $GLOBALS['_MOCKED_JSON_INPUT'] = [
     'episode_id' => 'ep_safe_01',
     'name' => 'Matrix Test Room',
     'allow_guest_controls' => 1,
+    'allow_guests' => true, // the matrix joins a guest; rooms admit them only when the host opts in
     'is_public' => 1
 ];
 

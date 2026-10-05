@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../middleware/Input.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/PlayerController.php';
 
@@ -71,7 +72,7 @@ class HistoryController {
             $placeholders = implode(',', array_fill(0, count($showIds), '?'));
             $q = $db->prepare("
                 SELECT id, show_id, season_number, episode_number, title, thumbnail_path, duration
-                FROM episodes WHERE show_id IN ($placeholders)
+                FROM episodes WHERE show_id IN ($placeholders) AND availability_status <> 'missing'
             ");
             $q->execute(array_values($showIds));
             return $q->fetchAll();
@@ -215,7 +216,7 @@ class HistoryController {
     public static function getProgress(?string $episodeId = null): void {
         $token = AuthMiddleware::getBearerToken();
         if ($token) {
-            $tokenData = AuthMiddleware::verifyToken($token);
+            $tokenData = AuthMiddleware::sessionPayload($token);
             if (($tokenData['role'] ?? '') === 'admin' && empty($tokenData['profile_name']) && empty($tokenData['profile_id'])) {
                 jsonResponse(['progress' => 0, 'completed' => false, 'duration' => 0, 'admin_preview' => true]);
                 return;
@@ -228,7 +229,8 @@ class HistoryController {
             jsonError('episode_id requerido', 400);
         }
 
-        $prog = DbHelper::getProgress($username, $profile, $epId);
+        $canonical = DbHelper::getEpisode($epId);
+        $prog = DbHelper::getProgress($username, $profile, $canonical ? (string)$canonical['id'] : $epId);
         if (!$prog) {
             jsonResponse(['progress' => 0, 'completed' => false, 'duration' => 0]);
         } else {
@@ -239,7 +241,7 @@ class HistoryController {
     public static function saveProgress(?string $episodeId = null): void {
         $token = AuthMiddleware::getBearerToken();
         if ($token) {
-            $tokenData = AuthMiddleware::verifyToken($token);
+            $tokenData = AuthMiddleware::sessionPayload($token);
             if (($tokenData['role'] ?? '') === 'admin' && empty($tokenData['profile_name']) && empty($tokenData['profile_id'])) {
                 jsonResponse(['success' => true, 'admin_preview' => true]);
                 return;
@@ -263,7 +265,7 @@ class HistoryController {
         if (!empty($canonicalEp['show_id'])) {
             // Lives in PlayerController; calling it on ShowController was a fatal error that made every
             // progress save fail (history stayed at 0 s and resume never worked).
-            PlayerController::checkKidsModeAccess($canonicalEp['show_id']);
+            PlayerController::checkKidsModeAccess($canonicalEp['show_id'], false);
         }
 
         $rawProgress = $data['progress'] ?? ($data['progress_seconds'] ?? null);
@@ -304,8 +306,23 @@ class HistoryController {
             'outro_start' => $canonicalEp['outro_start'] ?? null,
         ]);
 
-        DbHelper::saveProgress($username, $profile, $epId, $progress, $effectiveDuration, $completed);
-        jsonResponse(['success' => true]);
+        $clientTime = isset($data['client_ts']) && is_numeric($data['client_ts']) ? (int)$data['client_ts'] : null;
+        // Always under the canonical id: getEpisode also accepts spelling variants of an id, and a row saved under
+        // the variant would never join its episode (history without title, "continue watching" without a next episode).
+        DbHelper::saveProgress($username, $profile, (string)$canonicalEp['id'], $progress, $effectiveDuration, $completed, $clientTime);
+
+        $response = ['success' => true];
+        // A profile with a daily limit: count this slice and tell the player where it stands
+        if (PlayerController::screenTimeStatus() !== null) {
+            DbHelper::addWatchTime($username, $profile);
+            $status = PlayerController::screenTimeStatus();
+            $response['screen_time'] = [
+                'limit_seconds' => $status['limit_seconds'],
+                'remaining_seconds' => max(0, $status['limit_seconds'] - $status['used_seconds']),
+                'limit_reached' => $status['used_seconds'] >= $status['limit_seconds'],
+            ];
+        }
+        jsonResponse($response);
     }
 
     public static function updateProgress(): void {
@@ -373,9 +390,114 @@ class HistoryController {
             jsonResponse(['favorited' => false]);
         } else {
             $ins = $db->prepare("INSERT INTO favorites (username, profile_name, show_id) VALUES (:user, :prof, :show)");
-            $ins->execute(['user' => $username, 'prof' => $profile, 'show' => $showId]);
+            try {
+                $ins->execute(['user' => $username, 'prof' => $profile, 'show' => $showId]);
+            } catch (PDOException $e) {
+                // A concurrent request already added it: the end state is the same, so answer as if we did.
+                if ((int)($e->errorInfo[1] ?? 0) !== 1062) {
+                    throw $e;
+                }
+            }
             jsonResponse(['favorited' => true]);
         }
+    }
+
+    /**
+     * POST /api/history/mark  {watched: bool, episode_ids: [...]}  or  {watched: bool, show_id, season?}
+     * Marks episodes (or a whole show/season) as watched or not watched for the active profile.
+     */
+    public static function markWatched(?array $inputData = null): void {
+        $data = $inputData ?? Input::json();
+        list($username, $profile) = self::resolveUserAndProfile();
+        $watched = Input::bool($data, 'watched', true);
+
+        $ids = [];
+        if (isset($data['episode_ids'])) {
+            if (!is_array($data['episode_ids'])) {
+                jsonError("El campo 'episode_ids' debe ser una lista", 400);
+            }
+            $ids = $data['episode_ids'];
+        } else {
+            $showId = Input::string($data, 'show_id', 255);
+            if ($showId === '') {
+                jsonError('episode_ids o show_id requerido', 400);
+            }
+            $season = null;
+            if (isset($data['season']) && $data['season'] !== '') {
+                if (!is_numeric($data['season'])) {
+                    jsonError("El campo 'season' debe ser un número", 400);
+                }
+                $season = (int)$data['season'];
+            }
+            $ids = DbHelper::getEpisodeIdsForShow($showId, $season);
+        }
+        if (count($ids) > 1000) {
+            jsonError('Demasiados episodios en una sola petición', 400);
+        }
+
+        $count = DbHelper::markEpisodesWatched($username, $profile, $ids, $watched);
+        jsonResponse(['success' => true, 'watched' => $watched, 'count' => $count]);
+    }
+
+    public static function getRatings(): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        jsonResponse(['success' => true, 'ratings' => (object)DbHelper::getRatings($username, $profile)]);
+    }
+
+    /** POST /api/ratings  {show_id, rating: 1-5 | null} */
+    public static function setRating(?array $inputData = null): void {
+        $data = $inputData ?? Input::json();
+        list($username, $profile) = self::resolveUserAndProfile();
+        $showId = Input::string($data, 'show_id', 255);
+        if ($showId === '') {
+            jsonError('show_id requerido', 400);
+        }
+        $rating = null;
+        if (isset($data['rating']) && $data['rating'] !== '' && $data['rating'] !== 0) {
+            if (!is_numeric($data['rating']) || (int)$data['rating'] < 1 || (int)$data['rating'] > 5 || (float)$data['rating'] != (int)$data['rating']) {
+                jsonError('La valoración debe ser un número entero de 1 a 5', 400);
+            }
+            $rating = (int)$data['rating'];
+        }
+        if (!DbHelper::getShow($showId)) {
+            jsonError('Show no encontrado', 404);
+        }
+        DbHelper::setRating($username, $profile, $showId, $rating);
+        jsonResponse(['success' => true, 'show_id' => $showId, 'rating' => $rating]);
+    }
+
+    /** GET /api/recommendations: groups of "Porque viste X" for the active profile. */
+    public static function getRecommendations(): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        require_once __DIR__ . '/ShowController.php';
+        $groups = DbHelper::getRecommendations($username, $profile, fn(array $show) => !ShowController::isRestrictedForActiveProfile($show));
+        jsonResponse(['success' => true, 'groups' => $groups], 200, true);
+    }
+
+    public static function getListStatuses(): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        jsonResponse(['success' => true, 'statuses' => (object)DbHelper::getListStatuses($username, $profile)]);
+    }
+
+    /** POST /api/list-status  {show_id, status: watching|planned|completed|dropped|null} */
+    public static function setListStatus(?array $inputData = null): void {
+        $data = $inputData ?? Input::json();
+        list($username, $profile) = self::resolveUserAndProfile();
+        $showId = Input::string($data, 'show_id', 255);
+        if ($showId === '') {
+            jsonError('show_id requerido', 400);
+        }
+        $status = Input::string($data, 'status', 16);
+        if ($status === '' || $status === 'none') {
+            $status = null;
+        } elseif (!in_array($status, DbHelper::LIST_STATUSES, true)) {
+            jsonError('Estado no válido (watching, planned, completed o dropped)', 400);
+        }
+        if (!DbHelper::getShow($showId)) {
+            jsonError('Show no encontrado', 404);
+        }
+        DbHelper::setListStatus($username, $profile, $showId, $status);
+        jsonResponse(['success' => true, 'show_id' => $showId, 'status' => $status]);
     }
 
     public static function getUserPreferences(): void {
@@ -396,6 +518,16 @@ class HistoryController {
 
         DbHelper::saveUserPreferences($username, $profile, $data);
         jsonResponse(['success' => true]);
+    }
+
+    /** GET /api/user/summary?year=2026 (defaults to the current year, UTC). */
+    public static function getYearSummary(): void {
+        list($username, $profile) = self::resolveUserAndProfile();
+        $year = isset($_GET['year']) && is_numeric($_GET['year']) ? (int)$_GET['year'] : (int)gmdate('Y');
+        if ($year < 2000 || $year > 2100) {
+            jsonError('Año no válido', 400);
+        }
+        jsonResponse(['success' => true, 'summary' => DbHelper::getYearSummary($username, $profile, $year)]);
     }
 
     public static function getUserStats(): void {

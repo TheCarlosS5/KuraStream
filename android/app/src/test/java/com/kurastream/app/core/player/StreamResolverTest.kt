@@ -261,4 +261,53 @@ class StreamResolverTest {
         assertEquals(listOf("Español", "Japonés"), labels.map { it.label })
         assertTrue(labels.all { it.detail.isEmpty() })
     }
+
+    // --- Raw direct play (?direct=1): MKV/HEVC without ffmpeg on the server ---
+
+    private fun mkv(codec: String, bitDepth: Int = 8, audioCodec: String = "aac") = Episode(
+        id = "ep1",
+        container = "mkv",
+        videoCodec = codec,
+        bitDepth = bitDepth,
+        audioTracks = listOf(
+            AudioTrack(index = 0, trackNumber = 1, title = "Japanese", language = "jpn", codec = audioCodec),
+            AudioTrack(index = 1, trackNumber = 2, title = "Latino", language = "spa", codec = audioCodec)
+        )
+    )
+
+    private val hevcOnly = VideoDecoderSupport { codec, bits -> codec == "hevc" && bits <= 10 || codec == "h264" && bits <= 8 }
+
+    @Test
+    fun `mkv hevc plays raw when the device decodes it`() {
+        val resolved = StreamResolver.resolvePlaybackStream("http://h", mkv("hevc", 10), 300f, 1, decoders = hevcOnly)
+        assertTrue(resolved.isDirectPlay)
+        assertTrue(resolved.clientSelectsTracks)
+        assertTrue(resolved.streamUrl.endsWith("?direct=1"))
+        assertTrue(resolved.requiresInternalSeek)
+        assertEquals(300f, resolved.targetSeekPositionSeconds, 0.001f)
+        assertEquals(0f, resolved.streamStartOffsetSeconds, 0.001f)
+    }
+
+    @Test
+    fun `hi10p h264 falls back to the server when the device cannot decode it`() {
+        val resolved = StreamResolver.resolvePlaybackStream("http://h", mkv("h264", 10), 0f, 0, decoders = hevcOnly)
+        assertFalse(resolved.clientSelectsTracks)
+        assertFalse(resolved.streamUrl.contains("direct=1"))
+    }
+
+    @Test
+    fun `unsupported audio codec or missing decoders keep the server remux`() {
+        assertFalse(StreamResolver.canRawDirectPlay(mkv("hevc", 8, "dts"), hevcOnly))
+        assertFalse(StreamResolver.canRawDirectPlay(mkv("hevc"), VideoDecoderSupport.None))
+        assertFalse(StreamResolver.canRawDirectPlay(mkv(""), hevcOnly))
+        assertFalse(StreamResolver.canRawDirectPlay(mkv("hevc"), hevcOnly, needsDownmix = true))
+        assertFalse(StreamResolver.canRawDirectPlay(mkv("hevc"), hevcOnly, forceH264 = true))
+    }
+
+    @Test
+    fun `codec fallback after a decoder failure never asks for raw playback`() {
+        val resolved = StreamResolver.resolvePlaybackStream("http://h", mkv("hevc"), 0f, 0, forceH264 = true, decoders = hevcOnly)
+        assertFalse(resolved.clientSelectsTracks)
+        assertTrue(resolved.streamUrl.contains("codec=h264"))
+    }
 }

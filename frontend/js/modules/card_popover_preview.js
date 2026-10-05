@@ -484,7 +484,7 @@ export function initCardPopovers(containerSelector = document.body, options = {}
 
     popoverEl.innerHTML = `
       <div class="popover-preview-banner" title="${escapeHtml(meta.title)}">
-        <img class="popover-banner-img" src="${escapeHtml(bannerUrl)}" alt="${escapeHtml(meta.title)}" onerror="this.src='/api/placeholder-poster'">
+        <img class="popover-banner-img" src="${escapeHtml(bannerUrl)}" alt="${escapeHtml(meta.title)}" data-fallback-src="/api/placeholder-poster">
         <div class="popover-banner-gradient"></div>
       </div>
       <div class="popover-preview-content">

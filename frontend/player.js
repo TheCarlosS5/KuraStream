@@ -18,7 +18,8 @@ import { escapeHtml } from './js/core/ui.js';
 import { iconSvg, setIcon, hydrateIcons } from './js/core/icons.js';
 import {
   parseTrackList, trackNumber, detectTrackLang, matchesLanguage, labelTracks,
-  chooseAudioTrack, chooseSubtitleTrack, isBitmapSubtitle
+  chooseAudioTrack, chooseSubtitleTrack, isBitmapSubtitle,
+  readLanguagePrefs
 } from './js/player/tracks.js';
 
 export { detectTrackLang, matchesLanguage };
@@ -174,6 +175,8 @@ const S = {
   subtitleTrack: -1,
   lastSubtitleTrack: -1,
   direct: true,
+  streamSession: Math.random().toString(36).slice(2, 12).padEnd(10, '0'),
+  streamLoad: 0,
   offset: 0,
   pendingSeek: null,
   seekTimer: null,
@@ -231,7 +234,7 @@ function cacheElements() {
     'player-shortcuts-close', 'player-ambilight-canvas', 'menu-pip-btn', 'menu-ambilight-btn', 'menu-qr-btn',
     'menu-file-info-btn', 'menu-shortcuts-btn', 'player-party-sidebar', 'party-messages-container', 'party-chat-input',
     'party-input-form', 'party-btn-close-sidebar', 'party-sound-toggle', 'party-sound-icon', 'party-btn-copy-code',
-    'party-btn-copy-cta', 'party-room-code-display', 'party-btn-leave', 'party-header-title', 'party-host-badge',
+    'party-btn-copy-cta', 'party-room-code-display', 'party-btn-leave', 'party-header-title', 'party-host-badge', 'party-host-settings', 'party-set-public', 'party-set-controls', 'party-set-guests',
     'player-toast'
   ].forEach(id => { els[id] = $(id); });
   els.container = els['player-container'];
@@ -278,10 +281,12 @@ function buildStreamUrl(startAt) {
   if (!S.direct) {
     params.set('audio', String(S.audioTrack));
     if (startAt > 0) params.set('start', formatStart(startAt));
+    // Identifies this player instance: a seek replaces its own previous ffmpeg instead of waiting for a free slot.
+    params.set('session', S.streamSession);
   }
   if (partyManager.streamCapabilityToken) params.set('ticket', partyManager.streamCapabilityToken);
-  const token = AuthManager.getToken();
-  if (token) params.set('token', token);
+  // No account token in the URL: a <video> request is authorised by the HttpOnly session cookie, and a token in the
+  // query string would be written to access logs (shown in the admin console) and proxy logs.
   const query = params.toString();
   return `/api/stream/${encodeURIComponent(currentEpisodeId)}${query ? `?${query}` : ''}`;
 }
@@ -297,6 +302,29 @@ function canControlPlayback(showNotice = true) {
 function sendPartySync(action) {
   if (!partyManager.isInRoom() || Date.now() < S.internalReloadUntil) return;
   partyManager.sendPlaybackSync(!els.video.paused, displayTime(), currentEpisodeId, action);
+}
+
+/**
+ * A <video> element cannot read an HTTP 503, so a busy transcoder would just look like a broken video. Ask first
+ * (GET /api/stream/:id/availability) and, while every transcode slot is taken, say so and retry.
+ * Resolves true when the stream may start (also when the probe itself fails: the stream request decides then).
+ */
+async function waitForTranscodeSlot(token) {
+  const query = new URLSearchParams({ audio: String(S.audioTrack), session: S.streamSession });
+  for (let attempt = 0; attempt < 24; attempt++) {
+    if (token !== S.streamLoad) return false;
+    let info = null;
+    try {
+      const res = await fetch(`/api/stream/${encodeURIComponent(currentEpisodeId)}/availability?${query}`, { headers: authHeaders() });
+      if (res.ok) info = await res.json();
+    } catch {
+      return true;
+    }
+    if (!info || !info.busy) return true;
+    setLoading(true, `Servidor ocupado (${info.active_transcodes}/${info.max_transcodes}), reintentando…`);
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+  return token === S.streamLoad;
 }
 
 /**
@@ -321,19 +349,35 @@ function loadStream(startAt = 0, { autoplay = null } = {}) {
     S.offset = S.direct ? 0 : startAt;
     S.internalReloadUntil = Date.now() + 1500;
     setLoading(true);
-    video.src = buildStreamUrl(startAt);
-    video.load();
-    if (S.direct && startAt > 0) {
-      listen(video, 'loadedmetadata', () => { video.currentTime = startAt; }, { once: true });
+    const token = ++S.streamLoad;
+    const begin = () => {
+      if (token !== S.streamLoad) return;   // a newer load (another seek, episode or audio change) replaced this one
+      video.src = buildStreamUrl(startAt);
+      video.load();
+      if (S.direct && startAt > 0) {
+        listen(video, 'loadedmetadata', () => { video.currentTime = startAt; }, { once: true });
+      }
+      if (S.scrubPreview && S.direct) S.scrubPreview.updateSource(buildStreamUrl(0));
+    };
+    if (S.direct) {
+      begin();
+    } else {
+      waitForTranscodeSlot(token).then((ok) => { if (ok) begin(); });
     }
-    if (S.scrubPreview && S.direct) S.scrubPreview.updateSource(buildStreamUrl(0));
   }
   video.playbackRate = currentBaseRate();
   syncSubtitleClock();
   if (shouldPlay) {
     const attempt = video.play();
     if (attempt && typeof attempt.catch === 'function') {
-      attempt.catch(() => updatePlayState());
+      attempt.catch((error) => {
+        // Browsers refuse autoplay with sound on a page opened from a link: show the big play button and keep it.
+        if (error && error.name === 'NotAllowedError' && els.container) {
+          els.container.classList.add('autoplay-blocked');
+          setLoading(false);
+        }
+        updatePlayState();
+      });
     }
   }
   S.lastKnownTime = startAt;
@@ -437,6 +481,7 @@ function updatePlayState() {
   const video = els.video;
   if (!video) return;
   const playing = !video.paused && !video.ended;
+  if (playing && els.container) els.container.classList.remove('autoplay-blocked');
   setIcon(els['play-icon'], playing ? 'pause' : 'play');
   setIcon(els['center-play-icon'], playing ? 'pause' : 'play');
   const label = playing ? 'Pausar' : 'Reproducir';
@@ -634,7 +679,8 @@ function scheduleHideControls() {
   const video = els.video;
   if (!video || video.paused || S.dragging) return;
   S.hideTimer = setTimeout(() => {
-    if (!S.active || els.video.paused || overlayOpen() || S.dragging || els.container.matches('.is-pointer-on-controls')) {
+    // A control that has keyboard focus keeps the bar visible: a person tabbing through it must not lose it.
+    if (!S.active || els.video.paused || overlayOpen() || S.dragging || els.container.matches('.is-pointer-on-controls') || els.container.querySelector(':focus-visible')) {
       scheduleHideControls();
       return;
     }
@@ -789,8 +835,6 @@ async function fetchSubtitle(episodeId, track) {
   const key = `${episodeId}|${track}`;
   if (subtitleCache.has(key)) return subtitleCache.get(key);
   const params = new URLSearchParams();
-  const token = AuthManager.getToken();
-  if (token) params.set('token', token);
   if (partyManager.streamCapabilityToken) params.set('ticket', partyManager.streamCapabilityToken);
   const res = await fetch(`/api/subtitles/${encodeURIComponent(episodeId)}/${track}?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -815,11 +859,30 @@ async function fetchFonts(episodeId) {
   return fonts;
 }
 
+// Manual subtitle delay (Z / X keys), per episode and only for this session: a file that is a little off should
+// not drag every other episode with it. Positive = subtitles later.
+const subtitleDelays = new Map();
+function subtitleDelay() {
+  return subtitleDelays.get(currentEpisodeId) || 0;
+}
+
+function subtitleClockOffset() {
+  return S.offset - subtitleDelay();
+}
+
+function nudgeSubtitleDelay(step) {
+  const next = Math.round((subtitleDelay() + step) * 100) / 100;
+  subtitleDelays.set(currentEpisodeId, Math.max(-30, Math.min(30, next)));
+  syncSubtitleClock();
+  const d = subtitleDelay();
+  showToast(d === 0 ? 'Subtítulos sincronizados' : `Subtítulos ${d > 0 ? 'retrasados' : 'adelantados'} ${Math.abs(d).toFixed(2)} s`);
+}
+
 function syncSubtitleClock() {
   if (!S.octopus) return;
-  S.octopus.timeOffset = S.offset;
+  S.octopus.timeOffset = subtitleClockOffset();
   if (typeof S.octopus.setCurrentTime === 'function' && els.video) {
-    try { S.octopus.setCurrentTime((els.video.currentTime || 0) + S.offset); } catch { /* worker not ready */ }
+    try { S.octopus.setCurrentTime((els.video.currentTime || 0) + subtitleClockOffset()); } catch { /* worker not ready */ }
   }
 }
 
@@ -861,7 +924,7 @@ async function applySubtitleTrack(track) {
       legacyWorkerUrl: '/vendor/subtitles-octopus/subtitles-octopus-worker-legacy.js',
       fallbackFont: '/vendor/subtitles-octopus/default.ttf',
       fonts,
-      timeOffset: S.offset,
+      timeOffset: subtitleClockOffset(),
       targetFps: isPerfLite() ? 24 : 30,
       renderMode: 'wasm-blend',
       container,
@@ -1332,8 +1395,16 @@ function saveProgress(force = false) {
       progress_seconds: time,
       duration,
       username: who.username,
-      profile_name: who.profileName
+      profile_name: who.profileName,
+      // The newest write wins on the server, whichever device it comes from.
+      client_ts: Date.now()
     })
+  }).then(res => res.ok ? res.json() : null).then(data => {
+    // A profile with a daily screen-time limit: stop when it is spent (the server refuses new streams too)
+    if (data && data.screen_time && data.screen_time.limit_reached && els.video && !els.video.paused) {
+      els.video.pause();
+      showToast('Se acabó el tiempo de pantalla de hoy para este perfil.', 8000);
+    }
   }).catch(() => { /* retried on the next tick */ });
 }
 
@@ -1927,6 +1998,11 @@ function handleKeydown(event) {
       handled();
       toggleMute();
       return;
+    case 'z':
+    case 'x':
+      handled();
+      nudgeSubtitleDelay(event.key === 'z' ? -0.25 : 0.25);
+      return;
     case 'f':
       handled();
       toggleFullscreen();
@@ -2039,10 +2115,32 @@ function renderPartyRoom(room) {
       : `${iconSvg('crown', { size: 13 })} ${escapeHtml(room.host_user || 'Anfitrión')}`;
   }
   setIcon(els['party-sound-icon'], partyManager.soundsMuted ? 'volume-x' : 'volume-2', { size: 16 });
+  // Only the host sees (and can change) the room settings
+  const hostSettings = els['party-host-settings'];
+  if (hostSettings) {
+    hostSettings.hidden = !partyManager.isHost();
+    if (els['party-set-public']) els['party-set-public'].checked = Boolean(Number(room.is_public));
+    if (els['party-set-controls']) els['party-set-controls'].checked = Boolean(Number(room.allow_guest_controls));
+    if (els['party-set-guests']) els['party-set-guests'].checked = Boolean(Number(room.allow_guests));
+  }
 }
 
 function bindParty() {
   const sidebar = els['player-party-sidebar'];
+  [['party-set-public', 'is_public'], ['party-set-controls', 'allow_guest_controls'], ['party-set-guests', 'allow_guests']].forEach(([id, field]) => {
+    const box = els[id];
+    if (!box) return;
+    box.addEventListener('change', async () => {
+      try {
+        const room = await partyManager.updateSettings({ [field]: box.checked });
+        renderPartyRoom(room);
+        showToast('Ajustes de la sala guardados');
+      } catch (error) {
+        box.checked = !box.checked;   // the server did not accept it: show what is really set
+        showToast(error.message || 'No se pudieron guardar los ajustes');
+      }
+    });
+  });
   const copyInvite = event => {
     event.stopPropagation();
     if (!partyManager.activeRoom) return;
@@ -2127,8 +2225,13 @@ function bindParty() {
   Object.entries(handlers).forEach(([event, handler]) => partyManager.on(event, handler));
   S.partyHandlers = handlers;
 
-  if (partyManager.isInRoom()) renderPartyRoom(partyManager.activeRoom);
-  else if (sidebar) sidebar.hidden = true;
+  if (partyManager.isInRoom()) {
+    renderPartyRoom(partyManager.activeRoom);
+    // The history arrived with the join, before this player existed: show it now (already-seen ids are skipped).
+    partyManager.messageLog.forEach(renderPartyMessage);
+  } else if (sidebar) {
+    sidebar.hidden = true;
+  }
 
   // The host keeps the room clock fresh so late joiners and drift correction have a recent anchor.
   clearInterval(S.heartbeatTimer);
@@ -2268,8 +2371,7 @@ export async function initPlayer(rawEpisodeId) {
     sessionStorage.removeItem('kura_play_audio_track');
   } catch { /* storage blocked */ }
   const prefs = window.userPreferences || {};
-  const prefAudio = readPref('kura_pref_audio_lang') || prefs.preferred_audio_language || 'default';
-  const prefSub = readPref('kura_pref_sub_lang') || prefs.preferred_subtitle_language || 'default';
+  const { audio: prefAudio, subtitle: prefSub } = readLanguagePrefs(localStorage, prefs);
   S.audioTrack = chooseAudioTrack(audioTracks, { explicit: explicitAudio, preferred: prefAudio });
   const audioInfo = audioTracks.find((t, i) => trackNumber(t, i) === S.audioTrack);
   const subtitleTracks = parseTrackList(S.episode.subtitle_tracks);
@@ -2302,7 +2404,13 @@ export async function initPlayer(rawEpisodeId) {
   bindParty();
 
   // Boost / EQ chosen in Ajustes apply from the first frame; otherwise no Web Audio graph is built.
-  if (Number(readPref('kura_audio_boost', '100')) !== 100 || readPref('kura_audio_preset', 'flat') !== 'flat') ensureAudioEnhancer();
+  // An AudioContext created before any click starts suspended and, with the video routed through it, plays in
+  // silence (a link that autoplays with boost/EQ on). Build the graph on the first gesture instead.
+  if (Number(readPref('kura_audio_boost', '100')) !== 100 || readPref('kura_audio_preset', 'flat') !== 'flat') {
+    ['pointerdown', 'keydown', 'touchstart'].forEach((type) => {
+      listen(document, type, () => { if (S.active) ensureAudioEnhancer(); }, { once: true, capture: true, passive: true });
+    });
+  }
 
   if (S.direct && window.matchMedia('(hover: hover)').matches) {
     S.scrubPreview = initScrubPreview(els['player-progress-bar'], els.video, { canDirectPlay: true, duration: S.duration, src: buildStreamUrl(0) });
@@ -2324,14 +2432,16 @@ export async function initPlayer(rawEpisodeId) {
     if (S.duration > 0) start = Math.min(start, Math.max(0, S.duration - 5));
   }
 
+  // The host announces the new episode before asking for its stream: guests learn about the change right away
+  // instead of after the host's (possibly slow) stream setup, and a busy server cannot swallow the announcement.
+  if (partyManager.isInRoom() && partyManager.isHost() && partyManager.activeRoom && partyManager.activeRoom.episode_id !== episodeId) {
+    partyManager.sendPlaybackSync(true, start, episodeId, 'episode_change');
+  }
+
   const autoplay = !partyManager.isInRoom() || partyManager.isHost() || Boolean(partyManager.activeRoom && partyManager.activeRoom.is_playing);
   loadStream(start, { autoplay });
   if (start > 0 && resume.source === 'history' && !partyManager.isInRoom()) showResumeToast(start);
   if (S.subtitleTrack !== -1) applySubtitleTrack(S.subtitleTrack);
-
-  if (partyManager.isInRoom() && partyManager.isHost() && partyManager.activeRoom && partyManager.activeRoom.episode_id !== episodeId) {
-    partyManager.sendPlaybackSync(true, start, episodeId, 'episode_change');
-  }
 
   clearInterval(S.saveTimer);
   S.saveTimer = setInterval(() => {

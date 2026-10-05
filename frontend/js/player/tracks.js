@@ -222,3 +222,25 @@ export function chooseSubtitleTrack(tracks, { preferred = 'default', audioLang =
   }
   return match ? trackNumber(match, tracks.indexOf(match)) : -1;
 }
+
+/**
+ * The preferred audio/subtitle language, resolved the same way everywhere (episode page, player, settings):
+ * this device's choice first, then the profile's saved preference, then 'default' (the file's own default track).
+ * Before this each place had its own fallback ('spa', 'jpn' and 'default').
+ */
+export function readLanguagePrefs(storage, serverPrefs = null) {
+  const read = (...keys) => {
+    for (const key of keys) {
+      try {
+        const value = storage && storage.getItem(key);
+        if (value) return value;
+      } catch { /* storage blocked */ }
+    }
+    return null;
+  };
+  const server = serverPrefs || {};
+  return {
+    audio: read('kura_pref_audio_lang', 'kurastream_preferred_audio_language') || server.preferred_audio_language || 'default',
+    subtitle: read('kura_pref_sub_lang', 'kurastream_preferred_subtitle_language') || server.preferred_subtitle_language || 'default'
+  };
+}

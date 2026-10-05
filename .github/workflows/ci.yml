@@ -15,7 +15,7 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: rootpassword
-          MYSQL_DATABASE: kurastream
+          MYSQL_DATABASE: kurastream_test
           MYSQL_USER: kurastream
           MYSQL_PASSWORD: testpassword
         ports:
@@ -39,6 +39,11 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      # The E2E specs and test_real_media_pipeline generate their media fixtures with ffmpeg, which the
+      # ubuntu-latest image does not ship.
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Install npm dependencies
         run: npm ci || npm install
 
@@ -49,6 +54,9 @@ jobs:
         run: |
           node tests/ui_catalogue_rendering.mjs
           node tests/ui_review_regressions.mjs
+          node tests/test_generate_app_release.mjs
+          node tests/test_frontend_build.mjs
+          node tests/ui_admin_health.mjs
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
@@ -57,7 +65,7 @@ jobs:
         env:
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
-          DB_NAME: kurastream
+          DB_NAME: kurastream_test
           DB_USER: kurastream
           DB_PASS: testpassword
         run: |
@@ -70,12 +78,14 @@ jobs:
         env:
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
-          DB_NAME: kurastream
+          DB_NAME: kurastream_test
           DB_USER: kurastream
           DB_PASS: testpassword
         run: |
           export JWT_SECRET=$(openssl rand -hex 32)
           npm run test:e2e
+          # The production build, served as in production (hashed bundles, built page and service worker)
+          npm run test:e2e:dist
 
       - name: Run PHP Test Suite
         id: php_tests
@@ -83,7 +93,7 @@ jobs:
         env:
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
-          DB_NAME: kurastream
+          DB_NAME: kurastream_test
           DB_USER: kurastream
           DB_PASS: testpassword
         run: |
@@ -96,26 +106,34 @@ jobs:
         continue-on-error: true
         run: |
           docker build -t kurastream:test .
-          USER_ID=$(docker run --rm kurastream:test id -u)
+          docker build -t kurastream-nginx:test -f docker/nginx.Dockerfile .
+          # The PHP-FPM master runs as root only to drop each pool to the kurastream user; the worker and
+          # everything that executes application code must not be root.
+          USER_ID=$(docker run --rm --entrypoint id kurastream:test -u kurastream)
           if [ "$USER_ID" = "0" ]; then
-            echo "::error::Container runs as root (UID 0), must be non-root"
+            echo "::error::The application user is root (UID 0), must be non-root"
             exit 1
           fi
-          echo "Verified non-root container (UID $USER_ID)"
+          docker run --rm --entrypoint grep kurastream:test -q '^user = kurastream' /usr/local/etc/php-fpm.d/10-api.conf
+          echo "Verified non-root application user (UID $USER_ID)"
 
           RANDOM_SECRET=$(openssl rand -hex 32)
           docker run -d --name kurastream_smoke --network host \
             -e JWT_SECRET="$RANDOM_SECRET" \
             -e DB_HOST=127.0.0.1 \
             -e DB_PORT=3306 \
-            -e DB_NAME=kurastream \
+            -e DB_NAME=kurastream_test \
             -e DB_USER=kurastream \
             -e DB_PASS=testpassword \
-            -e PORT=3001 \
             kurastream:test
+          docker run -d --name kurastream_smoke_nginx --network host \
+            -e KURA_PORT=3001 \
+            -e KURA_API_UPSTREAM=127.0.0.1:9000 \
+            -e KURA_STREAM_UPSTREAM=127.0.0.1:9001 \
+            kurastream-nginx:test
 
           READY=0
-          for i in $(seq 1 15); do
+          for i in $(seq 1 20); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/api/health || true)
             if [ "$STATUS" = "200" ]; then
               READY=1
@@ -124,13 +142,16 @@ jobs:
             fi
             sleep 1
           done
+          # The web app itself must come from nginx too
+          INDEX=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/ || true)
 
           docker logs kurastream_smoke || true
-          docker stop kurastream_smoke || true
-          docker rm kurastream_smoke || true
+          docker logs kurastream_smoke_nginx || true
+          docker stop kurastream_smoke kurastream_smoke_nginx || true
+          docker rm kurastream_smoke kurastream_smoke_nginx || true
 
-          if [ "$READY" -ne 1 ]; then
-            echo "::error::Docker smoke health check failed"
+          if [ "$READY" -ne 1 ] || [ "$INDEX" != "200" ]; then
+            echo "::error::Docker smoke health check failed (health ready=$READY, index=$INDEX)"
             exit 1
           fi
 
@@ -140,7 +161,7 @@ jobs:
         env:
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
-          DB_NAME: kurastream
+          DB_NAME: kurastream_test
           DB_USER: kurastream
           DB_PASS: testpassword
         run: |
@@ -202,3 +223,71 @@ jobs:
         run: |
           cd android
           ./gradlew assembleDebug
+
+  android-release:
+    name: Android Release APK (signed)
+    runs-on: ubuntu-latest
+    needs: android
+    # Only after merging to main, and inert until the signing secrets exist (KURA_KEYSTORE_BASE64,
+    # KURA_KEYSTORE_PASSWORD, KURA_KEY_ALIAS, KURA_KEY_PASSWORD): without them every step below is skipped.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check signing secrets
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KURA_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::KURA_KEYSTORE_BASE64 is not configured; skipping the signed release APK."
+          fi
+
+      - name: Set up JDK 21
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        if: steps.signing.outputs.enabled == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode keystore
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KURA_KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build signed release APK
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          KURA_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+          KURA_KEYSTORE_PASSWORD: ${{ secrets.KURA_KEYSTORE_PASSWORD }}
+          KURA_KEY_ALIAS: ${{ secrets.KURA_KEY_ALIAS }}
+          KURA_KEY_PASSWORD: ${{ secrets.KURA_KEY_PASSWORD }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Generate release metadata
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk KuraStream.apk
+          node scripts/generate_app_release.mjs KuraStream.apk --variant release --notes "Build ${GITHUB_SHA::7}" --out app-release.json
+
+      - name: Upload release APK and metadata
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kurastream-android-release
+          path: |
+            KuraStream.apk
+            app-release.json
+          retention-days: 30

@@ -18,7 +18,10 @@ data class Profile(
     val isKids: Boolean = false,
     val hasPin: Boolean = false,
     /** Server-relative photo path (/library/avatars/...), empty when the profile uses its initial. */
-    val avatar: String = ""
+    val avatar: String = "",
+    /** "G", "PG", "PG-13" or null (no cap). */
+    val maxRating: String? = null,
+    val dailyLimitMinutes: Int? = null
 )
 
 data class SessionState(

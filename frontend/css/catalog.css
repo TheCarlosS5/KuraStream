@@ -513,6 +513,9 @@ html.perf-lite .hero-carousel-wrapper > .billboard-hero .billboard-hero-content 
 
 /* Show Card (2:3 Poster, 12px Radius) */
 .show-card {
+  /* a real link (open in a new tab, keyboard, screen readers) that looks like the card it always was */
+  color: inherit;
+  text-decoration: none;
   border-radius: var(--radius-card);
   background: var(--surface-color);
   overflow: hidden;
@@ -1169,6 +1172,30 @@ html.perf-lite .hero-carousel-wrapper > .billboard-hero .billboard-hero-content 
   border-radius: var(--radius-card);
   cursor: pointer;
   transition: all var(--transition-fast);
+}
+
+.episode-item.is-missing {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.episode-item.is-missing:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--border-color);
+}
+
+.episode-thumbnail-container .badge-missing {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .episode-item:hover {
@@ -1979,3 +2006,6 @@ html.perf-lite .hero-carousel-wrapper > .billboard-hero .billboard-hero-content 
     padding-bottom: 46px;
   }
 }
+
+.recommendation-rail { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 10px; scroll-snap-type: x proximity; }
+.recommendation-rail .show-card { flex: 0 0 150px; scroll-snap-align: start; }
