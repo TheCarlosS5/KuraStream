@@ -363,7 +363,11 @@ class PlayerController {
 
                 return;
             }
-            jsonError('Ticket de reproducción inválido o expirado', 403);
+            // An expired or foreign room ticket must not lock out someone who is also signed in (the Android app
+            // sends both): fall back to the session. Without a session the ticket is all there is, and it is refused.
+            if (AuthMiddleware::getBearerToken() === null) {
+                jsonError('Ticket de reproducción inválido o expirado', 403);
+            }
         }
 
         // 2. Authenticated user session

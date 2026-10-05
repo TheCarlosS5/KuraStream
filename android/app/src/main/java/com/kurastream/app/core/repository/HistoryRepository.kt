@@ -184,16 +184,36 @@ class HistoryRepository(
         return try {
             val res = apiService.getUserPreferences()
             val prefs = res.preferences?.let {
+                val defaults = UserPreferences()
                 UserPreferences(
-                    autoSkipIntro = it.autoSkipIntro,
-                    autoPlayNext = it.autoPlayNext,
-                    preferredAudioLanguage = it.preferredAudioLanguage,
-                    preferredSubtitleLanguage = it.preferredSubtitleLanguage,
-                    audioBoost = it.audioBoost,
-                    audioPreset = it.audioPreset
+                    autoSkipIntro = it.autoSkipIntro ?: defaults.autoSkipIntro,
+                    autoPlayNext = it.autoPlayNext ?: defaults.autoPlayNext,
+                    preferredAudioLanguage = it.preferredAudioLanguage ?: defaults.preferredAudioLanguage,
+                    preferredSubtitleLanguage = it.preferredSubtitleLanguage ?: defaults.preferredSubtitleLanguage,
+                    audioBoost = it.audioBoost ?: defaults.audioBoost,
+                    audioPreset = it.audioPreset ?: defaults.audioPreset
                 )
             } ?: UserPreferences()
             Result.success(prefs)
+        } catch (e: Exception) {
+            Result.failure(e.toUserFacingError())
+        }
+    }
+
+    /** Changes only the preferences that are set in [patch]; everything else on the server stays as it is. */
+    suspend fun patchUserPreferences(patch: UserPreferencesPatch): Result<Unit> {
+        return try {
+            apiService.saveUserPreferences(
+                UserPreferencesDto(
+                    autoSkipIntro = patch.autoSkipIntro,
+                    autoPlayNext = patch.autoPlayNext,
+                    preferredAudioLanguage = patch.preferredAudioLanguage,
+                    preferredSubtitleLanguage = patch.preferredSubtitleLanguage,
+                    audioBoost = patch.audioBoost,
+                    audioPreset = patch.audioPreset
+                )
+            )
+            Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }

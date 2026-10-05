@@ -89,7 +89,15 @@ class WatchPartyViewModel @Inject constructor(
                     }
                     is PartyRealtimeEvent.RoomClosed -> {
                         partyPlaybackContext.clear()
-                        _uiState.update { it.copy(errorMessage = "La sala ha sido cerrada por el anfitrión") }
+                        // The repository already dropped the session; the screen must stop showing the room too.
+                        _uiState.update {
+                            it.copy(
+                                activeSession = null,
+                                members = emptyList(),
+                                messages = emptyList(),
+                                errorMessage = "La sala ya no está disponible (la cerró el anfitrión o se perdió el acceso)"
+                            )
+                        }
                     }
                     is PartyRealtimeEvent.ConnectionError -> {
                         _uiState.update { it.copy(errorMessage = "Problema de conexión con la sala. Reintentando...") }

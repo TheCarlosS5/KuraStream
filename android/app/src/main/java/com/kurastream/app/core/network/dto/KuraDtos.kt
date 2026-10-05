@@ -273,14 +273,19 @@ data class UserPreferencesResponseDto(
     val preferences: UserPreferencesDto? = null
 )
 
+/**
+ * Preferences as the server sends them and as a PATCH: a null field means "not part of this update" (the server only
+ * changes fields that arrive with a value). The defaults used to be real values, so changing the audio language also
+ * switched intro skipping off and reset the equalizer chosen in the web app.
+ */
 @Serializable
 data class UserPreferencesDto(
-    @SerialName("auto_skip_intro") val autoSkipIntro: Boolean = false,
-    @SerialName("auto_play_next") val autoPlayNext: Boolean = true,
-    @SerialName("preferred_audio_language") val preferredAudioLanguage: String = "jpn",
-    @SerialName("preferred_subtitle_language") val preferredSubtitleLanguage: String = "spa",
-    @SerialName("audio_boost") val audioBoost: Int = 100,
-    @SerialName("audio_preset") val audioPreset: String = "flat"
+    @SerialName("auto_skip_intro") val autoSkipIntro: Boolean? = null,
+    @SerialName("auto_play_next") val autoPlayNext: Boolean? = null,
+    @SerialName("preferred_audio_language") val preferredAudioLanguage: String? = null,
+    @SerialName("preferred_subtitle_language") val preferredSubtitleLanguage: String? = null,
+    @SerialName("audio_boost") val audioBoost: Int? = null,
+    @SerialName("audio_preset") val audioPreset: String? = null
 )
 
 @Serializable
@@ -428,6 +433,19 @@ data class PartyPollResponseDto(
     val success: Boolean = true,
     val room: PartyRoomDto? = null,
     val messages: List<PartyMessageDto> = emptyList()
+)
+
+@Serializable
+data class PartyTicketRequestDto(
+    @SerialName("room_id") val roomId: String,
+    @SerialName("member_id") val memberId: String,
+    @SerialName("member_token") val memberToken: String
+)
+
+@Serializable
+data class PartyTicketResponseDto(
+    val success: Boolean = true,
+    @SerialName("stream_capability_token") val streamCapabilityToken: String? = null
 )
 
 @Serializable

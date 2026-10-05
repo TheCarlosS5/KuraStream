@@ -16,7 +16,7 @@ fun signingValue(name: String): String? =
 
 android {
     namespace = "com.kurastream.app"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.kurastream.app"

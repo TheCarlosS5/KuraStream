@@ -234,14 +234,14 @@ fun PlayerScreen(
         activity?.addOnPictureInPictureModeChangedListener(listener)
         onDispose {
             activity?.removeOnPictureInPictureModeChangedListener(listener)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity != null && activity.supportsPictureInPicture()) {
                 activity.setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(false).build())
             }
         }
     }
     LaunchedEffect(state.isPlaying) {
         val activity = context as? Activity
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity != null) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity != null && activity.supportsPictureInPicture()) {
             activity.setPictureInPictureParams(
                 PictureInPictureParams.Builder()
                     .setAspectRatio(Rational(16, 9))
@@ -512,7 +512,7 @@ fun PlayerScreen(
                     // PiP (minSdk 26+)
                     IconButton(onClick = {
                         val act = context as? Activity
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && act != null) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && act != null && act.supportsPictureInPicture()) {
                             act.enterPictureInPictureMode(
                                 PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
                             )
@@ -2073,3 +2073,10 @@ private fun UpNextCard(
         }
     }
 }
+
+/**
+ * Picture-in-picture is a hardware/OS feature: Android Go builds and some tablets do not have it, and calling
+ * enterPictureInPictureMode / setPictureInPictureParams there throws (the app closed).
+ */
+private fun Activity.supportsPictureInPicture(): Boolean =
+    packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)

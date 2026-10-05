@@ -1,5 +1,8 @@
 package com.kurastream.app.core.network
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import com.kurastream.app.core.model.PartyMessage
 import com.kurastream.app.core.model.PartySyncEvent
 import kotlinx.coroutines.*
@@ -11,6 +14,7 @@ import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 sealed interface PartyRealtimeEvent {
     data class Sync(val sync: PartySyncEvent) : PartyRealtimeEvent
@@ -24,12 +28,20 @@ sealed interface PartyRealtimeEvent {
     data class ConnectionError(val error: Throwable) : PartyRealtimeEvent
 }
 
+/** The server ends a stream now and then on purpose; reopening it is routine, not a failure. */
 private const val RECONNECT_DELAY_MS = 300L
-private const val FAILURE_RECONNECT_DELAY_MS = 5_000L
+/** After real failures the wait grows 1 s, 2 s, 4 s ... up to a minute (plus jitter), so a server that is down is not hammered. */
+private const val BACKOFF_BASE_MS = 1_000L
+private const val BACKOFF_MAX_MS = 60_000L
+/** The server pings every few seconds: silence for this long means the connection is dead (Wi-Fi dropped without a close). */
+private const val STREAM_READ_TIMEOUT_SECONDS = 30L
+/** Answers that mean "this room/member no longer exists": retrying is pointless, the session is over. */
+private val SESSION_ENDED_CODES = setOf(401, 403, 404)
 
 class WatchPartyClient(
     private val okHttpClient: OkHttpClient,
-    private val json: Json = Json { ignoreUnknownKeys = true }
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val context: Context? = null
 ) {
     private var eventSource: EventSource? = null
     private var pollingJob: Job? = null
@@ -44,6 +56,12 @@ class WatchPartyClient(
     @Volatile
     private var generation = 0
     private var reconnectJob: Job? = null
+    private var reconnectAttempt = 0
+
+    private data class Connection(val baseUrl: String, val roomId: String, val memberId: String?, val memberToken: String?)
+    @Volatile
+    private var connection: Connection? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     fun connect(
         baseUrl: String,
@@ -53,7 +71,63 @@ class WatchPartyClient(
         memberToken: String?
     ) {
         disconnect()
+        connection = Connection(baseUrl, roomId, memberId, memberToken)
+        registerNetworkCallback()
         openStream(++generation, baseUrl, roomId, sseTicket, memberId, memberToken)
+    }
+
+    /** Wait before the next attempt after a failure: exponential with jitter, capped at a minute. */
+    private fun nextBackoffMs(): Long {
+        val base = minOf(BACKOFF_MAX_MS, BACKOFF_BASE_MS shl minOf(reconnectAttempt, 6))
+        reconnectAttempt++
+        return base + Random.nextLong(0, base / 4 + 1)
+    }
+
+    /**
+     * A different network (Wi-Fi to mobile data, a hotspot coming back) usually leaves the old connection silently
+     * dead: reconnect at once instead of waiting for the read timeout and the backoff.
+     */
+    private fun registerNetworkCallback() {
+        val manager = context?.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        unregisterNetworkCallback()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            private var first = true
+            override fun onAvailable(network: Network) {
+                // The first callback reports the network we are already on.
+                if (first) { first = false; return }
+                reconnectNow()
+            }
+        }
+        try {
+            manager.registerDefaultNetworkCallback(callback)
+            networkCallback = callback
+        } catch (_: Exception) {
+            // Missing permission or a restricted profile: the backoff still brings the stream back.
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        val callback = networkCallback ?: return
+        networkCallback = null
+        try {
+            (context?.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)?.unregisterNetworkCallback(callback)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Drops the current stream and opens a new one immediately (network change, app back in the foreground). */
+    fun reconnectNow() {
+        val current = connection ?: return
+        reconnectJob?.cancel()
+        reconnectAttempt = 0
+        eventSource?.cancel()
+        openStream(++generation, current.baseUrl, current.roomId, null, current.memberId, current.memberToken)
+    }
+
+    /** The room is gone or this member was removed: tell the app once and stop every retry. */
+    private fun endSession() {
+        _events.tryEmit(PartyRealtimeEvent.RoomClosed)
+        disconnect()
     }
 
     /**
@@ -83,7 +157,7 @@ class WatchPartyClient(
             .build()
 
         val sseClient = okHttpClient.newBuilder()
-            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .readTimeout(STREAM_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
 
         val factory = EventSources.createFactory(sseClient)
@@ -93,6 +167,7 @@ class WatchPartyClient(
                 // Live again: the polling fallback is no longer needed.
                 pollingJob?.cancel()
                 pollingJob = null
+                reconnectAttempt = 0
             }
 
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
@@ -107,10 +182,14 @@ class WatchPartyClient(
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 if (gen != generation) return
+                if (response != null && response.code in SESSION_ENDED_CODES) {
+                    endSession()
+                    return
+                }
                 _events.tryEmit(PartyRealtimeEvent.ConnectionError(t ?: Exception("SSE desconectado")))
-                // Poll while the stream is down, and keep trying to get the stream back.
+                // Poll while the stream is down, and keep trying to get the stream back (with growing waits).
                 startPollingFallback(baseUrl, roomId, memberId, memberToken)
-                scheduleReconnect(gen, baseUrl, roomId, memberId, memberToken, FAILURE_RECONNECT_DELAY_MS)
+                scheduleReconnect(gen, baseUrl, roomId, memberId, memberToken, nextBackoffMs())
             }
         })
     }
@@ -237,6 +316,10 @@ class WatchPartyClient(
                         .build()
 
                     okHttpClient.newCall(req).execute().use { resp ->
+                        if (resp.code in SESSION_ENDED_CODES) {
+                            endSession()
+                            return@launch
+                        }
                         if (resp.isSuccessful) {
                             val body = resp.body?.string()
                             if (!body.isNullOrBlank()) {
@@ -264,6 +347,9 @@ class WatchPartyClient(
 
     fun disconnect() {
         generation++
+        connection = null
+        reconnectAttempt = 0
+        unregisterNetworkCallback()
         reconnectJob?.cancel()
         reconnectJob = null
         eventSource?.cancel()

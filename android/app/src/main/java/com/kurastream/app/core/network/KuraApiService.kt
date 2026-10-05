@@ -134,6 +134,14 @@ interface KuraApiService {
         @Query("member_id") memberIdQuery: String = memberId
     ): BaseResponseDto
 
+    /** The stream ticket lasts 15 minutes; the repository renews it every 8. */
+    @POST("api/party/refresh-ticket")
+    suspend fun refreshPartyTicket(
+        @Header("X-Party-Member-Id") memberId: String,
+        @Header("X-Party-Member-Token") memberToken: String,
+        @Body body: PartyTicketRequestDto
+    ): PartyTicketResponseDto
+
     @POST("api/party/sync")
     suspend fun syncPartyPlayback(
         @Header("X-Party-Member-Id") memberId: String,

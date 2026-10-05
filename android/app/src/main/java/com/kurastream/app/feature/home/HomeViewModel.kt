@@ -59,6 +59,17 @@ class HomeViewModel @Inject constructor(
 
     init {
         observePreferencesAndInitialize()
+        // The profile's saved preferences (set on the web or on another phone) apply on this device too.
+        viewModelScope.launch {
+            historyRepository.getUserPreferences().onSuccess { server ->
+                preferencesDataSource.applyServerPreferences(
+                    autoSkipIntro = server.autoSkipIntro,
+                    autoPlayNext = server.autoPlayNext,
+                    audioLang = server.preferredAudioLanguage,
+                    subLang = server.preferredSubtitleLanguage
+                )
+            }
+        }
         // The player saves on exit from a detached scope; refresh once that save has landed
         // (a fixed delay raced it and the row looked like nothing had been saved).
         viewModelScope.launch {

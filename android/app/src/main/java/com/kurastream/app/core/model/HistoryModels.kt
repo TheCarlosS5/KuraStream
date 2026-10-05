@@ -46,6 +46,16 @@ data class UserPreferences(
     val doubleTapSeekSeconds: Int = 10
 )
 
+/** A partial update of the profile's preferences: only the fields that are set are sent (and changed on the server). */
+data class UserPreferencesPatch(
+    val autoSkipIntro: Boolean? = null,
+    val autoPlayNext: Boolean? = null,
+    val preferredAudioLanguage: String? = null,
+    val preferredSubtitleLanguage: String? = null,
+    val audioBoost: Int? = null,
+    val audioPreset: String? = null
+)
+
 @Serializable
 data class UserStats(
     val totalTimeSeconds: Long = 0L,

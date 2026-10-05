@@ -14,7 +14,7 @@ data class UserSessionPreferences(
     val activeProfileId: String? = null,
     val activeProfileName: String? = null,
     val isKidsMode: Boolean = false,
-    val autoSkipIntro: Boolean = true,
+    val autoSkipIntro: Boolean = false,
     val autoSkipOutro: Boolean = false,
     val autoPlayNext: Boolean = true,
     val preferredAudioLanguage: String = "jpn",
@@ -78,7 +78,7 @@ class KuraPreferencesDataSource(
                 activeProfileId = prefs[Keys.ACTIVE_PROFILE_ID],
                 activeProfileName = prefs[Keys.ACTIVE_PROFILE_NAME],
                 isKidsMode = prefs[Keys.IS_KIDS_MODE] ?: false,
-                autoSkipIntro = prefs[Keys.AUTO_SKIP_INTRO] ?: true,
+                autoSkipIntro = prefs[Keys.AUTO_SKIP_INTRO] ?: false,
                 autoSkipOutro = prefs[Keys.AUTO_SKIP_OUTRO] ?: false,
                 autoPlayNext = prefs[Keys.AUTO_PLAY_NEXT] ?: true,
                 preferredAudioLanguage = prefs[Keys.PREF_AUDIO_LANG] ?: "jpn",
@@ -125,6 +125,19 @@ class KuraPreferencesDataSource(
             prefs[Keys.PREF_AUDIO_LANG] = audioLang
             prefs[Keys.PREF_SUB_LANG] = subLang
             prefs[Keys.DOUBLE_TAP_SEEK] = seekSeconds
+        }
+    }
+
+    /**
+     * Brings this device in line with what the profile saved on the server (the web app, another phone): only the
+     * four preferences the server stores are touched; device-only settings (seek seconds, subtitle size) stay.
+     */
+    suspend fun applyServerPreferences(autoSkipIntro: Boolean, autoPlayNext: Boolean, audioLang: String, subLang: String) {
+        dataStore.edit { prefs ->
+            prefs[Keys.AUTO_SKIP_INTRO] = autoSkipIntro
+            prefs[Keys.AUTO_PLAY_NEXT] = autoPlayNext
+            prefs[Keys.PREF_AUDIO_LANG] = audioLang
+            prefs[Keys.PREF_SUB_LANG] = subLang
         }
     }
 

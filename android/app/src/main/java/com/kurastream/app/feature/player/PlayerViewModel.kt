@@ -944,16 +944,16 @@ class PlayerViewModel @Inject constructor(
         cancelNextEpisodeCountdown()
 
         if (session != null) {
-            viewModelScope.launch {
-                watchPartyRepository.syncPlayback(
-                    session = session,
-                    currentTime = 0f,
-                    isPlaying = true,
-                    rate = 1f,
-                    action = "change_episode",
-                    episodeId = next.id
-                )
-            }
+            // Not in viewModelScope: navigating to the next episode clears this ViewModel, and the announcement
+            // to the room must still go out.
+            watchPartyRepository.syncPlaybackDetached(
+                session = session,
+                currentTime = 0f,
+                isPlaying = true,
+                rate = 1f,
+                action = "change_episode",
+                episodeId = next.id
+            )
         }
 
         _navigationEvents.tryEmit(next.id)
