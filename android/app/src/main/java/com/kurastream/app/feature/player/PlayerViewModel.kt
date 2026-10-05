@@ -541,6 +541,8 @@ class PlayerViewModel @Inject constructor(
                     403 -> "Este perfil no puede reproducir esto ahora (contenido restringido o tiempo de pantalla agotado)."
                     404 -> "El archivo de video no fue encontrado en el servidor."
                     416 -> "Rango de reproducción inválido."
+                    // The server could not convert the file (ffmpeg missing, damaged file): it says so with a 500
+                    500 -> "El servidor no pudo preparar este video. Puede que le falte ffmpeg o que el archivo esté dañado."
                     null -> "El servidor devolvió un error de reproducción HTTP ($causeMsg)"
                     else -> "El servidor devolvió un error de reproducción (HTTP $code)"
                 }

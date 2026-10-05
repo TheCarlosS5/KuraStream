@@ -494,6 +494,15 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = KuraColors.TextMuted
                     )
+                    Spacer(modifier = Modifier.height(KuraDimens.Space2))
+                    // TMDB's terms require this notice wherever its data or images are shown
+                    Text(
+                        text = "Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB. Datos de TMDB y AniList.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = KuraColors.TextMuted,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = KuraDimens.Space4)
+                    )
                 }
             }
         }

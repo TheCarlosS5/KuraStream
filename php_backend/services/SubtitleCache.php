@@ -166,7 +166,7 @@ class SubtitleCache {
         }
         $mapArg = ($trackIndex !== -1) ? "-map 0:{$trackIndex}" : '-map 0:s:' . (int)$trackNum . '?';
         $ok = self::produce($cacheFile, fn(string $tmp) =>
-            sprintf('ffmpeg -nostdin -y -v error -i %s %s -f ass %s', escapeshellarg($videoPath), $mapArg, escapeshellarg($tmp)), $timeoutSeconds);
+            sprintf('%s -nostdin -y -v error -i %s %s -f ass %s', FfmpegScanner::ffmpegBin(), escapeshellarg($videoPath), $mapArg, escapeshellarg($tmp)), $timeoutSeconds);
         return $ok ? $cacheFile : null;
     }
 
@@ -177,7 +177,7 @@ class SubtitleCache {
             return $cacheFile;
         }
         $ok = self::produce($cacheFile, fn(string $tmp) =>
-            sprintf('ffmpeg -nostdin -y -v error -i %s -f ass %s', escapeshellarg($sidecarPath), escapeshellarg($tmp)), $timeoutSeconds);
+            sprintf('%s -nostdin -y -v error -i %s -f ass %s', FfmpegScanner::ffmpegBin(), escapeshellarg($sidecarPath), escapeshellarg($tmp)), $timeoutSeconds);
         return $ok ? $cacheFile : null;
     }
 

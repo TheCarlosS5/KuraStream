@@ -750,6 +750,7 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
     ` : '';
 
     return `
+      <div class="episode-row">
       <div class="episode-item${ep.available === false ? ' is-missing' : ''}" role="button" tabindex="0"${ep.available === false ? ' aria-disabled="true"' : ''} data-episode-id="${escapeHtmlAttribute(ep.id)}">
         <div class="episode-thumbnail-container">
           <img class="episode-thumb" src="${escapeHtmlAttribute(thumbSrc)}" alt="${escapeHtmlAttribute(ep.title || 'Episodio')}" loading="lazy">
@@ -767,8 +768,9 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
             <h4 class="episode-title">${escapeHtml(ep.title || `Capítulo ${ep.episode_number || 1}`)}</h4>
           </div>
           <p class="episode-synopsis">${escapeHtml(ep.synopsis || 'Sin descripción disponible.')}</p>
-          <button type="button" class="episode-mark-btn" data-mark-episode="${escapeHtmlAttribute(ep.id)}" data-watched="${isCompleted ? '1' : '0'}" aria-pressed="${isCompleted ? 'true' : 'false'}">${isCompleted ? 'Marcar como no visto' : 'Marcar como visto'}</button>
         </div>
+      </div>
+      <button type="button" class="episode-mark-btn" data-mark-episode="${escapeHtmlAttribute(ep.id)}" data-watched="${isCompleted ? '1' : '0'}" aria-pressed="${isCompleted ? 'true' : 'false'}">${isCompleted ? 'Marcar como no visto' : 'Marcar como visto'}</button>
       </div>
     `;
   }).join('');

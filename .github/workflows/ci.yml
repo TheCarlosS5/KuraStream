@@ -57,6 +57,7 @@ jobs:
           node tests/test_generate_app_release.mjs
           node tests/test_frontend_build.mjs
           node tests/ui_admin_health.mjs
+          node tests/test_check_vulnerable_deps.mjs
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
@@ -214,6 +215,15 @@ jobs:
           cd android
           ./gradlew testDebugUnitTest
 
+      # npm + every Maven artifact the app resolves, against osv.dev. Fails only on a KNOWN vulnerability (an OSV
+      # outage just warns). Dependabot (.github/dependabot.yml) proposes the upgrades.
+      - name: Check dependencies for known vulnerabilities
+        run: |
+          cd android
+          ./gradlew -q :app:dependencies --configuration releaseRuntimeClasspath > "$RUNNER_TEMP/android_deps.txt"
+          cd ..
+          node scripts/check_vulnerable_deps.mjs --gradle "$RUNNER_TEMP/android_deps.txt"
+
       - name: Run Android Lint
         run: |
           cd android
@@ -223,6 +233,17 @@ jobs:
         run: |
           cd android
           ./gradlew assembleDebug
+
+      # The release build runs R8 (shrinking and renaming), which is where serialization, Retrofit, Hilt or WorkManager
+      # reflection can break without any debug build noticing. A throwaway key is enough to build it on every PR; the
+      # real, published APK is signed by the android-release job below.
+      - name: Assemble and lint the release build (throwaway key)
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/ci-release.jks" -alias ci -keyalg RSA -keysize 2048 -validity 2 \
+            -storepass ci-pass-123 -keypass ci-pass-123 -dname "CN=KuraStream CI" >/dev/null 2>&1
+          cd android
+          KURA_KEYSTORE_FILE="$RUNNER_TEMP/ci-release.jks" KURA_KEYSTORE_PASSWORD=ci-pass-123 \
+            KURA_KEY_ALIAS=ci KURA_KEY_PASSWORD=ci-pass-123 ./gradlew assembleRelease lintRelease
 
   android-release:
     name: Android Release APK (signed)

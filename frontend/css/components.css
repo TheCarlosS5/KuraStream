@@ -2267,7 +2267,8 @@ input:checked + .slider:before {
 .comment-delete-btn { background: none; border: 0; padding: 0 2px; color: var(--text-muted); font: inherit; font-size: 0.75rem; text-decoration: underline; cursor: pointer; }
 .comment-delete-btn:hover, .comment-delete-btn:focus-visible { color: #ff6b6b; }
 
-.episode-mark-btn { margin-top: 8px; background: none; border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-muted); font: inherit; font-size: 0.75rem; padding: 3px 10px; cursor: pointer; }
+.episode-row { position: relative; }
+.episode-mark-btn { position: absolute; right: 10px; bottom: 8px; background: rgba(0, 0, 0, 0.55); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-muted); font: inherit; font-size: 0.75rem; padding: 3px 10px; cursor: pointer; }
 .episode-mark-btn:hover, .episode-mark-btn:focus-visible { color: var(--text-main); border-color: var(--accent-color); }
 .episode-mark-btn[aria-pressed="true"] { color: var(--accent-color); }
 .detail-list-status { background: var(--surface-control); color: var(--text-main); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 8px 10px; font: inherit; }
@@ -2277,3 +2278,8 @@ input:checked + .slider:before {
 .stat-year-card h3 { margin: 0 0 8px; font-size: 1.05rem; }
 .stat-year-card p { margin: 0 0 8px; color: var(--text-secondary); line-height: 1.5; }
 .stat-year-card ol { margin: 0; padding-left: 20px; color: var(--text-secondary); }
+
+.settings-credits { margin-top: 24px; padding: 14px 16px; border-top: 1px solid var(--border-color); color: var(--text-muted); font-size: 0.8rem; line-height: 1.55; }
+.settings-credits h3 { margin: 0 0 6px; font-size: 0.9rem; color: var(--text-secondary); }
+.settings-credits p { margin: 0 0 6px; }
+.settings-credits a { color: var(--accent-color); text-decoration: underline; }

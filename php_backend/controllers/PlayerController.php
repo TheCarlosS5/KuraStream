@@ -305,6 +305,14 @@ class PlayerController {
         $direct = self::canDirectPlay($ep, $realPath, $_GET);
         $active = TranscodeLimiter::getActiveWorkerCount();
         $max = TranscodeLimiter::maxWorkers();
+        if (!$direct && FfmpegScanner::getFfmpegPath() === null) {
+            jsonResponse([
+                'success' => false,
+                'mode' => 'transcode',
+                'code' => 'FFMPEG_MISSING',
+                'error' => 'Este servidor no tiene ffmpeg instalado, así que no puede convertir este video. Pide al administrador que lo instale.',
+            ], 200);
+        }
         jsonResponse([
             'success' => true,
             'mode' => $direct ? 'direct' : 'transcode',
@@ -706,17 +714,28 @@ class PlayerController {
                 exit();
             }
 
-            @header('Content-Type: video/mp4');
-            @header('Connection: keep-alive');
-            // A live remux has no length and cannot be range-requested. Without no-store the browser
-            // tried to write it into its HTTP cache, failed (ERR_CACHE_WRITE_FAILURE) and treated the
-            // failure as the end of the video.
-            @header('Cache-Control: no-store');
-            @header('Accept-Ranges: none');
-            setCorsHeaders();
-            @header('X-Content-Type-Options: nosniff');
+            // Without ffmpeg there is nothing to remux with. Say so now (a <video> that gets a 200 with no body just spins).
+            $ffmpegPath = FfmpegScanner::getFfmpegPath();
+            if ($ffmpegPath === null && !$isHead) {
+                jsonError('Este servidor no tiene ffmpeg instalado, así que no puede convertir este video. Pide al administrador que lo instale.', 500, ['code' => 'FFMPEG_MISSING']);
+            }
+
+            // Sent with the first byte of video, not before: if ffmpeg fails to start (damaged file, unsupported input)
+            // the client gets a real error instead of "200 OK" and an empty body.
+            $sendVideoHeaders = function () {
+                @header('Content-Type: video/mp4');
+                @header('Connection: keep-alive');
+                // A live remux has no length and cannot be range-requested. Without no-store the browser
+                // tried to write it into its HTTP cache, failed (ERR_CACHE_WRITE_FAILURE) and treated the
+                // failure as the end of the video.
+                @header('Cache-Control: no-store');
+                @header('Accept-Ranges: none');
+                setCorsHeaders();
+                @header('X-Content-Type-Options: nosniff');
+            };
 
             if ($isHead) {
+                $sendVideoHeaders();
                 if (defined('TESTING_MODE')) throw new ExitException("Stream remux HEAD success", 200);
                 exit();
             }
@@ -736,7 +755,7 @@ class PlayerController {
             // -readrate paces the remux at 2x real time after a 20 s burst. Unpaced, a stream copy
             // finished the whole episode in seconds and pushed hundreds of MB at a browser that
             // cannot seek in it; its media cache gave up and playback "ended" ~35 s in.
-            $cmd = 'ffmpeg -v error -readrate 2 -readrate_initial_burst 20 -fflags +nobuffer+fastseek -probesize 1M -analyzeduration 1M ';
+            $cmd = FfmpegScanner::ffmpegBin() . ' -v error -readrate 2 -readrate_initial_burst 20 -fflags +nobuffer+fastseek -probesize 1M -analyzeduration 1M ';
             if ($start > 0) {
                 $startStr = (fmod($start, 1) !== 0.0) ? number_format($start, 3, '.', '') : strval((int)$start);
                 $cmd .= '-ss ' . escapeshellarg($startStr) . ' ';
@@ -841,6 +860,8 @@ class PlayerController {
                 $streamTimeout = 7200; // 2 hours max per transcode stream
                 $streamStart = time();
                 $stderrTail = '';
+                $sentAnyVideo = false;
+                $ffmpegExit = null;
 
                 try {
                     while (!feof($pipes[1])) {
@@ -859,6 +880,10 @@ class PlayerController {
                         if ($numChanged > 0) {
                             $buffer = fread($pipes[1], 16384);
                             if ($buffer !== false && strlen($buffer) > 0) {
+                                if (!$sentAnyVideo) {
+                                    $sendVideoHeaders();
+                                    $sentAnyVideo = true;
+                                }
                                 echo $buffer;
                                 if (ob_get_level()) @ob_flush();
                                 @flush();
@@ -866,8 +891,29 @@ class PlayerController {
                         } else {
                             $status = proc_get_status($process);
                             if (!$status['running']) {
+                                $ffmpegExit = $status['exitcode'];   // only valid on the first read after it ended
                                 break;
                             }
+                        }
+                    }
+                    // ffmpeg ended without ever producing video: tell the client (headers have not been sent yet)
+                    if (!$sentAnyVideo && !connection_aborted()) {
+                        if ($ffmpegExit === null) {
+                            for ($i = 0; $i < 20; $i++) {   // the pipe closed a moment before the process was reaped
+                                $status = proc_get_status($process);
+                                if (!$status['running']) { $ffmpegExit = $status['exitcode']; break; }
+                                usleep(50000);
+                            }
+                        }
+                        if ($ffmpegExit !== 0) {
+                            error_log('[KuraStream] ffmpeg produced no video for ' . $episodeId . ' (exit ' . var_export($ffmpegExit, true) . '): ' . trim($stderrTail));
+                            @http_response_code(500);
+                            @header('Content-Type: application/json; charset=utf-8');
+                            @header('Cache-Control: no-store');
+                            setCorsHeaders();
+                            echo json_encode(['error' => 'El servidor no pudo preparar este video. El archivo puede estar dañado o tener un formato que no se puede convertir.', 'code' => 'TRANSCODE_FAILED'], JSON_UNESCAPED_UNICODE);
+                        } else {
+                            $sendVideoHeaders();   // a clean, empty result (for example a start position past the end)
                         }
                     }
                 } finally {
@@ -886,6 +932,9 @@ class PlayerController {
                 }
             } else {
                 TranscodeLimiter::releaseSlot();
+                @http_response_code(500);
+                @header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['error' => 'No se pudo iniciar la conversión del video en el servidor.', 'code' => 'TRANSCODE_FAILED'], JSON_UNESCAPED_UNICODE);
             }
             exit();
         }
