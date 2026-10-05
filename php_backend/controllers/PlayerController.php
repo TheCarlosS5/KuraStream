@@ -397,13 +397,40 @@ class PlayerController {
         }
     }
 
-    public static function checkKidsModeAccess(string $showId): void {
-        if (!ShowController::isKidsProfileActive()) {
-            return;
+    /**
+     * Whether the active profile may open this show: kids rules, its rating cap and, when $enforceScreenTime,
+     * its daily screen-time budget (progress saves skip that last one so the final position is still stored).
+     */
+    public static function checkKidsModeAccess(string $showId, bool $enforceScreenTime = true): void {
+        // Most profiles have no restriction at all: then there is no need to load the show
+        if (ShowController::isKidsProfileActive() || ShowController::activeMaxLevel() !== null) {
+            $show = DbHelper::getShow($showId);
+            if ($show && ShowController::isRestrictedForActiveProfile($show)) {
+                jsonError('Contenido restringido por el perfil activo', 403);
+            }
         }
-        $show = DbHelper::getShow($showId);
-        if ($show && ShowController::isAdultOrMaturityRestricted($show)) {
-            jsonError('Contenido restringido por el perfil infantil activo', 403);
+        if ($enforceScreenTime) {
+            self::enforceScreenTime();
+        }
+    }
+
+    /** @return array{limit_seconds:int, used_seconds:int}|null null when the active profile has no daily limit */
+    public static function screenTimeStatus(): ?array {
+        $payload = AuthMiddleware::sessionPayload(AuthMiddleware::getBearerToken());
+        $limit = (int)($payload['daily_limit_minutes'] ?? 0);
+        if (!$payload || $limit <= 0 || empty($payload['profile_name'])) {
+            return null;
+        }
+        return [
+            'limit_seconds' => $limit * 60,
+            'used_seconds' => DbHelper::getWatchSecondsToday((string)$payload['username'], (string)$payload['profile_name']),
+        ];
+    }
+
+    private static function enforceScreenTime(): void {
+        $status = self::screenTimeStatus();
+        if ($status !== null && $status['used_seconds'] >= $status['limit_seconds']) {
+            jsonError('Se alcanzó el tiempo de pantalla de hoy para este perfil', 403, ['code' => 'SCREEN_TIME_LIMIT']);
         }
     }
 

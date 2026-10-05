@@ -58,7 +58,9 @@ data class ProfileDto(
     @SerialName("avatar_color") val avatarColor: String? = null,
     @SerialName("is_kids") val isKids: Boolean = false,
     @SerialName("has_pin") val hasPin: Boolean = false,
-    val avatar: String? = null
+    val avatar: String? = null,
+    @SerialName("max_rating") val maxRating: String? = null,
+    @SerialName("daily_limit_minutes") val dailyLimitMinutes: Int? = null
 )
 
 @Serializable
@@ -92,7 +94,11 @@ data class SaveProfileRequestDto(
     /** The server replaces the avatar with whatever arrives, so an edit must send the current one back. */
     val avatar: String? = null,
     @SerialName("current_pin") val currentPin: String? = null,
-    @SerialName("remove_pin") val removePin: Boolean = false
+    @SerialName("remove_pin") val removePin: Boolean = false,
+    /** "" (no cap), "G", "PG" or "PG-13". */
+    @SerialName("max_rating") val maxRating: String = "",
+    /** Null means no daily limit. */
+    @SerialName("daily_limit_minutes") val dailyLimitMinutes: Int? = null
 )
 
 @Serializable
@@ -254,6 +260,22 @@ data class ProgressResponseDto(
     val progress: Float = 0f,
     val completed: Boolean = false,
     val duration: Float = 0f
+)
+
+/** Answer of a progress save; [screenTime] is present for profiles that have a daily screen-time limit. */
+@Serializable
+data class SaveProgressResponseDto(
+    val success: Boolean = true,
+    val message: String? = null,
+    val error: String? = null,
+    @SerialName("screen_time") val screenTime: ScreenTimeDto? = null
+)
+
+@Serializable
+data class ScreenTimeDto(
+    @SerialName("limit_seconds") val limitSeconds: Int = 0,
+    @SerialName("remaining_seconds") val remainingSeconds: Int = 0,
+    @SerialName("limit_reached") val limitReached: Boolean = false
 )
 
 @Serializable

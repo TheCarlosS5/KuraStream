@@ -265,7 +265,7 @@ class HistoryController {
         if (!empty($canonicalEp['show_id'])) {
             // Lives in PlayerController; calling it on ShowController was a fatal error that made every
             // progress save fail (history stayed at 0 s and resume never worked).
-            PlayerController::checkKidsModeAccess($canonicalEp['show_id']);
+            PlayerController::checkKidsModeAccess($canonicalEp['show_id'], false);
         }
 
         $rawProgress = $data['progress'] ?? ($data['progress_seconds'] ?? null);
@@ -310,7 +310,19 @@ class HistoryController {
         // Always under the canonical id: getEpisode also accepts spelling variants of an id, and a row saved under
         // the variant would never join its episode (history without title, "continue watching" without a next episode).
         DbHelper::saveProgress($username, $profile, (string)$canonicalEp['id'], $progress, $effectiveDuration, $completed, $clientTime);
-        jsonResponse(['success' => true]);
+
+        $response = ['success' => true];
+        // A profile with a daily limit: count this slice and tell the player where it stands
+        if (PlayerController::screenTimeStatus() !== null) {
+            DbHelper::addWatchTime($username, $profile);
+            $status = PlayerController::screenTimeStatus();
+            $response['screen_time'] = [
+                'limit_seconds' => $status['limit_seconds'],
+                'remaining_seconds' => max(0, $status['limit_seconds'] - $status['used_seconds']),
+                'limit_reached' => $status['used_seconds'] >= $status['limit_seconds'],
+            ];
+        }
+        jsonResponse($response);
     }
 
     public static function updateProgress(): void {

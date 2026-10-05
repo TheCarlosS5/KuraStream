@@ -19,6 +19,25 @@ class ShowController {
         return false;
     }
 
+    /** Highest age-rating level (0-3) the active profile may open, or null when it has no cap. */
+    public static function activeMaxLevel(): ?int {
+        $payload = AuthMiddleware::sessionPayload(AuthMiddleware::getBearerToken());
+        return isset($payload['max_level']) && $payload['max_level'] !== null ? (int)$payload['max_level'] : null;
+    }
+
+    /** Kids rules plus the profile's own rating cap: the one question every catalogue path asks. */
+    public static function isRestrictedForActiveProfile(array $show): bool {
+        if (self::isKidsProfileActive() && self::isAdultOrMaturityRestricted($show)) {
+            return true;
+        }
+        $max = self::activeMaxLevel();
+        if ($max === null) {
+            return false;
+        }
+        $rating = $show['rating_mpaa'] ?? ($show['age_rating'] ?? '');
+        return DbHelper::ratingLevel((string)$rating) > $max;
+    }
+
     public static function isAdultOrMaturityRestricted(array $show): bool {
         if (!empty($show['is_adult'])) {
             return true;
@@ -40,7 +59,7 @@ class ShowController {
         $status = (string)($_GET['status'] ?? 'all');
         $sort = (string)($_GET['sort'] ?? 'default');
 
-        $opts = ['type' => $type, 'status' => $status, 'sort' => $sort, 'kids' => self::isKidsProfileActive()];
+        $opts = ['type' => $type, 'status' => $status, 'sort' => $sort, 'kids' => self::isKidsProfileActive(), 'max_level' => self::activeMaxLevel()];
         // Optional paging (the web and the Android app still ask for everything at once).
         $paged = isset($_GET['limit']) && is_numeric($_GET['limit']);
         if ($paged) {
@@ -98,8 +117,8 @@ class ShowController {
             self::setTmdbSearchCache($cacheKey, $results, 300);
         }
 
-        if (self::isKidsProfileActive()) {
-            $results = array_values(array_filter($results, fn($s) => !self::isAdultOrMaturityRestricted($s)));
+        if (self::isKidsProfileActive() || self::activeMaxLevel() !== null) {
+            $results = array_values(array_filter($results, fn($s) => !self::isRestrictedForActiveProfile($s)));
         }
         jsonResponse($results);
     }
@@ -115,8 +134,8 @@ class ShowController {
                 jsonError('Show no encontrado', 404);
             }
 
-            if (self::isKidsProfileActive() && self::isAdultOrMaturityRestricted($show)) {
-                jsonError('Contenido restringido por el perfil infantil activo', 403);
+            if (self::isRestrictedForActiveProfile($show)) {
+                jsonError('Contenido restringido por el perfil activo', 403);
             }
 
             $rawEpisodes = DbHelper::getEpisodesForShow($show['id']);
@@ -266,7 +285,7 @@ class ShowController {
     public static function getRandomShow(): void {
         AuthMiddleware::requireCatalogAccess();
         $isKids = self::isKidsProfileActive();
-        $show = DbHelper::getRandomShow($isKids);
+        $show = DbHelper::getRandomShow($isKids, self::activeMaxLevel());
         jsonResponse([
             'success' => true,
             'show' => $show

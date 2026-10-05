@@ -152,6 +152,24 @@ class DbHelper {
     /** Columns the catalogue cards need. cast_members (a LONGTEXT only the detail page uses) is left out of lists. */
     private const CATALOG_COLUMNS = 'id, title, synopsis, rating, year, studio, director, writer, poster_path, backdrop_path, media_type, backdrop_loops, genres, trailer_key, age_rating, status, tmdb_id, created_at';
 
+    /** Age ratings from 0 (everyone) to 3 (adults). Unknown or missing ratings count as 2, like the apps' default "TV-14". */
+    public const RATING_LEVELS = ['G' => 0, 'TV-Y' => 0, 'TV-Y7' => 0, 'TV-G' => 0, 'PG' => 1, 'TV-PG' => 1,
+        'PG-13' => 2, 'TV-14' => 2, 'R' => 3, 'TV-MA' => 3, 'NC-17' => 3, '18+' => 3, 'RX' => 3, 'R18' => 3];
+    /** The caps a profile can be given, as the rating level they allow. */
+    public const MAX_RATING_LEVEL = ['G' => 0, 'PG' => 1, 'PG-13' => 2];
+
+    public static function ratingLevel(?string $rating): int {
+        return self::RATING_LEVELS[strtoupper(trim((string)$rating))] ?? 2;
+    }
+
+    private static function ratingLevelSql(): string {
+        $cases = '';
+        foreach (self::RATING_LEVELS as $name => $level) {
+            $cases .= " WHEN '" . $name . "' THEN " . $level;
+        }
+        return "(CASE UPPER(TRIM(COALESCE(age_rating, '')))" . $cases . " ELSE 2 END)";
+    }
+
     /** SQL condition for "suitable for a kids profile": the same rule as ShowController::isAdultOrMaturityRestricted. */
     private const KIDS_SAFE_SQL = "UPPER(TRIM(COALESCE(age_rating, ''))) NOT IN ('R', 'TV-MA', '18+', 'NC-17', 'RX', 'R18')
         AND LOWER(COALESCE(genres, '')) NOT LIKE '%ecchi%' AND LOWER(COALESCE(genres, '')) NOT LIKE '%hentai%' AND LOWER(COALESCE(genres, '')) NOT LIKE '%erotica%'";
@@ -175,6 +193,9 @@ class DbHelper {
         }
         if (!empty($opts['kids'])) {
             $where[] = '(' . self::KIDS_SAFE_SQL . ')';
+        }
+        if (isset($opts['max_level']) && $opts['max_level'] !== null) {
+            $where[] = self::ratingLevelSql() . ' <= ' . (int)$opts['max_level'];
         }
         $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
         $order = match ($opts['sort'] ?? 'default') {
@@ -960,9 +981,12 @@ class DbHelper {
         }
     }
 
-    public static function getRandomShow(bool $isKids = false): ?array {
+    public static function getRandomShow(bool $isKids = false, ?int $maxLevel = null): ?array {
         $db = Database::getConnection();
-        $sql = 'SELECT * FROM shows' . ($isKids ? ' WHERE ' . self::KIDS_SAFE_SQL : '') . ' ORDER BY RAND() LIMIT 1';
+        $conditions = [];
+        if ($isKids) $conditions[] = '(' . self::KIDS_SAFE_SQL . ')';
+        if ($maxLevel !== null) $conditions[] = self::ratingLevelSql() . ' <= ' . (int)$maxLevel;
+        $sql = 'SELECT * FROM shows' . ($conditions ? ' WHERE ' . implode(' AND ', $conditions) : '') . ' ORDER BY RAND() LIMIT 1';
         $show = $db->query($sql)->fetch();
         if (!$show) return null;
         $show['rating'] = (float)$show['rating'];
@@ -1218,15 +1242,59 @@ class DbHelper {
     public static function getSessionProfile(string $username, ?string $profileId, ?string $profileName): ?array {
         $db = Database::getConnection();
         if (!empty($profileId)) {
-            $stmt = $db->prepare("SELECT id, name, is_kids FROM user_profiles WHERE id = :id AND username = :u");
-            $stmt->execute(['id' => $profileId, 'u' => $username]);
+            $where = 'id = :id AND username = :u';
+            $params = ['id' => $profileId, 'u' => $username];
         } elseif (!empty($profileName)) {
-            $stmt = $db->prepare("SELECT id, name, is_kids FROM user_profiles WHERE name = :n AND username = :u");
-            $stmt->execute(['n' => $profileName, 'u' => $username]);
+            $where = 'name = :n AND username = :u';
+            $params = ['n' => $profileName, 'u' => $username];
         } else {
             return null;
         }
+        try {
+            $stmt = $db->prepare("SELECT id, name, is_kids, max_rating, daily_limit_minutes FROM user_profiles WHERE $where");
+            $stmt->execute($params);
+        } catch (PDOException $e) {
+            if ((int)($e->errorInfo[1] ?? 0) !== 1054) {
+                throw $e;
+            }
+            // Migration 024 not applied yet: no parental caps
+            $stmt = $db->prepare("SELECT id, name, is_kids, NULL AS max_rating, NULL AS daily_limit_minutes FROM user_profiles WHERE $where");
+            $stmt->execute($params);
+        }
         return $stmt->fetch() ?: null;
+    }
+
+    // ---- Screen time -------------------------------------------------------------------------------------------
+
+    /**
+     * Adds the time since the previous progress save of this profile today. Saves arrive every few seconds while
+     * something plays, so a gap longer than 40 s (paused, closed, another device) counts as a short fixed slice
+     * instead of the whole gap.
+     */
+    public static function addWatchTime(string $username, string $profile): void {
+        $db = Database::getConnection();
+        try {
+            $db->prepare("
+                INSERT INTO profile_watch_time (username, profile_name, day, seconds, last_ping)
+                VALUES (:u, :p, UTC_DATE(), 5, UTC_TIMESTAMP())
+                ON DUPLICATE KEY UPDATE
+                    seconds = seconds + IF(last_ping IS NOT NULL AND TIMESTAMPDIFF(SECOND, last_ping, UTC_TIMESTAMP()) BETWEEN 0 AND 40,
+                                           TIMESTAMPDIFF(SECOND, last_ping, UTC_TIMESTAMP()), 5),
+                    last_ping = UTC_TIMESTAMP()
+            ")->execute(['u' => $username, 'p' => $profile]);
+        } catch (PDOException $e) {
+            // Migration 024 not applied yet: tracking is off, playback is not affected
+        }
+    }
+
+    public static function getWatchSecondsToday(string $username, string $profile): int {
+        try {
+            $st = Database::getConnection()->prepare("SELECT seconds FROM profile_watch_time WHERE username = :u AND profile_name = :p AND day = UTC_DATE()");
+            $st->execute(['u' => $username, 'p' => $profile]);
+            return (int)$st->fetchColumn();
+        } catch (PDOException $e) {
+            return 0;
+        }
     }
 
     /** Invalidates every session token issued so far for the account. Returns the new version. */
@@ -1378,6 +1446,9 @@ class DbHelper {
         }
         // Raw rows carry is_kids as 0/1; typed clients (the Android app) require a JSON boolean.
         $profile['is_kids'] = (bool)($profile['is_kids'] ?? false);
+        if (array_key_exists('daily_limit_minutes', $profile)) {
+            $profile['daily_limit_minutes'] = $profile['daily_limit_minutes'] !== null ? (int)$profile['daily_limit_minutes'] : null;
+        }
         return $profile;
     }
 
@@ -1502,6 +1573,29 @@ class DbHelper {
             jsonError('El color del perfil debe tener el formato #RRGGBB', 400);
         }
         $isKids = !empty($data['is_kids']) ? 1 : 0;
+
+        // Parental caps keep their value when a client (an older app) does not send them
+        $maxRating = $existing['max_rating'] ?? null;
+        if (array_key_exists('max_rating', $data)) {
+            $raw = is_string($data['max_rating']) ? strtoupper(trim($data['max_rating'])) : '';
+            if ($raw === '' || $raw === 'NONE') {
+                $maxRating = null;
+            } elseif (isset(self::MAX_RATING_LEVEL[$raw])) {
+                $maxRating = $raw;
+            } else {
+                jsonError('La clasificación máxima debe ser G, PG, PG-13 o ninguna', 400);
+            }
+        }
+        $dailyLimit = isset($existing['daily_limit_minutes']) ? (int)$existing['daily_limit_minutes'] : null;
+        if (array_key_exists('daily_limit_minutes', $data)) {
+            if ($data['daily_limit_minutes'] === null || $data['daily_limit_minutes'] === '' || $data['daily_limit_minutes'] === 0) {
+                $dailyLimit = null;
+            } elseif (is_numeric($data['daily_limit_minutes']) && (int)$data['daily_limit_minutes'] >= 15 && (int)$data['daily_limit_minutes'] <= 1440) {
+                $dailyLimit = (int)$data['daily_limit_minutes'];
+            } else {
+                jsonError('El límite diario debe estar entre 15 y 1440 minutos', 400);
+            }
+        }
         $rawPin = trim((string)($data['pin'] ?? ''));
         $pinHash = $existing ? ($existing['pin'] ?? '') : '';
         if ($rawPin !== '') {
@@ -1520,14 +1614,16 @@ class DbHelper {
         }
 
         $stmt = $db->prepare("
-            INSERT INTO user_profiles (id, username, name, avatar, color, is_kids, pin)
-            VALUES (:id, :u, :n, :a, :c, :k, :p)
+            INSERT INTO user_profiles (id, username, name, avatar, color, is_kids, pin, max_rating, daily_limit_minutes)
+            VALUES (:id, :u, :n, :a, :c, :k, :p, :mr, :dl)
             ON DUPLICATE KEY UPDATE
                 name = VALUES(name),
                 avatar = VALUES(avatar),
                 color = VALUES(color),
                 is_kids = VALUES(is_kids),
-                pin = VALUES(pin)
+                pin = VALUES(pin),
+                max_rating = VALUES(max_rating),
+                daily_limit_minutes = VALUES(daily_limit_minutes)
         ");
         $stmt->execute([
             'id' => $id,
@@ -1536,7 +1632,9 @@ class DbHelper {
             'a' => $avatar,
             'c' => $color,
             'k' => $isKids,
-            'p' => $pinHash
+            'p' => $pinHash,
+            'mr' => $maxRating,
+            'dl' => $dailyLimit
         ]);
 
         // A replaced upload would otherwise stay in /library/avatars/uploads forever.
@@ -1553,6 +1651,8 @@ class DbHelper {
             'color' => $color,
             'avatar_color' => $color,
             'is_kids' => (bool)$isKids,
+            'max_rating' => $maxRating,
+            'daily_limit_minutes' => $dailyLimit,
             'pin' => $pinHash
         ]);
     }

@@ -90,7 +90,7 @@ interface KuraApiService {
     suspend fun saveProgress(
         @Path("episodeId") episodeId: String,
         @Body body: SaveProgressRequestDto
-    ): BaseResponseDto
+    ): SaveProgressResponseDto
 
     // Favorites
     @GET("api/favorites")

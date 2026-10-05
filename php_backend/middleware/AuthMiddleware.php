@@ -127,7 +127,21 @@ class AuthMiddleware {
      *    everywhere" (token_version), a changed role and a profile's current name and kids flag all take effect
      *    immediately instead of when the 30-day token expires.
      */
+    /** Per-request memo of resolved sessions: one request asks several times (kids, rating cap, screen time). */
+    private static array $sessionMemo = [];
+
     public static function sessionPayload(?string $token): ?array {
+        // Not in tests: they change the account between calls and expect the new state
+        if ($token === null || defined('TESTING_MODE')) {
+            return self::resolveSession($token);
+        }
+        if (!array_key_exists($token, self::$sessionMemo)) {
+            self::$sessionMemo[$token] = self::resolveSession($token);
+        }
+        return self::$sessionMemo[$token];
+    }
+
+    private static function resolveSession(?string $token): ?array {
         $payload = self::verifyToken($token);
         if (!$payload) {
             return null;
@@ -158,6 +172,9 @@ class AuthMiddleware {
                 $payload['profile_id'] = $profile['id'];
                 $payload['profile_name'] = $profile['name'];
                 $payload['is_kids'] = !empty($profile['is_kids']);
+                $payload['max_level'] = isset($profile['max_rating']) && isset(DbHelper::MAX_RATING_LEVEL[$profile['max_rating']])
+                    ? DbHelper::MAX_RATING_LEVEL[$profile['max_rating']] : null;
+                $payload['daily_limit_minutes'] = isset($profile['daily_limit_minutes']) ? (int)$profile['daily_limit_minutes'] : null;
             } elseif (self::isStrictAccounts()) {
                 // The profile was deleted: the session is still the account's, but without an active profile.
                 unset($payload['profile_id'], $payload['profile_name'], $payload['is_kids']);

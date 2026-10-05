@@ -84,6 +84,26 @@ fun ProfileEditorDialog(
                     Switch(checked = state.isKids, onCheckedChange = { v -> onChange { it.copy(isKids = v) } })
                 }
 
+                Text("Clasificación máxima", style = MaterialTheme.typography.labelLarge, color = KuraColors.TextSecondary)
+                Row(horizontalArrangement = Arrangement.spacedBy(KuraDimens.Space2)) {
+                    listOf("" to "Sin límite", "G" to "G", "PG" to "PG", "PG-13" to "PG-13").forEach { (value, label) ->
+                        FilterChip(
+                            selected = state.maxRating == value,
+                            onClick = { onChange { it.copy(maxRating = value) } },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = state.dailyLimit,
+                    onValueChange = { v -> if (v.length <= 4 && v.all { it.isDigit() }) onChange { it.copy(dailyLimit = v) } },
+                    label = { Text("Tiempo de pantalla al día (minutos)") },
+                    supportingText = { Text("Vacío = sin límite. Mínimo 15.") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 if (needsCurrentPin) {
                     PinField("PIN actual", state.currentPin) { v -> onChange { it.copy(currentPin = v) } }
                 }

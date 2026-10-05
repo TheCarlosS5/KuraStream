@@ -109,7 +109,9 @@ class AuthRepository(
         id: String? = null,
         avatar: String? = null,
         currentPin: String? = null,
-        removePin: Boolean = false
+        removePin: Boolean = false,
+        maxRating: String = "",
+        dailyLimitMinutes: Int? = null
     ): Result<Unit> {
         return try {
             val response = apiService.saveProfile(
@@ -121,7 +123,9 @@ class AuthRepository(
                     pin = pin?.takeIf { it.isNotBlank() },
                     avatar = avatar,
                     currentPin = currentPin?.takeIf { it.isNotBlank() },
-                    removePin = removePin
+                    removePin = removePin,
+                    maxRating = maxRating,
+                    dailyLimitMinutes = dailyLimitMinutes
                 )
             )
             if (response.success) {
@@ -171,6 +175,8 @@ class AuthRepository(
         avatarColor = avatarColor ?: color ?: "#818CF8",
         isKids = isKids,
         hasPin = hasPin,
-        avatar = avatar.orEmpty()
+        avatar = avatar.orEmpty(),
+        maxRating = maxRating?.takeIf { it.isNotBlank() },
+        dailyLimitMinutes = dailyLimitMinutes
     )
 }

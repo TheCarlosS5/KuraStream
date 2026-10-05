@@ -3791,6 +3791,10 @@ export function openProfileEditModal(mode = 'create', profile = null) {
 
   if (nameInput) nameInput.value = isEdit ? (profile.name || '') : '';
   if (kidsInput) kidsInput.checked = Boolean(isEdit && profile.is_kids);
+  const maxRatingInput = document.getElementById('profile-max-rating-input');
+  const dailyLimitInput = document.getElementById('profile-daily-limit-input');
+  if (maxRatingInput) maxRatingInput.value = (isEdit && profile.max_rating) || '';
+  if (dailyLimitInput) dailyLimitInput.value = (isEdit && profile.daily_limit_minutes) || '';
   if (pinInput) pinInput.value = '';
   // The API could always clear a PIN (remove_pin), but there was no way to ask for it.
   const removePinRow = document.getElementById('profile-remove-pin-row');
@@ -3983,7 +3987,9 @@ export function openProfileEditModal(mode = 'create', profile = null) {
         name,
         color: currentEditingColor,
         avatar: currentEditingAvatar || null,
-        is_kids: kidsInput && kidsInput.checked ? 1 : 0
+        is_kids: kidsInput && kidsInput.checked ? 1 : 0,
+        max_rating: maxRatingInput ? maxRatingInput.value : '',
+        daily_limit_minutes: dailyLimitInput && dailyLimitInput.value !== '' ? Number(dailyLimitInput.value) : null
       };
 
       if (isEdit && profile.id) {

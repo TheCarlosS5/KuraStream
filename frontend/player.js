@@ -1380,6 +1380,12 @@ function saveProgress(force = false) {
       // The newest write wins on the server, whichever device it comes from.
       client_ts: Date.now()
     })
+  }).then(res => res.ok ? res.json() : null).then(data => {
+    // A profile with a daily screen-time limit: stop when it is spent (the server refuses new streams too)
+    if (data && data.screen_time && data.screen_time.limit_reached && els.video && !els.video.paused) {
+      els.video.pause();
+      showToast('Se acabó el tiempo de pantalla de hoy para este perfil.', 8000);
+    }
   }).catch(() => { /* retried on the next tick */ });
 }
 

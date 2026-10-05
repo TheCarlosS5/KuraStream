@@ -20,6 +20,10 @@ data class ProfileEditorState(
     val name: String = "",
     val color: String = PROFILE_COLORS.first(),
     val isKids: Boolean = false,
+    /** "" (no cap), "G", "PG" or "PG-13". */
+    val maxRating: String = "",
+    /** Digits only; empty means no daily limit. */
+    val dailyLimit: String = "",
     val newPin: String = "",
     val currentPin: String = "",
     val removePin: Boolean = false,
@@ -148,7 +152,9 @@ class ProfileViewModel @Inject constructor(
                 profile = profile,
                 name = profile.name,
                 color = profile.color.takeIf { c -> PROFILE_COLORS.any { it.equals(c, ignoreCase = true) } } ?: profile.color,
-                isKids = profile.isKids
+                isKids = profile.isKids,
+                maxRating = profile.maxRating.orEmpty(),
+                dailyLimit = profile.dailyLimitMinutes?.toString().orEmpty()
             )
         )
     }
@@ -176,6 +182,11 @@ class ProfileViewModel @Inject constructor(
             updateEditor { it.copy(error = "El PIN debe tener entre 4 y 6 dígitos") }
             return
         }
+        val dailyLimit = editor.dailyLimit.toIntOrNull()
+        if (editor.dailyLimit.isNotEmpty() && (dailyLimit == null || dailyLimit !in 15..1440)) {
+            updateEditor { it.copy(error = "El tiempo de pantalla debe estar entre 15 y 1440 minutos") }
+            return
+        }
         val existing = editor.profile
         if (existing != null && existing.hasPin && editor.currentPin.isBlank()) {
             updateEditor { it.copy(error = "Escribe el PIN actual para modificar este perfil") }
@@ -191,7 +202,9 @@ class ProfileViewModel @Inject constructor(
                 id = existing?.id,
                 avatar = existing?.avatar,
                 currentPin = editor.currentPin,
-                removePin = editor.removePin && editor.newPin.isEmpty()
+                removePin = editor.removePin && editor.newPin.isEmpty(),
+                maxRating = editor.maxRating,
+                dailyLimitMinutes = dailyLimit
             )
             if (result.isSuccess) {
                 _uiState.value = _uiState.value.copy(editor = null)

@@ -154,6 +154,13 @@ class PlayerViewModel @Inject constructor(
                 player = p
                 p.addListener(playerListener)
                 viewModelScope.launch {
+                    // The profile's daily screen-time budget ran out: stop and say why
+                    historyRepository.screenTimeLimitReached.collect {
+                        player?.pause()
+                        _hudMessages.tryEmit("Se acabó el tiempo de pantalla de hoy para este perfil")
+                    }
+                }
+                viewModelScope.launch {
                     loadEpisodeAndInitPlayer()
                 }
             }
@@ -531,7 +538,7 @@ class PlayerViewModel @Inject constructor(
                 // Classified by the HTTP status the data source reports, not by searching its message text
                 when (val code = invalidResponseCode?.responseCode) {
                     401 -> "Tu sesión expiró. Vuelve a iniciar sesión para reproducir."
-                    403 -> "No tienes permiso para reproducir este contenido con este perfil."
+                    403 -> "Este perfil no puede reproducir esto ahora (contenido restringido o tiempo de pantalla agotado)."
                     404 -> "El archivo de video no fue encontrado en el servidor."
                     416 -> "Rango de reproducción inválido."
                     null -> "El servidor devolvió un error de reproducción HTTP ($causeMsg)"

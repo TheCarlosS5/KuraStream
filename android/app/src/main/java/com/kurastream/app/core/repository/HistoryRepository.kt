@@ -43,6 +43,10 @@ class HistoryRepository(
     /** Outlives screens/ViewModels so the last position is still written when the player is closed. */
     private val detachedScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    private val _screenTimeLimitReached = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    /** Emitted when the server says the profile's daily screen-time budget is spent (the player should stop). */
+    val screenTimeLimitReached: SharedFlow<Unit> = _screenTimeLimitReached.asSharedFlow()
+
     private val _progressSaved = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
     /**
@@ -105,7 +109,8 @@ class HistoryRepository(
                 progress = progressSeconds,
                 duration = durationSeconds
             )
-            apiService.saveProgress(episodeId, body)
+            val res = apiService.saveProgress(episodeId, body)
+            if (res.screenTime?.limitReached == true) _screenTimeLimitReached.tryEmit(Unit)
             _progressSaved.tryEmit(episodeId)
             Result.success(Unit)
         } catch (e: Exception) {
