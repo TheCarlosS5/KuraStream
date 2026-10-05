@@ -49,6 +49,19 @@ graph TD
 - **PIN Protection and IDOR Elimination**: Cryptographic bcrypt PIN verification and ownership checks on profile mutation and deletion.
 - **Server-Side Kids Mode**: Enforcement of content ratings (filtering adult titles, TV-MA/18+ classifications, and adult genres) within application-side PHP controllers and streaming capability gates.
 
+- **Per-Profile Parental Controls**: Each profile can cap the age rating (G / PG / PG-13) and set a daily screen-time budget. The cap filters the catalogue, details, search and playback; the budget is counted from progress saves, refuses new streams when spent and tells the players to stop.
+- **Watch Tracking**: Mark episodes, seasons or a whole show as watched / not watched, keep a watch-list status (watching, planned, completed, dropped), rate shows 1-5 and get "Porque viste X" recommendations that respect the profile's restrictions.
+- **Comments with Moderation**: Authors and administrators can delete comments; account (login) names are never exposed.
+
+### 3b. Administration Panel
+- **User Management** (`Admin > Usuarios`): list accounts with last access, lock or unlock (sessions end immediately), promote or demote, reset passwords, sign out everywhere and delete accounts with their data. Self-lockout is prevented.
+- **Intro / Credits Editor** (`Admin > Intro y créditos`): edit or auto-detect the marks the "Saltar intro" button uses, per episode or copied to a whole season.
+- **Operations**: system health, background jobs, database backups and the console, all from the same panel.
+
+### 3c. Android App
+- Native Kotlin / Compose client with Media3. When the device can decode the episode's codec (HEVC, 10-bit, ...) it plays the original file (`?direct=1`, MKV included) with no ffmpeg on the server; otherwise it asks the server to remux.
+- Watch Party (join by `kurastream://party/CODE`, share the room), profile management, comments, local new-episode notifications (no Firebase), Picture-in-Picture with window buttons, and **in-app updates** served by your own server (SHA-256 verified).
+
 ### 4. Automated Catalog & Metadata Scraping
 - **Local Filesystem Scanner**: Scans media libraries (`Anime/` and `Movies/`), extracting codecs, resolutions, and audio channels using FFprobe.
 - **Metadata Enrichment**: Enriches local titles via AniList GraphQL and TMDB REST APIs, fetching synopses, release years, cover artwork, and episode descriptions.
@@ -56,6 +69,8 @@ graph TD
 
 ### 5. Progressive Web App (PWA)
 - Fully installable desktop and mobile web application with offline service worker shell and responsive layouts.
+
+> **iPhone / Safari**: the remuxed (MKV) stream does not support byte ranges yet, so some episodes may not play in Safari. Use the Android app, or a desktop browser, for those. Installing the PWA and the service worker also need HTTPS (not available on a plain `http://` LAN address).
 
 ---
 
