@@ -215,9 +215,14 @@ KuraStream/
 
 ## Quality & Testing
 
-Run all test suites locally:
+Run all test suites locally. The PHP and end-to-end suites create and delete users, profiles, shows and rooms, so they
+must run against a throwaway database whose name ends in `_test` (the PHP runner refuses anything else):
 
 ```bash
+# One-time setup
+mysql -e "CREATE DATABASE kurastream_test; GRANT ALL ON kurastream_test.* TO 'kurastream'@'%'"
+export DB_NAME=kurastream_test
+
 # Run JavaScript UI regression tests
 node tests/ui_catalogue_rendering.mjs
 node tests/ui_review_regressions.mjs

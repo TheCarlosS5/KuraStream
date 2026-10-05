@@ -15,7 +15,7 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: rootpassword
-          MYSQL_DATABASE: kurastream
+          MYSQL_DATABASE: kurastream_test
           MYSQL_USER: kurastream
           MYSQL_PASSWORD: testpassword
         ports:
@@ -57,7 +57,7 @@ jobs:
         env:
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
-          DB_NAME: kurastream
+          DB_NAME: kurastream_test
           DB_USER: kurastream
           DB_PASS: testpassword
         run: |
@@ -70,7 +70,7 @@ jobs:
         env:
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
-          DB_NAME: kurastream
+          DB_NAME: kurastream_test
           DB_USER: kurastream
           DB_PASS: testpassword
         run: |
@@ -83,7 +83,7 @@ jobs:
         env:
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
-          DB_NAME: kurastream
+          DB_NAME: kurastream_test
           DB_USER: kurastream
           DB_PASS: testpassword
         run: |
@@ -108,7 +108,7 @@ jobs:
             -e JWT_SECRET="$RANDOM_SECRET" \
             -e DB_HOST=127.0.0.1 \
             -e DB_PORT=3306 \
-            -e DB_NAME=kurastream \
+            -e DB_NAME=kurastream_test \
             -e DB_USER=kurastream \
             -e DB_PASS=testpassword \
             -e PORT=3001 \
@@ -140,7 +140,7 @@ jobs:
         env:
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
-          DB_NAME: kurastream
+          DB_NAME: kurastream_test
           DB_USER: kurastream
           DB_PASS: testpassword
         run: |

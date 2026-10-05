@@ -178,7 +178,8 @@ test('purge fabricated metadata: no 8.5 rating or 2026 year fallback in frontend
     escapeHtmlAttribute: s => String(s || ''),
     catalogueImageUrl: s => s
   });
-  evaluate(app, 'renderBillboardHero', context);
+  // renderBillboardHero builds its genre tags with these two pure helpers.
+  for (const name of ['showGenreList', 'genreLabel', 'renderBillboardHero']) evaluate(app, name, context);
   const heroHtml = context.renderBillboardHero({ title: 'Test Anime' });
   assert.ok(!heroHtml.includes('8.5'), 'renderBillboardHero must not fabricate 8.5 rating');
   assert.ok(heroHtml.includes('N/A'), 'renderBillboardHero shows N/A for missing rating/year');
