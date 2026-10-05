@@ -32,6 +32,33 @@ Hay tres formas de ejecutar KuraStream. Para uso real con varias personas a la v
 * **Respaldos.** El worker hace un `mysqldump` comprimido al día (`BACKUP_DIR`, se guardan `BACKUP_KEEP`=7).
   Desde el panel de admin: `GET/POST /api/admin/backups`.
 
+## Respaldos y cómo restaurarlos
+
+**Qué incluye** el respaldo diario: la base de datos completa (cuentas, perfiles, historial, favoritos, comentarios,
+valoraciones, ajustes, trabajos y el registro de migraciones).
+
+**Qué NO incluye** (cópialo aparte si te importa): la biblioteca de video (`library/Anime`, `library/Movies`), las fotos
+de perfil subidas (`library/avatars/uploads`) y las portadas o fondos que importaste a mano. Los metadatos de la base
+se pueden volver a descargar con un escaneo; las fotos subidas por la gente, no.
+
+**Restaurar** (probado: `tests/test_backup_restore.php` hace el viaje completo en cada ejecución del CI):
+
+```bash
+# Debian / instalación directa
+scripts/restore_backup.sh /ruta/a/backups/kurastream-20261005-031500.sql.gz --yes
+
+# Docker
+docker compose exec -T app sh -c 'cd /app && scripts/restore_backup.sh /backups/kurastream-20261005-031500.sql.gz --yes'
+```
+
+El script (1) rechaza archivos incompletos o corruptos antes de tocar nada, (2) guarda el estado actual como
+`pre-restore-<hora>.sql.gz` junto al respaldo por si te equivocas de archivo, y (3) reemplaza las tablas. Para
+recuperar un servidor desde cero: crea la base vacía y el usuario (`DB_NAME`, `DB_USER`), ejecuta el script y arranca
+la app; no queda ninguna migración pendiente.
+
+**Cada cierto tiempo** (una vez al trimestre basta) restaura el último respaldo en una base de prueba y entra con
+una cuenta real: un respaldo que nunca se ha restaurado es solo una esperanza.
+
 ## Docker
 
 ```bash
