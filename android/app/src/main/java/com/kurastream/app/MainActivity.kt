@@ -53,6 +53,20 @@ class MainActivity : ComponentActivity() {
     private val localNetworkPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    /** Asked once, when the user already reached the home screen (a sign-in is a better moment than first launch). */
+    private fun requestNotificationPermissionOnce() {
+        if (Build.VERSION.SDK_INT < 33) return
+        val prefs = getSharedPreferences("kura_notifications", MODE_PRIVATE)
+        if (prefs.getBoolean("permission_asked", false)) return
+        prefs.edit().putBoolean("permission_asked", true).apply()
+        if (ContextCompat.checkSelfPermission(this, "android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+            notificationPermission.launch("android.permission.POST_NOTIFICATIONS")
+        }
+    }
+
     private fun requestLocalNetworkAccessIfNeeded(serverUrl: String?) {
         if (Build.VERSION.SDK_INT < 37 || serverUrl.isNullOrBlank()) return
         val host = runCatching { android.net.Uri.parse(serverUrl).host }.getOrNull() ?: return
@@ -95,6 +109,8 @@ class MainActivity : ComponentActivity() {
                     !hasToken -> Screen.Login.route
                     !hasProfile -> Screen.ProfileSelect.route
                     else -> Screen.Home.route
+                }.also { route ->
+                    if (route == Screen.Home.route) runOnUiThread { requestNotificationPermissionOnce() }
                 }
             } catch (_: Exception) {
                 // Unreadable storage: start from the beginning rather than not at all

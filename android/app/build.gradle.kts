@@ -143,6 +143,7 @@ dependencies {
 
     // Image Loading
     implementation(libs.coil.compose)
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Testing
     testImplementation(libs.junit)
