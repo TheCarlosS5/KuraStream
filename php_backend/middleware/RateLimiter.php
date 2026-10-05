@@ -144,7 +144,18 @@ class RateLimiter {
 
     public static function enforce(string $action, int $maxAttempts, int $windowSeconds): void {
         $ip = self::getClientIp();
-        self::enforceKey("{$action}_{$ip}", $maxAttempts, $windowSeconds);
+        self::enforceKey("{$action}_{$ip}", self::scaledLimit($maxAttempts), $windowSeconds);
+    }
+
+    /**
+     * RATE_LIMIT_MULTIPLIER (default 1, up to 1000) scales the per-address limits: a load test from one machine, or a
+     * school network where many devices share one address, needs more than 10 logins per 5 minutes. Per-account limits
+     * (PIN attempts) are never scaled.
+     */
+    public static function scaledLimit(int $maxAttempts): int {
+        $factor = (float)(getenv('RATE_LIMIT_MULTIPLIER') ?: 1);
+        if (!is_finite($factor) || $factor < 1) $factor = 1;
+        return max(1, (int)ceil($maxAttempts * min(1000.0, $factor)));
     }
 
     /**

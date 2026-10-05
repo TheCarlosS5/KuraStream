@@ -18,7 +18,8 @@ import { escapeHtml } from './js/core/ui.js';
 import { iconSvg, setIcon, hydrateIcons } from './js/core/icons.js';
 import {
   parseTrackList, trackNumber, detectTrackLang, matchesLanguage, labelTracks,
-  chooseAudioTrack, chooseSubtitleTrack, isBitmapSubtitle
+  chooseAudioTrack, chooseSubtitleTrack, isBitmapSubtitle,
+  readLanguagePrefs
 } from './js/player/tracks.js';
 
 export { detectTrackLang, matchesLanguage };
@@ -369,7 +370,14 @@ function loadStream(startAt = 0, { autoplay = null } = {}) {
   if (shouldPlay) {
     const attempt = video.play();
     if (attempt && typeof attempt.catch === 'function') {
-      attempt.catch(() => updatePlayState());
+      attempt.catch((error) => {
+        // Browsers refuse autoplay with sound on a page opened from a link: show the big play button and keep it.
+        if (error && error.name === 'NotAllowedError' && els.container) {
+          els.container.classList.add('autoplay-blocked');
+          setLoading(false);
+        }
+        updatePlayState();
+      });
     }
   }
   S.lastKnownTime = startAt;
@@ -473,6 +481,7 @@ function updatePlayState() {
   const video = els.video;
   if (!video) return;
   const playing = !video.paused && !video.ended;
+  if (playing && els.container) els.container.classList.remove('autoplay-blocked');
   setIcon(els['play-icon'], playing ? 'pause' : 'play');
   setIcon(els['center-play-icon'], playing ? 'pause' : 'play');
   const label = playing ? 'Pausar' : 'Reproducir';
@@ -670,7 +679,8 @@ function scheduleHideControls() {
   const video = els.video;
   if (!video || video.paused || S.dragging) return;
   S.hideTimer = setTimeout(() => {
-    if (!S.active || els.video.paused || overlayOpen() || S.dragging || els.container.matches('.is-pointer-on-controls')) {
+    // A control that has keyboard focus keeps the bar visible: a person tabbing through it must not lose it.
+    if (!S.active || els.video.paused || overlayOpen() || S.dragging || els.container.matches('.is-pointer-on-controls') || els.container.querySelector(':focus-visible')) {
       scheduleHideControls();
       return;
     }
@@ -2309,8 +2319,7 @@ export async function initPlayer(rawEpisodeId) {
     sessionStorage.removeItem('kura_play_audio_track');
   } catch { /* storage blocked */ }
   const prefs = window.userPreferences || {};
-  const prefAudio = readPref('kura_pref_audio_lang') || prefs.preferred_audio_language || 'default';
-  const prefSub = readPref('kura_pref_sub_lang') || prefs.preferred_subtitle_language || 'default';
+  const { audio: prefAudio, subtitle: prefSub } = readLanguagePrefs(localStorage, prefs);
   S.audioTrack = chooseAudioTrack(audioTracks, { explicit: explicitAudio, preferred: prefAudio });
   const audioInfo = audioTracks.find((t, i) => trackNumber(t, i) === S.audioTrack);
   const subtitleTracks = parseTrackList(S.episode.subtitle_tracks);
@@ -2343,7 +2352,13 @@ export async function initPlayer(rawEpisodeId) {
   bindParty();
 
   // Boost / EQ chosen in Ajustes apply from the first frame; otherwise no Web Audio graph is built.
-  if (Number(readPref('kura_audio_boost', '100')) !== 100 || readPref('kura_audio_preset', 'flat') !== 'flat') ensureAudioEnhancer();
+  // An AudioContext created before any click starts suspended and, with the video routed through it, plays in
+  // silence (a link that autoplays with boost/EQ on). Build the graph on the first gesture instead.
+  if (Number(readPref('kura_audio_boost', '100')) !== 100 || readPref('kura_audio_preset', 'flat') !== 'flat') {
+    ['pointerdown', 'keydown', 'touchstart'].forEach((type) => {
+      listen(document, type, () => { if (S.active) ensureAudioEnhancer(); }, { once: true, capture: true, passive: true });
+    });
+  }
 
   if (S.direct && window.matchMedia('(hover: hover)').matches) {
     S.scrubPreview = initScrubPreview(els['player-progress-bar'], els.video, { canDirectPlay: true, duration: S.duration, src: buildStreamUrl(0) });

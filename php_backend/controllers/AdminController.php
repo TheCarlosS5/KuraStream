@@ -1184,6 +1184,77 @@ class AdminController {
         ]);
     }
 
+    /** Counts running processes whose command name is $name (Linux /proc; 0 where it is not available). */
+    private static function countProcesses(string $name): int {
+        if (!is_dir('/proc')) return 0;
+        $count = 0;
+        foreach (@scandir('/proc') ?: [] as $entry) {
+            if (!ctype_digit($entry)) continue;
+            $comm = @file_get_contents("/proc/$entry/comm");
+            if ($comm !== false && trim($comm) === $name) $count++;
+        }
+        return $count;
+    }
+
+    /**
+     * What the operator wants to know when "it feels slow": is the worker alive, how full are the disks, how many
+     * ffmpeg processes and Watch Party viewers are there, when was the last backup, how busy is the machine.
+     */
+    public static function systemHealth(): array {
+        require_once __DIR__ . '/../services/JobQueue.php';
+        require_once __DIR__ . '/../services/BackupService.php';
+        $disk = function (string $path): ?array {
+            $dir = is_dir($path) ? $path : dirname($path);
+            $free = @disk_free_space($dir);
+            $total = @disk_total_space($dir);
+            return ($free === false || $total === false || $total <= 0) ? null
+                : ['free_bytes' => (int)$free, 'total_bytes' => (int)$total, 'used_percent' => (int)round(100 * (1 - $free / $total))];
+        };
+
+        $jobs = ['queued' => 0, 'running' => 0, 'failed_24h' => 0];
+        $worker = ['alive' => false, 'last_seen' => null];
+        $partyViewers = 0;
+        try {
+            $db = Database::getConnection();
+            foreach ($db->query("SELECT status, COUNT(*) c FROM jobs WHERE status IN ('queued', 'running') GROUP BY status")->fetchAll() as $row) {
+                $jobs[$row['status']] = (int)$row['c'];
+            }
+            $stmt = $db->prepare("SELECT COUNT(*) FROM jobs WHERE status = 'failed' AND finished_at >= :t");
+            $stmt->execute(['t' => time() - 86400]);
+            $jobs['failed_24h'] = (int)$stmt->fetchColumn();
+            $worker['alive'] = JobQueue::workerAlive();
+            $last = $db->query("SELECT MAX(last_seen) FROM worker_status")->fetchColumn();
+            $worker['last_seen'] = $last ? gmdate('Y-m-d\TH:i:s\Z', (int)$last) : null;
+            $partyViewers = (int)$db->query("SELECT COUNT(*) FROM party_members WHERE last_ping >= DATE_SUB(NOW(), INTERVAL 60 SECOND)")->fetchColumn();
+        } catch (Throwable $e) {
+            // the jobs/party tables may not exist on a half-migrated database: report what we can
+        }
+
+        $backups = BackupService::list();
+        $load = function_exists('sys_getloadavg') ? @sys_getloadavg() : false;
+        return [
+            'worker' => $worker,
+            'jobs' => $jobs + ['mode' => strtolower(trim((string)getenv('JOBS_MODE'))) ?: 'auto'],
+            'backups' => [
+                'available' => BackupService::isAvailable(),
+                'count' => count($backups),
+                'last_file' => $backups[0]['file'] ?? null,
+                'last_at' => isset($backups[0]) ? gmdate('Y-m-d\TH:i:s\Z', $backups[0]['modified']) : null,
+            ],
+            'disk' => ['library' => $disk(LIBRARY_DIR), 'backups' => $disk(BackupService::directory())],
+            'processes' => [
+                'ffmpeg' => self::countProcesses('ffmpeg'),
+                'php_fpm' => self::countProcesses('php-fpm') + self::countProcesses('php-fpm8.4') + self::countProcesses('php-fpm8.3') + self::countProcesses('php-fpm8.2'),
+            ],
+            'party_viewers' => $partyViewers,
+            'load_average' => is_array($load) ? array_map(fn($v) => round($v, 2), $load) : null,
+            'cpu_cores' => is_readable('/proc/cpuinfo') ? preg_match_all('/^processor\s*:/m', (string)@file_get_contents('/proc/cpuinfo')) : null,
+            'direct_play_offload' => PlayerController::useAccelRedirect(),
+            'server_software' => preg_replace('#/.*$#', '', (string)($_SERVER['SERVER_SOFTWARE'] ?? '')) ?: 'php',
+            'migrations_ok' => Database::migrationProblem() === null,
+        ];
+    }
+
     public static function getDiagnostics(): void {
         AuthMiddleware::requireAdmin();
 
@@ -1295,7 +1366,8 @@ class AdminController {
                 'active_workers' => $activeWorkers,
                 'max_workers' => TranscodeLimiter::maxWorkers(),
                 'label' => "{$activeWorkers} / " . TranscodeLimiter::maxWorkers()
-            ]
+            ],
+            'system' => self::systemHealth()
         ];
 
         jsonResponse(array_merge([

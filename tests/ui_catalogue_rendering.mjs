@@ -9,6 +9,7 @@ const names = ['escapeHtml', 'escapeHtmlAttribute', 'genreLabel', 'showGenreList
 const context = vm.createContext({ URL, console });
 // core/http.js is an import of main.js; run the real module in the same context.
 vm.runInContext(fs.readFileSync(new URL('../frontend/js/core/http.js', import.meta.url), 'utf8').replace(/^export /gm, ''), context);
+vm.runInContext(fs.readFileSync(new URL('../frontend/js/player/tracks.js', import.meta.url), 'utf8').replace(/^export /gm, ''), context);
 vm.runInContext("var navigationGeneration = 0; var calendarOnlyLibrary = false; var CALENDAR_UNSCHEDULED = 'TBA';", context);
 for (const name of names) {
   const body = source.match(new RegExp(`(?:export )?(?:async )?function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, 'm'));

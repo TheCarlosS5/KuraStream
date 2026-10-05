@@ -222,3 +222,12 @@ test('stream and subtitle URLs never carry the account token', () => {
   assert.ok(!/params\.set\(\s*['"]token['"]/.test(player), 'player.js must not put the account JWT in a query string');
   assert.ok(!/[?&]token=/.test(player), 'player.js must not build ?token= URLs');
 });
+
+test('language preference resolves the same way everywhere: device, then profile, then the file default', async () => {
+  const { readLanguagePrefs } = await import('../frontend/js/player/tracks.js');
+  const store = values => ({ getItem: key => (key in values ? values[key] : null) });
+  assert.deepEqual(readLanguagePrefs(store({}), null), { audio: 'default', subtitle: 'default' }, 'no fixed "spa"/"jpn" fallback');
+  assert.deepEqual(readLanguagePrefs(store({}), { preferred_audio_language: 'jpn', preferred_subtitle_language: 'spa' }), { audio: 'jpn', subtitle: 'spa' }, 'profile preference');
+  assert.deepEqual(readLanguagePrefs(store({ kura_pref_audio_lang: 'eng', kurastream_preferred_subtitle_language: 'off' }), { preferred_audio_language: 'jpn', preferred_subtitle_language: 'spa' }), { audio: 'eng', subtitle: 'off' }, 'this device wins (either key)');
+  assert.deepEqual(readLanguagePrefs({ getItem() { throw new Error('blocked'); } }, null), { audio: 'default', subtitle: 'default' }, 'blocked storage is tolerated');
+});

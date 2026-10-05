@@ -141,7 +141,24 @@ function kuraSecurityHeaders(): array {
         'X-Frame-Options' => 'DENY',
         'Referrer-Policy' => 'strict-origin-when-cross-origin',
         'Permissions-Policy' => 'camera=(), microphone=(), geolocation=()',
-        'Content-Security-Policy' => "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://image.tmdb.org https://s4.anilist.co; media-src 'self' blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; frame-ancestors 'none';",
+        'Content-Security-Policy' => implode(' ', [
+            "default-src 'self';",
+            // No inline scripts and no eval: an injected <script> or onclick="" cannot run. 'wasm-unsafe-eval' lets the
+            // subtitle renderer (libass compiled to WebAssembly) use its fast engine instead of the 4.8 MB asm.js one.
+            "script-src 'self' 'wasm-unsafe-eval' blob:;",
+            "worker-src 'self' blob:;",
+            // Dynamic style="" attributes (avatars, progress bars) still need inline styles.
+            "style-src 'self' 'unsafe-inline';",
+            "img-src 'self' data: blob: https://image.tmdb.org https://s4.anilist.co;",
+            "media-src 'self' blob:;",
+            "connect-src 'self';",
+            "font-src 'self';",
+            "frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com;",
+            "object-src 'none';",
+            "base-uri 'self';",
+            "form-action 'self';",
+            "frame-ancestors 'none';",
+        ]),
     ];
 }
 

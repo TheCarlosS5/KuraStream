@@ -821,6 +821,12 @@ input:checked + .slider:before {
   gap: 10px;
   cursor: pointer;
   text-decoration: none;
+  /* a real <button> (keyboard and screen readers): drop the default button look */
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
   padding: 10px;
   border-radius: var(--radius-card);
   transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -828,6 +834,11 @@ input:checked + .slider:before {
 
 .profile-card:hover {
   transform: translateY(-4px) scale(1.04);
+}
+
+.profile-card:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 4px;
 }
 
 .profile-avatar {

@@ -12,9 +12,9 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/branding/icon-32.png">
   <link rel="apple-touch-icon" href="/assets/branding/icon-192.png">
   <!-- Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Fonts are self-hosted (css/fonts.css, imported by style.css): nothing is requested from Google. -->
+  <link rel="preload" href="/assets/fonts/inter-latin-300-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/outfit-latin-400-800.woff2" as="font" type="font/woff2" crossorigin>
   <!-- style.css @imports these; preloading fetches them in parallel instead of one by one -->
   <link rel="preload" href="/css/tokens.css" as="style">
   <link rel="preload" href="/css/base.css" as="style">
@@ -1485,10 +1485,10 @@
       <p id="pin-entry-profile-name" class="pin-profile-name"></p>
       
       <div class="pin-inputs-row">
-        <input type="password" id="pin-digit-1" class="pin-digit-input" maxlength="1">
-        <input type="password" id="pin-digit-2" class="pin-digit-input" maxlength="1">
-        <input type="password" id="pin-digit-3" class="pin-digit-input" maxlength="1">
-        <input type="password" id="pin-digit-4" class="pin-digit-input" maxlength="1">
+        <input type="password" id="pin-digit-1" class="pin-digit-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Dígito 1 del PIN">
+        <input type="password" id="pin-digit-2" class="pin-digit-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Dígito 2 del PIN">
+        <input type="password" id="pin-digit-3" class="pin-digit-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Dígito 3 del PIN">
+        <input type="password" id="pin-digit-4" class="pin-digit-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Dígito 4 del PIN">
       </div>
       
       <div id="pin-entry-error" class="login-error-msg" style="display: none;">PIN incorrecto</div>
@@ -1504,24 +1504,26 @@
     <div class="pin-modal login-modal-dialog">
       <!-- Tabs -->
       <div class="login-tabs-header">
-        <button id="tab-login" class="login-tab active">Iniciar Sesión</button>
-        <button id="tab-register" class="login-tab">Registrarse</button>
+        <button type="button" id="tab-login" class="login-tab active">Iniciar Sesión</button>
+        <button type="button" id="tab-register" class="login-tab">Registrarse</button>
       </div>
 
       <h3 id="login-modal-title" class="modal-title">Inicia sesión en tu cuenta</h3>
       
-      <div class="form-group">
-        <input type="text" id="login-username-input" class="input-text" placeholder="Nombre de usuario">
-      </div>
-      <div class="form-group">
-        <input type="password" id="login-password-input" class="input-text" placeholder="Contraseña">
-      </div>
-      <div id="login-error-msg" class="login-error-msg" style="display: none;">Usuario o contraseña incorrectos</div>
-      
-      <div class="pin-buttons pin-buttons-end">
-        <button class="btn btn-secondary" id="login-modal-cancel">Cancelar</button>
-        <button class="btn btn-primary" id="login-modal-submit">Iniciar Sesión</button>
-      </div>
+      <form id="login-form" novalidate>
+        <div class="form-group">
+          <input type="text" id="login-username-input" class="input-text" placeholder="Nombre de usuario" aria-label="Nombre de usuario" autocomplete="username" autocapitalize="none" spellcheck="false">
+        </div>
+        <div class="form-group">
+          <input type="password" id="login-password-input" class="input-text" placeholder="Contraseña" aria-label="Contraseña" autocomplete="current-password">
+        </div>
+        <div id="login-error-msg" class="login-error-msg" role="alert" style="display: none;">Usuario o contraseña incorrectos</div>
+
+        <div class="pin-buttons pin-buttons-end">
+          <button type="button" class="btn btn-secondary" id="login-modal-cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="login-modal-submit">Iniciar Sesión</button>
+        </div>
+      </form>
       <a href="#/app" class="login-app-link" id="login-app-link"><i data-lucide="smartphone"></i> Descargar la app para Android</a>
     </div>
   </div>

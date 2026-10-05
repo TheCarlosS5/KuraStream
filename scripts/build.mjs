@@ -170,6 +170,7 @@ export async function build({ quiet = false } = {}) {
     '/assets/illustrations/poster_placeholder.svg', '/assets/illustrations/backdrop_placeholder.svg',
     '/assets/illustrations/empty_watchlist.svg', '/assets/illustrations/empty_history.svg', '/assets/illustrations/empty_search.svg',
     '/assets/branding/brand_mark.svg',
+    '/assets/fonts/inter-latin-300-700.woff2', '/assets/fonts/outfit-latin-400-800.woff2',
   ].filter((p) => p === '/' || fs.existsSync(path.join(fe, p)));
   const precache = [...staticShell, ...distFiles];
   const buildId = hash8(JSON.stringify(precache));

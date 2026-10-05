@@ -5,6 +5,8 @@
 
 import { AuthManager } from './core/auth.js';
 import { fetchJson, loadErrorState } from './core/http.js';
+import { readLanguagePrefs } from './player/tracks.js';
+import { initDialogs } from './core/dialogs.js';
 import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
 import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.05-security';
@@ -266,6 +268,8 @@ export function openAuthModal(mode = 'login') {
   if (passInput) passInput.value = '';
 
   modal.dataset.mode = (mode === 'register') ? 'register' : (mode === 'admin' ? 'admin' : 'login');
+  // Tells the browser/password manager whether to fill a saved password or offer to save a new one.
+  if (passInput) passInput.setAttribute('autocomplete', mode === 'register' ? 'new-password' : 'current-password');
 
   if (mode === 'register') {
     if (tabLogin) {
@@ -423,23 +427,20 @@ export function setupAuthModalListeners() {
     }
   };
 
-  if (submitBtn) {
+  // A real <form>: Enter in either field and the button both submit it, and password managers recognise it.
+  const loginForm = document.getElementById('login-form');
+  if (loginForm) {
+    loginForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handleAuthSubmit();
+    });
+  } else if (submitBtn) {
     submitBtn.addEventListener('click', handleAuthSubmit);
   }
 
-  const handleKeydown = (e) => {
-    if (modal && modal.style.display !== 'none' && modal.style.display !== '') {
-      if (e.key === 'Escape') {
-        closeAuthModal();
-      } else if (e.key === 'Enter') {
-        if (document.activeElement === userInput || document.activeElement === passInput) {
-          e.preventDefault();
-          handleAuthSubmit();
-        }
-      }
-    }
-  };
-  document.addEventListener('keydown', handleKeydown);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal && modal.style.display !== 'none' && modal.style.display !== '') closeAuthModal();
+  });
 }
 
 // -------------------------------------------------------------
@@ -666,7 +667,7 @@ export function createShowCardHTML(show, historyMap = new Map()) {
   ` : '';
 
   return `
-    <div class="show-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}">
+    <a class="show-card" href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}">
       <div class="card-img-wrapper">
         <img class="show-card-poster" src="${escapeHtmlAttribute(posterSrc)}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy" decoding="async" data-fallback-src="/assets/illustrations/poster_placeholder.svg">
         <div class="card-rating-badge">
@@ -681,7 +682,7 @@ export function createShowCardHTML(show, historyMap = new Map()) {
           <span>${show.media_type === 'movie' ? 'Película' : 'Anime'}${show.year ? ` · ${escapeHtml(show.year)}` : ''}</span>
         </div>
       </div>
-    </div>
+    </a>
   `;
 }
 
@@ -949,9 +950,7 @@ export function showEpisodeDetails(episodeId) {
         }
       });
 
-      const savedAudioPref = (typeof localStorage !== 'undefined') ? (localStorage.getItem('kura_pref_audio_lang') || localStorage.getItem('kurastream_preferred_audio_language')) : null;
-      const userAudioPref = (typeof window !== 'undefined' && window.userPreferences?.preferred_audio_language) || null;
-      const prefAudio = savedAudioPref || userAudioPref || 'spa';
+      const prefAudio = readLanguagePrefs(typeof localStorage !== 'undefined' ? localStorage : null, typeof window !== 'undefined' ? window.userPreferences : null).audio;
 
       const matchesLang = (trackLang, pref) => {
         if (!trackLang || !pref) return false;
@@ -1537,8 +1536,9 @@ export async function loadShowDetails(id) {
       if (hasAudioChoice || hasSubChoice) {
         trackPrefContainer.style.display = 'flex';
 
-        let currentAudioPref = localStorage.getItem('kura_pref_audio_lang') || 'jpn';
-        let currentSubPref = localStorage.getItem('kura_pref_sub_lang') || 'spa';
+        const languagePrefs = readLanguagePrefs(localStorage, window.userPreferences);
+        let currentAudioPref = languagePrefs.audio;
+        let currentSubPref = languagePrefs.subtitle;
 
         // Render Audio Pills
         if (audioTracksMap.size > 0) {
@@ -3488,15 +3488,50 @@ let isProfileManageMode = false;
 let currentEditingAvatar = '';
 let currentEditingColor = '#818CF8';
 
-/** Returns the entered 4-digit PIN, or null if the user cancelled or typed something invalid. */
+/**
+ * Asks for the profile's current 4-digit PIN in an accessible dialog (it used to be window.prompt, which shows the
+ * digits in clear text and cannot be styled or read well by assistive technology).
+ * Resolves with the PIN, or null when cancelled.
+ */
 function askCurrentProfilePin(profile) {
-  const pin = window.prompt(`Introduce el PIN actual del perfil "${profile.name}"`);
-  if (pin === null) return null;
-  if (!/^\d{4}$/.test(pin.trim())) {
-    showToast('El PIN debe contener exactamente 4 dígitos', 'error');
-    return null;
-  }
-  return pin.trim();
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'pin-modal-overlay';
+    overlay.style.display = 'flex';
+    overlay.style.zIndex = '2200';
+    overlay.innerHTML = `
+      <form class="pin-modal pin-modal-compact" novalidate>
+        <h3 class="modal-title">PIN actual</h3>
+        <p class="pin-profile-name">${escapeHtml(profile.name || '')}</p>
+        <input type="password" class="input-text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="PIN actual de 4 dígitos">
+        <div class="login-error-msg" role="alert" style="display: none;">El PIN debe contener exactamente 4 dígitos</div>
+        <div class="pin-buttons pin-buttons-end">
+          <button type="button" class="btn btn-secondary" data-dialog-close>Cancelar</button>
+          <button type="submit" class="btn btn-primary">Continuar</button>
+        </div>
+      </form>
+    `;
+    document.body.appendChild(overlay);
+    const form = overlay.querySelector('form');
+    const input = overlay.querySelector('input');
+    const error = overlay.querySelector('.login-error-msg');
+    const finish = (value) => {
+      overlay.remove();
+      resolve(value);
+    };
+    overlay.querySelector('[data-dialog-close]').addEventListener('click', () => finish(null));
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const pin = input.value.trim();
+      if (!/^\d{4}$/.test(pin)) {
+        error.style.display = 'block';
+        input.focus();
+        return;
+      }
+      finish(pin);
+    });
+    input.focus();
+  });
 }
 
 const AVATAR_OUTPUT_SIZE = 512;
@@ -3782,7 +3817,7 @@ export function openProfileEditModal(mode = 'create', profile = null) {
       deleteBtn.style.display = 'inline-flex';
       deleteBtn.onclick = async () => {
         if (!confirm(`¿Eliminar el perfil "${profile.name}"? Esta acción no se puede deshacer.`)) return;
-        const deletePin = profile.has_pin ? askCurrentProfilePin(profile) : '';
+        const deletePin = profile.has_pin ? await askCurrentProfilePin(profile) : '';
         if (deletePin === null) return;
         deleteBtn.disabled = true;
         try {
@@ -3878,7 +3913,7 @@ export function openProfileEditModal(mode = 'create', profile = null) {
 
       // The backend requires the current PIN to modify a PIN-protected profile.
       if (isEdit && profile.has_pin) {
-        const currentPin = askCurrentProfilePin(profile);
+        const currentPin = await askCurrentProfilePin(profile);
         if (currentPin === null) {
           saveBtn.disabled = false;
           return;
@@ -3982,6 +4017,16 @@ export function openPinModal(profile) {
         digits[idx - 1].focus();
       }
     };
+
+    // Pasting "1234" (from a password manager or a message) fills every box.
+    d.onpaste = (e) => {
+      const pasted = ((e.clipboardData || window.clipboardData)?.getData('text') || '').replace(/\D/g, '').slice(0, digits.length);
+      if (pasted.length < 2) return;
+      e.preventDefault();
+      pasted.split('').forEach((char, i) => { if (digits[i]) digits[i].value = char; });
+      digits[Math.min(pasted.length, digits.length) - 1].focus();
+      digits[Math.min(pasted.length, digits.length) - 1].dispatchEvent(new Event('input'));
+    };
   });
 }
 
@@ -4035,24 +4080,24 @@ export async function loadProfilesView() {
       ` : '';
 
       return `
-        <div class="profile-card ${isProfileManageMode ? 'profile-card-manage' : ''}" data-profile-id="${escapeHtmlAttribute(p.id)}" style="position: relative; cursor: pointer;">
+        <button type="button" class="profile-card ${isProfileManageMode ? 'profile-card-manage' : ''}" data-profile-id="${escapeHtmlAttribute(p.id)}" aria-label="${escapeHtmlAttribute(isProfileManageMode ? `Editar perfil ${p.name}` : `Entrar como ${p.name}`)}" style="position: relative; cursor: pointer;">
           <div class="profile-avatar ${p.avatar ? 'has-image' : ''}" ${avatarAttrs}>
             ${initial}
             ${p.is_kids ? '<span class="profile-badge-kids">KIDS</span>' : ''}
             ${editBadgeHtml}
           </div>
           <div class="profile-name">${escapeHtml(p.name)}</div>
-        </div>
+        </button>
       `;
     }).join('');
 
     const addCardHtml = isProfileManageMode ? `
-      <div class="profile-card profile-card-add" id="card-add-profile" style="cursor: pointer;">
+      <button type="button" class="profile-card profile-card-add" id="card-add-profile" style="cursor: pointer;">
         <div class="profile-avatar">
           <i data-lucide="plus" style="width: 32px; height: 32px;"></i>
         </div>
         <div class="profile-name">Agregar perfil</div>
-      </div>
+      </button>
     ` : '';
 
     grid.innerHTML = cardsHtml + addCardHtml;
@@ -4155,6 +4200,7 @@ if (typeof window !== 'undefined') {
 document.addEventListener('DOMContentLoaded', () => {
   console.log('[KuraStream] v2.0 Platform initialized successfully.');
   setupCatalogueActions();
+  initDialogs();
   setupWatchPartyModal();
   initHeaderDropdowns();
   setupRouter();

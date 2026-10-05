@@ -120,6 +120,19 @@
   pointer-events: none !important;
 }
 
+/* The browser refused to autoplay: keep the big play button on screen until the person presses it. */
+.player-container.autoplay-blocked.controls-hidden {
+  cursor: default;
+}
+
+.player-container.autoplay-blocked.controls-hidden .player-controls-overlay {
+  opacity: 1;
+}
+
+.player-container.autoplay-blocked.controls-hidden .player-controls-overlay .center-action-btn {
+  pointer-events: auto !important;
+}
+
 .player-top-bar {
   display: flex;
   align-items: center;

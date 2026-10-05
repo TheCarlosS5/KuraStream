@@ -6,6 +6,7 @@ require_once __DIR__ . '/../php_backend/middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../php_backend/services/JobQueue.php';
 require_once __DIR__ . '/../php_backend/services/BackupService.php';
 require_once __DIR__ . '/../php_backend/worker.php';
+require_once __DIR__ . '/../php_backend/controllers/AdminController.php';
 require_once __DIR__ . '/helpers/http_server.php';
 
 echo "Running job queue / worker / backup tests...\n";
@@ -162,6 +163,21 @@ try {
     assert($row && in_array($row['status'], ['failed', 'done'], true), 'worker --once processed the scan: ' . json_encode($row) . " / $out");
     assert(str_contains((string)$out, 'ready'), 'worker started');
     echo "✓ Admin endpoints and the worker process OK\n";
+
+    // 11. The admin health panel's data
+    $db->exec("DELETE FROM jobs");
+    $db->exec("DELETE FROM worker_status");
+    JobQueue::enqueue('t_queued_demo');
+    $health = AdminController::systemHealth();
+    foreach (['worker', 'jobs', 'backups', 'disk', 'processes', 'party_viewers', 'load_average', 'migrations_ok'] as $key) {
+        assert(array_key_exists($key, $health), "system health has $key");
+    }
+    assert($health['worker']['alive'] === false && $health['jobs']['queued'] === 1, 'a queued job and no worker are reported');
+    assert($health['disk']['library'] === null || $health['disk']['library']['used_percent'] >= 0, 'disk usage is a percentage');
+    assert(is_int($health['processes']['ffmpeg']) && $health['migrations_ok'] === true, 'process counts and migration state');
+    $worker->chores(true);
+    assert(AdminController::systemHealth()['worker']['alive'] === true, 'the worker shows as alive after a heartbeat');
+    echo "✓ System health data OK\n";
 } finally {
     kura_stop_server($server);
     $db->exec("DELETE FROM jobs");
