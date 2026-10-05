@@ -507,8 +507,10 @@ class PlayerViewModel @Inject constructor(
                 // With a scene after the credits there is no "outro" to jump over to the next episode.
                 val inOutro = outroStart != null && credits == null && absPos >= outroStart
 
+                // In a party only whoever drives playback skips; guests follow the host's seeks.
+                val canSkip = _playerState.value.canControlPlayback
                 // Auto skip intro once per episode, so seeking back into the intro is respected
-                if (inIntro && !introAutoSkipped && userPreferences.autoSkipIntro && ep?.introEnd != null) {
+                if (canSkip && inIntro && !introAutoSkipped && userPreferences.autoSkipIntro && ep?.introEnd != null) {
                     introAutoSkipped = true
                     seekToAbsolute(ep.introEnd + 1f)
                     delay(500)
@@ -516,13 +518,16 @@ class PlayerViewModel @Inject constructor(
                 }
 
                 // Auto skip outro: only the credits when a scene follows them, else to the next episode
-                if (inCredits && !creditsAutoSkipped && userPreferences.autoSkipOutro && credits != null) {
+                if (canSkip && inCredits && !creditsAutoSkipped && userPreferences.autoSkipOutro && credits != null) {
                     creditsAutoSkipped = true
                     seekToAbsolute(credits.second)
                     delay(500)
                     continue
                 }
-                if (inOutro && userPreferences.autoSkipOutro && _playerState.value.nextEpisode != null) {
+                // Only the host picks the episode: a guest's attempt would be refused and, with the
+                // break, stop this loop (no more progress updates or saves).
+                val picksEpisode = watchPartyRepository.activeSession.value?.isHost != false
+                if (picksEpisode && inOutro && userPreferences.autoSkipOutro && _playerState.value.nextEpisode != null) {
                     playNextEpisode()
                     break
                 }
