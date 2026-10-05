@@ -1,11 +1,29 @@
+# KuraStream: nginx (port 3000) -> PHP-FPM (app) -> MySQL, plus a background worker.
+#   cp .env.example .env   # fill in JWT_SECRET, DB_PASS, MYSQL_ROOT_PASSWORD and the admin credentials
+#   docker compose up -d --build
 services:
-  kurastream:
-    build: .
-    container_name: kurastream
+  nginx:
+    build:
+      context: .
+      dockerfile: docker/nginx.Dockerfile
+    container_name: kurastream-nginx
     ports:
-      - "3000:3000"
-    environment:
-      - PORT=3000
+      - "${PORT:-3000}:80"
+    volumes:
+      - ./library:/app/library:ro
+    depends_on:
+      app:
+        condition: service_started
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      args:
+        APP_UID: ${KURA_UID:-1000}
+        APP_GID: ${KURA_GID:-1000}
+    container_name: kurastream
+    environment: &app-env
       - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET in .env before starting Docker}
       - TMDB_API_KEY=${TMDB_API_KEY:-}
       - TMDB_READ_TOKEN=${TMDB_READ_TOKEN:-}
@@ -17,7 +35,12 @@ services:
       - REGISTRATION_MODE=${REGISTRATION_MODE:-open}
       - REGISTER_MAX_PER_HOUR=${REGISTER_MAX_PER_HOUR:-5}
       - CATALOG_ACCESS=${CATALOG_ACCESS:-open}
+      - TRANSCODE_MAX_WORKERS=${TRANSCODE_MAX_WORKERS:-}
+      - APP_TIMEZONE=${APP_TIMEZONE:-UTC}
+      - JOBS_MODE=${JOBS_MODE:-auto}
       - MEDIA_LIBRARY_PATH=/app/library
+      - SUBTITLE_CACHE_DIR=/var/cache/kurastream/subtitles
+      - BACKUP_DIR=/backups
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_NAME=kurastream
@@ -25,6 +48,33 @@ services:
       - DB_PASS=${DB_PASS:?Set DB_PASS in .env before starting Docker}
     volumes:
       - ./library:/app/library
+      - kurastream_cache:/var/cache/kurastream
+      - kurastream_backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "php -r 'exit(@fsockopen(\"127.0.0.1\", 9000) ? 0 : 1);'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # Library scans, season sync, daily database backups, subtitle/font pre-extraction and housekeeping.
+  worker:
+    build:
+      context: .
+      args:
+        APP_UID: ${KURA_UID:-1000}
+        APP_GID: ${KURA_GID:-1000}
+    container_name: kurastream-worker
+    user: kurastream
+    command: ["php", "/app/php_backend/worker.php"]
+    environment: *app-env
+    volumes:
+      - ./library:/app/library
+      - kurastream_cache:/var/cache/kurastream
+      - kurastream_backups:/backups
     restart: unless-stopped
     depends_on:
       mysql:
@@ -48,3 +98,5 @@ services:
 
 volumes:
   kurastream_mysql:
+  kurastream_cache:
+  kurastream_backups:

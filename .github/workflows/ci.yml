@@ -102,12 +102,16 @@ jobs:
         continue-on-error: true
         run: |
           docker build -t kurastream:test .
-          USER_ID=$(docker run --rm kurastream:test id -u)
+          docker build -t kurastream-nginx:test -f docker/nginx.Dockerfile .
+          # The PHP-FPM master runs as root only to drop each pool to the kurastream user; the worker and
+          # everything that executes application code must not be root.
+          USER_ID=$(docker run --rm --entrypoint id kurastream:test -u kurastream)
           if [ "$USER_ID" = "0" ]; then
-            echo "::error::Container runs as root (UID 0), must be non-root"
+            echo "::error::The application user is root (UID 0), must be non-root"
             exit 1
           fi
-          echo "Verified non-root container (UID $USER_ID)"
+          docker run --rm --entrypoint grep kurastream:test -q '^user = kurastream' /usr/local/etc/php-fpm.d/10-api.conf
+          echo "Verified non-root application user (UID $USER_ID)"
 
           RANDOM_SECRET=$(openssl rand -hex 32)
           docker run -d --name kurastream_smoke --network host \
@@ -117,11 +121,15 @@ jobs:
             -e DB_NAME=kurastream_test \
             -e DB_USER=kurastream \
             -e DB_PASS=testpassword \
-            -e PORT=3001 \
             kurastream:test
+          docker run -d --name kurastream_smoke_nginx --network host \
+            -e KURA_PORT=3001 \
+            -e KURA_API_UPSTREAM=127.0.0.1:9000 \
+            -e KURA_STREAM_UPSTREAM=127.0.0.1:9001 \
+            kurastream-nginx:test
 
           READY=0
-          for i in $(seq 1 15); do
+          for i in $(seq 1 20); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/api/health || true)
             if [ "$STATUS" = "200" ]; then
               READY=1
@@ -130,13 +138,16 @@ jobs:
             fi
             sleep 1
           done
+          # The web app itself must come from nginx too
+          INDEX=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/ || true)
 
           docker logs kurastream_smoke || true
-          docker stop kurastream_smoke || true
-          docker rm kurastream_smoke || true
+          docker logs kurastream_smoke_nginx || true
+          docker stop kurastream_smoke kurastream_smoke_nginx || true
+          docker rm kurastream_smoke kurastream_smoke_nginx || true
 
-          if [ "$READY" -ne 1 ]; then
-            echo "::error::Docker smoke health check failed"
+          if [ "$READY" -ne 1 ] || [ "$INDEX" != "200" ]; then
+            echo "::error::Docker smoke health check failed (health ready=$READY, index=$INDEX)"
             exit 1
           fi
 

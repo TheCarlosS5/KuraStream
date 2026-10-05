@@ -209,6 +209,12 @@ class PlayerController {
      * @param array $query the request's query parameters (audio, downmix, transcode, start)
      */
     public static function canDirectPlay(array $ep, string $realPath, array $query): bool {
+        // A native player (ExoPlayer) that knows its decoders asks for the raw file with ?direct=1: any container
+        // and codec, audio/subtitle tracks chosen on the client. Only server-side processing the client also
+        // requested (downmix, forced transcode) overrides it.
+        if (($query['direct'] ?? '') === '1' && ($query['downmix'] ?? '') !== 'stereo' && ($query['transcode'] ?? '') != '1') {
+            return true;
+        }
         $ext = strtolower(pathinfo($realPath, PATHINFO_EXTENSION));
         $videoCodec = strtolower($ep['video_codec'] ?? '');
         $tracks = !empty($ep['audio_tracks']) ? (is_array($ep['audio_tracks']) ? $ep['audio_tracks'] : json_decode($ep['audio_tracks'], true)) : [];
@@ -227,6 +233,27 @@ class PlayerController {
         }
         // Only 10-bit-and-deeper H.264 needs a transcode even though container and codec look playable.
         return self::resolveBitDepth($ep, $realPath) <= 8;
+    }
+
+    /**
+     * True when nginx fronts PHP and can serve the file itself. nginx sets SERVER_SOFTWARE for FastCGI; X_ACCEL=1/0
+     * overrides the detection (for a setup where PHP sits behind another kind of proxy, or to disable it).
+     */
+    public static function useAccelRedirect(): bool {
+        $force = getenv('X_ACCEL');
+        if ($force === '0') return false;
+        if ($force === '1') return true;
+        return str_contains(strtolower((string)($_SERVER['SERVER_SOFTWARE'] ?? '')), 'nginx');
+    }
+
+    /** The internal nginx URI (`/_media/...`) of a library file, or null when it lies outside the library. */
+    public static function accelUri(string $realPath, string $realLibrary): ?string {
+        $prefix = rtrim($realLibrary, '/\\') . DIRECTORY_SEPARATOR;
+        if (!str_starts_with($realPath, $prefix)) {
+            return null;
+        }
+        $rel = str_replace('\\', '/', substr($realPath, strlen($prefix)));
+        return '/_media/' . implode('/', array_map('rawurlencode', explode('/', $rel)));
     }
 
     /** A stable key for "this viewer's current stream of this episode" (the player sends a per-instance `session`). */
@@ -806,6 +833,27 @@ class PlayerController {
             exit();
         }
 
+        $mimeTypes = [
+            'mp4' => 'video/mp4',
+            'webm' => 'video/webm',
+            'mkv' => 'video/x-matroska',
+            'avi' => 'video/x-msvideo',
+            'mov' => 'video/quicktime',
+            'm4v' => 'video/mp4',
+            'ts' => 'video/mp2t'
+        ];
+
+        // Behind nginx, PHP only authorizes: nginx sends the bytes (sendfile, ranges, HEAD, aborted clients) so a
+        // viewer no longer occupies a PHP process for the whole episode.
+        if (self::useAccelRedirect() && ($accelUri = self::accelUri($realPath, $realLibrary)) !== null) {
+            setCorsHeaders();
+            @header('Content-Type: ' . ($mimeTypes[$ext] ?? (@mime_content_type($realPath) ?: 'video/mp4')));
+            @header('X-Accel-Redirect: ' . $accelUri);
+            @header('Cache-Control: private, no-cache');
+            if (defined('TESTING_MODE')) throw new ExitException("Stream accel redirect", 200, $accelUri);
+            exit();
+        }
+
         $fileSize = filesize($realPath);
         $offset = 0;
         $length = $fileSize;
@@ -856,13 +904,6 @@ class PlayerController {
         }
 
         // Detect correct video MIME type
-        $mimeTypes = [
-            'mp4' => 'video/mp4',
-            'webm' => 'video/webm',
-            'avi' => 'video/x-msvideo',
-            'mov' => 'video/quicktime',
-            'm4v' => 'video/mp4'
-        ];
         $mime = $mimeTypes[$ext] ?? (@mime_content_type($realPath) ?: 'video/mp4');
 
         setCorsHeaders();

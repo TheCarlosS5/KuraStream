@@ -117,13 +117,23 @@ if (!empty($configuredMediaPath)) {
     define('LIBRARY_DIR', ROOT_DIR . '/library');
 }
 
-// Security and CSP headers
+// Security and CSP headers. One list feeds both PHP (setSecurityHeaders) and nginx, which serves the static files
+// itself: deploy/nginx/security-headers.conf is generated from it (php_backend/scripts/print_security_headers.php)
+// and tests/test_nginx_deploy.php fails when the two drift apart.
+function kuraSecurityHeaders(): array {
+    return [
+        'X-Content-Type-Options' => 'nosniff',
+        'X-Frame-Options' => 'DENY',
+        'Referrer-Policy' => 'strict-origin-when-cross-origin',
+        'Permissions-Policy' => 'camera=(), microphone=(), geolocation=()',
+        'Content-Security-Policy' => "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://image.tmdb.org https://s4.anilist.co; media-src 'self' blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; frame-ancestors 'none';",
+    ];
+}
+
 function setSecurityHeaders(): void {
-    @header("X-Content-Type-Options: nosniff");
-    @header("X-Frame-Options: DENY");
-    @header("Referrer-Policy: strict-origin-when-cross-origin");
-    @header("Permissions-Policy: camera=(), microphone=(), geolocation=()");
-    @header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://image.tmdb.org https://s4.anilist.co; media-src 'self' blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; frame-ancestors 'none';");
+    foreach (kuraSecurityHeaders() as $name => $value) {
+        @header("{$name}: {$value}");
+    }
 }
 
 // Set JSON headers and CORS
