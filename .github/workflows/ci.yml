@@ -57,6 +57,7 @@ jobs:
           node tests/test_generate_app_release.mjs
           node tests/test_frontend_build.mjs
           node tests/ui_admin_health.mjs
+          node tests/test_check_vulnerable_deps.mjs
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
@@ -213,6 +214,15 @@ jobs:
         run: |
           cd android
           ./gradlew testDebugUnitTest
+
+      # npm + every Maven artifact the app resolves, against osv.dev. Fails only on a KNOWN vulnerability (an OSV
+      # outage just warns). Dependabot (.github/dependabot.yml) proposes the upgrades.
+      - name: Check dependencies for known vulnerabilities
+        run: |
+          cd android
+          ./gradlew -q :app:dependencies --configuration releaseRuntimeClasspath > "$RUNNER_TEMP/android_deps.txt"
+          cd ..
+          node scripts/check_vulnerable_deps.mjs --gradle "$RUNNER_TEMP/android_deps.txt"
 
       - name: Run Android Lint
         run: |
