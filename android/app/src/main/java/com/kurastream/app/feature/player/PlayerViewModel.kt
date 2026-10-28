@@ -1247,6 +1247,8 @@ class PlayerViewModel @Inject constructor(
                             ?: "No se pudo sincronizar el cambio de episodio en la sala"
                         _hudMessages.tryEmit(errorMsg)
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     isChangingEpisode = false
                     _hudMessages.tryEmit("No se pudo sincronizar el cambio de episodio en la sala: ${e.message ?: "error"}")

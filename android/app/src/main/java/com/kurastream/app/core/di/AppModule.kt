@@ -8,6 +8,7 @@ import androidx.room.Room
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.kurastream.app.core.database.*
 import com.kurastream.app.core.network.*
+import com.kurastream.app.core.preferences.ActiveServerSnapshot
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import com.kurastream.app.core.repository.*
 import com.kurastream.app.core.security.SecureTokenStorage
@@ -18,7 +19,6 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.firstOrNull
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -40,10 +40,10 @@ object AppModule {
     @Singleton
     fun provideTokenStorage(
         @ApplicationContext context: Context,
-        preferencesDataSource: KuraPreferencesDataSource
+        activeServerSnapshot: ActiveServerSnapshot
     ): TokenStorage {
         return SecureTokenStorage(context) {
-            runBlocking { preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerId }
+            activeServerSnapshot.activeServerId
         }
     }
 
@@ -87,7 +87,7 @@ object AppModule {
     @Singleton
     fun provideOkHttpClient(
         tokenStorage: TokenStorage,
-        preferencesDataSource: KuraPreferencesDataSource,
+        activeServerSnapshot: ActiveServerSnapshot,
         sessionEvents: SessionEvents
     ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
@@ -95,21 +95,15 @@ object AppModule {
         }
 
         val dynamicBaseInterceptor = DynamicBaseUrlInterceptor {
-            runBlocking {
-                preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerUrl
-            }
+            activeServerSnapshot.activeServerUrl
         }
 
         val authInterceptor = AuthInterceptor(tokenStorage, sessionEvents::notifyUnauthorized) {
-            runBlocking {
-                val prefs = preferencesDataSource.preferencesFlow.firstOrNull()
-                Pair(prefs?.activeServerId, prefs?.activeServerUrl)
-            }
+            val prefs = activeServerSnapshot.current()
+            Pair(prefs?.activeServerId, prefs?.activeServerUrl)
         }
         val safeOriginInterceptor = SafeOriginInterceptor {
-            runBlocking {
-                preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerUrl
-            }
+            activeServerSnapshot.activeServerUrl
         }
 
         return OkHttpClient.Builder()
@@ -130,7 +124,7 @@ object AppModule {
     @Named("media")
     fun provideMediaOkHttpClient(
         tokenStorage: TokenStorage,
-        preferencesDataSource: KuraPreferencesDataSource,
+        activeServerSnapshot: ActiveServerSnapshot,
         watchPartyRepositoryProvider: javax.inject.Provider<WatchPartyRepository>,
         partyPlaybackContextProvider: javax.inject.Provider<com.kurastream.app.core.player.PartyPlaybackContext>
     ): OkHttpClient {
@@ -138,7 +132,7 @@ object AppModule {
             val original = chain.request()
             val builder = original.newBuilder()
 
-            val prefs = runBlocking { preferencesDataSource.preferencesFlow.firstOrNull() }
+            val prefs = activeServerSnapshot.current()
             val activeServerUrl = prefs?.activeServerUrl
             val activeServerId = prefs?.activeServerId
 
@@ -181,9 +175,7 @@ object AppModule {
         }
 
         val safeOriginInterceptor = SafeOriginInterceptor {
-            runBlocking {
-                preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerUrl
-            }
+            activeServerSnapshot.activeServerUrl
         }
 
         return OkHttpClient.Builder()
@@ -232,8 +224,9 @@ object AppModule {
     fun provideServerRepository(
         serverDao: ServerProfileDao,
         preferencesDataSource: KuraPreferencesDataSource,
-        apiService: KuraApiService
-    ): ServerRepository = ServerRepository(serverDao, preferencesDataSource, apiService)
+        apiService: KuraApiService,
+        activeServerSnapshot: ActiveServerSnapshot
+    ): ServerRepository = ServerRepository(serverDao, preferencesDataSource, apiService, activeServerSnapshot)
 
     @Provides
     @Singleton

@@ -6,6 +6,7 @@ import com.kurastream.app.core.database.ServerProfileEntity
 import com.kurastream.app.core.model.ServerProfile
 import com.kurastream.app.core.network.KuraApiService
 import com.kurastream.app.core.network.ServerUrlResolver
+import com.kurastream.app.core.preferences.ActiveServerSnapshot
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -15,7 +16,8 @@ import java.util.UUID
 class ServerRepository(
     private val serverDao: ServerProfileDao,
     private val preferencesDataSource: KuraPreferencesDataSource,
-    private val apiService: KuraApiService
+    private val apiService: KuraApiService,
+    private val activeServerSnapshot: ActiveServerSnapshot? = null
 ) {
     val serversFlow: Flow<List<ServerProfile>> = serverDao.getAllServers().map { entities ->
         entities.map { it.toModel() }
@@ -74,6 +76,8 @@ class ServerRepository(
 
         serverDao.insertServer(profile)
         preferencesDataSource.setActiveServer(profile.id, profile.baseUrl)
+        // The interceptors read a cached copy; the very next request (login) must already go to this server.
+        activeServerSnapshot?.refresh()
 
         return Result.success(profile.toModel())
     }

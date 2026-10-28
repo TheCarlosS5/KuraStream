@@ -31,7 +31,9 @@
       line-height: 1.5;
       margin-bottom: 24px;
     }
-    button {
+    .retry {
+      display: inline-block;
+      text-decoration: none;
       background: #F97316;
       color: #FFFFFF;
       border: none;
@@ -41,7 +43,7 @@
       cursor: pointer;
       transition: opacity 0.15s ease;
     }
-    button:hover {
+    .retry:hover {
       opacity: 0.9;
     }
   </style>
@@ -50,7 +52,8 @@
   <div class="container">
     <h1>Sin Conexión</h1>
     <p>Parece que has perdido la conexión a internet. Vuelve a conectarte para seguir disfrutando del catálogo de KuraStream.</p>
-    <button onclick="window.location.reload()">Reintentar</button>
+    <!-- A link, not onclick="": the CSP forbids inline handlers. href="" reloads the address that failed. -->
+    <a class="retry" href="">Reintentar</a>
   </div>
 </body>
 </html>
