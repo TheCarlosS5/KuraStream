@@ -4,24 +4,37 @@
  */
 
 import { getAuthHeaders, openAdminLoginModal } from './auth.js';
+import { fetchAdminActivity } from './admin_activity.js';
 
 let statsInterval = null;
+// Each refresh costs the (weak) server several queries and a process count: every 10 s is plenty for a person
+// looking at the panel, and nothing is fetched while the tab is in the background.
+const STATS_POLL_MS = 10000;
 
-export function startAdminStatsPolling() {
-  stopAdminStatsPolling();
+function refreshOverview() {
   fetchAdminStats();
   fetchDisplayStatus();
   fetchSystemHealth();
+  fetchAdminActivity();
+}
+
+function onOverviewVisibility() {
+  if (!document.hidden && statsInterval) refreshOverview();
+}
+
+export function startAdminStatsPolling() {
+  stopAdminStatsPolling();
+  refreshOverview();
   setupDiagnosticsButton();
   setupBackupButton();
   statsInterval = setInterval(() => {
-    fetchAdminStats();
-    fetchDisplayStatus();
-    fetchSystemHealth();
-  }, 3000);
+    if (!document.hidden) refreshOverview();
+  }, STATS_POLL_MS);
+  document.addEventListener('visibilitychange', onOverviewVisibility);
 }
 
 export function stopAdminStatsPolling() {
+  document.removeEventListener('visibilitychange', onOverviewVisibility);
   if (statsInterval) {
     clearInterval(statsInterval);
     statsInterval = null;

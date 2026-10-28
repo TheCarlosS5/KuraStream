@@ -353,9 +353,20 @@ class PlayerController {
                 'error' => 'Este servidor no tiene ffmpeg instalado, así que no puede convertir este video. Pide al administrador que lo instale.',
             ], 200);
         }
+        // Where a remux asked to start at ?start= really begins (see FfmpegScanner::keyframeAtOrBefore). The player
+        // restarts the stream there and keeps its clock on it, so subtitles and saved progress stay on time.
+        $keyframe = null;
+        $requestedStart = isset($_GET['start']) && is_numeric($_GET['start']) ? (float)$_GET['start'] : 0.0;
+        if (!$direct && $requestedStart > 0) {
+            $keyframe = FfmpegScanner::keyframeAtOrBefore($realPath, $requestedStart);
+        }
         jsonResponse([
             'success' => true,
             'mode' => $direct ? 'direct' : 'transcode',
+            'start_keyframe' => $keyframe,
+            // ffmpeg seeks a little before -ss on B-frame video (about 0.13 s), so asking for the keyframe itself
+            // would land one GOP earlier; this request value lands exactly on it.
+            'start_request' => $keyframe !== null && $keyframe > 0 ? round($keyframe + 0.2, 3) : null,
             // A viewer's own seek takes over the slot of the stream it replaces, so it is never "busy" for them.
             'busy' => !$direct && $active >= $max && !TranscodeLimiter::sessionHoldsSlot(self::streamSessionKey($episodeId)),
             'active_transcodes' => $active,

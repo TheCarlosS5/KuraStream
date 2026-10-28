@@ -64,6 +64,51 @@ class FfmpegScanner {
     }
 
     /**
+     * The last video keyframe at or before $seconds (relative to the file start), or null when it cannot be found.
+     * A stream-copy remux started with -ss begins at that keyframe, not at $seconds, and its output timestamps are
+     * shifted to zero, so a player that assumed $seconds would run subtitles and progress early by the gap (often
+     * several seconds with anime GOPs). Only packet headers are read: nothing is decoded.
+     */
+    public static function keyframeAtOrBefore(string $filepath, float $seconds, int $timeoutSeconds = 4): ?float {
+        if ($seconds <= 0) {
+            return 0.0;
+        }
+        // One ffprobe: packet headers around the target plus the container start time (usually 0, which the 20 s
+        // window absorbs when it is not).
+        $from = max(0.0, $seconds - 20);
+        $to = $seconds + 0.05;
+        $cmd = sprintf(
+            '%s -v quiet -select_streams v:0 -show_entries packet=pts_time,flags:format=start_time -read_intervals %s -of csv=p=1 %s',
+            self::ffprobeBin(),
+            // Not escapeshellarg: on Windows it turns '%' into a space. Both ends are formatted numbers.
+            sprintf('%.3F%%%.3F', $from, $to),
+            escapeshellarg($filepath)
+        );
+        $output = self::executeBoundedCommand($cmd, $timeoutSeconds, false);
+        if (!$output) {
+            return null;
+        }
+        $base = 0.0;
+        $keyframes = [];
+        foreach (preg_split('/\R/', trim($output)) as $line) {
+            $parts = explode(',', trim($line));
+            if (($parts[0] ?? '') === 'format' && is_numeric($parts[1] ?? null)) {
+                $base = (float)$parts[1];
+            } elseif (($parts[0] ?? '') === 'packet' && is_numeric($parts[1] ?? null) && str_contains($parts[2] ?? '', 'K')) {
+                $keyframes[] = (float)$parts[1];
+            }
+        }
+        $best = null;
+        foreach ($keyframes as $pts) {
+            $relative = $pts - $base;
+            if ($relative <= $seconds + 0.001 && ($best === null || $relative > $best)) {
+                $best = $relative;
+            }
+        }
+        return $best === null ? null : max(0.0, $best);
+    }
+
+    /**
      * @param bool $mergeStderr false for binary stdout (raw PCM, images): stderr text would corrupt it.
      */
     public static function executeBoundedCommand(string $cmd, int $timeoutSeconds = 15, bool $mergeStderr = true): ?string {

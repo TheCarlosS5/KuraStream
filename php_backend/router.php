@@ -701,6 +701,12 @@ if (($uri === '/api/admin/scan' || $uri === '/api/admin/repair-library') && $met
     jsonResponse($res);
 }
 
+// Who is watching, recent activity, biggest shows on disk and how many episodes still fit
+if ($uri === '/api/admin/activity' && $method === 'GET') {
+    AuthMiddleware::requireAdmin();
+    jsonResponse(array_merge(['success' => true], AdminController::activity()));
+}
+
 // Live health of the machine for the admin panel (worker, jobs, backups, disks, ffmpeg, Watch Party viewers, load)
 if ($uri === '/api/admin/system' && $method === 'GET') {
     AuthMiddleware::requireAdmin();

@@ -1,10 +1,10 @@
-const CACHE_NAME = 'kurastream-2026.10.28-sync-v1';
+const CACHE_NAME = 'kurastream-2026.10.28-noche-v1';
 // @@SHELL_ASSETS_START (scripts/build.mjs replaces this list with the hashed build files)
 const SHELL_ASSETS = [
   '/',
   '/index.html',
   '/style.css',
-  '/style.css?v=2026.10.28-sync',
+  '/style.css?v=2026.10.28-noche',
   '/css/fonts.css',
   '/assets/fonts/inter-latin-300-700.woff2',
   '/assets/fonts/outfit-latin-400-800.woff2',
@@ -23,9 +23,9 @@ const SHELL_ASSETS = [
   '/assets/illustrations/empty_search.svg',
   '/assets/branding/brand_mark.svg',
   '/js/main.js',
-  '/js/main.js?v=2026.10.28-sync',
+  '/js/main.js?v=2026.10.28-noche',
   '/player.js',
-  '/player.js?v=2026.10.28-sync',
+  '/player.js?v=2026.10.28-noche',
   '/js/core/router.js',
   '/js/core/auth.js',
   '/js/core/api.js',
@@ -45,6 +45,7 @@ const SHELL_ASSETS = [
   '/js/modules/party.js',
   '/js/modules/auth.js',
   '/js/modules/admin_status.js',
+  '/js/modules/admin_activity.js',
   '/js/modules/admin_staging.js',
   '/js/modules/admin_library.js',
   '/js/modules/admin_import.js',

@@ -201,6 +201,9 @@ function ensurePopoverStyles() {
     }
 
     .popover-badge-rating {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
       font-weight: 700;
       color: #46d369;
       letter-spacing: 0.3px;
@@ -237,6 +240,30 @@ function ensurePopoverStyles() {
       content: "•";
       margin-left: 6px;
       color: #64748b;
+    }
+
+    .popover-preview-title {
+      margin: 0;
+      font-size: 0.98rem;
+      font-weight: 700;
+      line-height: 1.25;
+      color: #ffffff;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .popover-preview-banner.is-poster .popover-banner-img {
+      object-position: center 25%;
+    }
+
+    .popover-badge-airing {
+      color: #34d399;
+      font-weight: 700;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
     }
 
     .popover-preview-synopsis {
@@ -307,6 +334,7 @@ export function extractCardMetadata(card) {
   const imgSrc = imgEl ? (imgEl.currentSrc || imgEl.getAttribute('src') || '') : '';
   const cover = ds.cover || ds.poster || imgSrc || '/api/placeholder-poster';
   const backdrop = ds.backdrop || cover;
+  const hasBackdrop = Boolean(ds.backdrop);
 
   // Extract Rating
   let rating = ds.rating || '';
@@ -316,8 +344,7 @@ export function extractCardMetadata(card) {
       rating = ratingEl.textContent.replace(/[^\d.]/g, '').trim();
     }
   }
-  if (!rating) rating = 'N/A';
-  const formattedRating = (parseFloat(rating) && parseFloat(rating) > 0) ? parseFloat(rating).toFixed(1) : 'N/A';
+  const formattedRating = (parseFloat(rating) && parseFloat(rating) > 0) ? parseFloat(rating).toFixed(1) : '';
 
   // Extract Year
   let year = ds.year || '';
@@ -328,7 +355,6 @@ export function extractCardMetadata(card) {
       if (match) year = match[1];
     }
   }
-  if (!year) year = 'N/A';
 
   // Extract Episodes / Duration
   let episodes = ds.episodes || '';
@@ -337,8 +363,6 @@ export function extractCardMetadata(card) {
     const badgeText = badgeEl ? badgeEl.textContent.trim() : '';
     if (badgeText.toLowerCase().includes('película') || ds.mediaType === 'movie') {
       episodes = 'Película';
-    } else {
-      episodes = '24 eps';
     }
   }
 
@@ -361,9 +385,7 @@ export function extractCardMetadata(card) {
       genres = Array.from(genreEls).map((el) => el.textContent.trim());
     }
   }
-  if (!genres || genres.length === 0) {
-    genres = ['Anime', 'HD'];
-  }
+  genres = (genres || []).slice(0, 4);
 
   // Extract Synopsis
   let synopsis = ds.synopsis || ds.description || '';
@@ -371,20 +393,19 @@ export function extractCardMetadata(card) {
     const synEl = card.querySelector('.show-synopsis, .card-synopsis, p');
     if (synEl) synopsis = synEl.textContent.trim();
   }
-  if (!synopsis) {
-    synopsis = 'Disfruta de esta emocionante producción en alta calidad cinematográfica en KuraStream.';
-  }
 
   return {
     id,
     title,
     cover,
     backdrop,
+    hasBackdrop,
     rating: formattedRating,
     year,
     episodes,
     genres,
     synopsis,
+    airing: ds.status === 'airing',
   };
 }
 
@@ -479,29 +500,30 @@ export function initCardPopovers(containerSelector = document.body, options = {}
     const bannerUrl = meta.backdrop || meta.cover || '/api/placeholder-poster';
 
     const genresHtml = meta.genres.map(
-      (g) => `<span class="popover-genre-chip">${escapeHtml(g)}</span>`
+      (g) => `<span class="popover-genre-tag">${escapeHtml(g)}</span>`
     ).join('');
+    const metaHtml = [
+      meta.rating ? `<span class="popover-badge-rating">${iconSvg('star', { size: 12 })} ${escapeHtml(meta.rating)}</span>` : '',
+      meta.year ? `<span class="popover-badge-year">${escapeHtml(meta.year)}</span>` : '',
+      meta.episodes ? `<span class="popover-badge-episodes">${escapeHtml(meta.episodes)}</span>` : '',
+      meta.airing ? '<span class="popover-badge-airing">En emisión</span>' : '',
+    ].join('');
 
     popoverEl.innerHTML = `
-      <div class="popover-preview-banner" title="${escapeHtml(meta.title)}">
-        <img class="popover-banner-img" src="${escapeHtml(bannerUrl)}" alt="${escapeHtml(meta.title)}" data-fallback-src="/api/placeholder-poster">
+      <div class="popover-preview-banner${meta.hasBackdrop ? '' : ' is-poster'}">
+        <img class="popover-banner-img" src="${escapeHtml(bannerUrl)}" alt="" data-fallback-src="/assets/illustrations/backdrop_placeholder.svg">
         <div class="popover-banner-gradient"></div>
       </div>
       <div class="popover-preview-content">
+        <h3 class="popover-preview-title">${escapeHtml(meta.title)}</h3>
         <div class="popover-preview-actions">
-          <button class="popover-btn-play cta-copper" type="button" aria-label="Reproducir"><i data-lucide="play" style="width:16px;height:16px;fill:currentColor;"></i> Reproducir</button>
-          <button class="popover-btn-list" type="button" title="Mi Lista" aria-label="Mi Lista"><i data-lucide="plus"></i></button>
-          <button class="popover-btn-info" type="button" title="Más información" aria-label="Más información"><i data-lucide="info"></i></button>
+          <button class="popover-btn-play cta-copper" type="button" aria-label="Reproducir ${escapeHtml(meta.title)}">${iconSvg('play', { size: 16 })} Reproducir</button>
+          <button class="popover-btn-list" type="button" title="Mi Lista" aria-label="Mi Lista">${iconSvg('plus', { size: 18, strokeWidth: 1.75 })}</button>
+          <button class="popover-btn-info" type="button" title="Más información" aria-label="Más información">${iconSvg('info', { size: 18, strokeWidth: 1.75 })}</button>
         </div>
-        <div class="popover-preview-meta">
-          <span class="popover-badge-rating-tabular"><i data-lucide="star" style="width:10px;height:10px;fill:var(--rating-color);stroke:var(--rating-color);"></i> ${escapeHtml(meta.rating)}</span>
-          <span class="popover-badge-year">${escapeHtml(meta.year)}</span>
-          <span class="popover-badge-episodes">${escapeHtml(meta.episodes)}</span>
-        </div>
-        <div class="popover-preview-genres" style="gap: 6px;">
-          ${genresHtml}
-        </div>
-        <p class="popover-preview-synopsis">${escapeHtml(meta.synopsis)}</p>
+        ${metaHtml ? `<div class="popover-preview-meta">${metaHtml}</div>` : ''}
+        ${genresHtml ? `<div class="popover-preview-genres">${genresHtml}</div>` : ''}
+        ${meta.synopsis ? `<p class="popover-preview-synopsis">${escapeHtml(meta.synopsis)}</p>` : ''}
       </div>
     `;
 

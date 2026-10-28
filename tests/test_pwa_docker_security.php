@@ -94,7 +94,7 @@ echo "  [5/5] Testing Service Worker Cache Versioning and Activation Cleanup...\
 $swContent = file_get_contents(__DIR__ . '/../frontend/sw.js');
 $indexHtml = file_get_contents(__DIR__ . '/../frontend/index.html');
 
-$expectedVersion = '2026.10.28-sync';
+$expectedVersion = '2026.10.28-noche';
 $expectedCacheName = "kurastream-{$expectedVersion}";
 
 if (!str_contains($swContent, $expectedCacheName)) {

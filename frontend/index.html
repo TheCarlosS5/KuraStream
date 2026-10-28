@@ -24,7 +24,7 @@
   <link rel="preload" href="/css/player.css" as="style">
   <link rel="preload" href="/css/admin.css" as="style">
   <link rel="preload" href="/css/responsive.css" as="style">
-  <link rel="stylesheet" href="style.css?v=2026.10.28-sync">
+  <link rel="stylesheet" href="style.css?v=2026.10.28-noche">
 </head>
 <body>
   <!-- Offline Status Banner -->
@@ -831,6 +831,37 @@
               </div>
             </div>
 
+            <!-- Who is watching, recent activity and disk use per show (admin_activity.js) -->
+            <div class="admin-card" id="admin-activity-card">
+              <div class="admin-panel-header">
+                <div class="admin-header-title-group">
+                  <i data-lucide="users" class="admin-header-icon"></i>
+                  <h3 class="admin-card-title">Actividad</h3>
+                </div>
+                <span class="badge" id="activity-now-badge">--</span>
+              </div>
+              <div class="admin-activity-grid">
+                <div>
+                  <h4 class="admin-activity-heading">Viendo ahora</h4>
+                  <ul class="admin-simple-list" id="activity-now-list" aria-live="polite"></ul>
+                </div>
+                <div>
+                  <h4 class="admin-activity-heading">Lo último que se vio</h4>
+                  <ul class="admin-simple-list" id="activity-recent-list"></ul>
+                </div>
+              </div>
+
+              <div class="admin-panel-header admin-subpanel-header">
+                <div class="admin-header-title-group">
+                  <i data-lucide="pie-chart" class="admin-header-icon"></i>
+                  <h3 class="admin-card-title">Qué ocupa el disco</h3>
+                </div>
+              </div>
+              <p class="admin-activity-capacity" id="activity-capacity">--</p>
+              <ul class="admin-size-list" id="activity-biggest-list"></ul>
+              <small class="admin-activity-tip">Los animes que nadie ha visto en 60 días salen marcados: son los primeros candidatos para pasar al disco externo o borrar.</small>
+            </div>
+
             <!-- Live system health, database backups and background jobs -->
             <div class="admin-card" id="admin-system-card">
               <div class="admin-panel-header">
@@ -980,18 +1011,6 @@
                   <div class="admin-storage-metric-label">Subtitles cache writable</div>
                   <div id="diag-subs-cache" class="admin-storage-metric-value">--</div>
                 </div>
-              </div>
-            </div>
-
-            <!-- Active Streams Section -->
-            <div class="admin-card">
-              <div class="admin-section-header-row">
-                <span class="live-indicator"></span>
-                <h3 class="admin-card-title">Transmisiones Activas en la Red Local</h3>
-              </div>
-              <div id="active-streams-list">
-                <!-- Injected dynamically -->
-                <p class="admin-empty-text">No hay transmisiones de vídeo activas en este momento.</p>
               </div>
             </div>
 
@@ -1274,37 +1293,129 @@
     <!-- SETTINGS VIEW -->
     <section id="settings-view" class="app-view">
       <div class="settings-container">
-        <h2 class="settings-title"><i data-lucide="settings"></i> Ajustes de Reproducción</h2>
-        <p class="settings-description">Configura las opciones de sonido, ecualización y comportamiento automático de reproducción.</p>
-        
-        <div class="settings-card">
-          <div class="settings-group">
-            <label for="pref-audio-boost"><i data-lucide="volume-1" class="icon-accent"></i> Realce de Audio por Defecto (Audio Boost)</label>
-            <select id="pref-audio-boost" class="settings-select">
-              <option value="100" selected>100% (Estándar)</option>
-              <option value="125">125%</option>
-              <option value="150">150%</option>
-              <option value="175">175%</option>
-              <option value="200">200% (Máximo)</option>
-            </select>
-            <small class="settings-tip">Nivel de amplificación de volumen dinámico inicial aplicado por el ecualizador.</small>
-          </div>
+        <h2 class="settings-title"><i data-lucide="settings"></i> Ajustes</h2>
+        <p class="settings-description">Los cambios se guardan solos. Lo marcado como <span class="settings-scope">este dispositivo</span> no se comparte con tus otros equipos.</p>
 
-          <div class="settings-group mt-25">
-            <label for="pref-audio-preset"><i data-lucide="sliders" class="icon-accent"></i> Preset de Ecualizador</label>
-            <select id="pref-audio-preset" class="settings-select">
-              <option value="flat" selected>Plano (Sin ecualización)</option>
-              <option value="vocal_clarity">Voces (Claridad de diálogo)</option>
-              <option value="night_mode">Nocturno (Rango dinámico reducido)</option>
-              <option value="bass_boost">Bass Boost (Graves reforzados)</option>
-            </select>
-            <small class="settings-tip">Perfil acústico por defecto para compensar pistas de bajo nivel o diálogos suaves.</small>
+        <div class="settings-profile-row">
+          <span class="settings-profile-avatar" id="settings-profile-avatar" aria-hidden="true">?</span>
+          <span class="settings-profile-text"><small>Perfil activo</small><strong id="settings-profile-name">—</strong></span>
+          <a href="#/profiles" class="btn btn-secondary settings-profile-switch"><i data-lucide="users"></i> Cambiar perfil</a>
+        </div>
+
+        <nav class="settings-nav" aria-label="Secciones de ajustes">
+          <button type="button" class="settings-nav-btn" data-settings-target="settings-sec-playback"><i data-lucide="play-circle"></i> Reproducción</button>
+          <button type="button" class="settings-nav-btn" data-settings-target="settings-sec-language"><i data-lucide="languages"></i> Idioma</button>
+          <button type="button" class="settings-nav-btn" data-settings-target="settings-sec-sound"><i data-lucide="volume-2"></i> Sonido</button>
+          <button type="button" class="settings-nav-btn" data-settings-target="settings-sec-device"><i data-lucide="monitor"></i> Este dispositivo</button>
+          <button type="button" class="settings-nav-btn" data-settings-target="settings-sec-account"><i data-lucide="user"></i> Cuenta</button>
+        </nav>
+
+        <section class="settings-card" id="settings-sec-playback" aria-labelledby="settings-sec-playback-title">
+          <h3 class="settings-section-title" id="settings-sec-playback-title"><i data-lucide="play-circle"></i> Reproducción</h3>
+          <div class="setting-item">
+            <div class="setting-info">
+              <label for="autoPlayNextToggle" class="setting-label">Reproducir el siguiente episodio</label>
+              <p class="setting-desc">Al terminar un capítulo empieza una cuenta atrás de 10 s y pasa al siguiente.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="autoPlayNextToggle" checked>
+              <span class="slider round"></span>
+            </label>
           </div>
 
           <div class="setting-item">
             <div class="setting-info">
+              <label for="autoSkipIntroToggle" class="setting-label">Saltar intro y créditos solo</label>
+              <p class="setting-desc">Si el episodio tiene la intro o el ending detectados, se saltan sin pulsar nada. Siempre puedes deshacerlo con «Volver».</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="autoSkipIntroToggle">
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <label for="spoilerFreeToggle" class="setting-label">Modo sin spoilers <span class="settings-scope">este dispositivo</span></label>
+              <p class="setting-desc">Oculta títulos, sinopsis y miniaturas de los episodios que aún no has visto.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="spoilerFreeToggle">
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-card" id="settings-sec-language" aria-labelledby="settings-sec-language-title">
+          <h3 class="settings-section-title" id="settings-sec-language-title"><i data-lucide="languages"></i> Idioma</h3>
+          <div class="setting-item">
+            <div class="setting-info">
+              <label for="pref-audio-lang" class="setting-label">Audio preferido</label>
+              <p class="setting-desc">Se elige solo al abrir un episodio que lo tenga; si no existe, suena el audio principal del archivo.</p>
+            </div>
+            <select id="pref-audio-lang" class="settings-select settings-select-compact">
+              <option value="default">El del archivo</option>
+              <option value="jpn">Japonés</option>
+              <option value="es-la">Español (Latino)</option>
+              <option value="es">Español (España)</option>
+              <option value="spa">Español (cualquiera)</option>
+              <option value="eng">Inglés</option>
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <label for="pref-sub-lang" class="setting-label">Subtítulos preferidos</label>
+              <p class="setting-desc">Con audio en otro idioma se activan en este. Con audio en tu idioma solo aparecen los carteles (forzados).</p>
+            </div>
+            <select id="pref-sub-lang" class="settings-select settings-select-compact">
+              <option value="default">Español (automático)</option>
+              <option value="es-la">Español (Latino)</option>
+              <option value="es">Español (España)</option>
+              <option value="spa">Español (cualquiera)</option>
+              <option value="eng">Inglés</option>
+              <option value="off">Desactivados</option>
+            </select>
+          </div>
+          <p class="settings-tip">En el reproductor puedes cambiar la pista cuando quieras; esa elección también se recuerda.</p>
+        </section>
+
+        <section class="settings-card" id="settings-sec-sound" aria-labelledby="settings-sec-sound-title">
+          <h3 class="settings-section-title" id="settings-sec-sound-title"><i data-lucide="volume-2"></i> Sonido</h3>
+          <div class="setting-item">
+            <div class="setting-info">
+              <label for="pref-audio-boost" class="setting-label">Volumen extra al empezar</label>
+              <p class="setting-desc">Sube el volumen por encima del 100 % en episodios con audio bajo. Usa algo más de procesador, así que déjalo en 100 % si no lo necesitas.</p>
+            </div>
+            <select id="pref-audio-boost" class="settings-select settings-select-compact">
+              <option value="100" selected>100 % (normal)</option>
+              <option value="125">125 %</option>
+              <option value="150">150 %</option>
+              <option value="175">175 %</option>
+              <option value="200">200 % (máximo)</option>
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <label for="pref-audio-preset" class="setting-label">Ecualizador</label>
+              <p class="setting-desc">«Voces» aclara los diálogos; «Nocturno» iguala explosiones y susurros para ver sin despertar a nadie.</p>
+            </div>
+            <select id="pref-audio-preset" class="settings-select settings-select-compact">
+              <option value="flat" selected>Plano</option>
+              <option value="vocal_clarity">Voces</option>
+              <option value="night_mode">Nocturno</option>
+              <option value="bass_boost">Más graves</option>
+            </select>
+          </div>
+        </section>
+
+        <section class="settings-card" id="settings-sec-device" aria-labelledby="settings-sec-device-title">
+          <h3 class="settings-section-title" id="settings-sec-device-title"><i data-lucide="monitor"></i> Este dispositivo</h3>
+          <div class="setting-item">
+            <div class="setting-info">
               <label for="perfModeSelect" class="setting-label">Rendimiento visual</label>
-              <p class="setting-desc">El modo ligero sustituye las transparencias con desenfoque por superficies sólidas y quita animaciones decorativas. Recomendado en equipos antiguos.</p>
+              <p class="setting-desc">«Ligero» quita transparencias y animaciones decorativas. Recomendado en equipos antiguos o si la página va lenta.</p>
             </div>
             <select id="perfModeSelect" class="settings-select settings-select-compact">
               <option value="auto">Automático</option>
@@ -1315,8 +1426,8 @@
 
           <div class="setting-item">
             <div class="setting-info">
-              <label for="notificationsToggle" class="setting-label">Notificaciones en la aplicación</label>
-              <p class="setting-desc">Si está activado, recibirás avisos dentro de la aplicación cuando se añadan nuevos capítulos o animes al catálogo.</p>
+              <label for="notificationsToggle" class="setting-label">Avisos de capítulos nuevos</label>
+              <p class="setting-desc">Muestra en la campana cuando se añaden capítulos o animes al catálogo.</p>
             </div>
             <label class="switch">
               <input type="checkbox" id="notificationsToggle">
@@ -1326,37 +1437,40 @@
 
           <div class="setting-item">
             <div class="setting-info">
-              <label for="autoSkipIntroToggle" class="setting-label">Saltar Intro / Outro Automáticamente</label>
-              <p class="setting-desc">Si está activado, el reproductor omitirá la intro y outro automáticamente al alcanzar su inicio.</p>
+              <span class="setting-label">Liberar espacio</span>
+              <p class="setting-desc">Borra las imágenes y archivos de la app guardados en este navegador y recarga la página. No toca tu historial ni tus listas. <span id="settings-cache-size" class="settings-cache-size"></span></p>
             </div>
-            <label class="switch">
-              <input type="checkbox" id="autoSkipIntroToggle">
-              <span class="slider round"></span>
-            </label>
+            <button type="button" class="btn btn-secondary settings-action-btn" id="settings-clear-cache-btn"><i data-lucide="trash-2"></i> Borrar caché</button>
           </div>
 
-          <div class="setting-item">
-            <div class="setting-info">
-              <label for="autoPlayNextToggle" class="setting-label">Reproducción Automática del Siguiente Episodio</label>
-              <p class="setting-desc">Si está activado, el reproductor iniciará la cuenta atrás y reproducirá el siguiente capítulo automáticamente.</p>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="autoPlayNextToggle" checked>
-              <span class="slider round"></span>
-            </label>
-          </div>
+          <details class="settings-shortcuts">
+            <summary><i data-lucide="keyboard"></i> Atajos de teclado del reproductor</summary>
+            <dl class="settings-shortcuts-list">
+              <div><dt><kbd>Espacio</kbd> <kbd>K</kbd></dt><dd>Pausa / reproducir</dd></div>
+              <div><dt><kbd>←</kbd> <kbd>→</kbd> <kbd>J</kbd> <kbd>L</kbd></dt><dd>Retroceder / avanzar 10 s</dd></div>
+              <div><dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Volumen</dd></div>
+              <div><dt><kbd>M</kbd></dt><dd>Silenciar</dd></div>
+              <div><dt><kbd>F</kbd></dt><dd>Pantalla completa</dd></div>
+              <div><dt><kbd>C</kbd></dt><dd>Subtítulos sí / no</dd></div>
+              <div><dt><kbd>Z</kbd> <kbd>X</kbd></dt><dd>Adelantar / retrasar subtítulos 0,25 s</dd></div>
+              <div><dt><kbd>N</kbd></dt><dd>Siguiente episodio</dd></div>
+              <div><dt><kbd>S</kbd> <kbd>&lt;</kbd> <kbd>&gt;</kbd></dt><dd>Velocidad</dd></div>
+              <div><dt><kbd>B</kbd></dt><dd>Volumen extra</dd></div>
+              <div><dt><kbd>0</kbd>–<kbd>9</kbd></dt><dd>Saltar al 0 %–90 %</dd></div>
+              <div><dt><kbd>?</kbd></dt><dd>Ver todos los atajos</dd></div>
+            </dl>
+          </details>
+        </section>
 
-          <div class="setting-item">
-            <div class="setting-info">
-              <label for="spoilerFreeToggle" class="setting-label">Modo sin spoilers</label>
-              <p class="setting-desc">Oculta títulos, sinopsis y miniaturas de episodios no vistos para evitar revelar giros o escenas clave.</p>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="spoilerFreeToggle">
-              <span class="slider round"></span>
-            </label>
+        <section class="settings-card" id="settings-sec-account" aria-labelledby="settings-sec-account-title">
+          <h3 class="settings-section-title" id="settings-sec-account-title"><i data-lucide="user"></i> Cuenta</h3>
+          <div class="settings-links">
+            <a href="#/profiles" class="settings-link"><i data-lucide="users"></i><span>Cambiar o administrar perfiles</span><i data-lucide="chevron-right"></i></a>
+            <a href="#/stats" class="settings-link"><i data-lucide="bar-chart-2"></i><span>Mis estadísticas</span><i data-lucide="chevron-right"></i></a>
+            <a href="#/history" class="settings-link"><i data-lucide="history"></i><span>Historial de lo que has visto</span><i data-lucide="chevron-right"></i></a>
+            <button type="button" class="settings-link settings-link-danger" id="settings-logout-btn"><i data-lucide="log-out"></i><span>Cerrar sesión en este dispositivo</span><i data-lucide="chevron-right"></i></button>
           </div>
-        </div>
+        </section>
 
         <a href="#/app" class="settings-app-card">
           <i data-lucide="smartphone" class="settings-app-icon"></i>
@@ -1763,8 +1877,8 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="/js/main.js?v=2026.10.28-sync" type="module"></script>
-  <script src="player.js?v=2026.10.28-sync" type="module"></script>
+  <script src="/js/main.js?v=2026.10.28-noche" type="module"></script>
+  <script src="player.js?v=2026.10.28-noche" type="module"></script>
   <!-- Service Worker Registration for PWA (+ "new version available" prompt) -->
   <script src="/js/boot/sw_register.js"></script>
 </body>

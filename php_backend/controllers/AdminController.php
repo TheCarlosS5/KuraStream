@@ -1197,6 +1197,75 @@ class AdminController {
     }
 
     /**
+     * GET /api/admin/activity: what an operator checks most — who is watching right now, what was watched lately,
+     * which shows take the most disk (and when anyone last watched them) and how many more episodes fit.
+     * Reads only the database (episodes.size from the scan) and one disk_free_space: no file walking, cheap enough
+     * to poll from the overview.
+     */
+    public static function activity(): array {
+        $db = Database::getConnection();
+        $rows = function (string $sql, array $params = []) use ($db): array {
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
+            return $stmt->fetchAll();
+        };
+        $historyColumns = "h.username, h.profile_name, h.episode_id, h.progress_seconds, h.duration, h.completed,
+            TIMESTAMPDIFF(SECOND, h.updated_at, NOW()) AS seconds_ago,
+            e.season_number, e.episode_number, e.title AS episode_title, s.id AS show_id, s.title AS show_title";
+        $historyJoin = "FROM watch_history h JOIN episodes e ON e.id = h.episode_id JOIN shows s ON s.id = e.show_id";
+        $toHistory = fn(array $r) => [
+            'username' => (string)$r['username'],
+            'profile_name' => (string)$r['profile_name'],
+            'episode_id' => (string)$r['episode_id'],
+            'show_id' => (string)$r['show_id'],
+            'show_title' => (string)$r['show_title'],
+            'season_number' => (int)$r['season_number'],
+            'episode_number' => (int)$r['episode_number'],
+            'episode_title' => (string)($r['episode_title'] ?? ''),
+            'progress_seconds' => (float)$r['progress_seconds'],
+            'duration' => (float)$r['duration'],
+            'completed' => (bool)$r['completed'],
+            'seconds_ago' => max(0, (int)$r['seconds_ago']),
+        ];
+
+        // The players save progress every 10 s while playing, so 45 s without a save means paused or gone.
+        $now = array_map($toHistory, $rows("SELECT $historyColumns $historyJoin
+            WHERE h.updated_at >= DATE_SUB(NOW(), INTERVAL 45 SECOND) ORDER BY h.updated_at DESC LIMIT 20"));
+        $recent = array_map($toHistory, $rows("SELECT $historyColumns $historyJoin ORDER BY h.updated_at DESC LIMIT 15"));
+
+        $biggest = array_map(fn(array $r) => [
+            'show_id' => (string)$r['id'],
+            'title' => (string)$r['title'],
+            'episodes' => (int)$r['episodes'],
+            'bytes' => (int)$r['bytes'],
+            'days_since_watched' => $r['last_watched'] === null ? null : max(0, (int)$r['days_since_watched']),
+        ], $rows("SELECT s.id, s.title, COUNT(e.id) AS episodes, COALESCE(SUM(e.size), 0) AS bytes,
+                MAX(hw.last_at) AS last_watched, TIMESTAMPDIFF(DAY, MAX(hw.last_at), NOW()) AS days_since_watched
+            FROM shows s
+            JOIN episodes e ON e.show_id = s.id
+            LEFT JOIN (SELECT episode_id, MAX(updated_at) AS last_at FROM watch_history GROUP BY episode_id) hw ON hw.episode_id = e.id
+            GROUP BY s.id, s.title
+            ORDER BY bytes DESC
+            LIMIT 12"));
+
+        $totals = $db->query("SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM episodes WHERE size > 0")->fetch();
+        $avgEpisode = (int)$totals['n'] > 0 ? (int)round($totals['bytes'] / (int)$totals['n']) : 0;
+        $free = @disk_free_space(LIBRARY_DIR);
+
+        return [
+            'watching_now' => $now,
+            'recent' => $recent,
+            'biggest_shows' => $biggest,
+            'capacity' => [
+                'free_bytes' => $free === false ? null : (int)$free,
+                'average_episode_bytes' => $avgEpisode,
+                // Rough: assumes new episodes look like the library so far.
+                'episodes_that_fit' => ($free !== false && $avgEpisode > 0) ? (int)floor($free / $avgEpisode) : null,
+            ],
+        ];
+    }
+
+    /**
      * What the operator wants to know when "it feels slow": is the worker alive, how full are the disks, how many
      * ffmpeg processes and Watch Party viewers are there, when was the last backup, how busy is the machine.
      */

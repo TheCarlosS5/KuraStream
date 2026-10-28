@@ -218,7 +218,8 @@ class DbHelper {
         $total = $db->prepare('SELECT COUNT(*) FROM shows' . $whereSql);
         $total->execute($params);
 
-        $sql = 'SELECT ' . self::CATALOG_COLUMNS . ' FROM shows' . $whereSql . ' ORDER BY ' . $order;
+        // episode_count feeds the card hover preview; idx_episodes_show keeps the subquery cheap.
+        $sql = 'SELECT ' . self::CATALOG_COLUMNS . ', (SELECT COUNT(*) FROM episodes e WHERE e.show_id = shows.id) AS episode_count FROM shows' . $whereSql . ' ORDER BY ' . $order;
         $limit = isset($opts['limit']) ? max(1, min(1000, (int)$opts['limit'])) : null;
         if ($limit !== null) {
             $sql .= ' LIMIT ' . $limit . ' OFFSET ' . max(0, (int)($opts['offset'] ?? 0));
@@ -228,6 +229,7 @@ class DbHelper {
         $items = array_map(function ($s) {
             $s['rating'] = (float)$s['rating'];
             $s['year'] = $s['year'] !== null ? (int)$s['year'] : null;
+            $s['episode_count'] = (int)($s['episode_count'] ?? 0);
             return $s;
         }, $stmt->fetchAll());
         return ['items' => $items, 'total' => (int)$total->fetchColumn()];

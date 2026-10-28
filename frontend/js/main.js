@@ -9,7 +9,7 @@ import { readLanguagePrefs } from './player/tracks.js';
 import { initDialogs } from './core/dialogs.js';
 import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
-import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.28-sync';
+import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.28-noche';
 import { partyManager } from './modules/party.js';
 import { updateActiveNavHighlight, initHeaderDropdowns, initAdminSidebar, stopAdminPolling } from './modules/navigation.js';
 import { initCardPopovers } from './modules/card_popover_preview.js';
@@ -775,8 +775,22 @@ export function createShowCardHTML(show, historyMap = new Map()) {
     </div>
   ` : '';
 
+  // The hover preview reads these instead of guessing from the card's DOM.
+  const episodeCount = Number(show.episode_count) || 0;
+  const episodesLabel = show.media_type === 'movie' ? 'Película' : (episodeCount > 0 ? `${episodeCount} ${episodeCount === 1 ? 'episodio' : 'episodios'}` : '');
+  const previewData = [
+    ['title', show.title || ''],
+    ['backdrop', catalogueImageUrl(show.backdrop_path || '') || ''],
+    ['genres', show.genres || ''],
+    ['synopsis', String(show.synopsis || '').slice(0, 320)],
+    ['year', show.year || ''],
+    ['rating', show.rating || ''],
+    ['episodes', episodesLabel],
+    ['status', show.status || ''],
+  ].map(([key, value]) => `data-${key}="${escapeHtmlAttribute(String(value))}"`).join(' ');
+
   return `
-    <a class="show-card" href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}">
+    <a class="show-card" href="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" data-catalogue-route="${escapeHtmlAttribute('#/show/' + encodeURIComponent(show.id))}" ${previewData}>
       <div class="card-img-wrapper">
         <img class="show-card-poster" src="${escapeHtmlAttribute(posterSrc)}" alt="${escapeHtmlAttribute(show.title)}" loading="lazy" decoding="async" data-fallback-src="/assets/illustrations/poster_placeholder.svg">
         <div class="card-rating-badge">
@@ -786,7 +800,7 @@ export function createShowCardHTML(show, historyMap = new Map()) {
         ${progressHTML}
       </div>
       <div class="card-info">
-        <h3 class="card-title">${escapeHtml(show.title)}</h3>
+        <h3 class="card-title" title="${escapeHtmlAttribute(show.title)}">${escapeHtml(show.title)}</h3>
         <div class="card-meta">
           <span>${show.media_type === 'movie' ? 'Película' : 'Anime'}${show.year ? ` · ${escapeHtml(show.year)}` : ''}</span>
         </div>
@@ -3855,8 +3869,8 @@ async function loadSettingsView() {
     const data = (res && res.ok) ? await res.json() : (hasProfile ? null : { preferences: localPrefs });
     if (data) {
       const prefs = data.preferences || data;
-      if (audioLangSelect) audioLangSelect.value = prefs.preferred_audio_language || 'default';
-      if (subLangSelect) subLangSelect.value = prefs.preferred_subtitle_language || 'default';
+      setSelectKeepingUnknown(audioLangSelect, prefs.preferred_audio_language || 'default');
+      setSelectKeepingUnknown(subLangSelect, prefs.preferred_subtitle_language || 'default');
       if (boostSelect) boostSelect.value = String(prefs.audio_boost || 100);
       if (presetSelect) presetSelect.value = prefs.audio_preset || 'flat';
       if (skipIntroToggle) skipIntroToggle.checked = Boolean(prefs.auto_skip_intro);
@@ -3957,6 +3971,72 @@ async function loadSettingsView() {
     };
   }
   if (notifToggle) notifToggle.onchange = savePreferences;
+  bindSettingsExtras();
+}
+
+/** The player saves whatever language a track had (fra, ita…): show it instead of a blank select. */
+function setSelectKeepingUnknown(select, value) {
+  if (!select) return;
+  if (![...select.options].some(opt => opt.value === value)) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = `Otro (${value})`;
+    select.appendChild(opt);
+  }
+  select.value = value;
+}
+
+/** Profile row, section jump buttons, "Liberar espacio" and logout on the settings page. */
+function bindSettingsExtras() {
+  const profile = AuthManager.getActiveProfile();
+  const nameEl = document.getElementById('settings-profile-name');
+  const avatarEl = document.getElementById('settings-profile-avatar');
+  if (nameEl) nameEl.textContent = profile && profile.name ? profile.name : 'Invitado';
+  if (avatarEl) {
+    const avatar = profile && profile.avatar ? profile.avatar : '';
+    avatarEl.textContent = avatar ? '' : ((profile && profile.name) || '?').trim().charAt(0).toUpperCase();
+    avatarEl.style.backgroundImage = avatar ? cssUrl(avatar) : '';
+    avatarEl.style.backgroundColor = (profile && profile.color) || '';
+  }
+
+  const navButtons = [...document.querySelectorAll('.settings-nav-btn')];
+  navButtons.forEach((btn) => {
+    btn.onclick = () => {
+      const target = document.getElementById(btn.dataset.settingsTarget);
+      if (!target) return;
+      navButtons.forEach(other => other.classList.toggle('is-active', other === btn));
+      target.scrollIntoView({ behavior: document.documentElement.classList.contains('perf-lite') ? 'auto' : 'smooth', block: 'start' });
+    };
+  });
+
+  const sizeEl = document.getElementById('settings-cache-size');
+  if (sizeEl && navigator.storage && typeof navigator.storage.estimate === 'function') {
+    navigator.storage.estimate().then(({ usage }) => {
+      if (usage > 0) sizeEl.textContent = `Ahora ocupa unos ${usage >= 1048576 ? `${Math.round(usage / 1048576)} MB` : `${Math.max(1, Math.round(usage / 1024))} KB`}.`;
+    }).catch(() => { /* not available */ });
+  }
+
+  const clearBtn = document.getElementById('settings-clear-cache-btn');
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
+      clearBtn.disabled = true;
+      try {
+        if (window.caches && typeof caches.keys === 'function') {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(key => caches.delete(key)));
+        }
+        showToast('Caché borrada. Recargando…', 'success');
+        setTimeout(() => window.location.reload(), 800);
+      } catch (err) {
+        console.warn('Cache clear failed:', err);
+        clearBtn.disabled = false;
+        showToast('No se pudo borrar la caché de este navegador', 'error');
+      }
+    };
+  }
+
+  const logoutBtn = document.getElementById('settings-logout-btn');
+  if (logoutBtn) logoutBtn.onclick = () => AuthManager.logout();
 }
 
 let isProfileManageMode = false;

@@ -178,6 +178,7 @@ const S = {
   streamSession: Math.random().toString(36).slice(2, 12).padEnd(10, '0'),
   streamLoad: 0,
   offset: 0,
+  switchingStream: false,
   pendingSeek: null,
   seekTimer: null,
   retries: 0,
@@ -263,6 +264,9 @@ function listen(target, type, handler, options = {}) {
 function absoluteTime() {
   const video = els.video;
   if (!video) return 0;
+  // While a remux restart waits for the server, the old stream still plays under the new offset: report the
+  // target instead, so neither the bar nor a progress save sees offset + old currentTime.
+  if (S.switchingStream) return S.lastKnownTime;
   return S.offset + (video.currentTime || 0);
 }
 
@@ -312,29 +316,43 @@ function sendPartySync(action) {
 /**
  * A <video> element cannot read an HTTP 503, so a busy transcoder would just look like a broken video. Ask first
  * (GET /api/stream/:id/availability) and, while every transcode slot is taken, say so and retry.
- * Resolves true when the stream may start (also when the probe itself fails: the stream request decides then).
+ * Resolves null when the stream must not start, otherwise where to start it: a remux copies video from the keyframe
+ * before `start`, so the server reports that keyframe and the stream is restarted exactly there (subtitles and
+ * progress follow `S.offset`, which must be the real first frame). Probe failures start at `startAt` as before.
  */
-async function waitForTranscodeSlot(token) {
+async function waitForTranscodeSlot(token, startAt = 0) {
+  const fallback = { offset: startAt, request: startAt };
   const query = new URLSearchParams({ audio: String(S.audioTrack), session: S.streamSession });
+  if (startAt > 0) query.set('start', formatStart(startAt));
+  if (partyManager.streamCapabilityToken) query.set('ticket', partyManager.streamCapabilityToken);
   for (let attempt = 0; attempt < 24; attempt++) {
-    if (token !== S.streamLoad) return false;
+    if (token !== S.streamLoad) return null;
     let info = null;
     try {
       const res = await fetch(`/api/stream/${encodeURIComponent(currentEpisodeId)}/availability?${query}`, { headers: authHeaders() });
       if (res.ok) info = await res.json();
     } catch {
-      return true;
+      return fallback;
     }
     if (info && info.success === false && info.code === 'FFMPEG_MISSING') {
       // The server cannot convert this file: say why, instead of a spinner that never ends
       showError('Este video necesita conversión', info.error || 'El servidor no tiene ffmpeg instalado.');
-      return false;
+      return null;
     }
-    if (!info || !info.busy) return true;
+    if (!info || !info.busy) return remuxStartPlan(info, startAt) || fallback;
     setLoading(true, `Servidor ocupado (${info.active_transcodes}/${info.max_transcodes}), reintentando…`);
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
-  return token === S.streamLoad;
+  return token === S.streamLoad ? fallback : null;
+}
+
+function remuxStartPlan(info, startAt) {
+  const keyframe = Number(info && info.start_keyframe);
+  const request = Number(info && info.start_request);
+  if (!(startAt > 0) || !Number.isFinite(keyframe) || !Number.isFinite(request)) return null;
+  // Only trust a keyframe a sane distance before the target (the server looks 20 s back).
+  if (keyframe > startAt + 0.01 || startAt - keyframe > 25) return null;
+  return { offset: keyframe, request };
 }
 
 /**
@@ -353,26 +371,43 @@ function loadStream(startAt = 0, { autoplay = null } = {}) {
   const directLoaded = S.direct && currentSrc && !currentSrc.includes('start=') && !currentSrc.includes('audio=') && video.readyState >= 1;
 
   hideError();
+  S.switchingStream = false;
   if (directLoaded) {
     video.currentTime = startAt;
   } else {
     S.offset = S.direct ? 0 : startAt;
+    S.switchingStream = !S.direct;
     S.internalReloadUntil = Date.now() + 1500;
     setLoading(true);
     const token = ++S.streamLoad;
-    const begin = () => {
+    const begin = (requestAt = startAt) => {
       if (token !== S.streamLoad) return;   // a newer load (another seek, episode or audio change) replaced this one
-      video.src = buildStreamUrl(startAt);
+      S.switchingStream = false;
+      video.src = buildStreamUrl(requestAt);
       video.load();
       if (S.direct && startAt > 0) {
         listen(video, 'loadedmetadata', () => { video.currentTime = startAt; }, { once: true });
+      }
+      if (!S.direct && S.offset < startAt - 1) {
+        // The remux begins at the keyframe before the target: skip ahead inside the initial burst when the browser
+        // allows it, otherwise playback simply starts a few seconds early, still in sync.
+        listen(video, 'canplay', () => {
+          if (token !== S.streamLoad) return;
+          const gap = startAt - S.offset;
+          if (gap > 0 && isBufferedAndSeekable(gap)) video.currentTime = gap;
+        }, { once: true });
       }
       if (S.scrubPreview && S.direct) S.scrubPreview.updateSource(buildStreamUrl(0));
     };
     if (S.direct) {
       begin();
     } else {
-      waitForTranscodeSlot(token).then((ok) => { if (ok) begin(); });
+      waitForTranscodeSlot(token, startAt).then((plan) => {
+        if (!plan || token !== S.streamLoad) return;
+        S.offset = plan.offset;
+        syncSubtitleClock();
+        begin(plan.request);
+      });
     }
   }
   video.playbackRate = currentBaseRate();
