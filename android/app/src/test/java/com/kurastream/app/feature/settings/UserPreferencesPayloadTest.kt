@@ -2,6 +2,7 @@ package com.kurastream.app.feature.settings
 
 import com.kurastream.app.core.di.AppModule
 import com.kurastream.app.core.model.UserPreferences
+import com.kurastream.app.core.model.UserPreferencesPatch
 import com.kurastream.app.core.network.KuraApiService
 import com.kurastream.app.core.network.dto.BaseResponseDto
 import com.kurastream.app.core.network.dto.UserPreferencesDto
@@ -42,6 +43,7 @@ class UserPreferencesPayloadTest {
         every { preferencesDataSource.preferencesFlow } returns prefsFlow
         coEvery { historyRepository.getUserStats() } returns Result.failure(IllegalStateException("offline"))
         coEvery { historyRepository.saveUserPreferences(any()) } returns Result.success(Unit)
+        coEvery { historyRepository.patchUserPreferences(any()) } returns Result.success(Unit)
     }
 
     @After
@@ -63,7 +65,7 @@ class UserPreferencesPayloadTest {
     }
 
     @Test
-    fun `setPreferredAudio sends UserPreferences with only preferredAudioLanguage`() = runTest(testDispatcher) {
+    fun `setPreferredAudio sends a patch with only preferredAudioLanguage`() = runTest(testDispatcher) {
         val viewModel = SettingsViewModel(
             context = mockk(relaxed = true),
             authRepository = mockk(relaxed = true),
@@ -76,8 +78,8 @@ class UserPreferencesPayloadTest {
         viewModel.setPreferredAudio("es-419")
         testScheduler.advanceUntilIdle()
 
-        val slot = slot<UserPreferences>()
-        coVerify { historyRepository.saveUserPreferences(capture(slot)) }
+        val slot = slot<UserPreferencesPatch>()
+        coVerify { historyRepository.patchUserPreferences(capture(slot)) }
 
         val captured = slot.captured
         assertEquals("es-419", captured.preferredAudioLanguage)

@@ -21,7 +21,9 @@ export function removeAuthToken() {
 
 export function getAuthHeaders() {
   const token = getAuthToken();
-  const headers = { 'Content-Type': 'application/json' };
+  // X-Requested-With marks a request made by this app (a page on another site cannot add it without CORS), which
+  // is what lets the server trust the session cookie for requests that change data.
+  const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }

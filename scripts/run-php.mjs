@@ -13,6 +13,9 @@ const phpBin = process.env.PHP_BINARY || (existsSync(bundledPhp) ? bundledPhp : 
 const args = process.argv.slice(2);
 const env = { ...process.env };
 
+// `npm run dev` serves the readable sources even if a production build (frontend/dist) exists from an earlier run.
+if (process.env.npm_lifecycle_event === 'dev' && env.KURA_USE_DIST === undefined) env.KURA_USE_DIST = '0';
+
 // php.ini points extension_dir at the Windows PHP layout ("ext"); elsewhere it would stop pdo_mysql from loading.
 const iniIndex = args.indexOf('-c');
 if (process.platform !== 'win32' && iniIndex !== -1 && args[iniIndex + 1] === 'php.ini') {

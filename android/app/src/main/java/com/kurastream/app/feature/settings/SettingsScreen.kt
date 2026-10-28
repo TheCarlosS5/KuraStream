@@ -444,7 +444,7 @@ fun SettingsScreen(
                             onClick = {
                                 val report = """
                                     KuraStream Android Diagnostic Report
-                                    App Version: 2.0.0 (API 37 Target)
+                                    App Version: ${com.kurastream.app.BuildConfig.VERSION_NAME} (${com.kurastream.app.BuildConfig.VERSION_CODE})
                                     Server: $serverUrlSanitized
                                     Protocol: ${if (isHttps) "HTTPS" else "HTTP"}
                                     Profile: ${prefs.activeProfileName ?: "Default"} (Kids: ${prefs.isKidsMode})
@@ -485,7 +485,7 @@ fun SettingsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "KuraStream para Android v2.0.0",
+                        text = "KuraStream para Android v${com.kurastream.app.BuildConfig.VERSION_NAME}",
                         style = MaterialTheme.typography.labelSmall,
                         color = KuraColors.TextMuted
                     )
@@ -493,6 +493,15 @@ fun SettingsScreen(
                         text = "Jetpack Compose • Media3 ExoPlayer • Android 8.0 a 17+",
                         style = MaterialTheme.typography.labelSmall,
                         color = KuraColors.TextMuted
+                    )
+                    Spacer(modifier = Modifier.height(KuraDimens.Space2))
+                    // TMDB's terms require this notice wherever its data or images are shown
+                    Text(
+                        text = "Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB. Datos de TMDB y AniList.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = KuraColors.TextMuted,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = KuraDimens.Space4)
                     )
                 }
             }

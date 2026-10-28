@@ -11,14 +11,22 @@ if (($argv[1] ?? '') === '--probe-db') {
             PDO::ATTR_TIMEOUT => 1,
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
         ]);
+        // The suites create and delete users, profiles, shows and watch-party rooms. Running them against the
+        // database the application serves would mix test data into (and could destroy) real data.
+        if (!str_ends_with(DB_NAME, '_test') && getenv('KURA_ALLOW_NON_TEST_DB') !== '1') {
+            fwrite(STDERR, "\nRefusing to run: the test suites write to the database \"" . DB_NAME . "\", which does not end in \"_test\".\n"
+                . "Point them at a throwaway database instead, for example:\n"
+                . "  mysql -e 'CREATE DATABASE kurastream_test' && DB_NAME=kurastream_test php tests/run_all_tests.php\n"
+                . "(Set KURA_ALLOW_NON_TEST_DB=1 only if you really want to use this database.)\n");
+            exit(2);
+        }
         require_once __DIR__ . '/../php_backend/db.php';
         require_once __DIR__ . '/../php_backend/services/MigrationManager.php';
         Database::initializeSchema($pdo);
         MigrationManager::runPending();
         exit(0);
     } catch (Throwable $e) {
-        fwrite(STDERR, $e->getMessage() . "
-");
+        fwrite(STDERR, $e->getMessage() . "\n");
         exit(1);
     }
 }
@@ -98,16 +106,15 @@ $probe = [];
 $probeCode = 1;
 exec(escapeshellarg($phpBin) . $phpExtensionArgs . ' ' . escapeshellarg(__FILE__) . ' --probe-db 2>&1', $probe, $probeCode);
 $mysqlAvailable = $probeCode === 0;
+if ($probeCode === 2) {
+    fwrite(STDERR, implode("\n", $probe) . "\n");
+    exit(2);
+}
 if ($mysqlAvailable) {
-    echo "MySQL Database: ONLINE (All integration tests enabled)
-";
-    echo "Schema & Migrations: APPLIED ✓
-
-";
+    echo "MySQL Database: ONLINE (All integration tests enabled)\n";
+    echo "Schema & Migrations: APPLIED ✓\n\n";
 } else {
-    echo "MySQL Database: OFFLINE (DB-dependent integration tests will be skipped)
-
-";
+    echo "MySQL Database: OFFLINE (DB-dependent integration tests will be skipped)\n\n";
 }
 
 foreach ($testFiles as $idx => $file) {

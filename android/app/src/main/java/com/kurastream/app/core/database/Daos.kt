@@ -58,6 +58,9 @@ interface ShowDao {
     @Query("DELETE FROM cached_shows WHERE serverId = :serverId")
     suspend fun clearShowsForServer(serverId: String)
 
+    @Query("DELETE FROM cached_shows")
+    suspend fun clearAllShows()
+
     @Transaction
     suspend fun replaceShowsForProfile(serverId: String, username: String = "", profileId: String, shows: List<CachedShowEntity>) {
         clearShowsForProfile(serverId, username, profileId)
@@ -101,6 +104,9 @@ interface HistoryDao {
           AND profileId = :profileId
     """)
     suspend fun clearHistory(serverId: String, username: String, profileId: String)
+
+    @Query("DELETE FROM cached_history")
+    suspend fun clearAllHistory()
 
     @Transaction
     suspend fun replaceHistory(serverId: String, username: String, profileId: String, items: List<CachedHistoryEntity>) {

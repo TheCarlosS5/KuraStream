@@ -49,6 +49,19 @@ graph TD
 - **PIN Protection and IDOR Elimination**: Cryptographic bcrypt PIN verification and ownership checks on profile mutation and deletion.
 - **Server-Side Kids Mode**: Enforcement of content ratings (filtering adult titles, TV-MA/18+ classifications, and adult genres) within application-side PHP controllers and streaming capability gates.
 
+- **Per-Profile Parental Controls**: Each profile can cap the age rating (G / PG / PG-13) and set a daily screen-time budget. The cap filters the catalogue, details, search and playback; the budget is counted from progress saves, refuses new streams when spent and tells the players to stop.
+- **Watch Tracking**: Mark episodes, seasons or a whole show as watched / not watched, keep a watch-list status (watching, planned, completed, dropped), rate shows 1-5 and get "Porque viste X" recommendations that respect the profile's restrictions.
+- **Comments with Moderation**: Authors and administrators can delete comments; account (login) names are never exposed.
+
+### 3b. Administration Panel
+- **User Management** (`Admin > Usuarios`): list accounts with last access, lock or unlock (sessions end immediately), promote or demote, reset passwords, sign out everywhere and delete accounts with their data. Self-lockout is prevented.
+- **Intro / Credits Editor** (`Admin > Intro y créditos`): edit or auto-detect the marks the "Saltar intro" button uses, per episode or copied to a whole season.
+- **Operations**: system health, background jobs, database backups and the console, all from the same panel.
+
+### 3c. Android App
+- Native Kotlin / Compose client with Media3. When the device can decode the episode's codec (HEVC, 10-bit, ...) it plays the original file (`?direct=1`, MKV included) with no ffmpeg on the server; otherwise it asks the server to remux.
+- Watch Party (join by `kurastream://party/CODE`, share the room), profile management, comments, local new-episode notifications (no Firebase), Picture-in-Picture with window buttons, and **in-app updates** served by your own server (SHA-256 verified).
+
 ### 4. Automated Catalog & Metadata Scraping
 - **Local Filesystem Scanner**: Scans media libraries (`Anime/` and `Movies/`), extracting codecs, resolutions, and audio channels using FFprobe.
 - **Metadata Enrichment**: Enriches local titles via AniList GraphQL and TMDB REST APIs, fetching synopses, release years, cover artwork, and episode descriptions.
@@ -56,6 +69,8 @@ graph TD
 
 ### 5. Progressive Web App (PWA)
 - Fully installable desktop and mobile web application with offline service worker shell and responsive layouts.
+
+> **iPhone / Safari**: the remuxed (MKV) stream does not support byte ranges yet, so some episodes may not play in Safari. Use the Android app, or a desktop browser, for those. Installing the PWA and the service worker also need HTTPS (not available on a plain `http://` LAN address).
 
 ---
 
@@ -139,9 +154,14 @@ graph TD
 | `DB_PASS` | Database password | None |
 | `MYSQL_ROOT_PASSWORD` | Root password for MySQL Docker container | None |
 | `ADMIN_USER` | Initial administrative username | `admin` |
-| `ADMIN_PASS` | Administrative password (plaintext, local development) | None |
+| `ADMIN_PASS` | Administrative password (plaintext, local development). Placeholders such as `change_me` or `admin` are rejected | None |
 | `ADMIN_PASS_HASH` | Administrative password hash (bcrypt, production) | None |
-| `JWT_SECRET` | Secret key for signing authentication tokens | Required |
+| `JWT_SECRET` | Secret key for signing authentication tokens. At least 32 characters (`openssl rand -hex 32`); weak or placeholder values stop the server from starting | Required |
+| `REGISTRATION_MODE` | `open` (default) lets anyone who can reach the server create an account; any other value closes sign-up | `open` |
+| `CATALOG_ACCESS` | `open` (default) lets guests browse the catalog; `members` requires a signed-in session for the catalog, episodes, calendar and comments | `open` |
+| `REGISTER_MAX_PER_HOUR` | New accounts allowed per IP address per hour | `5` |
+| `ANDROID_APK_PATH` | Path of the Android installer served at `/api/app/android/download` (default: `KuraStream.apk`, then `KuraStream-debug.apk`, in the project root) | root |
+| `ANDROID_APP_RELEASE_JSON` | Release metadata written by `scripts/generate_app_release.mjs` (default: `app-release.json` next to the APK) | next to APK |
 | `MEDIA_LIBRARY_PATH` | Absolute path to media storage directory | `./library` |
 | `TMDB_API_KEY` | Optional TMDB v3 API Key for metadata scraping | None |
 | `TMDB_READ_TOKEN` | Optional TMDB v4 API Read Access Token for metadata scraping | None |
@@ -207,17 +227,29 @@ KuraStream/
 - **Secret Scanning**: Automated CI scanning via Gitleaks verifies no credentials, API keys, or private keys are committed.
 - **Notice**: Any credentials or access keys committed prior to version 2.0 must be rotated immediately in external systems.
 
-### Known Post-Release Limitations
+### Sessions and revocation
 
-- **Stateless Profile JWTs**: Currently, profile-scoped JWTs are stateless and remain cryptographically valid until their expiry timestamp. Previously issued profile JWTs are not centrally revoked in the database upon switching profiles. A previously issued valid Adult JWT could still be replayed until expiration. Active watch party memberships enforce real-time profile binding and mandatory valid authentication server-side (ensuring account-bound capabilities cannot operate without a current valid JWT matching the bound profile, and preventing capability reuse across adult/kids profiles). Future architectural iterations may incorporate `session_version`, active-profile session IDs, or central token revocation.
+- **Session tokens are revocable.** Each account has a `token_version` (migration 013) that is embedded in its JWT as `ver`. `POST /api/account/password` (change password) and `POST /api/account/logout-all` increment it, which immediately invalidates every other token of the account; the calling device receives a fresh token in the response.
+- **Account state is re-read on every request.** The role, the active profile's name and its kids flag come from the database, not from the token, so demoting an admin, deleting an account, or enabling kids mode on a profile applies to every device at once instead of when the 30-day token expires.
+- **Watch Party tickets are not sessions.** Stream/SSE tickets share the signing key but carry a `type` claim and are refused wherever a login is required.
+- **Watch Party guests are opt-in.** A room admits people without an account only when its host enables *Permitir invitados sin cuenta* (`allow_guests`, off by default). Guests cannot use the name of a registered account or "Sistema"; accounts must have an active profile to join (so kids mode always applies); turning the option off removes the guests immediately, and the public room list requires a signed-in session.
+- **Cookie sessions are CSRF-protected.** The session cookie only authorises writes (and any administration request) when the request also carries `Authorization: Bearer` or `X-Requested-With`; a page on another site cannot add either without a CORS grant, which only `ALLOWED_ORIGINS` receive. Reads (video, subtitles, images) keep working with the cookie.
+- **User data never reaches CSS or logs.** Profile colours must be `#RRGGBB` and avatars must live under `/library/avatars/` (validated on write and sanitised on read); the web client paints them through DOM properties instead of `style="..."` strings, and stream/subtitle URLs no longer carry the account token.
+- **PIN guesses are throttled** (5 per 15 minutes per account and profile; a correct PIN resets the counter).
+- The administrator defined by `ADMIN_USER` has no database row; its token is trusted as issued and it cannot use the password endpoints (change `ADMIN_PASS_HASH` in the server configuration instead).
 
 ---
 
 ## Quality & Testing
 
-Run all test suites locally:
+Run all test suites locally. The PHP and end-to-end suites create and delete users, profiles, shows and rooms, so they
+must run against a throwaway database whose name ends in `_test` (the PHP runner refuses anything else):
 
 ```bash
+# One-time setup
+mysql -e "CREATE DATABASE kurastream_test; GRANT ALL ON kurastream_test.* TO 'kurastream'@'%'"
+export DB_NAME=kurastream_test
+
 # Run JavaScript UI regression tests
 node tests/ui_catalogue_rendering.mjs
 node tests/ui_review_regressions.mjs

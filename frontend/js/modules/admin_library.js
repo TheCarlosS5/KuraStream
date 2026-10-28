@@ -34,7 +34,7 @@ export async function loadAdminPanel() {
       return `
         <div class="admin-show-card" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; gap: 10px;">
           <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; max-width: 60%;">
-            <img src="${escapeHtmlAttribute(show.poster_path || '/api/placeholder-poster')}" style="width: 44px; height: 60px; object-fit: cover; border-radius: 4px; background: #000;" onerror="this.src='/api/placeholder-poster'">
+            <img src="${escapeHtmlAttribute(show.poster_path || '/api/placeholder-poster')}" style="width: 44px; height: 60px; object-fit: cover; border-radius: 4px; background: #000;" data-fallback-src="/api/placeholder-poster">
             <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
               <h4 style="margin: 0; font-size: 0.95rem; color: var(--text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escapeHtmlAttribute(show.title)}">${escapeHtml(show.title)}</h4>
               <small style="color: var(--text-muted); font-size: 0.78rem;">${show.media_type === 'movie' ? 'Película' : 'Anime'} · Año ${escapeHtml(String(show.year || 'N/A'))} · Clasificación: ${escapeHtml(show.age_rating || 'TV-14')}</small>

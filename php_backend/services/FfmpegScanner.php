@@ -22,6 +22,47 @@ class FfmpegScanner {
         return $fps > 0 ? $fps : 0.0;
     }
 
+    /** 8 for yuv420p/nv12/rgb24..., 10 for yuv420p10le/p010le..., 12 for yuv444p12le (the digits after p/gray). */
+    public static function bitDepthFromPixFmt(?string $pixFmt): int {
+        $pixFmt = strtolower(trim((string)$pixFmt));
+        if ($pixFmt === '') {
+            return 8;
+        }
+        // Semi-planar high bit depth (p010le, p012le, p016le): the depth is written with a leading zero.
+        if (preg_match('/^p0?(10|12|16)(?:le|be)?$/', $pixFmt, $m)) {
+            return (int)$m[1];
+        }
+        if (preg_match('/(?:p|gray|gbrp|rgb|bgr|argb|rgba|bgra)(9|10|12|14|16)(?:le|be)?$/', $pixFmt, $m)) {
+            return (int)$m[1];
+        }
+        return 8;
+    }
+
+    /** Bit depth of a video stream from ffprobe's fields (bits_per_raw_sample wins, then the pixel format). */
+    public static function bitDepthOfStream(array $stream): int {
+        $raw = (int)($stream['bits_per_raw_sample'] ?? 0);
+        if ($raw >= 8 && $raw <= 16) {
+            return $raw;
+        }
+        return self::bitDepthFromPixFmt($stream['pix_fmt'] ?? '');
+    }
+
+    /** Quick probe of just the first video stream's format: [pix_fmt, bit_depth] or null when it cannot be read. */
+    public static function probeVideoFormat(string $filepath, int $timeoutSeconds = 10): ?array {
+        $cmd = sprintf(
+            '%s -v quiet -select_streams v:0 -show_entries stream=pix_fmt,bits_per_raw_sample -print_format json %s',
+            self::ffprobeBin(),
+            escapeshellarg($filepath)
+        );
+        $output = self::executeBoundedCommand($cmd, $timeoutSeconds, false);
+        $data = $output ? json_decode($output, true) : null;
+        $stream = $data['streams'][0] ?? null;
+        if (!is_array($stream) || empty($stream['pix_fmt'])) {
+            return null;
+        }
+        return ['pix_fmt' => (string)$stream['pix_fmt'], 'bit_depth' => self::bitDepthOfStream($stream)];
+    }
+
     /**
      * @param bool $mergeStderr false for binary stdout (raw PCM, images): stderr text would corrupt it.
      */
@@ -75,7 +116,8 @@ class FfmpegScanner {
 
     public static function probeVideo(string $filepath, int $timeoutSeconds = 15): array {
         $cmd = sprintf(
-            'ffprobe -v quiet -print_format json -show_format -show_streams -show_chapters %s',
+            '%s -v quiet -print_format json -show_format -show_streams -show_chapters %s',
+            self::ffprobeBin(),
             escapeshellarg($filepath)
         );
 
@@ -107,6 +149,8 @@ class FfmpegScanner {
         $height = isset($videoStream['height']) ? (int)$videoStream['height'] : 0;
         $resolution = $height > 0 ? "{$height}p" : 'unknown';
         $videoCodec = (string)($videoStream['codec_name'] ?? 'unknown');
+        $pixFmt = (string)($videoStream['pix_fmt'] ?? '');
+        $bitDepth = self::bitDepthOfStream($videoStream);
         
         $fps = self::parseFrameRate((string)($videoStream['r_frame_rate'] ?? ''));
         
@@ -197,6 +241,8 @@ class FfmpegScanner {
             'duration' => $duration,
             'resolution' => $resolution,
             'video_codec' => $videoCodec,
+            'pix_fmt' => $pixFmt,
+            'bit_depth' => $bitDepth,
             'fps' => $fps,
             'audio_tracks' => $audioTracks,
             'subtitle_tracks' => $subtitleTracks,
@@ -205,16 +251,24 @@ class FfmpegScanner {
         ];
     }
 
-    public static function extractFonts(string $videoPath, string $destDir): array {
+    /**
+     * Dumps each font attachment to an explicit path (no chdir: concurrent requests share the process cwd).
+     * @param bool|null $finished set to whether ffmpeg ran to the end (false on a timeout or when it could not start);
+     *                            ffmpeg exits non-zero here ("no output file"), so only a kill counts as failure.
+     */
+    public static function extractFonts(string $videoPath, string $destDir, int $timeoutSeconds = 15, &$finished = null): array {
+        $finished = false;
         if (!file_exists($videoPath) || !is_file($videoPath)) return [];
         if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
 
         $probeCmd = sprintf(
-            'ffprobe -v quiet -print_format json -show_streams -select_streams t %s',
+            '%s -v quiet -print_format json -show_streams -select_streams t %s',
+            self::ffprobeBin(),
             escapeshellarg($videoPath)
         );
-        $output = self::executeBoundedCommand($probeCmd, 15, false); // stderr would corrupt the JSON
-        if (!$output) return [];
+        $output = self::executeBoundedCommand($probeCmd, $timeoutSeconds, false); // stderr would corrupt the JSON
+        if ($output === null) return [];
+        $finished = true;   // probed fine; a file without attachments is a finished extraction
 
         $data = json_decode($output, true);
         $streams = $data['streams'] ?? [];
@@ -262,11 +316,12 @@ class FfmpegScanner {
         if (empty($dumpArgs)) return [];
 
         $cmd = sprintf(
-            'ffmpeg -y -v error %s -i %s',
+            '%s -nostdin -y -v error %s -i %s',
+            self::ffmpegBin(),
             implode(' ', $dumpArgs),
             escapeshellarg($videoPath)
         );
-        self::executeBoundedCommand($cmd, 15);
+        $finished = self::executeBoundedCommand($cmd, $timeoutSeconds) !== null;
 
         $extracted = [];
         foreach ($candidates as $c) {
@@ -286,7 +341,8 @@ class FfmpegScanner {
         // fade to white/black at the seek point no longer becomes the episode's image. Scaling
         // first keeps that buffer small and the JPEG light (cards never show it above ~400px).
         $cmd = sprintf(
-            'ffmpeg -y -ss %f -i %s -vf "scale=640:-2,thumbnail=120" -frames:v 1 -q:v 3 %s',
+            '%s -y -ss %f -i %s -vf "scale=640:-2,thumbnail=120" -frames:v 1 -q:v 3 %s',
+            self::ffmpegBin(),
             $seekSeconds,
             escapeshellarg($videoPath),
             escapeshellarg($destThumbPath)
@@ -294,6 +350,23 @@ class FfmpegScanner {
         self::executeBoundedCommand($cmd, $timeoutSeconds);
         return file_exists($destThumbPath) && filesize($destThumbPath) > 0;
     }
+
+    /**
+     * The ffmpeg / ffprobe to put at the start of a shell command, quoted. It honours FFMPEG_PATH / FFPROBE_PATH and
+     * the lookup the scanner already does (PHP-FPM runs with a short PATH, so a bare "ffmpeg" can fail there while the
+     * configured path works), and falls back to the bare name so nothing changes where it already worked.
+     */
+    public static function ffmpegBin(): string {
+        // Cached per PATH: the lookup forks a shell, and the answer only changes if PATH does
+        return self::$binCache['ffmpeg|' . getenv('PATH')] ??= escapeshellarg(self::getFfmpegPath() ?? 'ffmpeg');
+    }
+
+    public static function ffprobeBin(): string {
+        return self::$binCache['ffprobe|' . getenv('PATH')] ??= escapeshellarg(self::getFfprobePath() ?? 'ffprobe');
+    }
+
+    /** @var array<string,string> */
+    private static array $binCache = [];
 
     public static function getFfmpegPath(): ?string {
         if (defined('FFMPEG_PATH') && FFMPEG_PATH !== '') {

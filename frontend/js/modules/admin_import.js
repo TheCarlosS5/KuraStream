@@ -255,7 +255,7 @@ export async function searchTmdbWizard() {
         const year = item.year || (item.first_air_date ? item.first_air_date.substring(0, 4) : (item.release_date ? item.release_date.substring(0, 4) : ''));
 
         card.innerHTML = `
-          <img src="${posterUrl}" style="width: 50px; height: 75px; object-fit: cover; border-radius: 4px;" onerror="this.src='/api/placeholder-poster'">
+          <img src="${posterUrl}" style="width: 50px; height: 75px; object-fit: cover; border-radius: 4px;" data-fallback-src="/api/placeholder-poster">
           <div style="flex: 1; min-width: 0;">
             <div style="font-weight: 600; color: #fff; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(title)}</div>
             <div style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(year ? year + ' · ' : '')}ID: ${escapeHtml(String(item.id))}</div>

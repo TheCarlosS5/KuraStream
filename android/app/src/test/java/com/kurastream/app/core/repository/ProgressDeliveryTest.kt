@@ -2,7 +2,7 @@ package com.kurastream.app.core.repository
 
 import com.kurastream.app.core.database.HistoryDao
 import com.kurastream.app.core.network.KuraApiService
-import com.kurastream.app.core.network.dto.BaseResponseDto
+import com.kurastream.app.core.network.dto.SaveProgressResponseDto
 import com.kurastream.app.core.network.dto.SaveProgressRequestDto
 import com.kurastream.app.core.player.PlaybackConnectionManager
 import io.mockk.coEvery
@@ -35,7 +35,7 @@ class ProgressDeliveryTest {
             if (!networkUp) throw IOException("hotspot caído")
             val body = secondArg<SaveProgressRequestDto>()
             sent += body.episodeId to body.progress
-            BaseResponseDto(success = true)
+            SaveProgressResponseDto(success = true)
         }
     }
     private val store = InMemoryPendingProgressStore()
@@ -170,7 +170,7 @@ class ProgressDeliveryTest {
             sent += body.episodeId to body.progress
             // Profile switched while ep1 was in transit
             active = profileB
-            BaseResponseDto(success = true)
+            SaveProgressResponseDto(success = true)
         }
 
         val result = repo.flushPendingProgress(profileA)

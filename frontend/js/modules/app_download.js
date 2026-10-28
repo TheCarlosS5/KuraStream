@@ -92,6 +92,25 @@ export async function renderAppDownloadView() {
     info.updated_at ? `Actualizada ${formatDate(info.updated_at)}` : ''
   ].filter(Boolean).join(' · ');
 
+  // Integrity: the server hashes the exact file it serves. Comparing this value with what Android reports (or with a
+  // second download) shows whether the installer was swapped on a shared Wi-Fi.
+  const shaBox = document.getElementById('app-dl-sha');
+  const shaValue = document.getElementById('app-dl-sha-value');
+  if (shaBox && shaValue) {
+    const hasSha = typeof info.sha256 === 'string' && /^[0-9a-f]{64}$/.test(info.sha256);
+    shaBox.hidden = !hasSha;
+    shaValue.textContent = hasSha ? info.sha256 : '';
+  }
+  // A debug build is a different app (package ...debug) from the release one: both can end up installed side by side.
+  const warning = document.getElementById('app-dl-warning');
+  if (warning) {
+    const isDebug = info.variant === 'debug';
+    warning.hidden = !isDebug;
+    warning.textContent = isDebug
+      ? 'Este instalador es una versión de pruebas (debug). Si luego instalas la versión final, es otra aplicación: desinstala esta primero.'
+      : '';
+  }
+
   renderQRCodeToElement(qrBox, downloadUrl, 168);
   const qrLink = document.getElementById('app-dl-qr-url');
   if (qrLink) qrLink.textContent = downloadUrl.replace(/^https?:\/\//, '');

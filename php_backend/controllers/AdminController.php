@@ -5,6 +5,7 @@ require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../services/LibraryScanner.php';
 require_once __DIR__ . '/../services/FfmpegScanner.php';
 require_once __DIR__ . '/../services/TmdbScraper.php';
+require_once __DIR__ . '/../services/LibraryPaths.php';
 
 class AdminController {
     public static function isPathWithinAllowedRoots(string $path, array $allowedRoots = []): bool {
@@ -351,7 +352,7 @@ class AdminController {
         jsonResponse([
             'success' => true,
             'active_workers' => $workerCount,
-            'max_workers' => TranscodeLimiter::$maxWorkers,
+            'max_workers' => TranscodeLimiter::maxWorkers(),
             'active_streams' => $workerCount
         ]);
     }
@@ -516,6 +517,9 @@ class AdminController {
         $cleanTitle = !empty($title) ? $title : ($details['title'] ?? 'Nuevo Show');
         $sanitizedDir = str_replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], '_', $cleanTitle);
         $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
+        if (!LibraryPaths::isSafeSegment($sanitizedDir)) {
+            jsonError('Título inválido para crear la carpeta del show', 400);
+        }
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $sanitizedDir;
 
         if (!is_dir($showDir)) {
@@ -588,6 +592,9 @@ class AdminController {
 
         $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
         $sanitizedDir = str_replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], '_', $title);
+        if (!LibraryPaths::isSafeSegment($sanitizedDir)) {
+            jsonError('Título inválido para crear la carpeta del show', 400);
+        }
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $sanitizedDir;
 
         if ($mediaType === 'anime') {
@@ -620,7 +627,15 @@ class AdminController {
             if (!file_exists($sourcePath)) {
                 jsonError('Archivo fuente no encontrado', 404);
             }
-            if (!self::isPathWithinAllowedRoots($sourcePath)) {
+            // Import sources may live in the library, downloads/ or staging/. The system temp directory is
+            // deliberately excluded: it is world-writable and would let any file there be copied into /library.
+            // An empty list must deny (isPathWithinAllowedRoots() falls back to its defaults, temp included).
+            $importRoots = array_values(array_filter([
+                realpath(LIBRARY_DIR),
+                realpath(ROOT_DIR . '/downloads'),
+                realpath(ROOT_DIR . '/staging'),
+            ]));
+            if (empty($importRoots) || !self::isPathWithinAllowedRoots($sourcePath, $importRoots)) {
                 jsonError('Ruta de archivo fuente no permitida', 403);
             }
             $origName = basename($sourcePath);
@@ -750,6 +765,9 @@ class AdminController {
         $realId = $show ? $show['id'] : $showId;
         $mediaType = $show['media_type'] ?? 'anime';
         $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
+        if (!LibraryPaths::isSafeSegment($realId)) {
+            jsonError('Identificador de show inválido', 400);
+        }
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realId;
         if (!is_dir($showDir)) @mkdir($showDir, 0755, true);
 
@@ -797,6 +815,9 @@ class AdminController {
         $show = DbHelper::getShow($showId) ?: DbHelper::findShowByFolderOrTitle($showId, $showId);
         $realId = $show ? $show['id'] : $showId;
         $catFolder = ($show['media_type'] ?? 'anime') === 'movie' ? 'Movies' : 'Anime';
+        if (!LibraryPaths::isSafeSegment($realId)) {
+            jsonError('Identificador de show inválido', 400);
+        }
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realId;
         if (!is_dir($showDir)) @mkdir($showDir, 0755, true);
 
@@ -872,6 +893,9 @@ class AdminController {
 
         $show = DbHelper::getShow($ep['show_id']);
         $catFolder = ($show['media_type'] ?? 'anime') === 'movie' ? 'Movies' : 'Anime';
+        if (!LibraryPaths::isSafeSegment($ep['show_id'])) {
+            jsonError('Identificador de show inválido', 400);
+        }
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $ep['show_id'];
         $thumbName = "ep_{$ep['season_number']}_{$ep['episode_number']}_thumb.jpg";
         $dest = $showDir . '/' . $thumbName;
@@ -912,6 +936,9 @@ class AdminController {
         $mediaType = $show['media_type'] ?? $mediaType;
         $catFolder = ($mediaType === 'movie') ? 'Movies' : 'Anime';
         $realShowId = $show ? $show['id'] : $showId;
+        if (!LibraryPaths::isSafeSegment($realShowId)) {
+            jsonError('showId inválido o requerido', 400);
+        }
 
         $showDir = LIBRARY_DIR . '/' . $catFolder . '/' . $realShowId;
         if (!is_dir($showDir)) {
@@ -1157,6 +1184,77 @@ class AdminController {
         ]);
     }
 
+    /** Counts running processes whose command name is $name (Linux /proc; 0 where it is not available). */
+    private static function countProcesses(string $name): int {
+        if (!is_dir('/proc')) return 0;
+        $count = 0;
+        foreach (@scandir('/proc') ?: [] as $entry) {
+            if (!ctype_digit($entry)) continue;
+            $comm = @file_get_contents("/proc/$entry/comm");
+            if ($comm !== false && trim($comm) === $name) $count++;
+        }
+        return $count;
+    }
+
+    /**
+     * What the operator wants to know when "it feels slow": is the worker alive, how full are the disks, how many
+     * ffmpeg processes and Watch Party viewers are there, when was the last backup, how busy is the machine.
+     */
+    public static function systemHealth(): array {
+        require_once __DIR__ . '/../services/JobQueue.php';
+        require_once __DIR__ . '/../services/BackupService.php';
+        $disk = function (string $path): ?array {
+            $dir = is_dir($path) ? $path : dirname($path);
+            $free = @disk_free_space($dir);
+            $total = @disk_total_space($dir);
+            return ($free === false || $total === false || $total <= 0) ? null
+                : ['free_bytes' => (int)$free, 'total_bytes' => (int)$total, 'used_percent' => (int)round(100 * (1 - $free / $total))];
+        };
+
+        $jobs = ['queued' => 0, 'running' => 0, 'failed_24h' => 0];
+        $worker = ['alive' => false, 'last_seen' => null];
+        $partyViewers = 0;
+        try {
+            $db = Database::getConnection();
+            foreach ($db->query("SELECT status, COUNT(*) c FROM jobs WHERE status IN ('queued', 'running') GROUP BY status")->fetchAll() as $row) {
+                $jobs[$row['status']] = (int)$row['c'];
+            }
+            $stmt = $db->prepare("SELECT COUNT(*) FROM jobs WHERE status = 'failed' AND finished_at >= :t");
+            $stmt->execute(['t' => time() - 86400]);
+            $jobs['failed_24h'] = (int)$stmt->fetchColumn();
+            $worker['alive'] = JobQueue::workerAlive();
+            $last = $db->query("SELECT MAX(last_seen) FROM worker_status")->fetchColumn();
+            $worker['last_seen'] = $last ? gmdate('Y-m-d\TH:i:s\Z', (int)$last) : null;
+            $partyViewers = (int)$db->query("SELECT COUNT(*) FROM party_members WHERE last_ping >= DATE_SUB(NOW(), INTERVAL 60 SECOND)")->fetchColumn();
+        } catch (Throwable $e) {
+            // the jobs/party tables may not exist on a half-migrated database: report what we can
+        }
+
+        $backups = BackupService::list();
+        $load = function_exists('sys_getloadavg') ? @sys_getloadavg() : false;
+        return [
+            'worker' => $worker,
+            'jobs' => $jobs + ['mode' => strtolower(trim((string)getenv('JOBS_MODE'))) ?: 'auto'],
+            'backups' => [
+                'available' => BackupService::isAvailable(),
+                'count' => count($backups),
+                'last_file' => $backups[0]['file'] ?? null,
+                'last_at' => isset($backups[0]) ? gmdate('Y-m-d\TH:i:s\Z', $backups[0]['modified']) : null,
+            ],
+            'disk' => ['library' => $disk(LIBRARY_DIR), 'backups' => $disk(BackupService::directory())],
+            'processes' => [
+                'ffmpeg' => self::countProcesses('ffmpeg'),
+                'php_fpm' => self::countProcesses('php-fpm') + self::countProcesses('php-fpm8.4') + self::countProcesses('php-fpm8.3') + self::countProcesses('php-fpm8.2'),
+            ],
+            'party_viewers' => $partyViewers,
+            'load_average' => is_array($load) ? array_map(fn($v) => round($v, 2), $load) : null,
+            'cpu_cores' => is_readable('/proc/cpuinfo') ? preg_match_all('/^processor\s*:/m', (string)@file_get_contents('/proc/cpuinfo')) : null,
+            'direct_play_offload' => PlayerController::useAccelRedirect(),
+            'server_software' => preg_replace('#/.*$#', '', (string)($_SERVER['SERVER_SOFTWARE'] ?? '')) ?: 'php',
+            'migrations_ok' => Database::migrationProblem() === null,
+        ];
+    }
+
     public static function getDiagnostics(): void {
         AuthMiddleware::requireAdmin();
 
@@ -1213,7 +1311,7 @@ class AdminController {
         require_once __DIR__ . '/PlayerController.php';
         $activeWorkers = TranscodeLimiter::getActiveWorkerCount();
 
-        $subsCacheDir = sys_get_temp_dir() . '/kura_subs_cache';
+        $subsCacheDir = SubtitleCache::dir();
         if (!is_dir($subsCacheDir)) {
             @mkdir($subsCacheDir, 0777, true);
         }
@@ -1266,9 +1364,10 @@ class AdminController {
             ],
             'transcode' => [
                 'active_workers' => $activeWorkers,
-                'max_workers' => TranscodeLimiter::$maxWorkers,
-                'label' => "{$activeWorkers} / " . TranscodeLimiter::$maxWorkers
-            ]
+                'max_workers' => TranscodeLimiter::maxWorkers(),
+                'label' => "{$activeWorkers} / " . TranscodeLimiter::maxWorkers()
+            ],
+            'system' => self::systemHealth()
         ];
 
         jsonResponse(array_merge([
@@ -1293,10 +1392,18 @@ class AdminController {
 
     /** Re-fetches a show's per-season art/metadata and looks up its intros on AniSkip. */
     public static function syncShowSeasons(string $showId): void {
-        AuthMiddleware::requireAdmin();
+        $admin = AuthMiddleware::requireAdmin();
         require_once __DIR__ . '/../services/IntroSync.php';
         $data = json_decode(file_get_contents('php://input'), true) ?: [];
         $force = !empty($data['force']) || !empty($_GET['force']);
+        require_once __DIR__ . '/../services/JobQueue.php';
+        if (JobQueue::shouldQueue()) {
+            if (!DbHelper::getShow($showId)) {
+                jsonError('Show no encontrado', 404);
+            }
+            $job = JobQueue::enqueue('season_sync', ['show_id' => $showId, 'force' => $force], (string)($admin['username'] ?? ''));
+            jsonResponse(['success' => true, 'queued' => true, 'job_id' => $job['id']], 202);
+        }
         @set_time_limit(300);
         $seasons = SeasonSync::syncShow($showId, $force);
         if (!empty($seasons['error'])) {

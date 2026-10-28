@@ -328,20 +328,23 @@ class SeasonSync {
      * or synced more than $maxAgeDays ago (airing shows: one day).
      */
     public static function staleShowIds(int $maxAgeDays = 14): array {
+        // One query for every show (it used to run two or three per show).
+        $rows = Database::getConnection()->query("
+            SELECT s.id, s.status, e.season_number, MAX(ss.synced_at) AS synced_at
+            FROM shows s
+            JOIN episodes e ON e.show_id = s.id
+            LEFT JOIN show_seasons ss ON ss.show_id = s.id AND ss.season_number = e.season_number
+            WHERE s.media_type = 'anime'
+            GROUP BY s.id, s.status, e.season_number
+            ORDER BY s.id
+        ")->fetchAll();
         $ids = [];
-        foreach (DbHelper::getShows('anime') as $show) {
-            $episodes = DbHelper::getEpisodesForShow($show['id']);
-            if (empty($episodes)) continue;
-            $rows = [];
-            foreach (DbHelper::getShowSeasons($show['id']) as $row) $rows[(int)$row['season_number']] = $row;
-            $limit = ($show['status'] ?? '') === 'airing' ? 1 : $maxAgeDays;
-            foreach ($episodes as $ep) {
-                $row = $rows[(int)$ep['season_number']] ?? null;
-                $age = $row && !empty($row['synced_at']) ? (time() - strtotime($row['synced_at'])) / 86400 : INF;
-                if ($age > $limit) {
-                    $ids[] = $show['id'];
-                    break;
-                }
+        foreach ($rows as $row) {
+            if (in_array($row['id'], $ids, true)) continue;
+            $limit = ($row['status'] ?? '') === 'airing' ? 1 : $maxAgeDays;
+            $age = !empty($row['synced_at']) ? (time() - strtotime($row['synced_at'] . ' UTC')) / 86400 : INF;
+            if ($age > $limit) {
+                $ids[] = $row['id'];
             }
         }
         return $ids;

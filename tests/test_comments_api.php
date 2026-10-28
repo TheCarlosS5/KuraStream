@@ -118,6 +118,8 @@ for ($i = 1; $i <= 6; $i++) {
     $_SERVER['REQUEST_URI'] = '/api/comments';
     $_SERVER['REQUEST_METHOD'] = 'POST';
     $_COOKIE['kurastream_token'] = $token;
+    // The web client always marks its requests; the server only trusts the session cookie for writes when it is there.
+    $_SERVER['HTTP_X_REQUESTED_WITH'] = 'XMLHttpRequest';
     $GLOBALS['_MOCKED_JSON_INPUT'] = ['show_id' => 'test_show_rate', 'content' => "Comment #{$i}"];
 
     try {

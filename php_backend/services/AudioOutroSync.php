@@ -48,7 +48,7 @@ class AudioOutroSync {
         $source = $ep['outro_source'] ?? null;
         if ($source === null || $source === 'aniskip_none') return true;
         if ($source === 'none' && !empty($ep['outro_checked_at'])) {
-            return (time() - strtotime($ep['outro_checked_at'])) / 86400 >= self::RETRY_DAYS;
+            return (time() - strtotime($ep['outro_checked_at'] . ' UTC')) / 86400 >= self::RETRY_DAYS;
         }
         return false;
     }

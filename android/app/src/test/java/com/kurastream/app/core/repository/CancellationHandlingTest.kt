@@ -3,7 +3,10 @@ package com.kurastream.app.core.repository
 import com.kurastream.app.core.database.ShowDao
 import com.kurastream.app.core.network.KuraApiService
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
+import com.kurastream.app.core.network.WatchPartyClient
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -37,7 +40,7 @@ class CancellationHandlingTest {
 
     @Test
     fun `watch party syncPlayback rethrows CancellationException`() = runTest {
-        val watchPartyRepo = WatchPartyRepository(apiService, mockk(relaxed = true))
+        val watchPartyRepo = WatchPartyRepository(apiService, mockk<WatchPartyClient>(relaxed = true).also { every { it.events } returns MutableSharedFlow() })
         val session = ActivePartySession(roomId = "room1", memberId = "m1", memberToken = "t1", streamTicket = null, sseTicket = null, isHost = true)
         coEvery { apiService.syncPartyPlayback(any(), any(), any()) } throws CancellationException("Party sync cancelled")
 
@@ -54,7 +57,7 @@ class CancellationHandlingTest {
 
     @Test
     fun `watch party syncPlayback returns failure Result on exception instead of swallowing it`() = runTest {
-        val watchPartyRepo = WatchPartyRepository(apiService, mockk(relaxed = true))
+        val watchPartyRepo = WatchPartyRepository(apiService, mockk<WatchPartyClient>(relaxed = true).also { every { it.events } returns MutableSharedFlow() })
         val session = ActivePartySession(roomId = "room1", memberId = "m1", memberToken = "t1", streamTicket = null, sseTicket = null, isHost = true)
         coEvery { apiService.syncPartyPlayback(any(), any(), any()) } throws RuntimeException("Network timeout")
 

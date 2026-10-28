@@ -1,0 +1,20 @@
+# Dependabot opens pull requests when a dependency has a new version or a security fix. Review them like any other
+# change (the CI runs the whole suite on each one). Delete this file to turn it off.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      dev-tooling: { patterns: ["*"], update-types: [minor, patch] }
+  - package-ecosystem: gradle
+    directory: /android
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: monthly }

@@ -119,7 +119,8 @@ $GLOBALS['_MOCKED_JSON_INPUT'] = [
     'name' => 'Sala Oficial de Carlos',
     'episode_id' => 'ep_imp_01',
     'is_public' => 1,
-    'allow_guest_controls' => 1
+    'allow_guest_controls' => 1,
+    'allow_guests' => true // the test joins guests; rooms admit them only when the host opts in
 ];
 
 ob_start();
@@ -150,18 +151,23 @@ $GLOBALS['_MOCKED_JSON_INPUT'] = [
     'username' => 'Carlos' // Attacker attempting display-name impersonation
 ];
 
+$joinStatus = null;
 ob_start();
 try {
     PartyController::joinRoom();
 } catch (ExitException $e) {
-    // Expected exit
+    $joinStatus = $e->statusCode;
 }
-$joinOut = json_decode(ob_get_clean(), true);
-assert(!empty($joinOut['success']), "Guest join must succeed");
+ob_end_clean();
+assert($joinStatus === 409, "A guest can no longer join under a registered account's name (got " . var_export($joinStatus, true) . ")");
+echo "    ✓ Joining as a guest with the host's account name is refused (409)\n";
 
-$guestMemberId = $joinOut['member_id'];
-$guestMemberToken = $joinOut['member_token'];
-$guestSseTicket = $joinOut['sse_ticket'];
+// Defence in depth: a guest member that already carries the host's name (it joined before the account existed,
+// or through a stale row) must still never resolve as host. Its identity is the member id, not the display name.
+$guestMemberId = 'mem_' . bin2hex(random_bytes(16));
+$guestMemberToken = 'mptk_' . bin2hex(random_bytes(32));
+DbHelper::recordPartyMember($roomId, 'Carlos', $guestMemberId, hash('sha256', $guestMemberToken), 'guest');
+$guestSseTicket = AuthMiddleware::createToken(['type' => 'party_sse', 'room_id' => $roomId, 'member_id' => $guestMemberId, 'exp' => time() + 60]);
 
 // Verify Guest DB Role in party_members
 $guestMemberDb = DbHelper::getPartyMemberById($roomId, $guestMemberId);
@@ -342,20 +348,10 @@ assert(DbHelper::getPartyMemberById($roomId, $guestMemberId) === null, "Guest ro
 assert(DbHelper::getPartyMemberById($roomId, $hostMemberId) !== null, "CRITICAL: Host row MUST survive when guest with identical display name leaves");
 echo "    ✓ Case A: Guest 'Carlos' leaves -> Guest row deleted, Host 'Carlos' row survived\n";
 
-// Rejoin guest "Carlos"
-$GLOBALS['_MOCKED_JSON_INPUT'] = [
-    'room_id' => $roomId,
-    'username' => 'Carlos'
-];
-ob_start();
-try {
-    PartyController::joinRoom();
-} catch (ExitException $e) {
-    //
-}
-$rejoinData = json_decode(ob_get_clean(), true);
-$newGuestMemberId = $rejoinData['member_id'];
-$newGuestMemberToken = $rejoinData['member_token'];
+// A second guest row named "Carlos" (a join under that name is refused now, so the row is created directly)
+$newGuestMemberId = 'mem_' . bin2hex(random_bytes(16));
+$newGuestMemberToken = 'mptk_' . bin2hex(random_bytes(32));
+DbHelper::recordPartyMember($roomId, 'Carlos', $newGuestMemberId, hash('sha256', $newGuestMemberToken), 'guest');
 assert(!empty($newGuestMemberId), "Rejoin must succeed and produce member_id");
 assert(DbHelper::getPartyMemberById($roomId, $newGuestMemberId) !== null, "New guest member must exist in DB");
 assert(DbHelper::getPartyMemberById($roomId, $hostMemberId) !== null, "Host must still exist");

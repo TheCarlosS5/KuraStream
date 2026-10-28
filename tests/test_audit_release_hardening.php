@@ -183,7 +183,8 @@ $roomId = DbHelper::createPartyRoom([
     'name' => 'Hardened Room',
     'episode_id' => 'show1_S01_E01',
     'is_public' => 0,
-    'allow_guest_controls' => 0
+    'allow_guest_controls' => 0,
+    'allow_guests' => 1 // the test joins a guest; rooms admit them only when the host opts in
 ]);
 $hostMemId = 'mem_' . bin2hex(random_bytes(16));
 $hostMemToken = 'mptk_' . bin2hex(random_bytes(32));

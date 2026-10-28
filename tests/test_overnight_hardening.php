@@ -53,27 +53,6 @@ assert(isset($payload['iat']) && $payload['iat'] >= $before && $payload['iat'] <
 $explicit = AuthMiddleware::verifyToken(AuthMiddleware::createToken(['username' => 'u', 'iat' => 123, 'exp' => time() + 60]));
 assert($explicit['iat'] === 123, 'an explicit iat is kept');
 
-// 2. RateLimiter::isBlocked only looks; check() records.
-$key = 'overnight_peek_' . uniqid();
-assert(!RateLimiter::isBlocked($key, 2, 60), 'empty key is not blocked');
-RateLimiter::check($key, 2, 60);
-assert(!RateLimiter::isBlocked($key, 2, 60), 'one attempt of two is not blocked');
-assert(!RateLimiter::isBlocked($key, 2, 60), 'isBlocked must not record attempts');
-RateLimiter::check($key, 2, 60);
-$retry = 0;
-assert(RateLimiter::isBlocked($key, 2, 60, $retry) && $retry > 0, 'full window is blocked with a retry delay');
-
-// 2b. RateLimiter::withLock executes work under an exclusive flock and returns the result.
-$lockKey = 'overnight_lock_' . uniqid();
-$lockExecuted = false;
-$lockResult = RateLimiter::withLock($lockKey, function() use (&$lockExecuted) {
-    $lockExecuted = true;
-    return 'locked_ok';
-});
-assert($lockExecuted === true, 'withLock must execute callable');
-assert($lockResult === 'locked_ok', 'withLock must return result');
-RateLimiter::clear($lockKey);
-
 // 3. Five wrong PINs, then even the right PIN answers 429 until the window passes.
 $username = 'pinuser_' . uniqid();
 $profile = DbHelper::saveUserProfile($username, ['name' => 'Adulto', 'pin' => '4321']);

@@ -11,7 +11,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChildCare
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,7 +41,15 @@ fun ProfileSelectScreen(
 
     Scaffold(
         topBar = {
-            KuraTopBar(title = stringResource(R.string.who_is_watching))
+            KuraTopBar(
+                title = stringResource(R.string.who_is_watching),
+                actions = {
+                    Spacer(modifier = Modifier.weight(1f))
+                    TextButton(onClick = viewModel::toggleManageMode) {
+                        Text(if (uiState.manageMode) "Listo" else "Administrar")
+                    }
+                }
+            )
         },
         containerColor = KuraColors.Background
     ) { padding ->
@@ -93,8 +103,12 @@ fun ProfileSelectScreen(
                                     } else {
                                         ""
                                     },
+                                    manageMode = uiState.manageMode,
                                     onClick = { viewModel.onProfileClicked(profile, onProfileSelected) }
                                 )
+                            }
+                            if (uiState.manageMode) {
+                                item(key = "add-profile") { AddProfileTile(onClick = viewModel::startCreateProfile) }
                             }
                         }
 
@@ -109,6 +123,16 @@ fun ProfileSelectScreen(
                         }
                     }
                 }
+            }
+
+            uiState.editor?.let { editor ->
+                ProfileEditorDialog(
+                    state = editor,
+                    onChange = viewModel::updateEditor,
+                    onSave = viewModel::saveEditor,
+                    onDelete = viewModel::deleteEditorProfile,
+                    onDismiss = viewModel::dismissEditor
+                )
             }
 
             // PIN Modal Dialog
@@ -130,6 +154,7 @@ fun ProfileSelectScreen(
 private fun ProfileCardItem(
     profile: Profile,
     avatarUrl: String,
+    manageMode: Boolean = false,
     onClick: () -> Unit
 ) {
     val avatarColor = remember(profile.color) {
@@ -174,6 +199,22 @@ private fun ProfileCardItem(
                         style = MaterialTheme.typography.displayMedium,
                         fontWeight = FontWeight.Bold,
                         color = avatarColor
+                    )
+                }
+            }
+
+            if (manageMode) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .background(KuraColors.Background, CircleShape)
+                        .padding(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Editar ${profile.name}",
+                        tint = KuraColors.TextMain,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -227,5 +268,28 @@ private fun ProfileCardItem(
                 )
             }
         }
+    }
+}
+
+
+@Composable
+private fun AddProfileTile(onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .clip(KuraShapes.Card)
+            .clickable(onClick = onClick)
+            .padding(KuraDimens.Space2),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(96.dp)
+                .border(2.dp, KuraColors.BorderStrong, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null, tint = KuraColors.TextSecondary, modifier = Modifier.size(40.dp))
+        }
+        Spacer(modifier = Modifier.height(KuraDimens.Space2))
+        Text("Añadir perfil", style = MaterialTheme.typography.titleMedium, color = KuraColors.TextSecondary)
     }
 }

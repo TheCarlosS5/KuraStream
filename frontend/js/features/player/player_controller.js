@@ -7,7 +7,7 @@
 
 import { appState } from '../../core/state.js';
 import { renderQRCodeToElement } from './qr_generator.js';
-import { initPlayer, destroyPlayer } from '../../../player.js?v=2026.10.07-ronda4';
+import { initPlayer, destroyPlayer } from '../../../player.js?v=2026.10.28-sync';
 
 export class PlayerController {
   constructor() {

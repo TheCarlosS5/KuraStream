@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -179,6 +180,19 @@ fun WatchPartyScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        IconButton(onClick = {
+                            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(
+                                    android.content.Intent.EXTRA_TEXT,
+                                    "Únete a mi Watch Party en KuraStream: kurastream://party/${session.roomId}\nCódigo de sala: ${session.roomId}"
+                                )
+                            }
+                            context.startActivity(android.content.Intent.createChooser(send, "Compartir sala"))
+                        }) {
+                            Icon(Icons.Default.Share, contentDescription = "Compartir sala", tint = KuraColors.TextMain)
+                        }
                         Column {
                             Text(
                                 text = "Sala: ${session.roomId}",

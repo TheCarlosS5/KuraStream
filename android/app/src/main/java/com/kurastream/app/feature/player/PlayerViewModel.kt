@@ -70,6 +70,10 @@ class PlayerViewModel @Inject constructor(
 
     /** Whether the media item currently loaded is a byte-range direct play (seekable in place). */
     private var currentStreamIsDirect = true
+
+    /** The file is served raw (`?direct=1`), so audio and embedded tracks must be chosen on the player. */
+    private var clientSelectsTracks = false
+    private var sideloadedSubtitleWanted = false
     private var introAutoSkipped = false
     private var creditsAutoSkipped = false
     private var outroAutoSkipped = false
@@ -140,6 +144,10 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            if (clientSelectsTracks) applyClientTrackSelection(tracks)
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (playbackRevoked) return
             _playerState.update { it.copy(isPlaying = isPlaying) }
@@ -190,6 +198,13 @@ class PlayerViewModel @Inject constructor(
                 player?.removeListener(playerListener)
                 player = p
                 p.addListener(playerListener)
+                viewModelScope.launch {
+                    // The profile's daily screen-time budget ran out: stop and say why
+                    historyRepository.screenTimeLimitReached.collect {
+                        player?.pause()
+                        _hudMessages.tryEmit("Se acabó el tiempo de pantalla de hoy para este perfil")
+                    }
+                }
                 viewModelScope.launch {
                     loadEpisodeAndInitPlayer()
                 }
@@ -459,10 +474,13 @@ class PlayerViewModel @Inject constructor(
             episode = episode,
             requestedResumePositionSeconds = resumePositionSeconds,
             selectedAudioTrackIndex = audioTrackIndex,
-            forceH264 = forceH264
+            forceH264 = forceH264,
+            decoders = com.kurastream.app.core.player.DeviceVideoDecoders
         )
 
         currentStreamIsDirect = resolved.isDirectPlay
+        clientSelectsTracks = resolved.clientSelectsTracks
+        sideloadedSubtitleWanted = false
 
         _playerState.update {
             it.copy(
@@ -497,7 +515,9 @@ class PlayerViewModel @Inject constructor(
                     trackIndex = StreamResolver.resolveSubtitleTrackBackendParam(episode, subtitleTrackIndex),
                     startSeconds = resolved.streamStartOffsetSeconds
                 )
+                sideloadedSubtitleWanted = true
                 val subConfig = MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subUrl))
+                    .setId(SIDELOADED_SUBTITLE_ID)
                     .setMimeType(MimeTypes.TEXT_SSA)
                     .setLanguage(subTrack.language)
                     .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
@@ -505,6 +525,17 @@ class PlayerViewModel @Inject constructor(
                 mediaItemBuilder.setSubtitleConfigurations(listOf(subConfig))
             }
         }
+
+        // A raw file carries every subtitle track of its own too: only the sideloaded one (or none) may show.
+        // Anything chosen for the previous item must not leak into this one, hence the reset.
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_AUDIO)
+            .clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(
+                androidx.media3.common.C.TRACK_TYPE_TEXT,
+                clientSelectsTracks && !sideloadedSubtitleWanted
+            )
+            .build()
 
         p.setMediaItem(mediaItemBuilder.build())
         p.prepare()
@@ -517,6 +548,41 @@ class PlayerViewModel @Inject constructor(
         p.playWhenReady = wasPlaying
         _playerState.update { it.copy(playWhenReady = wasPlaying, playbackSpeed = currentSpeed) }
         startProgressTracker()
+    }
+
+    /**
+     * Raw-file playback: the player (not the server) picks the audio track that matches the UI selection and shows
+     * only the sideloaded subtitle. Groups come in container order, the same order as episode.audioTracks.
+     */
+    private fun applyClientTrackSelection(tracks: androidx.media3.common.Tracks) {
+        val p = player ?: return
+        var params = p.trackSelectionParameters
+        var changed = false
+
+        val audioGroups = tracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO }
+        val wantedAudio = _playerState.value.selectedAudioTrackIndex
+        if (audioGroups.size > 1 && wantedAudio in audioGroups.indices && !audioGroups[wantedAudio].isSelected) {
+            params = params.buildUpon()
+                .setOverrideForType(androidx.media3.common.TrackSelectionOverride(audioGroups[wantedAudio].mediaTrackGroup, 0))
+                .build()
+            changed = true
+        }
+
+        if (sideloadedSubtitleWanted) {
+            val textGroups = tracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_TEXT }
+            // The sideloaded track is appended after the container's own, so "last" is the fallback to its id
+            val sideloaded = textGroups.firstOrNull { g -> (0 until g.length).any { g.getTrackFormat(it).id == SIDELOADED_SUBTITLE_ID } }
+                ?: textGroups.lastOrNull()
+            if (sideloaded != null && !sideloaded.isSelected) {
+                params = params.buildUpon()
+                    .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(androidx.media3.common.TrackSelectionOverride(sideloaded.mediaTrackGroup, 0))
+                    .build()
+                changed = true
+            }
+        }
+
+        if (changed) p.trackSelectionParameters = params
     }
 
     private fun handlePlaybackError(error: PlaybackException, episode: Episode) {
@@ -595,12 +661,16 @@ class PlayerViewModel @Inject constructor(
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ->
                 "Error de conexión con el servidor multimedia. Comprueba la red local."
             PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
-                when {
-                    causeMsg.contains("401") -> "Sesión expirada o no autorizada para reproducir este flujo."
-                    causeMsg.contains("403") -> "Acceso denegado: contenido restringido para este perfil."
-                    causeMsg.contains("404") -> "El archivo de video no fue encontrado en el servidor."
-                    causeMsg.contains("416") -> "Rango de reproducción inválido."
-                    else -> "El servidor devolvió un error de reproducción HTTP ($causeMsg)"
+                // Classified by the HTTP status the data source reports, not by searching its message text
+                when (val code = invalidResponseCode?.responseCode) {
+                    401 -> "Tu sesión expiró. Vuelve a iniciar sesión para reproducir."
+                    403 -> "Este perfil no puede reproducir esto ahora (contenido restringido o tiempo de pantalla agotado)."
+                    404 -> "El archivo de video no fue encontrado en el servidor."
+                    416 -> "Rango de reproducción inválido."
+                    // The server could not convert the file (ffmpeg missing, damaged file): it says so with a 500
+                    500 -> "El servidor no pudo preparar este video. Puede que le falte ffmpeg o que el archivo esté dañado."
+                    null -> "El servidor devolvió un error de reproducción HTTP ($causeMsg)"
+                    else -> "El servidor devolvió un error de reproducción (HTTP $code)"
                 }
             }
             else -> "Error en la reproducción: ${error.localizedMessage ?: "formato no compatible"}"
@@ -999,6 +1069,12 @@ class PlayerViewModel @Inject constructor(
         val ep = _playerState.value.episode ?: return
         val currentAbs = _playerState.value.absolutePositionSeconds
         _playerState.update { it.copy(selectedAudioTrackIndex = index) }
+
+        if (clientSelectsTracks) {
+            // Everything is in the file: switch on the player, without reloading or interrupting playback
+            player?.let { applyClientTrackSelection(it.currentTracks) }
+            return
+        }
 
         setupPlayerInstance(
             episode = ep,
@@ -1518,6 +1594,8 @@ class PlayerViewModel @Inject constructor(
     }
 
     private companion object {
+        /** Format id of the subtitle sideloaded from /api/subtitles (a raw container may carry tracks of its own). */
+        const val SIDELOADED_SUBTITLE_ID = "kura-sideloaded-subtitle"
         const val RESUME_NOTICE_MIN_SECONDS = 30f
         const val PARTY_SEEK_COOLDOWN_MS = 4_000L
         const val HOST_HEARTBEAT_MS = 10_000L

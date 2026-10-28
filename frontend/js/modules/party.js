@@ -65,6 +65,8 @@ class PartyManager {
     this.sseReconnectTimer = null;
     this.sseRotationTimer = null;
     this.sseFailures = 0;
+    this.sseRetryTimer = null;
+    this.connectionState = 'idle';
   }
 
   initAudioContext() {
@@ -150,6 +152,51 @@ class PartyManager {
     this.emit('message', msg);
   }
 
+  /** 'connecting' | 'live' | 'polling' | 'offline' | 'idle'. Shown in the sync pill instead of a fixed "Sincronizado". */
+  setConnectionState(state) {
+    if (this.connectionState === state) return;
+    this.connectionState = state;
+    const pill = typeof document !== 'undefined' ? document.getElementById('party-sync-pill') : null;
+    if (pill && state !== 'live' && state !== 'idle') {
+      const labels = {
+        connecting: ['Conectando...', 'var(--rating-color)'],
+        polling: ['Modo respaldo', 'var(--rating-color)'],
+        offline: ['Sin conexión', 'var(--danger-color)']
+      };
+      const [text, color] = labels[state];
+      pill.textContent = text;
+      pill.style.color = color;
+      pill.style.borderColor = color;
+    } else if (pill && state === 'live') {
+      pill.innerHTML = '<span class="airing-pulse-dot" style="width: 6px; height: 6px; margin-right: 4px;"></span> Sincronizado';
+      pill.style.color = 'var(--success-color)';
+      pill.style.borderColor = 'var(--success-color)';
+    }
+    this.emit('connection', state);
+  }
+
+  /** The room survives a page reload: the tab remembers it and joins again (the server keeps the member for 60 s). */
+  rememberSession(roomId, nickname) {
+    try { sessionStorage.setItem('kura_party_session', JSON.stringify({ roomId, nickname })); } catch { /* storage blocked */ }
+  }
+
+  forgetSession() {
+    try { sessionStorage.removeItem('kura_party_session'); } catch { /* storage blocked */ }
+  }
+
+  async restoreSession() {
+    if (this.isInRoom()) return null;
+    let saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem('kura_party_session') || 'null'); } catch { saved = null; }
+    if (!saved || !saved.roomId) return null;
+    try {
+      return await this.joinRoom(saved.roomId, saved.nickname || '');
+    } catch {
+      this.forgetSession();   // the room is gone (or no longer allows us): do not try again on every reload
+      return null;
+    }
+  }
+
   isInRoom() {
     return this.activeRoom !== null && !!this.activeRoom.id;
   }
@@ -191,7 +238,7 @@ class PartyManager {
 
   // --- API CALLS ---
 
-  async createRoom({ episodeId, name, isPublic = false, allowGuestControls = false }) {
+  async createRoom({ episodeId, name, isPublic = false, allowGuestControls = false, allowGuests = false }) {
     const username = this.resolveUsername();
     const res = await fetch('/api/party/create', {
       method: 'POST',
@@ -201,7 +248,8 @@ class PartyManager {
         episode_id: episodeId,
         name: name || `Sala de ${username}`,
         is_public: isPublic ? 1 : 0,
-        allow_guest_controls: allowGuestControls ? 1 : 0
+        allow_guest_controls: allowGuestControls ? 1 : 0,
+        allow_guests: allowGuests === true
       })
     });
 
@@ -215,6 +263,7 @@ class PartyManager {
     this.streamCapabilityToken = data.stream_capability_token || null;
 
     this.setupRoomState(data.room, username, true);
+    this.rememberSession(data.room.id, username);
     this.startCapabilityRefreshTimer();
     this.connectEventStream(data.room.id);
     return data.room;
@@ -243,6 +292,7 @@ class PartyManager {
     this.streamCapabilityToken = data.stream_capability_token || null;
 
     this.setupRoomState(data.room, username, data.is_host);
+    this.rememberSession(data.room.id, username);
     this.startCapabilityRefreshTimer();
     if (data.messages && Array.isArray(data.messages)) {
       data.messages.forEach(msg => {
@@ -253,6 +303,25 @@ class PartyManager {
 
     this.connectEventStream(data.room.id);
     return data.room;
+  }
+
+  /** Host only: changes room settings (is_public, allow_guest_controls, allow_guests, name). Resolves with the room. */
+  async updateSettings(changes) {
+    if (!this.isInRoom() || !this.isHost()) throw new Error('Solo el anfitrión puede cambiar los ajustes');
+    const res = await fetch('/api/party/settings', {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        room_id: this.activeRoom.id,
+        member_id: this.memberId,
+        member_token: this.memberToken,
+        ...changes
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.error || 'No se pudieron guardar los ajustes');
+    this.activeRoom = { ...this.activeRoom, ...data.room };
+    return this.activeRoom;
   }
 
   async leaveRoom() {
@@ -273,9 +342,11 @@ class PartyManager {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
     }
+    this.forgetSession();
+    this.messageLog = [];
+    this.setConnectionState('idle');
     this.activeRoom = null;
     this.lastRoomSyncTs = 0;
-    this.messageLog = [];
     this.currentUser.isHost = false;
     this.memberId = null;
     this.memberToken = null;
@@ -380,6 +451,7 @@ class PartyManager {
     this.disconnectEventStream(false);
 
     if (!this.isInRoom()) return;
+    if (this.connectionState !== 'polling') this.setConnectionState('connecting');
 
     let sseTicket = null;
     if (this.memberId && this.memberToken) {
@@ -401,18 +473,14 @@ class PartyManager {
 
       this.eventSource.onopen = () => {
         this.sseFailures = 0;
-        if (this.pollInterval) {
-          clearInterval(this.pollInterval);
-          this.pollInterval = null;
-        }
+        this.stopPollingFallback();
+        this.setConnectionState('live');
       };
 
       this.eventSource.addEventListener('init', (e) => {
         this.sseFailures = 0;
-        if (this.pollInterval) {
-          clearInterval(this.pollInterval);
-          this.pollInterval = null;
-        }
+        this.stopPollingFallback();
+        this.setConnectionState('live');
         const data = JSON.parse(e.data);
         if (!this.activeRoom || (data.room && data.room.id !== this.activeRoom.id)) return;
         if (data.room) {
@@ -443,30 +511,7 @@ class PartyManager {
       this.eventSource.addEventListener('messages', (e) => {
         const messages = JSON.parse(e.data);
         if (Array.isArray(messages)) {
-          messages.forEach(msg => {
-            if (msg.username && msg.username !== 'Sistema') {
-              this.participantsMap.set(msg.username, this.getRandomColor(msg.username));
-            }
-            if (msg.type === 'reaction') {
-              if (msg.username !== this.currentUser.username) this.triggerFlyingReaction(msg.message);
-            } else if (msg.type === 'system') {
-              this.triggerToastNotification(msg.message);
-              const joinMatch = msg.message.match(/(.+) se unió/);
-              if (joinMatch) {
-                this.participantsMap.set(joinMatch[1], this.getRandomColor(joinMatch[1]));
-                if (msg.id > this.lastMessageId) this.playJoinChime();
-              }
-              const leaveMatch = msg.message.match(/(.+) salió/);
-              if (leaveMatch) this.participantsMap.delete(leaveMatch[1]);
-            } else {
-              if (msg.id > this.lastMessageId && msg.username !== this.currentUser.username) {
-                this.playMessageChime();
-              }
-            }
-            this.renderAvatarStack();
-            this.deliverMessage(msg);
-            if (msg.id > this.lastMessageId) this.lastMessageId = msg.id;
-          });
+          messages.forEach(msg => this.handleIncomingMessage(msg));
         }
       });
 
@@ -487,6 +532,7 @@ class PartyManager {
         if (this.sseFailures > 3) {
           this.startPollingFallback(roomId);
         } else {
+          if (this.connectionState !== 'polling') this.setConnectionState('connecting');
           if (this.sseReconnectTimer) clearTimeout(this.sseReconnectTimer);
           this.sseReconnectTimer = setTimeout(() => {
             this.connectEventStream(roomId);
@@ -508,14 +554,39 @@ class PartyManager {
     }
   }
 
+  stopPollingFallback() {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+    if (this.sseRetryTimer) {
+      clearInterval(this.sseRetryTimer);
+      this.sseRetryTimer = null;
+    }
+  }
+
+  /**
+   * Backup channel while the event stream is down: a poll every 1.5 s, but
+   *  - nothing while the tab is hidden (nobody is watching, and phones save battery),
+   *  - the room being gone/forbidden (401/403/404) ends the session instead of polling forever,
+   *  - the event stream is tried again every 30 s, and polling stops as soon as it works.
+   */
   startPollingFallback(roomId) {
     if (this.pollInterval) clearInterval(this.pollInterval);
+    this.setConnectionState('polling');
+
+    if (!this.sseRetryTimer) {
+      this.sseRetryTimer = setInterval(() => {
+        if (this.isInRoom() && !document.hidden) this.connectEventStream(roomId);
+      }, 30000);
+    }
 
     this.pollInterval = setInterval(async () => {
       if (!this.isInRoom()) {
-        clearInterval(this.pollInterval);
+        this.stopPollingFallback();
         return;
       }
+      if (document.hidden) return;
 
       try {
         const headers = { ...getAuthHeaders() };
@@ -524,7 +595,18 @@ class PartyManager {
 
         const pollUrl = `/api/party/poll?room_id=${encodeURIComponent(roomId)}&last_msg_id=${this.lastMessageId}`;
         const res = await fetch(pollUrl, { headers });
-        if (!res.ok) return;
+        if (res.status === 401 || res.status === 403 || res.status === 404) {
+          // The room was closed, or this member is no longer part of it.
+          this.stopPollingFallback();
+          this.triggerToastNotification('La sala ya no está disponible');
+          await this.leaveRoom();
+          return;
+        }
+        if (!res.ok) {
+          this.setConnectionState('offline');
+          return;
+        }
+        this.setConnectionState('polling');
         const data = await res.json();
         if (!this.activeRoom || this.activeRoom.id !== roomId) return;
 
@@ -532,33 +614,38 @@ class PartyManager {
           this.handleRemoteSync(data.room);
         }
         if (data.messages && Array.isArray(data.messages)) {
-          data.messages.forEach(msg => {
-            if (msg.username && msg.username !== 'Sistema') {
-              this.participantsMap.set(msg.username, this.getRandomColor(msg.username));
-            }
-            if (msg.type === 'reaction') {
-              if (msg.username !== this.currentUser.username) this.triggerFlyingReaction(msg.message);
-            } else if (msg.type === 'system') {
-              this.triggerToastNotification(msg.message);
-              const joinMatch = msg.message.match(/(.+) se unió/);
-              if (joinMatch) {
-                this.participantsMap.set(joinMatch[1], this.getRandomColor(joinMatch[1]));
-                if (msg.id > this.lastMessageId) this.playJoinChime();
-              }
-              const leaveMatch = msg.message.match(/(.+) salió/);
-              if (leaveMatch) this.participantsMap.delete(leaveMatch[1]);
-            } else {
-              if (msg.id > this.lastMessageId && msg.username !== this.currentUser.username) {
-                this.playMessageChime();
-              }
-            }
-            this.renderAvatarStack();
-            this.deliverMessage(msg);
-            if (msg.id > this.lastMessageId) this.lastMessageId = msg.id;
-          });
+          data.messages.forEach(msg => this.handleIncomingMessage(msg));
         }
-      } catch {}
+      } catch {
+        this.setConnectionState('offline');
+      }
     }, 1500);
+  }
+
+  /** A chat/system/reaction message from the stream or the poll: side effects, then the listeners. */
+  handleIncomingMessage(msg) {
+    if (msg.username && msg.username !== 'Sistema') {
+      this.participantsMap.set(msg.username, this.getRandomColor(msg.username));
+    }
+    if (msg.type === 'reaction') {
+      if (msg.username !== this.currentUser.username) this.triggerFlyingReaction(msg.message);
+    } else if (msg.type === 'system') {
+      this.triggerToastNotification(msg.message);
+      const joinMatch = msg.message.match(/(.+) se unió/);
+      if (joinMatch) {
+        this.participantsMap.set(joinMatch[1], this.getRandomColor(joinMatch[1]));
+        if (msg.id > this.lastMessageId) this.playJoinChime();
+      }
+      const leaveMatch = msg.message.match(/(.+) salió/);
+      if (leaveMatch) this.participantsMap.delete(leaveMatch[1]);
+    } else {
+      if (msg.id > this.lastMessageId && msg.username !== this.currentUser.username) {
+        this.playMessageChime();
+      }
+    }
+    this.renderAvatarStack();
+    this.deliverMessage(msg);
+    if (msg.id > this.lastMessageId) this.lastMessageId = msg.id;
   }
 
   disconnectEventStream(resetFailures = true) {
@@ -580,6 +667,7 @@ class PartyManager {
     }
     if (resetFailures) {
       this.sseFailures = 0;
+      this.stopPollingFallback();
     }
   }
 
@@ -674,6 +762,8 @@ class PartyManager {
             is_playing: isPlaying ? 1 : 0,
             current_time: currentTime,
             episode_id: episodeId || (this.activeRoom ? this.activeRoom.episode_id : ''),
+            // Lets the server drop a heartbeat that predates someone else's seek/pause (see PartyController::syncPlayback)
+            base_version: this.activeRoom ? this.activeRoom.version : undefined,
             action
           })
         });
@@ -841,7 +931,9 @@ class PartyManager {
 
   async fetchPublicRooms() {
     try {
-      const res = await fetch('/api/party/public-rooms');
+      // The list needs a signed-in session (it names hosts and what they are watching).
+      const res = await fetch('/api/party/public-rooms', { headers: getAuthHeaders() });
+      if (!res.ok) return [];
       const data = await res.json();
       return data.rooms || [];
     } catch {

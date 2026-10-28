@@ -50,12 +50,7 @@ DbHelper::registerUser('patch_user', 'PatchPass123!');
 $profiles = DbHelper::getUserProfiles('patch_user');
 $profileA = $profiles[0]; // Default profile
 
-$profileBId = DbHelper::createProfile('patch_user', 'Profile B', false);
-$profileB = [
-    'id' => $profileBId,
-    'name' => 'Profile B',
-    'is_kids' => 0
-];
+$profileB = DbHelper::saveUserProfile('patch_user', ['name' => 'Profile B', 'is_kids' => 0]);
 
 // Create Show & Canonical Episode with duration 1200.0 seconds
 DbHelper::saveShow([

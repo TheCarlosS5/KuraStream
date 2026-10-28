@@ -77,6 +77,19 @@ class ServerUrlResolverTest {
     }
 
     @Test
+    fun `isLocalAddress covers IPv6, CGNAT and home dot arpa`() {
+        assertTrue(ServerUrlResolver.isLocalAddress("[fd12:3456::1]"))
+        assertTrue(ServerUrlResolver.isLocalAddress("fe80::1%wlan0"))
+        assertTrue(ServerUrlResolver.isLocalAddress("::1"))
+        assertTrue(ServerUrlResolver.isLocalAddress("100.64.0.5"))
+        assertTrue(ServerUrlResolver.isLocalAddress("100.127.255.1"))
+        assertTrue(ServerUrlResolver.isLocalAddress("kura.home.arpa"))
+
+        assertFalse(ServerUrlResolver.isLocalAddress("100.128.0.1"))
+        assertFalse(ServerUrlResolver.isLocalAddress("2001:4860:4860::8888"))
+    }
+
+    @Test
     fun `buildMediaUrl resolves relative paths against base url`() {
         val url = ServerUrlResolver.buildMediaUrl("http://192.168.1.100:3000/", "/library/anime/poster.webp")
         assertEquals("http://192.168.1.100:3000/library/anime/poster.webp", url)
