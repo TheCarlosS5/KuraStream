@@ -30,7 +30,7 @@ $libraryDir = LIBRARY_DIR;
 
 if (!function_exists('serveStaticFile')) {
     /** Serve a request-relative file only when its canonical path stays below $root. */
-    function serveStaticFile(string $root, string $relativePath, ?string $cacheControl = null): bool {
+    function serveStaticFile(string $root, string $relativePath, ?string $cacheControl = null, bool $allowVideo = false): bool {
         $realRoot = realpath($root);
         if ($realRoot === false) {
             return false;
@@ -45,7 +45,7 @@ if (!function_exists('serveStaticFile')) {
         // Direct raw video files must NOT be served via serveStaticFile under library
         $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
         $videoExts = ['mkv', 'mp4', 'webm', 'ts', 'avi', 'mov', 'm4v'];
-        if (in_array($ext, $videoExts, true)) {
+        if (!$allowVideo && in_array($ext, $videoExts, true)) {
             return false;
         }
 
@@ -88,12 +88,15 @@ if (str_starts_with($decodedUri, '/library/')) {
     $rel = substr($decodedUri, strlen('/library/'));
     $ext = strtolower(pathinfo(parse_url($rel, PHP_URL_PATH) ?: $rel, PATHINFO_EXTENSION));
     $videoExts = ['mkv', 'mp4', 'webm', 'ts', 'avi', 'mov', 'm4v'];
-    if (in_array($ext, $videoExts, true)) {
+    // Episodes only go through /api/stream; the short ambient loops uploaded from the admin (loop_<id>.mp4/webm)
+    // are decorative and are served as static files.
+    $isAmbientLoop = preg_match('/^loop_[a-z0-9]+\.(mp4|webm)$/i', basename($rel)) === 1;
+    if (in_array($ext, $videoExts, true) && !$isAmbientLoop) {
         jsonError('Direct video download forbidden. Use /api/stream/{id}', 403);
     }
-    serveStaticFile($libraryDir, $rel, 'public, max-age=3600');
-    serveStaticFile($libraryDir, str_replace('_', ' ', $rel), 'public, max-age=3600');
-    serveStaticFile($libraryDir, str_replace(' ', '_', $rel), 'public, max-age=3600');
+    serveStaticFile($libraryDir, $rel, 'public, max-age=3600', $isAmbientLoop);
+    serveStaticFile($libraryDir, str_replace('_', ' ', $rel), 'public, max-age=3600', $isAmbientLoop);
+    serveStaticFile($libraryDir, str_replace(' ', '_', $rel), 'public, max-age=3600', $isAmbientLoop);
     // Preset avatars ship with the repository, which is not the media library when MEDIA_LIBRARY_PATH points elsewhere.
     if (str_starts_with($rel, 'avatars/presets/')) {
         serveStaticFile(ROOT_DIR . '/library', $rel, 'public, max-age=86400');
@@ -263,6 +266,10 @@ if (preg_match('#^/api/progress/([^/]+)$#', $uri, $m) && $method === 'GET') {
 
 if (preg_match('#^/api/progress/([^/]+)$#', $uri, $m) && $method === 'POST') {
     HistoryController::saveProgress(urldecode($m[1]));
+}
+
+if (preg_match('#^/api/progress/([^/]+)$#', $uri, $m) && $method === 'PATCH') {
+    HistoryController::patchProgress(urldecode($m[1]));
 }
 
 if ($uri === '/api/progress' && $method === 'POST') {

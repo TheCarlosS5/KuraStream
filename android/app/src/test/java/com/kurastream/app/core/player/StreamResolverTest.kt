@@ -261,4 +261,74 @@ class StreamResolverTest {
         assertEquals(listOf("Español", "Japonés"), labels.map { it.label })
         assertTrue(labels.all { it.detail.isEmpty() })
     }
+
+    @Test
+    fun `audio track selection prefers exact normalized match over family and falls back when only one exists`() {
+        val spaFirst = listOf(
+            AudioTrack(index = 0, trackNumber = 0, title = "Castellano", language = "spa"),
+            AudioTrack(index = 1, trackNumber = 1, title = "Latino", language = "es-419")
+        )
+        val latFirst = listOf(
+            AudioTrack(index = 0, trackNumber = 0, title = "Latino", language = "es-419"),
+            AudioTrack(index = 1, trackNumber = 1, title = "Castellano", language = "spa")
+        )
+        val onlySpa = listOf(
+            AudioTrack(index = 0, trackNumber = 0, title = "Castellano", language = "spa")
+        )
+        val onlyLat = listOf(
+            AudioTrack(index = 0, trackNumber = 0, title = "Latino", language = "es-419")
+        )
+
+        // [spa, es-419]
+        assertEquals(1, StreamResolver.findBestAudioTrack(spaFirst, "es-419"))
+        assertEquals(0, StreamResolver.findBestAudioTrack(spaFirst, "spa"))
+
+        // [es-419, spa]
+        assertEquals(0, StreamResolver.findBestAudioTrack(latFirst, "es-419"))
+        assertEquals(1, StreamResolver.findBestAudioTrack(latFirst, "spa"))
+
+        // Only one exists: falls back to language family
+        assertEquals(0, StreamResolver.findBestAudioTrack(onlySpa, "es-419"))
+        assertEquals(0, StreamResolver.findBestAudioTrack(onlyLat, "spa"))
+    }
+
+    @Test
+    fun `subtitle track selection prefers exact normalized match over family and falls back when only one exists`() {
+        val foreignAudio = "jpn"
+        val spaFirst = listOf(
+            SubtitleTrack(index = 0, trackNumber = 0, title = "Castellano", language = "spa"),
+            SubtitleTrack(index = 1, trackNumber = 1, title = "Latino", language = "es-419")
+        )
+        val latFirst = listOf(
+            SubtitleTrack(index = 0, trackNumber = 0, title = "Latino", language = "es-419"),
+            SubtitleTrack(index = 1, trackNumber = 1, title = "Castellano", language = "spa")
+        )
+        val onlySpa = listOf(
+            SubtitleTrack(index = 0, trackNumber = 0, title = "Castellano", language = "spa")
+        )
+        val onlyLat = listOf(
+            SubtitleTrack(index = 0, trackNumber = 0, title = "Latino", language = "es-419")
+        )
+
+        // [spa, es-419]
+        assertEquals(1, StreamResolver.chooseSubtitleTrack(spaFirst, "es-419", foreignAudio))
+        assertEquals(0, StreamResolver.chooseSubtitleTrack(spaFirst, "spa", foreignAudio))
+
+        // [es-419, spa]
+        assertEquals(0, StreamResolver.chooseSubtitleTrack(latFirst, "es-419", foreignAudio))
+        assertEquals(1, StreamResolver.chooseSubtitleTrack(latFirst, "spa", foreignAudio))
+
+        // Only one exists: falls back to language family
+        assertEquals(0, StreamResolver.chooseSubtitleTrack(onlySpa, "es-419", foreignAudio))
+        assertEquals(0, StreamResolver.chooseSubtitleTrack(onlyLat, "spa", foreignAudio))
+    }
+
+    @Test
+    fun `chooseSubtitleTrack ignores bitmap pgs or vobsub tracks`() {
+        val tracks = listOf(
+            SubtitleTrack(index = 0, trackNumber = 0, title = "PGS", language = "spa", isBitmap = true),
+            SubtitleTrack(index = 1, trackNumber = 1, title = "ASS", language = "eng", isBitmap = false)
+        )
+        assertEquals(-1, StreamResolver.chooseSubtitleTrack(tracks, "spa", "jpn"))
+    }
 }

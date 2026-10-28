@@ -17,6 +17,7 @@ import com.kurastream.app.core.preferences.UserSessionPreferences
 import com.kurastream.app.core.repository.ActivePartySession
 import com.kurastream.app.core.repository.CatalogRepository
 import com.kurastream.app.core.repository.HistoryRepository
+import com.kurastream.app.core.repository.ProgressIdentity
 import com.kurastream.app.core.repository.WatchPartyRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -34,7 +35,8 @@ class PlayerViewModel @Inject constructor(
     private val preferencesDataSource: KuraPreferencesDataSource,
     private val playbackConnectionManager: PlaybackConnectionManager,
     private val watchPartyRepository: WatchPartyRepository,
-    private val partyPlaybackContext: com.kurastream.app.core.player.PartyPlaybackContext
+    private val partyPlaybackContext: com.kurastream.app.core.player.PartyPlaybackContext,
+    private val sleepTimer: SleepTimer
 ) : ViewModel() {
 
     val episodeId: String = checkNotNull(savedStateHandle["episodeId"])
@@ -70,9 +72,23 @@ class PlayerViewModel @Inject constructor(
     private var currentStreamIsDirect = true
     private var introAutoSkipped = false
     private var creditsAutoSkipped = false
+    private var outroAutoSkipped = false
     private var lastPartySeekAtMs = 0L
     private var lastHostHeartbeatAtMs = 0L
+    private var lastReceivedSyncTimestampMs = 0L
+    private var lastAppliedSyncTimestampMs = 0L
+    private var pendingPartySyncDecision: SyncDecision? = null
+    private var pendingPartySyncTimestampMs = 0L
+    private var pendingPartySyncJob: Job? = null
+    private var isChangingEpisode = false
     private var isCleared = false
+
+    /** Set once the next episode's screen took the shared player over; from then on this one is inert. */
+    @Volatile
+    private var playbackRevoked = false
+
+    /** Who this playback's progress belongs to, fixed when the screen opens (see HistoryRepository.saveProgress). */
+    private var progressIdentity: ProgressIdentity? = null
 
     /** Remux seeks are coalesced: every one restarts ffmpeg on the server. */
     private var pendingSeekJob: Job? = null
@@ -89,6 +105,7 @@ class PlayerViewModel @Inject constructor(
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackRevoked) return
             when (playbackState) {
                 Player.STATE_BUFFERING -> {
                     _playerState.update { it.copy(isBuffering = true) }
@@ -102,8 +119,18 @@ class PlayerViewModel @Inject constructor(
                         (playerDur / 1000f).coerceAtLeast(0f)
                     }
                     hasRetried503 = false
+                    // Playing again (e.g. after picking another track while waiting): a pending 503
+                    // retry would restart the stream that just recovered.
+                    retry503Job?.cancel()
+                    retry503Job = null
                     _playerState.update {
-                        it.copy(isBuffering = false, durationSeconds = duration)
+                        it.copy(isBuffering = false, durationSeconds = duration, isTranscodingBusy = false, retryAfterSeconds = null)
+                    }
+                    if (pendingPartySyncDecision != null) {
+                        val nowMs = System.currentTimeMillis()
+                        if (nowMs - lastPartySeekAtMs >= PARTY_SEEK_COOLDOWN_MS) {
+                            applyPendingPartySync()
+                        }
                     }
                 }
                 Player.STATE_ENDED -> {
@@ -114,6 +141,7 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (playbackRevoked) return
             _playerState.update { it.copy(isPlaying = isPlaying) }
             if (isPlaying) {
                 startProgressTracker()
@@ -125,6 +153,7 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            if (playbackRevoked) return
             _playerState.value.episode?.let { handlePlaybackError(error, it) }
         }
     }
@@ -132,6 +161,12 @@ class PlayerViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             userPreferences = preferencesDataSource.preferencesFlow.first()
+            sleepTimer.onProfileChanged(userPreferences.activeProfileId ?: "")
+            progressIdentity = ProgressIdentity(
+                serverId = userPreferences.activeServerId ?: "",
+                username = userPreferences.activeUsername ?: "",
+                profileId = userPreferences.activeProfileId ?: ""
+            )
             baseUrl = userPreferences.activeServerUrl ?: ""
             _playerState.update {
                 it.copy(
@@ -140,9 +175,19 @@ class PlayerViewModel @Inject constructor(
                 )
             }
 
-            playbackConnectionManager.getPlayer { p ->
+            playbackConnectionManager.getPlayer(
+                onError = { e ->
+                    _playerState.update {
+                        it.copy(
+                            isBuffering = false,
+                            errorMessage = "Error al conectar con el reproductor: ${e.message ?: "error de conexión"}"
+                        )
+                    }
+                }
+            ) { p ->
                 // The controller connects asynchronously; the screen may already be gone.
                 if (isCleared) return@getPlayer
+                player?.removeListener(playerListener)
                 player = p
                 p.addListener(playerListener)
                 viewModelScope.launch {
@@ -151,9 +196,29 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
+        // Observe player disconnection
+        viewModelScope.launch {
+            playbackConnectionManager.player.collect { connectedPlayer ->
+                if (connectedPlayer == null && player != null) {
+                    player?.removeListener(playerListener)
+                    player = null
+                    _playerState.update {
+                        it.copy(
+                            isBuffering = false,
+                            errorMessage = "Se perdió la conexión con el reproductor"
+                        )
+                    }
+                }
+            }
+        }
+
         // Track active Watch Party session
         viewModelScope.launch {
             watchPartyRepository.activeSession.collect { session ->
+                if (session != null) {
+                    sleepTimer.clearAutoAdvanceBlock()
+                    if (sleepTimer.isActive) sleepTimer.cancel()
+                }
                 if (session != null && _playerState.value.playbackSpeed != 1f) {
                     // Everyone in a room plays at 1x (same rule as the web); otherwise guests drift.
                     speedBeforeTemporary2x = null
@@ -183,6 +248,9 @@ class PlayerViewModel @Inject constructor(
                     is PartyRealtimeEvent.MessagesBatch -> appendPartyMessages(event.messages)
                     is PartyRealtimeEvent.Message -> appendPartyMessages(listOf(event.message))
                     is PartyRealtimeEvent.RoomClosed -> {
+                        pendingPartySyncJob?.cancel()
+                        pendingPartySyncJob = null
+                        pendingPartySyncDecision = null
                         partyPlaybackContext.clear()
                         watchPartyRepository.stopListening()
                         watchPartyRepository.setActiveSession(null)
@@ -198,9 +266,49 @@ class PlayerViewModel @Inject constructor(
                 }
             }
         }
+
+        // Observe Sleep Timer state
+        viewModelScope.launch {
+            sleepTimer.state.collect { state ->
+                when (state) {
+                    is SleepTimerState.Active -> {
+                        _playerState.update {
+                            it.copy(isSleepTimerActive = true, sleepTimerText = state.label)
+                        }
+                    }
+                    is SleepTimerState.Inactive -> {
+                        _playerState.update {
+                            it.copy(isSleepTimerActive = false, sleepTimerText = null)
+                        }
+                    }
+                    is SleepTimerState.Expired -> {
+                        _playerState.update {
+                            it.copy(isSleepTimerActive = false, sleepTimerText = null)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Periodic ticker for sleep timer expiration check
+        viewModelScope.launch {
+            while (true) {
+                if (watchPartyRepository.activeSession.value != null) {
+                    sleepTimer.clearAutoAdvanceBlock()
+                    if (sleepTimer.isActive) sleepTimer.cancel()
+                } else {
+                    val st = sleepTimer.tick()
+                    if (st is SleepTimerState.Expired) {
+                        onSleepTimerExpired()
+                    }
+                }
+                delay(1000)
+            }
+        }
     }
 
     private suspend fun loadEpisodeAndInitPlayer() {
+        sleepTimer.clearAutoAdvanceBlock()
         _playerState.update { it.copy(isBuffering = true, errorMessage = null) }
 
         // Fetch episode details using GET /api/episodes/{id} directly
@@ -252,24 +360,42 @@ class PlayerViewModel @Inject constructor(
             )
         }
 
-        // Resume point: the server is the source of truth (the local cache is empty on a fresh install
-        // and stale after watching on another device). Finished episodes restart from the beginning.
-        val serverProgress = historyRepository.getProgress(episodeId)
-        val resumeSeconds = if (serverProgress != null) {
-            if (serverProgress.completed) 0f else serverProgress.progressSeconds
+        // Resume point: pending local progress takes priority over the server so an un-flushed point
+        // isn't overwritten on start. Finished episodes restart from the beginning.
+        val pendingSeconds = historyRepository.pendingPosition(progressIdentity, episodeId)
+        val resumeSeconds = if (pendingSeconds != null) {
+            // A pending point in the last minutes means the episode was finished (as the server would judge it).
+            if (ep.duration > 0f && pendingSeconds >= ep.duration * 0.92f) 0f else pendingSeconds
         } else {
-            val cached = historyRepository.getCachedHistory(
-                serverId = userPreferences.activeServerId ?: "",
-                username = userPreferences.activeUsername ?: "",
-                profileId = userPreferences.activeProfileId ?: ""
-            ).firstOrNull()?.firstOrNull { it.episodeId == episodeId }
-            if (cached == null || cached.completed) 0f else cached.progressSeconds
+            val serverProgress = historyRepository.getProgress(episodeId)
+            if (serverProgress != null) {
+                if (serverProgress.completed) 0f else serverProgress.progressSeconds
+            } else {
+                val cached = historyRepository.getCachedHistory(
+                    serverId = userPreferences.activeServerId ?: "",
+                    username = userPreferences.activeUsername ?: "",
+                    profileId = userPreferences.activeProfileId ?: ""
+                ).firstOrNull()?.firstOrNull { it.episodeId == episodeId }
+                if (cached == null || cached.completed) 0f else cached.progressSeconds
+            }
         }
 
-        setupPlayerInstance(ep, resumeSeconds, preferredAudioIdx, preferredSubIdx, initialPlayWhenReady = true)
+        // A guest joins where the room is (position and pause state), not at their own resume point.
+        val session = watchPartyRepository.activeSession.value
+        val isWatchParty = session != null
+        val roomSync = watchPartyRepository.lastRoomSync()
+            ?.takeIf { session != null && !session.isHost && (it.episodeId.isNullOrBlank() || it.episodeId == episodeId) }
+        if (roomSync != null) {
+            lastPartySync = roomSync
+            val roomAt = WatchPartySyncController.expectedHostPositionSeconds(roomSync, System.currentTimeMillis())
+            setupPlayerInstance(ep, roomAt, preferredAudioIdx, preferredSubIdx, initialPlayWhenReady = roomSync.isPlaying)
+        } else {
+            val effectiveResume = ResumePlaybackRules.calculateInitialResumePosition(resumeSeconds, isWatchParty)
+            setupPlayerInstance(ep, effectiveResume, preferredAudioIdx, preferredSubIdx, initialPlayWhenReady = true)
+        }
         // Offer "start over" only for a meaningful resume point, and never inside a Watch Party
         // (the room decides the position there).
-        if (resumeSeconds >= RESUME_NOTICE_MIN_SECONDS && watchPartyRepository.activeSession.value == null) {
+        if (resumeSeconds >= RESUME_NOTICE_MIN_SECONDS && !isWatchParty) {
             _playerState.update { it.copy(resumedFromSeconds = resumeSeconds) }
         }
     }
@@ -318,7 +444,9 @@ class PlayerViewModel @Inject constructor(
         initialPlayWhenReady: Boolean? = null
     ) {
         val p = player ?: return
-        playbackConnectionManager.claim(this)
+        // A late load/retry of an episode whose screen was already replaced must not take the player back.
+        if (playbackRevoked) return
+        playbackConnectionManager.claim(this) { onPlaybackTakenOver() }
         pendingSeekJob?.cancel()
         pendingSeekJob = null
         pendingSeekTarget = null
@@ -355,13 +483,11 @@ class PlayerViewModel @Inject constructor(
             .setUri(resolved.streamUrl)
             .setMediaMetadata(metadata)
 
-        // Sideload subtitle track if selected and not bitmap
         if (subtitleTrackIndex >= 0 && subtitleTrackIndex < episode.subtitleTracks.size) {
             val subTrack = episode.subtitleTracks[subtitleTrackIndex]
             if (subTrack.isBitmap) {
-                _playerState.update {
-                    it.copy(errorMessage = "Subtítulos bitmap (PGS/VobSub) no son compatibles con el renderizador de texto")
-                }
+                _hudMessages.tryEmit("Subtítulos no compatibles")
+                _playerState.update { it.copy(selectedSubtitleTrackIndex = -1) }
             } else {
                 // /api/subtitles converts every track (embedded, SRT, VTT) to ASS, so the MIME type is
                 // always SSA regardless of the source format.
@@ -486,6 +612,7 @@ class PlayerViewModel @Inject constructor(
         progressTrackingJob?.cancel()
         progressTrackingJob = viewModelScope.launch {
             while (isActive) {
+                if (playbackRevoked) break
                 val p = player ?: break
                 // While a (re)started remux is loading, currentPosition still reflects the previous item;
                 // combining it with the new offset would produce bogus jumps (and bogus saves/syncs).
@@ -524,12 +651,12 @@ class PlayerViewModel @Inject constructor(
                     delay(500)
                     continue
                 }
-                // Only the host picks the episode: a guest's attempt would be refused and, with the
-                // break, stop this loop (no more progress updates or saves).
+                // Only the host picks the episode: guests follow the host's transition.
+                // Keep the tracker alive until confirmed transition, avoiding repeating skip immediately.
                 val picksEpisode = watchPartyRepository.activeSession.value?.isHost != false
-                if (picksEpisode && inOutro && userPreferences.autoSkipOutro && _playerState.value.nextEpisode != null) {
+                if (picksEpisode && inOutro && !outroAutoSkipped && userPreferences.autoSkipOutro && _playerState.value.nextEpisode != null) {
+                    outroAutoSkipped = true
                     playNextEpisode()
-                    break
                 }
 
                 _playerState.update {
@@ -553,7 +680,7 @@ class PlayerViewModel @Inject constructor(
                 // Host heartbeat: lets late joiners and drifting guests re-align without host action
                 val session = watchPartyRepository.activeSession.value
                 val nowMs = System.currentTimeMillis()
-                if (session != null && session.isHost && p.isPlaying && nowMs - lastHostHeartbeatAtMs >= HOST_HEARTBEAT_MS) {
+                if (!isChangingEpisode && session != null && session.isHost && p.isPlaying && nowMs - lastHostHeartbeatAtMs >= HOST_HEARTBEAT_MS) {
                     lastHostHeartbeatAtMs = nowMs
                     launch {
                         watchPartyRepository.syncPlayback(
@@ -578,12 +705,13 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun saveCurrentProgress() {
+        if (playbackRevoked) return
         val absPos = _playerState.value.absolutePositionSeconds
         val duration = _playerState.value.durationSeconds
         if (absPos > 2f) {
             lastSavedProgress = absPos
             viewModelScope.launch {
-                historyRepository.saveProgress(episodeId, absPos, duration)
+                historyRepository.saveProgress(progressIdentity, episodeId, absPos, duration)
             }
         }
     }
@@ -647,51 +775,34 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private fun handlePartySync(sync: PartySyncEvent) {
-        val session = watchPartyRepository.activeSession.value ?: return
-        if (session.isHost) return
-
-        // Host moved to another episode: follow them instead of seeking inside the wrong file.
-        val hostEpisode = sync.episodeId
-        if (!hostEpisode.isNullOrBlank() && hostEpisode != episodeId) {
-            saveCurrentProgress()
-            _navigationEvents.tryEmit(hostEpisode)
-            return
-        }
-
-        val currentAbs = _playerState.value.absolutePositionSeconds
-        val isPlaying = _playerState.value.isPlaying
-        val nowMs = System.currentTimeMillis()
-
-        var decision = WatchPartySyncController.evaluateSync(
-            hostEvent = sync,
-            clientAbsolutePositionSeconds = currentAbs,
-            clientIsPlaying = isPlaying,
-            isClientHost = false,
-            nowMs = nowMs,
-            driftToleranceSeconds = if (currentStreamIsDirect) {
-                WatchPartySyncController.DRIFT_TOLERANCE_SECONDS
-            } else {
-                WatchPartySyncController.TRANSCODED_DRIFT_TOLERANCE_SECONDS
+    private fun schedulePendingPartySync(decision: SyncDecision, timestampMs: Long) {
+        pendingPartySyncDecision = decision
+        pendingPartySyncTimestampMs = timestampMs
+        pendingPartySyncJob?.cancel()
+        pendingPartySyncJob = viewModelScope.launch {
+            val nowMs = System.currentTimeMillis()
+            val remainingCooldown = (PARTY_SEEK_COOLDOWN_MS - (nowMs - lastPartySeekAtMs)).coerceAtLeast(0L)
+            if (remainingCooldown > 0L) {
+                delay(remainingCooldown)
             }
-        )
-
-        // Give a just-issued seek time to buffer before judging drift again (avoids seek storms).
-        val isSeek = decision.action == PartySyncAction.SEEK ||
-                decision.action == PartySyncAction.SEEK_AND_PLAY ||
-                decision.action == PartySyncAction.SEEK_AND_PAUSE
-        if (isSeek) {
-            if (nowMs - lastPartySeekAtMs < PARTY_SEEK_COOLDOWN_MS || _playerState.value.isBuffering) {
-                decision = when (decision.action) {
-                    PartySyncAction.SEEK_AND_PLAY -> SyncDecision(if (isPlaying) PartySyncAction.NONE else PartySyncAction.PLAY)
-                    PartySyncAction.SEEK_AND_PAUSE -> SyncDecision(if (isPlaying) PartySyncAction.PAUSE else PartySyncAction.NONE)
-                    else -> SyncDecision(PartySyncAction.NONE)
-                }
-            } else {
-                lastPartySeekAtMs = nowMs
+            while (_playerState.value.isBuffering) {
+                delay(100)
             }
+            applyPendingPartySync()
         }
+    }
 
+    private fun applyPendingPartySync() {
+        val decision = pendingPartySyncDecision ?: return
+        val timestampMs = pendingPartySyncTimestampMs
+        pendingPartySyncDecision = null
+        pendingPartySyncTimestampMs = 0L
+        pendingPartySyncJob?.cancel()
+        pendingPartySyncJob = null
+        executePartySyncDecision(decision, timestampMs)
+    }
+
+    private fun executePartySyncDecision(decision: SyncDecision, timestampMs: Long) {
         when (decision.action) {
             PartySyncAction.NONE -> {}
             PartySyncAction.SEEK -> {
@@ -712,6 +823,87 @@ class PlayerViewModel @Inject constructor(
                 pause(fromPartySync = true)
             }
         }
+        val isSeek = decision.action == PartySyncAction.SEEK ||
+                decision.action == PartySyncAction.SEEK_AND_PLAY ||
+                decision.action == PartySyncAction.SEEK_AND_PAUSE
+        if (isSeek) {
+            lastPartySeekAtMs = System.currentTimeMillis()
+        }
+        if (timestampMs > lastAppliedSyncTimestampMs) {
+            lastAppliedSyncTimestampMs = timestampMs
+        }
+    }
+
+    private fun handlePartySync(sync: PartySyncEvent) {
+        val session = watchPartyRepository.activeSession.value ?: return
+
+        // Discard older states that have already been applied
+        if (WatchPartySyncController.shouldDiscardSync(sync.lastSyncTimestampMs, lastAppliedSyncTimestampMs)) {
+            return
+        }
+
+        if (session.isHost) {
+            val allowGuestControls = sync.allowGuestControls || session.room?.allowGuestControls == true
+            val shouldApply = WatchPartySyncController.shouldHostApplyGuestSync(
+                allowGuestControls = allowGuestControls,
+                lastSyncMember = sync.lastSyncMember,
+                ownMemberId = session.memberId,
+                incomingTimestampMs = sync.lastSyncTimestampMs,
+                lastAppliedTimestampMs = lastAppliedSyncTimestampMs
+            )
+            if (sync.lastSyncTimestampMs > lastReceivedSyncTimestampMs) {
+                lastReceivedSyncTimestampMs = sync.lastSyncTimestampMs
+            }
+            if (!shouldApply) return
+        } else {
+            if (sync.lastSyncTimestampMs > lastReceivedSyncTimestampMs) {
+                lastReceivedSyncTimestampMs = sync.lastSyncTimestampMs
+            }
+        }
+
+        // Host moved to another episode: follow them instead of seeking inside the wrong file.
+        val hostEpisode = sync.episodeId
+        if (!hostEpisode.isNullOrBlank() && hostEpisode != episodeId) {
+            saveCurrentProgress()
+            _navigationEvents.tryEmit(hostEpisode)
+            return
+        }
+
+        val currentAbs = _playerState.value.absolutePositionSeconds
+        val isPlaying = _playerState.value.isPlaying
+        val nowMs = System.currentTimeMillis()
+
+        val decision = WatchPartySyncController.evaluateSync(
+            hostEvent = sync,
+            clientAbsolutePositionSeconds = currentAbs,
+            clientIsPlaying = isPlaying,
+            isClientHost = false,
+            nowMs = nowMs,
+            driftToleranceSeconds = if (currentStreamIsDirect) {
+                WatchPartySyncController.DRIFT_TOLERANCE_SECONDS
+            } else {
+                WatchPartySyncController.TRANSCODED_DRIFT_TOLERANCE_SECONDS
+            }
+        )
+
+        // Give a just-issued seek time to buffer before judging drift again (avoids seek storms).
+        val isSeek = decision.action == PartySyncAction.SEEK ||
+                decision.action == PartySyncAction.SEEK_AND_PLAY ||
+                decision.action == PartySyncAction.SEEK_AND_PAUSE
+        if (isSeek) {
+            if (nowMs - lastPartySeekAtMs < PARTY_SEEK_COOLDOWN_MS || _playerState.value.isBuffering) {
+                if (decision.action == PartySyncAction.SEEK_AND_PAUSE && isPlaying) {
+                    pause(fromPartySync = true)
+                }
+                schedulePendingPartySync(decision, sync.lastSyncTimestampMs)
+                return
+            }
+        }
+
+        pendingPartySyncJob?.cancel()
+        pendingPartySyncJob = null
+        pendingPartySyncDecision = null
+        executePartySyncDecision(decision, sync.lastSyncTimestampMs)
     }
 
     fun play(fromPartySync: Boolean = false) {
@@ -737,10 +929,11 @@ class PlayerViewModel @Inject constructor(
 
     /** Called when the app goes to the background: the periodic save can be up to 10 s behind. */
     fun onAppBackgrounded() {
+        if (playbackRevoked) return
         val absPos = _playerState.value.absolutePositionSeconds
         if (absPos > 2f) {
             lastSavedProgress = absPos
-            historyRepository.saveProgressDetached(episodeId, absPos, _playerState.value.durationSeconds)
+            historyRepository.saveProgressDetached(progressIdentity, episodeId, absPos, _playerState.value.durationSeconds)
         }
     }
 
@@ -818,6 +1011,20 @@ class PlayerViewModel @Inject constructor(
 
     fun selectSubtitleTrack(index: Int) {
         val ep = _playerState.value.episode ?: return
+        val currentSubIndex = _playerState.value.selectedSubtitleTrackIndex
+
+        // If the track is already active, do not restart playback
+        if (index == currentSubIndex) return
+
+        // Bitmap tracks (PGS/VobSub) cannot be displayed: preserve current track and alert user
+        if (index >= 0 && index < ep.subtitleTracks.size) {
+            val track = ep.subtitleTracks[index]
+            if (track.isBitmap) {
+                _hudMessages.tryEmit("Subtítulos no compatibles")
+                return
+            }
+        }
+
         val currentAbs = _playerState.value.absolutePositionSeconds
         _playerState.update { it.copy(selectedSubtitleTrackIndex = index) }
 
@@ -931,6 +1138,7 @@ class PlayerViewModel @Inject constructor(
 
     /** Switches to another episode of the show (episode panel, next episode, auto-advance). */
     fun playEpisode(targetEpisodeId: String) {
+        if (isChangingEpisode) return
         if (targetEpisodeId == episodeId) return
         val next = _playerState.value.showEpisodes.firstOrNull { it.id == targetEpisodeId }
             ?: _playerState.value.nextEpisode?.takeIf { it.id == targetEpisodeId }
@@ -944,19 +1152,33 @@ class PlayerViewModel @Inject constructor(
         cancelNextEpisodeCountdown()
 
         if (session != null) {
+            isChangingEpisode = true
             viewModelScope.launch {
-                watchPartyRepository.syncPlayback(
-                    session = session,
-                    currentTime = 0f,
-                    isPlaying = true,
-                    rate = 1f,
-                    action = "change_episode",
-                    episodeId = next.id
-                )
+                try {
+                    val syncResult = watchPartyRepository.syncPlayback(
+                        session = session,
+                        currentTime = 0f,
+                        isPlaying = true,
+                        rate = 1f,
+                        action = "change_episode",
+                        episodeId = next.id
+                    )
+                    if (syncResult.isSuccess) {
+                        _navigationEvents.tryEmit(next.id)
+                    } else {
+                        isChangingEpisode = false
+                        val errorMsg = syncResult.exceptionOrNull()?.message
+                            ?: "No se pudo sincronizar el cambio de episodio en la sala"
+                        _hudMessages.tryEmit(errorMsg)
+                    }
+                } catch (e: Exception) {
+                    isChangingEpisode = false
+                    _hudMessages.tryEmit("No se pudo sincronizar el cambio de episodio en la sala: ${e.message ?: "error"}")
+                }
             }
+        } else {
+            _navigationEvents.tryEmit(next.id)
         }
-
-        _navigationEvents.tryEmit(next.id)
     }
 
     fun createWatchParty(
@@ -987,6 +1209,11 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun leaveWatchParty() {
+        pendingPartySyncJob?.cancel()
+        pendingPartySyncJob = null
+        pendingPartySyncDecision = null
+        lastAppliedSyncTimestampMs = 0L
+        lastReceivedSyncTimestampMs = 0L
         partyPlaybackContext.clear()
         viewModelScope.launch {
             val session = watchPartyRepository.activeSession.value ?: return@launch
@@ -1019,6 +1246,13 @@ class PlayerViewModel @Inject constructor(
         }
 
         saveCurrentProgress()
+        if (sleepTimer.onEpisodeEnded()) {
+            nextCountdownJob?.cancel()
+            upNextDismissed = true
+            _playerState.update { it.copy(upNextVisible = false, nextEpisodeCountdown = null, endScreenVisible = true) }
+            showControlsPermanently()
+            return
+        }
         val next = _playerState.value.nextEpisode
         if (next != null && canAutoAdvance() && !upNextDismissed) {
             playNextEpisode()
@@ -1031,15 +1265,18 @@ class PlayerViewModel @Inject constructor(
 
     /** End screen "Volver a ver". */
     fun replayEpisode() {
+        sleepTimer.clearAutoAdvanceBlock()
         upNextDismissed = false
         introAutoSkipped = false
         creditsAutoSkipped = false
+        outroAutoSkipped = false
         _playerState.update { it.copy(endScreenVisible = false) }
         seekToAbsolute(0f)
         play()
     }
 
     private fun canAutoAdvance(): Boolean {
+        if (sleepTimer.blocksAutoAdvance()) return false
         val session = watchPartyRepository.activeSession.value
         return userPreferences.autoPlayNext && (session == null || session.isHost)
     }
@@ -1076,7 +1313,9 @@ class PlayerViewModel @Inject constructor(
                 if (player?.isPlaying == true) seconds--
                 _playerState.update { it.copy(nextEpisodeCountdown = seconds) }
             }
-            playNextEpisode()
+            if (canAutoAdvance()) {
+                playNextEpisode()
+            }
         }
     }
 
@@ -1096,17 +1335,67 @@ class PlayerViewModel @Inject constructor(
         val ep = _playerState.value.episode
         hasRetried503 = false
         _playerState.update { it.copy(errorMessage = null, isTranscodingBusy = false, retryAfterSeconds = null) }
+
+        player?.removeListener(playerListener)
+
+        val session = watchPartyRepository.activeSession.value
+        val roomSync = watchPartyRepository.lastRoomSync()
+        val reconnectState = WatchPartySyncController.resolveReconnectState(
+            session = session,
+            roomSync = roomSync,
+            episodeId = episodeId,
+            fallbackPositionSeconds = _playerState.value.absolutePositionSeconds,
+            nowMs = System.currentTimeMillis()
+        )
+        if (session != null && !session.isHost && roomSync != null) {
+            lastPartySync = roomSync
+        }
+
+        if (player == null) {
+            playbackConnectionManager.getPlayer(
+                onError = { e ->
+                    _playerState.update {
+                        it.copy(
+                            isBuffering = false,
+                            errorMessage = "Error al conectar con el reproductor: ${e.message ?: "error de conexión"}"
+                        )
+                    }
+                }
+            ) { p ->
+                if (isCleared) return@getPlayer
+                player?.removeListener(playerListener)
+                player = p
+                p.addListener(playerListener)
+                _playerState.update { it.copy(errorMessage = null) }
+                if (ep == null) {
+                    viewModelScope.launch { loadEpisodeAndInitPlayer() }
+                } else {
+                    setupPlayerInstance(
+                        episode = ep,
+                        resumePositionSeconds = reconnectState.positionSeconds,
+                        audioTrackIndex = _playerState.value.selectedAudioTrackIndex,
+                        subtitleTrackIndex = _playerState.value.selectedSubtitleTrackIndex,
+                        forceH264 = hasAppliedCodecFallback,
+                        initialPlayWhenReady = reconnectState.playWhenReady
+                    )
+                }
+            }
+            return
+        }
+
+        player?.addListener(playerListener)
+
         if (ep == null) {
             viewModelScope.launch { loadEpisodeAndInitPlayer() }
             return
         }
         setupPlayerInstance(
             episode = ep,
-            resumePositionSeconds = _playerState.value.absolutePositionSeconds,
+            resumePositionSeconds = reconnectState.positionSeconds,
             audioTrackIndex = _playerState.value.selectedAudioTrackIndex,
             subtitleTrackIndex = _playerState.value.selectedSubtitleTrackIndex,
             forceH264 = hasAppliedCodecFallback,
-            initialPlayWhenReady = true
+            initialPlayWhenReady = reconnectState.playWhenReady
         )
     }
 
@@ -1132,21 +1421,91 @@ class PlayerViewModel @Inject constructor(
         _playerState.update { it.copy(controlsVisible = true) }
     }
 
+    fun hideControls() {
+        autoHideControlsJob?.cancel()
+        _playerState.update { it.copy(controlsVisible = false) }
+    }
+
+    fun showControls() {
+        _playerState.update { it.copy(controlsVisible = true) }
+        if (_playerState.value.isPlaying) {
+            scheduleControlsAutoHide()
+        }
+    }
+
+    fun setSleepTimerMinutes(minutes: Int) {
+        if (_playerState.value.isWatchPartyActive) return
+        val profileId = userPreferences.activeProfileId ?: ""
+        sleepTimer.setTimer(SleepTimerMode.Minutes(minutes), profileId)
+    }
+
+    fun setSleepTimerEndOfEpisode() {
+        if (_playerState.value.isWatchPartyActive) return
+        val profileId = userPreferences.activeProfileId ?: ""
+        sleepTimer.setTimer(SleepTimerMode.EndOfEpisode, profileId)
+        cancelNextEpisodeCountdown()
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimer.cancel()
+    }
+
+    private fun onSleepTimerExpired() {
+        player?.pause()
+        saveCurrentProgress()
+        cancelNextEpisodeCountdown()
+        upNextDismissed = true
+        _playerState.update {
+            it.copy(
+                playWhenReady = false,
+                upNextVisible = false,
+                nextEpisodeCountdown = null,
+                endScreenVisible = false
+            )
+        }
+        showControlsPermanently()
+    }
+
     fun getPlayer(): Player? = player
+
+    /**
+     * The next episode's screen claimed the shared player. Save this episode where it was last seen
+     * playing (tracked while this screen still owned the player) and stop listening: every later event
+     * and position belongs to the other episode.
+     */
+    private fun onPlaybackTakenOver() {
+        if (playbackRevoked) return
+        playbackRevoked = true
+        player?.removeListener(playerListener)
+        stopProgressTracker()
+        pendingSeekJob?.cancel()
+        nextCountdownJob?.cancel()
+        retry503Job?.cancel()
+        retry503Job = null
+        val frozen = pendingSeekTarget ?: _playerState.value.absolutePositionSeconds
+        if (frozen > 2f) {
+            historyRepository.saveProgressDetached(progressIdentity, episodeId, frozen, _playerState.value.durationSeconds)
+        }
+    }
 
     override fun onCleared() {
         isCleared = true
         // viewModelScope is already cancelled here, so the final save must run on a detached scope.
         val p = player
-        val finalPosition = if (p != null && p.playbackState == Player.STATE_READY) {
-            StreamResolver.calculateAbsolutePositionSeconds(_playerState.value.streamStartOffsetSeconds, p.currentPosition)
-        } else {
-            _playerState.value.absolutePositionSeconds
-        }
-        if (finalPosition > 2f) {
-            historyRepository.saveProgressDetached(episodeId, finalPosition, _playerState.value.durationSeconds)
+        if (!playbackRevoked) {
+            val finalPosition = if (p != null && p.playbackState == Player.STATE_READY && pendingSeekTarget == null) {
+                StreamResolver.calculateAbsolutePositionSeconds(_playerState.value.streamStartOffsetSeconds, p.currentPosition)
+            } else {
+                pendingSeekTarget ?: _playerState.value.absolutePositionSeconds
+            }
+            if (finalPosition > 2f) {
+                historyRepository.saveProgressDetached(progressIdentity, episodeId, finalPosition, _playerState.value.durationSeconds)
+            }
         }
         stopProgressTracker()
+        pendingPartySyncJob?.cancel()
+        pendingPartySyncJob = null
+        pendingPartySyncDecision = null
         pendingSeekJob?.cancel()
         nextCountdownJob?.cancel()
         retry503Job?.cancel()

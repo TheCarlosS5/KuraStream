@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+require_once __DIR__ . '/../middleware/RateLimiter.php';
 
 class AuthController {
     public static function hashPassword(string $password): string {
@@ -286,9 +287,19 @@ class AuthController {
         }
 
         if (!empty($profile['pin'])) {
-            if (empty($pin) || !password_verify($pin, $profile['pin'])) {
-                jsonError('PIN incorrecto', 403);
-            }
+            // A 4-digit PIN falls to brute force in minutes (e.g. from a kids session): 5 misses per 15 min.
+            $pinKey = 'pin_fail_' . $username . '_' . $profile['id'];
+            RateLimiter::withLock($pinKey, function() use ($pinKey, $pin, $profile) {
+                $retryAfter = 0;
+                if (RateLimiter::isBlocked($pinKey, 5, 900, $retryAfter)) {
+                    @header('Retry-After: ' . $retryAfter);
+                    jsonError('Demasiados intentos de PIN. Espera ' . (int)ceil($retryAfter / 60) . ' min e inténtalo de nuevo.', 429);
+                }
+                if (empty($pin) || !password_verify($pin, $profile['pin'])) {
+                    RateLimiter::check($pinKey, 5, 900);
+                    jsonError('PIN incorrecto', 403);
+                }
+            });
         }
 
         $token = self::issueProfileToken($authUser, $profile);

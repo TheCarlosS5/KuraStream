@@ -223,6 +223,18 @@ fun HomeScreen(
                             }
                         }
 
+                        // Because You Watched Rail
+                        if (feed.becauseYouWatchedShows.isNotEmpty() && !feed.becauseYouWatchedTitle.isNullOrBlank()) {
+                            item {
+                                RailHeader(title = stringResource(R.string.because_you_watched, feed.becauseYouWatchedTitle))
+                                ShowsRail(
+                                    shows = feed.becauseYouWatchedShows,
+                                    baseUrl = feed.baseUrl,
+                                    onShowClick = onNavigateToShowDetail
+                                )
+                            }
+                        }
+
                         // Recently Added Rail
                         if (feed.recentlyAdded.isNotEmpty()) {
                             item {

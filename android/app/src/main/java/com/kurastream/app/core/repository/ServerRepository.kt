@@ -7,6 +7,7 @@ import com.kurastream.app.core.model.ServerProfile
 import com.kurastream.app.core.network.KuraApiService
 import com.kurastream.app.core.network.ServerUrlResolver
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.util.UUID
@@ -28,6 +29,8 @@ class ServerRepository(
             } else {
                 Result.failure(Exception("Servidor degradado: ${health.database}"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: retrofit2.HttpException) {
             // /api/health answers 503 when PHP is up but MySQL is not: say so instead of a generic 503.
             if (e.code() == 503) {

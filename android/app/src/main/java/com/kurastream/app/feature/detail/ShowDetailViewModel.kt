@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kurastream.app.core.model.Episode
+import com.kurastream.app.core.model.EpisodeOrder
 import com.kurastream.app.core.model.ShowDetail
 import com.kurastream.app.core.model.UiState
 import com.kurastream.app.core.model.WatchHistoryItem
@@ -44,6 +45,25 @@ class ShowDetailViewModel @Inject constructor(
 
     init {
         loadDetails()
+        observeProgressSaved()
+    }
+
+    private fun observeProgressSaved() {
+        viewModelScope.launch {
+            historyRepository.progressSaved.collect { episodeId ->
+                val detail = (_uiState.value.detailState as? UiState.Content)?.data ?: return@collect
+                if (detail.episodes.any { it.id == episodeId }) {
+                    reloadHistory(detail)
+                }
+            }
+        }
+    }
+
+    private fun reloadHistory(detail: ShowDetail) {
+        historyRefreshJob?.cancel()
+        historyRefreshJob = viewModelScope.launch {
+            fetchAndApplyHistory(detail)
+        }
     }
 
     fun loadDetails() {
@@ -118,47 +138,49 @@ class ShowDetailViewModel @Inject constructor(
     /**
      * Re-reads progress when the screen comes back from the player, without the full-screen loader.
      * The player saves its final position while it is being torn down, which overlaps with this
-     * screen resuming, so the fetch waits a moment to see that save.
+     * screen resuming, so the fetch waits a moment as a fallback if no progressSaved event arrives.
      */
     fun refreshHistory() {
         val detail = (_uiState.value.detailState as? UiState.Content)?.data ?: return
         historyRefreshJob?.cancel()
         historyRefreshJob = viewModelScope.launch {
             delay(HISTORY_REFRESH_DELAY_MS)
-            val prefs = preferencesDataSource.preferencesFlow.first()
-            if (prefs.activeUsername.isNullOrBlank() || prefs.activeProfileId.isNullOrBlank()) return@launch
-
-            val history = historyRepository.refreshHistory(
-                serverId = prefs.activeServerId ?: "",
-                username = prefs.activeUsername,
-                profileId = prefs.activeProfileId
-            ).getOrNull()?.filter { it.showId == showId } ?: return@launch
-
-            _uiState.update {
-                it.copy(
-                    resumeEpisode = pickResumeEpisode(detail.episodes, history),
-                    episodeProgressMap = history.associate { h -> h.episodeId to h.progressSeconds },
-                    episodeCompletedMap = history.associate { h -> h.episodeId to h.completed }
-                )
-            }
+            fetchAndApplyHistory(detail)
         }
     }
 
-    /**
-     * Netflix-style target for the play button: the most recently watched episode (history comes
-     * newest first) if unfinished, otherwise the one after it; the first episode when there is no
-     * history or the show was finished.
-     */
-    private fun pickResumeEpisode(episodes: List<Episode>, history: List<WatchHistoryItem>): Episode? {
-        val ordered = episodes.sortedWith(compareBy({ it.seasonNumber }, { it.episodeNumber }))
-        val latest = history.firstOrNull() ?: return ordered.firstOrNull()
-        val idx = ordered.indexOfFirst { it.id == latest.episodeId }
-        if (idx < 0) return ordered.firstOrNull()
-        if (!latest.completed) return ordered[idx]
-        return ordered.getOrNull(idx + 1) ?: ordered.firstOrNull()
+    private suspend fun fetchAndApplyHistory(detail: ShowDetail) {
+        val prefs = preferencesDataSource.preferencesFlow.first()
+        if (prefs.activeUsername.isNullOrBlank() || prefs.activeProfileId.isNullOrBlank()) return
+
+        val history = historyRepository.refreshHistory(
+            serverId = prefs.activeServerId ?: "",
+            username = prefs.activeUsername,
+            profileId = prefs.activeProfileId
+        ).getOrNull()?.filter { it.showId == showId } ?: return
+
+        _uiState.update {
+            it.copy(
+                resumeEpisode = pickResumeEpisode(detail.episodes, history),
+                episodeProgressMap = history.associate { h -> h.episodeId to h.progressSeconds },
+                episodeCompletedMap = history.associate { h -> h.episodeId to h.completed }
+            )
+        }
     }
 
-    private companion object {
-        const val HISTORY_REFRESH_DELAY_MS = 800L
+    companion object {
+        private const val HISTORY_REFRESH_DELAY_MS = 800L
+
+        /**
+         * Netflix-style target for the play button: uses [EpisodeOrder] to offer regular seasons first
+         * (S1E1 instead of S0E1 specials). Resumes the unfinished episode, or advances to the next
+         * episode without rolling from specials to regular seasons or looping when finished.
+         */
+        fun pickResumeEpisode(episodes: List<Episode>, history: List<WatchHistoryItem>): Episode? {
+            val latest = history.firstOrNull() ?: return EpisodeOrder.first(episodes)
+            val current = episodes.firstOrNull { it.id == latest.episodeId } ?: return EpisodeOrder.first(episodes)
+            if (!latest.completed) return current
+            return EpisodeOrder.next(episodes, latest.episodeId)
+        }
     }
 }

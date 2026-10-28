@@ -1570,6 +1570,16 @@
   overflow: hidden;
 }
 
+.player-episode-reveal-wrap {
+  display: inline-flex;
+  margin-top: 4px;
+}
+
+.player-episode-reveal-btn {
+  font-size: 0.75rem;
+  padding: 3px 8px;
+}
+
 /* ---------------------------------------------------------------------------------------------
    Watch party sidebar
    --------------------------------------------------------------------------------------------- */

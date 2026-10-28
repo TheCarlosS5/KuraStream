@@ -80,6 +80,7 @@ object AppModule {
         ignoreUnknownKeys = true
         isLenient = true
         encodeDefaults = true
+        explicitNulls = false
     }
 
     @Provides
@@ -159,8 +160,9 @@ object AppModule {
                     builder.header("X-Stream-Capability", streamTicket)
                 }
 
-                // If caller didn't pass explicit authorization or stream capability, use active bearer token
-                if (original.header("Authorization") == null && original.header("X-Stream-Capability") == null && streamTicket.isNullOrBlank()) {
+                // Send the bearer token alongside any party ticket: the server requires both for members
+                // bound to an account (PARTY_AUTH_REQUIRED otherwise); anonymous guests simply have none.
+                if (original.header("Authorization") == null) {
                     val token = tokenStorage.getToken(activeServerId)
                     if (!token.isNullOrBlank()) {
                         builder.header("Authorization", "Bearer $token")
@@ -235,9 +237,22 @@ object AppModule {
     @Provides
     @Singleton
     fun provideHistoryRepository(
+        @ApplicationContext context: Context,
         apiService: KuraApiService,
-        historyDao: HistoryDao
-    ): HistoryRepository = HistoryRepository(apiService, historyDao)
+        historyDao: HistoryDao,
+        preferencesDataSource: KuraPreferencesDataSource
+    ): HistoryRepository = HistoryRepository(
+        apiService = apiService,
+        historyDao = historyDao,
+        pendingStore = SharedPrefsPendingProgressStore(
+            context.getSharedPreferences("kura_pending_progress", Context.MODE_PRIVATE)
+        ),
+        activeIdentity = {
+            preferencesDataSource.preferencesFlow.firstOrNull()?.let {
+                ProgressIdentity(it.activeServerId ?: "", it.activeUsername ?: "", it.activeProfileId ?: "")
+            }
+        }
+    )
 
     @Provides
     @Singleton
@@ -245,4 +260,14 @@ object AppModule {
         apiService: KuraApiService,
         watchPartyClient: WatchPartyClient
     ): WatchPartyRepository = WatchPartyRepository(apiService, watchPartyClient)
+
+    @Provides
+    @Singleton
+    fun provideSleepTimerClock(): com.kurastream.app.core.player.SleepTimerClock =
+        com.kurastream.app.core.player.DefaultSleepTimerClock()
+
+    @Provides
+    @Singleton
+    fun provideSleepTimer(clock: com.kurastream.app.core.player.SleepTimerClock): com.kurastream.app.core.player.SleepTimer =
+        com.kurastream.app.core.player.SleepTimer(clock)
 }

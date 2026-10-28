@@ -3,6 +3,26 @@
  * Unified Test Runner for KuraStream PHP/MySQL Backend
  */
 
+if (($argv[1] ?? '') === '--probe-db') {
+    try {
+        require_once __DIR__ . '/../php_backend/config.php';
+        $dsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME;
+        $pdo = new PDO($dsn, DB_USER, DB_PASS, [
+            PDO::ATTR_TIMEOUT => 1,
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
+        ]);
+        require_once __DIR__ . '/../php_backend/db.php';
+        require_once __DIR__ . '/../php_backend/services/MigrationManager.php';
+        Database::initializeSchema($pdo);
+        MigrationManager::runPending();
+        exit(0);
+    } catch (Throwable $e) {
+        fwrite(STDERR, $e->getMessage() . "
+");
+        exit(1);
+    }
+}
+
 // Registered test suites list
 $tests = [
     'test_admin_auth_contract.php',
@@ -28,6 +48,7 @@ $tests = [
     'test_party_security.php',
     'test_profile_pin_security.php',
     'test_progress_integrity.php',
+    'test_patch_progress_isolation.php',
     'test_rate_limiter.php',
     'test_security_and_api_fixes.php',
     'test_ui_assets.php',
@@ -71,24 +92,22 @@ if (!empty($missingExts) && is_dir($phpExtDir)) {
     }
 }
 
-$mysqlAvailable = false;
-try {
-    require_once __DIR__ . '/../php_backend/config.php';
-    $dsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME;
-    $pdo = new PDO($dsn, DB_USER, DB_PASS, [
-        PDO::ATTR_TIMEOUT => 1,
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
-    ]);
-    $mysqlAvailable = true;
-    echo "MySQL Database: ONLINE (All integration tests enabled)\n";
-    require_once __DIR__ . '/../php_backend/db.php';
-    require_once __DIR__ . '/../php_backend/services/MigrationManager.php';
-    Database::initializeSchema($pdo);
-    MigrationManager::runPending();
-    echo "Schema & Migrations: APPLIED ✓\n\n";
-} catch (Throwable $e) {
-    $mysqlAvailable = false;
-    echo "MySQL Database: OFFLINE (DB-dependent integration tests will be skipped)\n\n";
+// The runner itself may lack pdo_mysql (it is only loaded for the child processes through -d), so the
+// database probe runs in a child with the same extension flags as the suites.
+$probe = [];
+$probeCode = 1;
+exec(escapeshellarg($phpBin) . $phpExtensionArgs . ' ' . escapeshellarg(__FILE__) . ' --probe-db 2>&1', $probe, $probeCode);
+$mysqlAvailable = $probeCode === 0;
+if ($mysqlAvailable) {
+    echo "MySQL Database: ONLINE (All integration tests enabled)
+";
+    echo "Schema & Migrations: APPLIED ✓
+
+";
+} else {
+    echo "MySQL Database: OFFLINE (DB-dependent integration tests will be skipped)
+
+";
 }
 
 foreach ($testFiles as $idx => $file) {

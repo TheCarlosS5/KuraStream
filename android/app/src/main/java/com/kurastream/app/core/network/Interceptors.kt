@@ -15,6 +15,7 @@ class DynamicBaseUrlInterceptor(
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         var request = chain.request()
+        val isAbsolute = request.header(HEADER_ABSOLUTE_URL) != null
         val overrideUrl = request.header("X-Target-Base-Url")
         val currentBase = if (!overrideUrl.isNullOrBlank()) overrideUrl else getBaseUrl()
 
@@ -26,22 +27,38 @@ class DynamicBaseUrlInterceptor(
                     .host(newHttpUrl.host)
                     .port(newHttpUrl.port)
 
-                val basePathSegments = newHttpUrl.pathSegments.filter { it.isNotEmpty() }
-                if (basePathSegments.isNotEmpty()) {
-                    val basePrefix = basePathSegments.joinToString("/")
-                    val originalPath = request.url.encodedPath.trimStart('/')
-                    val combinedPath = if (originalPath.isEmpty()) "/$basePrefix" else "/$basePrefix/$originalPath"
-                    newUrlBuilder.encodedPath(combinedPath)
+                if (!isAbsolute) {
+                    val basePathSegments = newHttpUrl.pathSegments.filter { it.isNotEmpty() }
+                    if (basePathSegments.isNotEmpty()) {
+                        val basePrefix = basePathSegments.joinToString("/")
+                        val originalPath = request.url.encodedPath.trimStart('/')
+                        val combinedPath = if (originalPath.isEmpty()) {
+                            "/$basePrefix"
+                        } else {
+                            "/$basePrefix/$originalPath"
+                        }
+                        newUrlBuilder.encodedPath(combinedPath)
+                    }
                 }
 
                 request = request.newBuilder()
-                    .removeHeader("X-Target-Base-Url")
                     .url(newUrlBuilder.build())
                     .build()
             }
         }
 
+        if (isAbsolute || overrideUrl != null) {
+            val reqBuilder = request.newBuilder()
+            if (isAbsolute) reqBuilder.removeHeader(HEADER_ABSOLUTE_URL)
+            if (overrideUrl != null) reqBuilder.removeHeader("X-Target-Base-Url")
+            request = reqBuilder.build()
+        }
+
         return chain.proceed(request)
+    }
+
+    companion object {
+        const val HEADER_ABSOLUTE_URL = "X-Absolute-Url"
     }
 }
 

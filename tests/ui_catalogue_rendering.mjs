@@ -44,6 +44,7 @@ context.window = { location: { hash: '' }, showEpisodeDetails: value => { select
 context.setupCatalogueActions();
 const route = '#/show/' + encodeURIComponent(id);
 handlers.click({ target: { closest: selector => {
+  if (selector === '[data-reveal-episode-id]') return null; // spoiler-free "Mostrar detalles" button
   assert.equal(selector, '[data-catalogue-route], .episode-item[data-episode-id]', 'Do not activate unrelated data-episode-id controls');
   return { dataset: { catalogueRoute: route } };
 } } });

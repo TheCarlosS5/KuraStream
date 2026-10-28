@@ -65,9 +65,11 @@ class ApiPayloadDecodingTest {
 
     @Test
     fun `party join reads participants_count`() {
-        val body = """{"success":true,"room":{"id":"KURA-1","name":"Sala","host_user":"ana","episode_id":"Grand Blue_S1_E1","is_playing":false,"current_time":0,"last_sync_timestamp":1790961585906,"is_public":true,"allow_guest_controls":true,"participants_count":3},"messages":[{"id":1301,"room_id":"KURA-1","username":"Sistema","message":"hola","type":"system","created_at":"2026-10-02 12:19:45","role":"system"}],"members":[],"user":"ana","member_id":"m","member_token":"t","is_host":true}"""
+        val body = """{"success":true,"room":{"id":"KURA-1","name":"Sala","host_user":"ana","episode_id":"Grand Blue_S1_E1","is_playing":false,"current_time":0,"last_sync_timestamp":1790961585906,"is_public":true,"allow_guest_controls":true,"participants_count":3,"last_sync_member":"guest_42"},"messages":[{"id":1301,"room_id":"KURA-1","username":"Sistema","message":"hola","type":"system","created_at":"2026-10-02 12:19:45","role":"system"}],"members":[],"user":"ana","member_id":"m","member_token":"t","is_host":true}"""
         val res = json.decodeFromString<PartyJoinResponseDto>(body)
         assertEquals(3, res.room?.memberCount)
+        assertEquals(true, res.room?.allowGuestControls)
+        assertEquals("guest_42", res.room?.lastSyncMember)
         assertEquals(1301, res.messages.single().id)
     }
 }

@@ -103,6 +103,7 @@ class ServerUrlResolverTest {
         assertTrue(url.contains("start=120.5"))
         assertTrue(url.contains("audio=1"))
         assertTrue(url.contains("codec=h264"))
+        assertTrue(url.contains("transcode=1"))
         assertTrue(url.contains("downmix=stereo"))
     }
 

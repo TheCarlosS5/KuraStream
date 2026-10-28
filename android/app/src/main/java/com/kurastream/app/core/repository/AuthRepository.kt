@@ -11,6 +11,7 @@ import com.kurastream.app.core.network.dto.SaveProfileRequestDto
 import com.kurastream.app.core.network.dto.SelectProfileRequestDto
 import com.kurastream.app.core.preferences.KuraPreferencesDataSource
 import com.kurastream.app.core.security.TokenStorage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.firstOrNull
 
 class AuthRepository(
@@ -33,6 +34,8 @@ class AuthRepository(
             } else {
                 Result.failure(Exception(response.error ?: "Error de autenticación"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -53,6 +56,8 @@ class AuthRepository(
             } else {
                 Result.failure(Exception(response.error ?: "Error al registrar usuario"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -67,6 +72,8 @@ class AuthRepository(
             } else {
                 Result.failure(Exception(response.error ?: "Error cargando perfiles"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -89,6 +96,8 @@ class AuthRepository(
             } else {
                 Result.failure(Exception(response.error ?: "PIN o perfil incorrecto"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -109,6 +118,8 @@ class AuthRepository(
             } else {
                 Result.failure(Exception(response.error ?: "No fue posible guardar el perfil"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -118,12 +129,16 @@ class AuthRepository(
         return try {
             try {
                 apiService.logout()
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {}
 
             val activeServerId = preferencesDataSource.preferencesFlow.firstOrNull()?.activeServerId
             tokenStorage.clearToken(activeServerId)
             preferencesDataSource.clearSession()
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }

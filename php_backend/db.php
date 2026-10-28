@@ -483,6 +483,31 @@ class DbHelper {
         return $rows;
     }
 
+    public static function getSeasonsForShows(array $showIds): array {
+        $showIds = array_values(array_filter(array_unique($showIds), fn($id) => $id !== null && $id !== ''));
+        if (empty($showIds)) return [];
+
+        $db = Database::getConnection();
+        try {
+            $placeholders = implode(',', array_fill(0, count($showIds), '?'));
+            $stmt = $db->prepare("SELECT * FROM show_seasons WHERE show_id IN ($placeholders)");
+            $stmt->execute($showIds);
+            $rows = $stmt->fetchAll();
+        } catch (Throwable $e) {
+            return [];
+        }
+        usort($rows, fn($a, $b) => [
+            (string)($a['show_id'] ?? ''),
+            (int)$a['season_number'] <= 0 ? 1 : 0,
+            (int)$a['season_number']
+        ] <=> [
+            (string)($b['show_id'] ?? ''),
+            (int)$b['season_number'] <= 0 ? 1 : 0,
+            (int)$b['season_number']
+        ]);
+        return $rows;
+    }
+
     public static function getShowSeason(string $showId, int $season): ?array {
         foreach (self::getShowSeasons($showId) as $row) {
             if ((int)$row['season_number'] === $season) return $row;
@@ -1326,6 +1351,7 @@ class DbHelper {
         $row['is_public'] = (bool)$row['is_public'];
         $row['allow_guest_controls'] = (bool)$row['allow_guest_controls'];
         $row['participants_count'] = (int)$row['participants_count'];
+        $row['last_sync_member'] = !empty($row['last_sync_member']) ? (string)$row['last_sync_member'] : null;
         // Clients extrapolate the host position from last_sync_timestamp; this lets them measure
         // against the server clock instead of their own (the home server often runs without NTP).
         $row['server_time_ms'] = (int)(microtime(true) * 1000);
@@ -1333,7 +1359,17 @@ class DbHelper {
         return $row;
     }
 
-    public static function updatePartyPlayback(string $roomId, bool $isPlaying, float $currentTime, ?string $episodeId = null, ?int $participants = null): bool {
+    /**
+     * Presence only. Join/leave used to go through updatePartyPlayback with the stored position, which
+     * re-anchored the room clock to that stale time and rewound everyone (or undid a concurrent seek).
+     */
+    public static function updatePartyParticipants(string $roomId, int $participants): bool {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("UPDATE party_rooms SET participants_count = :parts, updated_at = NOW() WHERE id = :id");
+        return $stmt->execute(['parts' => max(1, $participants), 'id' => $roomId]);
+    }
+
+    public static function updatePartyPlayback(string $roomId, bool $isPlaying, float $currentTime, ?string $episodeId = null, ?int $participants = null, ?string $memberId = null): bool {
         $db = Database::getConnection();
         $nowMs = (int)(microtime(true) * 1000);
 
@@ -1353,6 +1389,11 @@ class DbHelper {
         if ($participants !== null) {
             $sql .= ", participants_count = :parts";
             $params['parts'] = max(1, $participants);
+        }
+
+        if ($memberId !== null) {
+            $sql .= ", last_sync_member = :member";
+            $params['member'] = $memberId;
         }
 
         $sql .= ", updated_at = NOW() WHERE id = :id";

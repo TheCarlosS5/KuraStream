@@ -8,6 +8,7 @@ import com.kurastream.app.core.network.KuraApiService
 import com.kurastream.app.core.network.dto.EpisodeDto
 import com.kurastream.app.core.network.dto.ShowDto
 import com.kurastream.app.core.network.dto.ToggleFavoriteRequestDto
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.contentOrNull
@@ -29,6 +30,8 @@ class CatalogRepository(
             showDao.replaceShowsForProfile(serverId, username, profileId, entities)
             val filtered = if (isKidsMode) entities.filter { !it.isRestrictedKids } else entities
             Result.success(filtered.map { it.toModel() })
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -85,6 +88,8 @@ class CatalogRepository(
                     seasonInfo = seasonInfo
                 )
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -95,6 +100,8 @@ class CatalogRepository(
             val dto = apiService.getRandomShow().show
                 ?: return Result.failure(IllegalStateException("El catálogo está vacío"))
             Result.success(dto.toModel())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -104,6 +111,8 @@ class CatalogRepository(
         return try {
             val list = apiService.getFavorites().map { it.toModel() }
             Result.success(list)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -113,6 +122,8 @@ class CatalogRepository(
         return try {
             val res = apiService.toggleFavorite(ToggleFavoriteRequestDto(showId))
             Result.success(res.favorited)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -122,6 +133,8 @@ class CatalogRepository(
         return try {
             val dto = apiService.getEpisodeDetails(episodeId)
             Result.success(dto.toModel())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -131,6 +144,8 @@ class CatalogRepository(
         return try {
             val res = apiService.checkFavorite(showId)
             Result.success(res.favorited)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -159,6 +174,8 @@ class CatalogRepository(
                 }
             }
             Result.success(mapped)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -168,6 +185,8 @@ class CatalogRepository(
         return try {
             val res = apiService.getNotifications()
             Result.success(res)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -177,6 +196,8 @@ class CatalogRepository(
         return try {
             apiService.markNotificationsSeen()
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }

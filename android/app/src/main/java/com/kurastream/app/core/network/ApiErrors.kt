@@ -21,7 +21,8 @@ private val errorJson = Json { ignoreUnknownKeys = true; isLenient = true }
  * `{"error": "..."}` with a Spanish message, which is far more useful than Retrofit's "HTTP 403".
  */
 fun Throwable.toUserFacingError(): Throwable {
-    if (this is CancellationException || this is UserFacingException) return this
+    if (this is CancellationException) throw this
+    if (this is UserFacingException) return this
     val message = when (this) {
         is HttpException -> serverErrorMessage(this) ?: when (code()) {
             401 -> "Tu sesión expiró. Vuelve a iniciar sesión."

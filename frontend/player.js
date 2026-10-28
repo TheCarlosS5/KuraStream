@@ -186,6 +186,9 @@ const S = {
   lastSavedAt: -1,
   introSkipped: false,
   creditsSkipped: false,
+  skipUndo: null,
+  skipUndoTimer: null,
+  disabledAutoSkip: { intro: false, credits: false },
   upNext: { shown: false, dismissed: false, navigating: false, seconds: 0, timer: null },
   endedShown: false,
   hold: { timer: null, active: false, previousRate: 1 },
@@ -203,7 +206,9 @@ const S = {
   lastKnownTime: 0,
   partyHandlers: null,
   seenMessageIds: new Set(),
-  heartbeatTimer: null
+  heartbeatTimer: null,
+  completedEpisodeIds: new Set(),
+  revealedEpisodeIds: new Set()
 };
 
 const els = {};
@@ -221,8 +226,8 @@ function cacheElements() {
     'player-time-duration', 'play-pause-btn', 'play-icon', 'rewind-btn', 'forward-btn', 'mute-btn', 'volume-icon',
     'volume-slider', 'next-ep-btn', 'episodes-btn', 'player-tracks-btn', 'more-options-btn', 'more-options-menu',
     'more-options-dropdown', 'player-party-btn', 'player-pip-btn', 'fullscreen-btn', 'fullscreen-icon', 'player-hud',
-    'player-seek-feedback-left', 'player-seek-feedback-right', 'skip-intro-btn', 'skip-intro-label', 'up-next-card', 'up-next-thumb',
-    'up-next-title', 'up-next-meta', 'up-next-count', 'up-next-ring', 'up-next-play', 'up-next-dismiss',
+    'player-seek-feedback-left', 'player-seek-feedback-right', 'skip-intro-btn', 'skip-undo-btn', 'skip-intro-label', 'up-next-card', 'up-next-thumb',
+    'up-next-title', 'up-next-meta', 'up-next-count', 'up-next-ring', 'up-next-play', 'up-next-dismiss', 'up-next-reveal',
     'player-end-screen', 'player-end-title', 'player-end-next', 'player-end-replay', 'player-end-back',
     'player-resume-toast', 'player-resume-text', 'player-resume-restart', 'player-error-overlay', 'player-error-title',
     'player-error-message', 'player-error-retry-btn', 'player-error-back-btn', 'player-episodes-panel',
@@ -507,17 +512,24 @@ function setVolume(level, { muted = level <= 0 } = {}) {
   renderVolume();
 }
 
+/** Spoiler-free mode: an episode's title and thumbnail stay hidden until it is finished or revealed. */
+function hidesSpoilers(ep) {
+  if (!ep || typeof AuthManager === 'undefined' || typeof AuthManager.isSpoilerFree !== 'function' || !AuthManager.isSpoilerFree()) return false;
+  return !S.completedEpisodeIds.has(String(ep.id)) && !S.revealedEpisodeIds.has(String(ep.id));
+}
+
 function renderTitles() {
   const ep = S.episode;
   const show = S.show || {};
+  const title = hidesSpoilers(ep) ? '' : ep.title;
   if (els['player-show-title']) els['player-show-title'].textContent = show.title || '';
   if (els['player-episode-title']) {
     const parts = [];
     if (show.media_type !== 'movie') parts.push(episodeLabel(ep));
-    if (ep.title) parts.push(ep.title);
+    if (title) parts.push(title);
     els['player-episode-title'].textContent = parts.join(' · ');
   }
-  document.title = `${show.title || 'KuraStream'}${ep.title ? ` - ${ep.title}` : ''} | KuraStream`;
+  document.title = `${show.title || 'KuraStream'}${title ? ` - ${title}` : ''} | KuraStream`;
 }
 
 function renderChapterTicks() {
@@ -801,18 +813,23 @@ async function fetchSubtitle(episodeId, track) {
 
 async function fetchFonts(episodeId) {
   if (fontCache.has(episodeId)) return fontCache.get(episodeId);
-  let fonts = [];
+  // The worker fetches the font URLs itself (no headers): a party guest without an account needs the ticket in them.
+  const ticket = partyManager.streamCapabilityToken;
+  const query = ticket ? `?ticket=${encodeURIComponent(ticket)}` : '';
+  const base = `/api/episodes/${encodeURIComponent(episodeId)}/fonts`;
   try {
-    const res = await fetch(`/api/episodes/${encodeURIComponent(episodeId)}/fonts`, { headers: authHeaders() });
-    if (res.ok) {
-      const data = await res.json();
-      fonts = (Array.isArray(data.fonts) ? data.fonts : []).map(font => (typeof font === 'string'
-        ? `/api/episodes/${encodeURIComponent(episodeId)}/fonts/${encodeURIComponent(font)}`
-        : font.url || `/api/episodes/${encodeURIComponent(episodeId)}/fonts/${encodeURIComponent(font.name)}`));
-    }
-  } catch { /* fall back to the default font */ }
-  fontCache.set(episodeId, fonts);
-  return fonts;
+    const res = await fetch(`${base}${query}`, { headers: authHeaders() });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const fonts = (Array.isArray(data.fonts) ? data.fonts : []).map(font => (typeof font === 'string'
+      ? `${base}/${encodeURIComponent(font)}${query}`
+      : (font.url ? `${font.url}${query}` : `${base}/${encodeURIComponent(font.name)}${query}`)));
+    // Only a real answer is cached; an auth or network error must not stick as "no fonts".
+    fontCache.set(episodeId, fonts);
+    return fonts;
+  } catch {
+    return [];
+  }
 }
 
 function syncSubtitleClock() {
@@ -887,11 +904,11 @@ function selectSubtitle(track, { remember = true } = {}) {
   if (track !== -1) S.lastSubtitleTrack = track;
   if (remember) {
     if (track === -1) {
-      writePref('kura_pref_sub_lang', 'off');
+      writePref(AuthManager.langPrefKey('sub'), 'off');
     } else {
       const info = parseTrackList(S.episode.subtitle_tracks).find((t, i) => trackNumber(t, i) === track);
       const lang = detectTrackLang(info);
-      if (lang && lang !== 'und') writePref('kura_pref_sub_lang', lang);
+      if (lang && lang !== 'und') writePref(AuthManager.langPrefKey('sub'), lang);
     }
   }
   applySubtitleTrack(track);
@@ -918,7 +935,7 @@ function selectAudio(track) {
   S.audioTrack = track;
   const info = parseTrackList(S.episode.audio_tracks).find((t, i) => trackNumber(t, i) === track);
   const lang = detectTrackLang(info);
-  if (lang && lang !== 'und') writePref('kura_pref_audio_lang', lang);
+  if (lang && lang !== 'und') writePref(AuthManager.langPrefKey('audio'), lang);
   loadStream(displayTime(), { autoplay: !els.video.paused });
 }
 
@@ -1115,18 +1132,40 @@ function renderEpisodesPanel(season) {
   }
   const list = els['player-episodes-list'];
   const items = orderEpisodes(S.episodes).filter(ep => (parseInt(ep.season_number, 10) || 0) === season);
+  const isSpoilerMode = typeof AuthManager !== 'undefined' && typeof AuthManager.isSpoilerFree === 'function' ? AuthManager.isSpoilerFree() : false;
+
   list.innerHTML = items.map(ep => {
-    const thumb = ep.thumbnail_path ? escapeHtml(ep.thumbnail_path) : '/assets/illustrations/backdrop_placeholder.svg';
     const isCurrent = ep.id === currentEpisodeId;
+    const isCompleted = S.completedEpisodeIds.has(String(ep.id));
+    const isRevealed = S.revealedEpisodeIds.has(String(ep.id));
+    const hideSpoilers = isSpoilerMode && !isCompleted && !isRevealed;
+
+    const thumb = hideSpoilers
+      ? '/assets/illustrations/backdrop_placeholder.svg'
+      : (ep.thumbnail_path ? escapeHtml(ep.thumbnail_path) : '/assets/illustrations/backdrop_placeholder.svg');
     const minutes = Math.round((Number(ep.duration) || 0) / 60);
+    const epNumLabel = ep.episode_number ? `Episodio ${ep.episode_number}` : 'Episodio';
+    const epTitleText = hideSpoilers ? '' : (ep.title || `Episodio ${ep.episode_number}`);
+    const imgAlt = hideSpoilers ? escapeHtml(epNumLabel) : '';
+    const itemAria = hideSpoilers ? escapeHtml(epNumLabel) : escapeHtml(`${episodeLabel(ep)}: ${ep.title || epNumLabel}`);
+
+    const revealBtnHTML = hideSpoilers ? `
+      <span class="player-episode-reveal-wrap">
+        <button type="button" class="btn btn-secondary btn-sm player-episode-reveal-btn" data-reveal-episode-id="${escapeHtml(ep.id)}" aria-label="Mostrar detalles de ${escapeHtml(epNumLabel)}">
+          Mostrar detalles
+        </button>
+      </span>
+    ` : '';
+
     return `
-      <button type="button" class="player-episode-item${isCurrent ? ' is-current' : ''}" data-episode-id="${escapeHtml(ep.id)}">
-        <span class="player-episode-thumb"><img src="${thumb}" alt="" loading="lazy" data-fallback-src="/assets/illustrations/backdrop_placeholder.svg">${isCurrent ? `<span class="player-episode-now">${iconSvg('audio-lines', { size: 14 })} Viendo</span>` : ''}</span>
+      <div class="player-episode-item${isCurrent ? ' is-current' : ''}" role="button" tabindex="0" data-episode-id="${escapeHtml(ep.id)}" aria-label="${itemAria}">
+        <span class="player-episode-thumb"><img src="${thumb}" alt="${imgAlt}" loading="lazy" data-fallback-src="/assets/illustrations/backdrop_placeholder.svg">${isCurrent ? `<span class="player-episode-now">${iconSvg('audio-lines', { size: 14 })} Viendo</span>` : ''}</span>
         <span class="player-episode-info">
-          <span class="player-episode-number">${escapeHtml(episodeLabel(ep))}${minutes ? ` · ${minutes} min` : ''}</span>
-          <span class="player-episode-name">${escapeHtml(ep.title || `Episodio ${ep.episode_number}`)}</span>
+          <span class="player-episode-number">${escapeHtml(hideSpoilers ? epNumLabel : episodeLabel(ep))}${minutes ? ` · ${minutes} min` : ''}</span>
+          ${epTitleText ? `<span class="player-episode-name">${escapeHtml(epTitleText)}</span>` : ''}
+          ${revealBtnHTML}
         </span>
-      </button>`;
+      </div>`;
   }).join('');
 }
 
@@ -1157,6 +1196,47 @@ function upNextTriggerTime() {
   return duration > 120 ? duration - 20 : Infinity;
 }
 
+function showSkipUndo(position, segment) {
+  if (!canControlPlayback(false)) return;
+  hideSkipUndo();
+  const btn = els['skip-undo-btn'];
+  if (!btn) return;
+  S.skipUndo = {
+    episodeId: currentEpisodeId,
+    position,
+    segment
+  };
+  btn.hidden = false;
+  clearTimeout(S.skipUndoTimer);
+  S.skipUndoTimer = setTimeout(() => {
+    hideSkipUndo();
+  }, 5000);
+}
+
+function hideSkipUndo() {
+  clearTimeout(S.skipUndoTimer);
+  S.skipUndoTimer = null;
+  S.skipUndo = null;
+  if (els['skip-undo-btn']) els['skip-undo-btn'].hidden = true;
+}
+
+function handleSkipUndo() {
+  if (!canControlPlayback()) return;
+  if (!S.skipUndo || S.skipUndo.episodeId !== currentEpisodeId) {
+    hideSkipUndo();
+    return;
+  }
+  const { position, segment } = S.skipUndo;
+  if (segment === 'intro') {
+    S.disabledAutoSkip.intro = true;
+  } else if (segment === 'credits') {
+    S.disabledAutoSkip.credits = true;
+  }
+  hideSkipUndo();
+  seekTo(position);
+  showHud('rotate-ccw', 'Salto deshecho');
+}
+
 function updateSkipIntro(time) {
   const button = els['skip-intro-btn'];
   const intro = introWindow();
@@ -1164,15 +1244,17 @@ function updateSkipIntro(time) {
   if (!button) return;
   const inIntro = Boolean(intro) && time >= intro.start && time < intro.end - 1;
   const inCredits = Boolean(credits) && time >= credits.start && time < credits.end - 1;
-  if (inIntro && prefersAutoSkipIntro() && !S.introSkipped && canControlPlayback(false)) {
+  if (inIntro && prefersAutoSkipIntro() && !S.disabledAutoSkip.intro && !S.introSkipped && canControlPlayback(false)) {
     S.introSkipped = true;
+    showSkipUndo(time, 'intro');
     seekTo(intro.end);
     showHud('skip-forward', 'Intro omitida');
     button.hidden = true;
     return;
   }
-  if (inCredits && prefersAutoSkipIntro() && !S.creditsSkipped && canControlPlayback(false)) {
+  if (inCredits && prefersAutoSkipIntro() && !S.disabledAutoSkip.credits && !S.creditsSkipped && canControlPlayback(false)) {
     S.creditsSkipped = true;
+    showSkipUndo(time, 'credits');
     seekTo(credits.end);
     showHud('skip-forward', 'Créditos omitidos');
     button.hidden = true;
@@ -1181,7 +1263,7 @@ function updateSkipIntro(time) {
   if (!inIntro && intro && time < intro.start) S.introSkipped = false;
   if (!inCredits && credits && time < credits.start) S.creditsSkipped = false;
   if (els['skip-intro-label']) els['skip-intro-label'].textContent = inCredits ? 'Omitir créditos' : 'Omitir intro';
-  button.hidden = !(inIntro || inCredits);
+  button.hidden = !(inIntro || inCredits) || Boolean(S.skipUndo);
 }
 
 function skipIntro() {
@@ -1191,6 +1273,7 @@ function skipIntro() {
   if (credits && time >= credits.start && time < credits.end) {
     S.creditsSkipped = true;
     els['skip-intro-btn'].hidden = true;
+    showSkipUndo(time, 'credits');
     seekTo(credits.end);
     return;
   }
@@ -1198,6 +1281,7 @@ function skipIntro() {
   if (!intro) return;
   S.introSkipped = true;
   els['skip-intro-btn'].hidden = true;
+  showSkipUndo(time, 'intro');
   seekTo(intro.end);
 }
 
@@ -1215,6 +1299,44 @@ function canAutoAdvance() {
   return prefersAutoPlayNext() && (!partyManager.isInRoom() || partyManager.isHost());
 }
 
+function renderUpNextCardContent(next) {
+  if (!next) return;
+  const isSpoilerMode = typeof AuthManager !== 'undefined' && typeof AuthManager.isSpoilerFree === 'function' ? AuthManager.isSpoilerFree() : false;
+  const isCompleted = S.completedEpisodeIds.has(String(next.id));
+  const isRevealed = S.revealedEpisodeIds.has(String(next.id));
+  const hideSpoilers = isSpoilerMode && !isCompleted && !isRevealed;
+
+  const thumb = els['up-next-thumb'];
+  if (thumb) {
+    thumb.src = hideSpoilers
+      ? '/assets/illustrations/backdrop_placeholder.svg'
+      : (next.thumbnail_path || (S.show && S.show.backdrop_path) || '/assets/illustrations/backdrop_placeholder.svg');
+    thumb.alt = hideSpoilers ? `Episodio ${next.episode_number || ''}` : '';
+  }
+
+  const minutes = Math.round((Number(next.duration) || 0) / 60);
+  const durationText = minutes ? `${minutes} min` : '';
+
+  if (hideSpoilers) {
+    els['up-next-title'].textContent = `Episodio ${next.episode_number || ''}`;
+    els['up-next-meta'].textContent = durationText;
+    els['up-next-title'].removeAttribute('title');
+    els['up-next-meta'].removeAttribute('title');
+  } else {
+    els['up-next-title'].textContent = next.title || `Episodio ${next.episode_number}`;
+    els['up-next-meta'].textContent = [episodeLabel(next), durationText].filter(Boolean).join(' · ');
+  }
+
+  const revealBtn = els['up-next-reveal'];
+  if (revealBtn) {
+    revealBtn.style.display = hideSpoilers ? '' : 'none';
+    revealBtn.onclick = () => {
+      S.revealedEpisodeIds.add(String(next.id));
+      renderUpNextCardContent(next);
+    };
+  }
+}
+
 function showUpNext(time) {
   const card = els['up-next-card'];
   if (!card) return;
@@ -1224,12 +1346,7 @@ function showUpNext(time) {
   S.upNext.seconds = Math.min(UP_NEXT_COUNTDOWN, remaining);
   const autoplay = canAutoAdvance();
 
-  const thumb = els['up-next-thumb'];
-  if (thumb) {
-    thumb.src = next.thumbnail_path || (S.show && S.show.backdrop_path) || '/assets/illustrations/backdrop_placeholder.svg';
-  }
-  els['up-next-title'].textContent = next.title || `Episodio ${next.episode_number}`;
-  els['up-next-meta'].textContent = episodeLabel(next);
+  renderUpNextCardContent(next);
   card.classList.toggle('has-countdown', autoplay);
   els['up-next-dismiss'].textContent = autoplay ? 'Ver créditos' : 'Cerrar';
   card.hidden = false;
@@ -1238,9 +1355,15 @@ function showUpNext(time) {
   clearInterval(S.upNext.timer);
   if (autoplay) {
     renderUpNextCountdown();
+    let lastTime = els.video.currentTime;
     S.upNext.timer = setInterval(() => {
       if (!S.active) return;
       if (els.video.paused) return;
+      // Only count while the episode really plays: a stalled hotspot must not skip to the next one.
+      const now = els.video.currentTime;
+      const advanced = now > lastTime && !els.video.seeking;
+      lastTime = now;
+      if (!advanced) return;
       S.upNext.seconds -= 1;
       renderUpNextCountdown();
       if (S.upNext.seconds <= 0) {
@@ -1314,6 +1437,10 @@ function saveProgress(force = false) {
   S.lastSavedAt = time;
   const who = progressIdentity();
 
+  if (duration > 0 && time >= duration - 30) {
+    S.completedEpisodeIds.add(String(currentEpisodeId));
+  }
+
   if (who.isGuest) {
     try {
       const all = JSON.parse(readPref('kura_guest_progress', '{}') || '{}');
@@ -1337,6 +1464,33 @@ function saveProgress(force = false) {
   }).catch(() => { /* retried on the next tick */ });
 }
 
+async function loadShowProgress() {
+  const who = progressIdentity();
+  const completed = new Set();
+  try {
+    if (who.isGuest) {
+      const saved = JSON.parse(readPref('kura_guest_progress', '{}') || '{}');
+      Object.entries(saved).forEach(([epId, data]) => {
+        if (data && data.completed) completed.add(String(epId));
+      });
+      return completed;
+    }
+    const params = new URLSearchParams({ username: who.username, profile_name: who.profileName });
+    const res = await fetch(`/api/history?${params}`, { headers: authHeaders() });
+    if (res.ok) {
+      const list = await res.json();
+      if (Array.isArray(list)) {
+        list.forEach(item => {
+          if (item && item.episode_id && item.completed) {
+            completed.add(String(item.episode_id));
+          }
+        });
+      }
+    }
+  } catch { /* ignore network error */ }
+  return completed;
+}
+
 async function loadResumePosition(episodeId) {
   const hashQuery = window.location.hash.split('?')[1];
   if (hashQuery) {
@@ -1347,6 +1501,7 @@ async function loadResumePosition(episodeId) {
   try {
     if (who.isGuest) {
       const saved = JSON.parse(readPref('kura_guest_progress', '{}') || '{}')[episodeId];
+      if (saved && saved.completed) S.completedEpisodeIds.add(String(episodeId));
       if (saved && !saved.completed) return { time: Number(saved.progress) || 0, source: 'history' };
       return { time: 0, source: 'start' };
     }
@@ -1354,6 +1509,7 @@ async function loadResumePosition(episodeId) {
     const res = await fetch(`/api/progress/${encodeURIComponent(episodeId)}?${params}`, { headers: authHeaders() });
     if (res.ok) {
       const data = await res.json();
+      if (data && data.completed) S.completedEpisodeIds.add(String(episodeId));
       if (data && !data.completed) return { time: Number(data.progress) || 0, source: 'history' };
     }
   } catch { /* start from the beginning */ }
@@ -1462,10 +1618,11 @@ function clearStallWatchdog() {
 function setupMediaSession() {
   if (!('mediaSession' in navigator) || !S.episode) return;
   const show = S.show || {};
-  const art = S.episode.thumbnail_path || show.poster_path || show.backdrop_path;
+  const hidden = hidesSpoilers(S.episode);
+  const art = (hidden ? '' : S.episode.thumbnail_path) || show.poster_path || show.backdrop_path;
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: S.episode.title || episodeLabel(S.episode),
+      title: (hidden ? '' : S.episode.title) || episodeLabel(S.episode),
       artist: show.title || 'KuraStream',
       album: episodeLabel(S.episode),
       artwork: art ? [{ src: art, sizes: '512x512' }] : []
@@ -1619,6 +1776,7 @@ function bindControls() {
   on('qr-share-close', () => { els['qr-share-modal'].hidden = true; });
   on('player-shortcuts-close', () => toggleShortcuts(false));
   on('skip-intro-btn', skipIntro);
+  on('skip-undo-btn', handleSkipUndo);
   on('up-next-play', () => goToEpisode(S.next));
   on('up-next-dismiss', () => hideUpNext({ dismiss: true }));
   on('player-end-next', () => goToEpisode(S.next));
@@ -1640,6 +1798,18 @@ function bindControls() {
     if (tab) renderEpisodesPanel(parseInt(tab.dataset.season, 10) || 0);
   });
   listen(els['player-episodes-list'], 'click', event => {
+    const revealBtn = event.target.closest('[data-reveal-episode-id]');
+    if (revealBtn) {
+      event.stopPropagation();
+      const epId = revealBtn.dataset.revealEpisodeId;
+      if (epId) {
+        S.revealedEpisodeIds.add(String(epId));
+        const activeTab = els['player-episodes-seasons']?.querySelector('.player-season-tab.active');
+        const season = activeTab ? (parseInt(activeTab.dataset.season, 10) || 0) : (parseInt(S.episode?.season_number, 10) || 0);
+        renderEpisodesPanel(season);
+      }
+      return;
+    }
     const item = event.target.closest('.player-episode-item');
     if (!item) return;
     const episode = S.episodes.find(ep => ep.id === item.dataset.episodeId);
@@ -1652,6 +1822,21 @@ function bindControls() {
       return;
     }
     goToEpisode(episode);
+  });
+  listen(els['player-episodes-list'], 'keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      const revealBtn = event.target.closest('[data-reveal-episode-id]');
+      if (revealBtn) {
+        event.preventDefault();
+        revealBtn.click();
+        return;
+      }
+      const item = event.target.closest('.player-episode-item');
+      if (item) {
+        event.preventDefault();
+        item.click();
+      }
+    }
   });
 
   const menu = els['more-options-menu'];
@@ -2127,8 +2312,13 @@ function bindParty() {
   Object.entries(handlers).forEach(([event, handler]) => partyManager.on(event, handler));
   S.partyHandlers = handlers;
 
-  if (partyManager.isInRoom()) renderPartyRoom(partyManager.activeRoom);
-  else if (sidebar) sidebar.hidden = true;
+  if (partyManager.isInRoom()) {
+    renderPartyRoom(partyManager.activeRoom);
+    // Messages that arrived before this player mounted (join history, previous episode) live in the log.
+    if (els['party-messages-container']) els['party-messages-container'].innerHTML = '';
+    S.seenMessageIds = new Set();
+    partyManager.messageLog.forEach(renderPartyMessage);
+  } else if (sidebar) sidebar.hidden = true;
 
   // The host keeps the room clock fresh so late joiners and drift correction have a recent anchor.
   clearInterval(S.heartbeatTimer);
@@ -2174,6 +2364,7 @@ function resetUi() {
   closeEpisodesPanel();
   closeTracksModal();
   if (els['skip-intro-btn']) els['skip-intro-btn'].hidden = true;
+  hideSkipUndo();
   if (els['file-info-modal']) els['file-info-modal'].hidden = true;
   if (els['qr-share-modal']) els['qr-share-modal'].hidden = true;
   if (els['player-shortcuts-modal']) els['player-shortcuts-modal'].hidden = true;
@@ -2241,8 +2432,14 @@ export async function initPlayer(rawEpisodeId) {
   if (els['player-episode-title']) els['player-episode-title'].textContent = 'Cargando…';
 
   let loaded;
+  let completedIds = new Set();
   try {
-    loaded = await fetchShowWithEpisodes(episodeId);
+    const [fetched, comp] = await Promise.all([
+      fetchShowWithEpisodes(episodeId),
+      loadShowProgress()
+    ]);
+    loaded = fetched;
+    completedIds = comp;
   } catch (err) {
     if (generation !== playerInitGeneration) return;
     showError('No se pudo abrir el episodio', err.message || 'Inténtalo de nuevo.', { action: 'retry' });
@@ -2250,6 +2447,9 @@ export async function initPlayer(rawEpisodeId) {
     return;
   }
   if (generation !== playerInitGeneration || !S.active) return;
+
+  S.completedEpisodeIds = completedIds;
+  S.revealedEpisodeIds.clear();
 
   S.show = loaded.show;
   S.episodes = loaded.episodes.length ? loaded.episodes : [loaded.episode];
@@ -2268,8 +2468,8 @@ export async function initPlayer(rawEpisodeId) {
     sessionStorage.removeItem('kura_play_audio_track');
   } catch { /* storage blocked */ }
   const prefs = window.userPreferences || {};
-  const prefAudio = readPref('kura_pref_audio_lang') || prefs.preferred_audio_language || 'default';
-  const prefSub = readPref('kura_pref_sub_lang') || prefs.preferred_subtitle_language || 'default';
+  const prefAudio = readPref(AuthManager.langPrefKey('audio')) || prefs.preferred_audio_language || 'default';
+  const prefSub = readPref(AuthManager.langPrefKey('sub')) || prefs.preferred_subtitle_language || 'default';
   S.audioTrack = chooseAudioTrack(audioTracks, { explicit: explicitAudio, preferred: prefAudio });
   const audioInfo = audioTracks.find((t, i) => trackNumber(t, i) === S.audioTrack);
   const subtitleTracks = parseTrackList(S.episode.subtitle_tracks);
@@ -2304,8 +2504,9 @@ export async function initPlayer(rawEpisodeId) {
   // Boost / EQ chosen in Ajustes apply from the first frame; otherwise no Web Audio graph is built.
   if (Number(readPref('kura_audio_boost', '100')) !== 100 || readPref('kura_audio_preset', 'flat') !== 'flat') ensureAudioEnhancer();
 
-  if (S.direct && window.matchMedia('(hover: hover)').matches) {
-    S.scrubPreview = initScrubPreview(els['player-progress-bar'], els.video, { canDirectPlay: true, duration: S.duration, src: buildStreamUrl(0) });
+  // A second <video> doubles the transfer: never in lite mode, and elsewhere only once the bar is hovered.
+  if (S.direct && !isPerfLite() && window.matchMedia('(hover: hover)').matches) {
+    S.scrubPreview = initScrubPreview(els['player-progress-bar'], els.video, { canDirectPlay: true, lazy: true, duration: S.duration, src: buildStreamUrl(0) });
   } else {
     S.scrubPreview = null;
   }
@@ -2313,9 +2514,15 @@ export async function initPlayer(rawEpisodeId) {
   setupMediaSession();
   applyAmbilight();
 
+  S.disabledAutoSkip = { intro: false, credits: false };
+  hideSkipUndo();
+
   const resume = await loadResumePosition(episodeId);
   if (generation !== playerInitGeneration || !S.active) return;
   let start = resume.time >= 10 && (!S.duration || resume.time < S.duration - 30) ? resume.time : 0;
+  if (start >= 60 && resume.source === 'history' && !partyManager.isInRoom()) {
+    start = Math.max(0, start - 5);
+  }
   if (resume.source === 'link') start = resume.time;
 
   // A watch-party guest starts where the room is.
@@ -2352,7 +2559,8 @@ export function destroyPlayer() {
   if (S.abort) S.abort.abort();
   S.abort = null;
 
-  [S.seekTimer, S.hideTimer, S.retryTimer, S.stallTimer, S.hudTimer, S.toastTimer, S.resumeTimer, S.hold.timer]
+  hideSkipUndo();
+  [S.seekTimer, S.hideTimer, S.retryTimer, S.stallTimer, S.hudTimer, S.toastTimer, S.resumeTimer, S.hold.timer, S.skipUndoTimer]
     .forEach(timer => clearTimeout(timer));
   clearInterval(S.saveTimer);
   clearInterval(S.upNext.timer);

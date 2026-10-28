@@ -63,6 +63,7 @@ class ExploreViewModel @Inject constructor(
     private var currentUsername: String = ""
     private var currentProfileId: String = ""
     private var currentIsKids: Boolean = false
+    private var isInitialLoading: Boolean = true
 
     init {
         observePreferencesAndInitialize()
@@ -94,6 +95,7 @@ class ExploreViewModel @Inject constructor(
                 currentIsKids = isKids
 
                 if (sessionChanged) {
+                    isInitialLoading = true
                     _uiState.update { it.copy(catalogState = UiState.Loading) }
                     startCacheObservation(serverId, username, profileId, isKids)
                     triggerNetworkRefresh(serverId, username, profileId, isKids)
@@ -125,12 +127,15 @@ class ExploreViewModel @Inject constructor(
         networkRefreshJob = viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true) }
             val refreshRes = catalogRepository.refreshCatalog(serverId, username, profileId, isKids)
+            isInitialLoading = false
             _uiState.update { it.copy(isRefreshing = false) }
 
             if (refreshRes.isFailure && allCatalogShows.isEmpty()) {
                 _uiState.update {
                     it.copy(catalogState = UiState.Error(refreshRes.exceptionOrNull()?.message ?: "Error al actualizar catálogo"))
                 }
+            } else {
+                applyFilters()
             }
         }
     }
@@ -231,8 +236,13 @@ class ExploreViewModel @Inject constructor(
         }
 
         if (filtered.isEmpty()) {
-            if (_uiState.value.catalogState !is UiState.Loading) {
-                _uiState.update { it.copy(catalogState = UiState.Empty("No se encontraron coincidencias")) }
+            if (!isInitialLoading || allCatalogShows.isNotEmpty()) {
+                val emptyMessage = if (allCatalogShows.isEmpty()) {
+                    "El catálogo está vacío"
+                } else {
+                    "No se encontraron coincidencias"
+                }
+                _uiState.update { it.copy(catalogState = UiState.Empty(emptyMessage)) }
             }
         } else {
             _uiState.update { it.copy(catalogState = UiState.Content(filtered)) }

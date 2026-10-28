@@ -63,6 +63,9 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
   const clampPadding = typeof options.clampPadding === 'number' ? options.clampPadding : 8;
 
   const canDirectPlay = options.canDirectPlay !== false;
+  // lazy: the preview video only starts downloading on the first hover over the bar.
+  let activated = options.lazy !== true;
+  let pendingSrc = null;
   let manualDuration = (typeof options.duration === 'number' && options.duration > 0)
     ? options.duration
     : null;
@@ -92,7 +95,9 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
     }
 
     const rawSrc = options.src || (mainVideoEl ? (mainVideoEl.currentSrc || mainVideoEl.src) : '') || '';
-    if (rawSrc) {
+    if (rawSrc && !activated) {
+      pendingSrc = rawSrc;
+    } else if (rawSrc) {
       const initialSrc = rawSrc.includes('?') ? `${rawSrc}&preview=1` : `${rawSrc}?preview=1`;
       offscreenVideo.src = initialSrc;
       try {
@@ -276,6 +281,11 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
     tooltip.style.visibility = 'visible';
     tooltip.style.opacity = '1';
 
+    if (!activated) {
+      activated = true;
+      if (pendingSrc) updateSource(pendingSrc);
+    }
+
     // Synchronize video source if missing
     if (offscreenVideo && !offscreenVideo.src && mainVideoEl) {
       const src = mainVideoEl.currentSrc || mainVideoEl.src;
@@ -330,7 +340,7 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
   }
 
   function onMainVideoUpdate() {
-    if (isDestroyed) return;
+    if (isDestroyed || !activated) return;
     if (offscreenVideo && !offscreenVideo.src && mainVideoEl) {
       const src = mainVideoEl.currentSrc || mainVideoEl.src;
       if (src) {
@@ -357,6 +367,10 @@ export function initScrubPreview(progressBarEl, mainVideoEl, options = {}) {
   function updateSource(newSrc) {
     if (isDestroyed || !offscreenVideo) return;
     const rawSrc = newSrc || (mainVideoEl ? (mainVideoEl.currentSrc || mainVideoEl.src) : '') || '';
+    if (!activated) {
+      pendingSrc = rawSrc;
+      return;
+    }
     const src = rawSrc ? (rawSrc.includes('?') ? `${rawSrc}&preview=1` : `${rawSrc}?preview=1`) : '';
     if (src && offscreenVideo.src !== src) {
       offscreenVideo.src = src;

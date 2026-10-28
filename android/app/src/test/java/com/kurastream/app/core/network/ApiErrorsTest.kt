@@ -38,4 +38,9 @@ class ApiErrorsTest {
         val original = UserFacingException("x")
         assertTrue(original.toUserFacingError() === original)
     }
+
+    @Test(expected = kotlinx.coroutines.CancellationException::class)
+    fun `cancellation exception is rethrown by toUserFacingError`() {
+        kotlinx.coroutines.CancellationException("test").toUserFacingError()
+    }
 }

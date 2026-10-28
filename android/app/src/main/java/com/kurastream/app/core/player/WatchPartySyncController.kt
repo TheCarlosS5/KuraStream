@@ -1,6 +1,7 @@
 package com.kurastream.app.core.player
 
 import com.kurastream.app.core.model.PartySyncEvent
+import com.kurastream.app.core.repository.ActivePartySession
 import kotlin.math.abs
 
 enum class PartySyncAction {
@@ -15,6 +16,11 @@ enum class PartySyncAction {
 data class SyncDecision(
     val action: PartySyncAction,
     val targetPositionSeconds: Float? = null
+)
+
+data class ReconnectPlaybackState(
+    val positionSeconds: Float,
+    val playWhenReady: Boolean
 )
 
 object WatchPartySyncController {
@@ -80,6 +86,66 @@ object WatchPartySyncController {
             stateMismatch && hostEvent.isPlaying -> SyncDecision(PartySyncAction.PLAY)
             stateMismatch && !hostEvent.isPlaying -> SyncDecision(PartySyncAction.PAUSE)
             else -> SyncDecision(PartySyncAction.NONE)
+        }
+    }
+
+    /**
+     * Discards incoming sync states that are older than or equal to the last seen timestamp.
+     * When [incomingTimestampMs] or [lastSeenTimestampMs] is 0 (e.g. initial frame or clock absent),
+     * the event is not discarded.
+     */
+    fun shouldDiscardSync(
+        incomingTimestampMs: Long,
+        lastSeenTimestampMs: Long
+    ): Boolean {
+        if (incomingTimestampMs <= 0L || lastSeenTimestampMs <= 0L) return false
+        return incomingTimestampMs <= lastSeenTimestampMs
+    }
+
+    /**
+     * Determines whether the host should apply an incoming sync event sent by an authorized guest.
+     * The host only applies commands when guest controls are permitted, the event originated
+     * from a non-empty member ID other than the host itself, and the timestamp is strictly
+     * newer than the host's last applied/own timestamp.
+     */
+    fun shouldHostApplyGuestSync(
+        allowGuestControls: Boolean,
+        lastSyncMember: String?,
+        ownMemberId: String,
+        incomingTimestampMs: Long,
+        lastAppliedTimestampMs: Long
+    ): Boolean {
+        if (!allowGuestControls) return false
+        if (lastSyncMember.isNullOrBlank()) return false
+        if (lastSyncMember == ownMemberId) return false
+        return incomingTimestampMs > lastAppliedTimestampMs
+    }
+
+    /**
+     * Resolves reconnect position and play state.
+     * For guests in an active watch party with a valid room sync, reconstructs position
+     * and play/pause state from the room sync. Otherwise preserves local position and defaults to playing.
+     */
+    fun resolveReconnectState(
+        session: ActivePartySession?,
+        roomSync: PartySyncEvent?,
+        episodeId: String,
+        fallbackPositionSeconds: Float,
+        nowMs: Long = 0L
+    ): ReconnectPlaybackState {
+        val isGuest = session != null && !session.isHost
+        val guestSync = roomSync?.takeIf { isGuest && (it.episodeId.isNullOrBlank() || it.episodeId == episodeId) }
+        return if (guestSync != null) {
+            val roomPosition = expectedHostPositionSeconds(guestSync, nowMs)
+            ReconnectPlaybackState(
+                positionSeconds = roomPosition,
+                playWhenReady = guestSync.isPlaying
+            )
+        } else {
+            ReconnectPlaybackState(
+                positionSeconds = fallbackPositionSeconds,
+                playWhenReady = true
+            )
         }
     }
 }

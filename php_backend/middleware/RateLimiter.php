@@ -48,6 +48,19 @@ class RateLimiter {
         return true;
     }
 
+    /** Like check(), but only looks: true while the key already holds $maxAttempts inside the window. */
+    public static function isBlocked(string $key, int $maxAttempts, int $windowSeconds, &$retryAfter = null): bool {
+        $file = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'kura_ratelimits' . DIRECTORY_SEPARATOR . 'rl_' . md5($key) . '.json';
+        $data = is_file($file) ? (json_decode((string)@file_get_contents($file), true) ?: []) : [];
+        $now = time();
+        $records = array_values(array_filter($data, fn($ts) => ($now - $ts) < $windowSeconds));
+        if (count($records) < $maxAttempts) {
+            return false;
+        }
+        $retryAfter = max(1, ($records[0] + $windowSeconds) - $now);
+        return true;
+    }
+
     public static function getClientIp(?array $trusted = null): string {
         $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
         if ($trusted === null) {
@@ -96,11 +109,36 @@ class RateLimiter {
         }
     }
 
+    public static function withLock(string $key, callable $work) {
+        $tempDir = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'kura_ratelimits';
+        if (!is_dir($tempDir)) {
+            @mkdir($tempDir, 0777, true);
+        }
+
+        $lockFile = $tempDir . DIRECTORY_SEPARATOR . 'lock_' . md5($key) . '.lock';
+        $fp = @fopen($lockFile, 'c+');
+        if (!$fp) {
+            return $work();
+        }
+
+        flock($fp, LOCK_EX);
+        try {
+            return $work();
+        } finally {
+            flock($fp, LOCK_UN);
+            fclose($fp);
+        }
+    }
+
     public static function clear(string $key): void {
         $tempDir = rtrim(sys_get_temp_dir(), '/\\') . '/kura_ratelimits';
         $file = $tempDir . '/rl_' . md5($key) . '.json';
         if (file_exists($file)) {
             @unlink($file);
+        }
+        $lockFile = $tempDir . '/lock_' . md5($key) . '.lock';
+        if (file_exists($lockFile)) {
+            @unlink($lockFile);
         }
     }
 }

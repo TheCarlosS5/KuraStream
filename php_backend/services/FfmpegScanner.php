@@ -209,32 +209,72 @@ class FfmpegScanner {
         if (!file_exists($videoPath) || !is_file($videoPath)) return [];
         if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
 
-        $cmd = sprintf(
-            'ffmpeg -y -v error -dump_attachment:t "" -i %s',
+        $probeCmd = sprintf(
+            'ffprobe -v quiet -print_format json -show_streams -select_streams t %s',
             escapeshellarg($videoPath)
         );
+        $output = self::executeBoundedCommand($probeCmd, 15, false); // stderr would corrupt the JSON
+        if (!$output) return [];
 
-        $cwd = getcwd();
-        @chdir($destDir);
+        $data = json_decode($output, true);
+        $streams = $data['streams'] ?? [];
+        if (!is_array($streams) || empty($streams)) return [];
+
+        $fontMimes = [
+            'font/ttf',
+            'font/otf',
+            'application/x-truetype-font',
+            'application/vnd.ms-opentype',
+            'application/font-sfnt',
+        ];
+        $fontExts = ['ttf', 'otf', 'woff', 'woff2'];
+
+        $absDestDir = realpath($destDir) ?: $destDir;
+        $dumpArgs = [];
+        $candidates = [];
+
+        foreach ($streams as $s) {
+            $streamIdx = $s['index'] ?? null;
+            if ($streamIdx === null) continue;
+
+            $tags = $s['tags'] ?? [];
+            $filename = (string)($tags['filename'] ?? ($tags['FILENAME'] ?? ''));
+            $mimetype = strtolower(trim((string)($tags['mimetype'] ?? ($tags['MIMETYPE'] ?? ''))));
+            $mimeBase = explode(';', $mimetype)[0];
+            $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+            $isFont = in_array($mimeBase, $fontMimes, true) || in_array($ext, $fontExts, true);
+            if (!$isFont) continue;
+
+            $safeName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', basename($filename));
+            if ($safeName === '' || str_replace('.', '', $safeName) === '') {
+                $safeName = "font_{$streamIdx}.ttf";
+            }
+
+            $destPath = rtrim($absDestDir, '/\\') . '/' . $safeName;
+            $dumpArgs[] = sprintf('-dump_attachment:%d %s', (int)$streamIdx, escapeshellarg($destPath));
+            $candidates[] = [
+                'name' => $safeName,
+                'path' => $destPath,
+            ];
+        }
+
+        if (empty($dumpArgs)) return [];
+
+        $cmd = sprintf(
+            'ffmpeg -y -v error %s -i %s',
+            implode(' ', $dumpArgs),
+            escapeshellarg($videoPath)
+        );
         self::executeBoundedCommand($cmd, 15);
-        if ($cwd) @chdir($cwd);
 
         $extracted = [];
-        if (is_dir($destDir)) {
-            $files = glob($destDir . '/*.{ttf,otf,woff,woff2,TTF,OTF}', GLOB_BRACE) ?: [];
-            foreach ($files as $f) {
-                $base = basename($f);
-                $clean = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', $base);
-                if ($clean !== $base) {
-                    @rename($f, $destDir . '/' . $clean);
-                    $f = $destDir . '/' . $clean;
-                }
-                if (file_exists($f) && filesize($f) > 0) {
-                    $extracted[] = basename($f);
-                }
+        foreach ($candidates as $c) {
+            if (file_exists($c['path']) && filesize($c['path']) > 0) {
+                $extracted[] = $c['name'];
             }
         }
-        return $extracted;
+        return array_values(array_unique($extracted));
     }
 
     public static function extractThumbnail(string $videoPath, string $destThumbPath, float $seekSeconds = 120, int $timeoutSeconds = 15): bool {

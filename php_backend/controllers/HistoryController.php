@@ -84,14 +84,25 @@ class HistoryController {
      * art instead. The show-wide images stay available as show_poster_path / show_backdrop_path.
      */
     public static function withSeasonArt(array $items): array {
+        $showIds = [];
+        foreach ($items as $item) {
+            $showId = (string)($item['show_id'] ?? '');
+            if ($showId !== '' && isset($item['season_number'])) {
+                $showIds[] = $showId;
+            }
+        }
+
         $cache = [];
+        if (!empty($showIds)) {
+            foreach (DbHelper::getSeasonsForShows($showIds) as $row) {
+                $sid = (string)($row['show_id'] ?? '');
+                $cache[$sid][(int)$row['season_number']] = $row;
+            }
+        }
+
         foreach ($items as &$item) {
             $showId = (string)($item['show_id'] ?? '');
             if ($showId === '' || !isset($item['season_number'])) continue;
-            if (!array_key_exists($showId, $cache)) {
-                $cache[$showId] = [];
-                foreach (DbHelper::getShowSeasons($showId) as $row) $cache[$showId][(int)$row['season_number']] = $row;
-            }
             $season = $cache[$showId][(int)$item['season_number']] ?? null;
             $item['show_poster_path'] = $item['poster_path'] ?? '';
             $item['show_backdrop_path'] = $item['backdrop_path'] ?? '';
@@ -306,6 +317,52 @@ class HistoryController {
 
         DbHelper::saveProgress($username, $profile, $epId, $progress, $effectiveDuration, $completed);
         jsonResponse(['success' => true]);
+    }
+
+    public static function patchProgress(?string $episodeId = null): void {
+        $token = AuthMiddleware::getBearerToken();
+        if ($token) {
+            $tokenData = AuthMiddleware::verifyToken($token);
+            if (($tokenData['role'] ?? '') === 'admin' && empty($tokenData['profile_name']) && empty($tokenData['profile_id'])) {
+                jsonResponse(['success' => true, 'admin_preview' => true]);
+                return;
+            }
+        }
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?: ($GLOBALS['_MOCKED_JSON_INPUT'] ?? []);
+
+        list($username, $profile) = self::resolveUserAndProfile();
+
+        $epId = $episodeId ?: ($data['episode_id'] ?? ($_GET['episode_id'] ?? ''));
+        if (empty($epId) || !is_string($epId)) {
+            jsonError('episode_id requerido', 400);
+        }
+
+        $canonicalEp = DbHelper::getEpisode($epId);
+        if (!$canonicalEp) {
+            jsonError('Episodio no encontrado', 404);
+        }
+
+        if (!empty($canonicalEp['show_id'])) {
+            PlayerController::checkKidsModeAccess($canonicalEp['show_id']);
+        }
+
+        if (!isset($data['completed'])) {
+            jsonError('El campo completed es requerido', 400);
+        }
+        if (!is_bool($data['completed'])) {
+            jsonError('El campo completed debe ser booleano', 400);
+        }
+
+        $completed = $data['completed'];
+        if ($completed) {
+            $duration = !empty($canonicalEp['duration']) ? (float)$canonicalEp['duration'] : 0.0;
+            DbHelper::saveProgress($username, $profile, $epId, $duration, $duration, true);
+            jsonResponse(['success' => true, 'completed' => true]);
+        } else {
+            DbHelper::deleteHistoryItem($username, $profile, $epId);
+            jsonResponse(['success' => true, 'completed' => false]);
+        }
     }
 
     public static function updateProgress(): void {

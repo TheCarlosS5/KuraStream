@@ -6,7 +6,7 @@
 import { AuthManager } from './core/auth.js';
 import { appState } from './core/state.js';
 import { playerController } from './features/player/player_controller.js';
-import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.04-outros';
+import { initPlayer, destroyPlayer, getActiveEpisodeId, getShowIdFromEpisodeId, orderEpisodes } from '../player.js?v=2026.10.07-ronda4';
 import { partyManager } from './modules/party.js';
 import { updateActiveNavHighlight, initHeaderDropdowns, initAdminSidebar, stopAdminPolling } from './modules/navigation.js';
 import { initCardPopovers } from './modules/card_popover_preview.js';
@@ -16,8 +16,15 @@ import { mountHeroCarousel, pickHeroShows } from './modules/hero_carousel.js';
 // Cache for calendar day items
 export let calendarDataCache = {};
 export let currentShowEpisodes = [];
+export let currentShowProgressMap = {};
+export let currentShowObj = null;
+export let currentSelectedSeason = null;
+export let currentShowSeasons = {};
 export let mylistSortValue = 'recent';
 export let currentView = '';
+export const revealedEpisodeIds = new Set();
+let profileHistoryShowIds = null;
+let profileHistoryLoadedKey = null;
 
 // -------------------------------------------------------------
 // Security & Formatting Utilities
@@ -401,6 +408,15 @@ export function setupAuthModalListeners() {
 // Catalogue & Media Presentation Renderers
 // -------------------------------------------------------------
 
+export function refreshCurrentEpisodeList() {
+  const container = (typeof document !== 'undefined' && typeof document.getElementById === 'function') ? document.getElementById('episodes-list') : null;
+  if (container && currentShowSeasons && currentSelectedSeason) {
+    const list = currentShowSeasons[currentSelectedSeason] || currentShowEpisodes || [];
+    const poster = (typeof currentShowObj !== 'undefined' && currentShowObj?.poster_path) || '';
+    renderEpisodeList(list, container, poster, currentShowProgressMap);
+  }
+}
+
 export function setupCatalogueActions() {
   const activate = target => {
     const card = target.closest('[data-catalogue-route], .episode-item[data-episode-id]');
@@ -416,8 +432,32 @@ export function setupCatalogueActions() {
     }
   };
 
-  document.addEventListener('click', event => activate(event.target));
+  document.addEventListener('click', event => {
+    // closest(): a click on the Lucide SVG path inside the button must still reveal.
+    const revealTarget = typeof event.target?.closest === 'function' ? event.target.closest('[data-reveal-episode-id]') : null;
+    if (revealTarget && revealTarget.dataset && revealTarget.dataset.revealEpisodeId) {
+      if (typeof event.preventDefault === 'function') event.preventDefault();
+      if (typeof revealedEpisodeIds !== 'undefined') {
+        revealedEpisodeIds.add(String(revealTarget.dataset.revealEpisodeId));
+      }
+      if (typeof refreshCurrentEpisodeList === 'function') {
+        refreshCurrentEpisodeList();
+      }
+      return;
+    }
+    activate(event.target);
+  });
   document.addEventListener('keydown', event => {
+    if ((event.key === 'Enter' || event.key === ' ') && event.target && event.target.dataset && event.target.dataset.revealEpisodeId) {
+      event.preventDefault();
+      if (typeof revealedEpisodeIds !== 'undefined') {
+        revealedEpisodeIds.add(String(event.target.dataset.revealEpisodeId));
+      }
+      if (typeof refreshCurrentEpisodeList === 'function') {
+        refreshCurrentEpisodeList();
+      }
+      return;
+    }
     if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[role="link"][data-catalogue-route], [role="button"][data-episode-id]')) {
       event.preventDefault();
       activate(event.target);
@@ -545,7 +585,9 @@ export function renderContinueWatching(continueItems) {
     const dur = item.duration > 0 ? item.duration : 0;
     const progress = item.progress_seconds || 0;
     const progressPercent = dur > 0 ? Math.min(100, Math.max(0, (progress / dur) * 100)) : 0;
-    const img = item.thumbnail_path || item.backdrop_path || item.poster_path || '';
+    // Every card here is an unfinished episode: in spoiler-free mode its own title and frame stay hidden.
+    const hideSpoilers = typeof AuthManager !== 'undefined' && typeof AuthManager.isSpoilerFree === 'function' && AuthManager.isSpoilerFree();
+    const img = (hideSpoilers ? '' : item.thumbnail_path) || item.backdrop_path || item.poster_path || '';
     const imgUrl = catalogueImageUrl(img) || '/assets/illustrations/backdrop_placeholder.svg';
     const epLabel = Number(item.season_number) > 0
       ? `T${item.season_number}:E${item.episode_number}`
@@ -556,9 +598,10 @@ export function renderContinueWatching(continueItems) {
     else if (remainingMin > 0) detail = `${remainingMin} min restantes`;
     else detail = `${Math.round(progressPercent)}% visto`;
     const subtext = `${epLabel} • ${detail}`;
+    const cardTitle = hideSpoilers ? (item.show_title || '') : `${item.show_title || ''} - ${item.episode_title || epLabel}`;
 
     return `
-      <div class="continue-watching-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" title="${escapeHtmlAttribute(`${item.show_title || ''} - ${item.episode_title || epLabel}`)}">
+      <div class="continue-watching-card" role="link" tabindex="0" data-catalogue-route="${escapeHtmlAttribute('#/player/' + encodeURIComponent(item.episode_id))}" title="${escapeHtmlAttribute(cardTitle)}">
         <div class="continue-watching-thumb-wrapper">
           <img class="continue-watching-thumb" src="${escapeHtmlAttribute(imgUrl)}" alt="${escapeHtmlAttribute(item.show_title || '')}" loading="lazy">
           <div class="continue-watching-play-btn" aria-label="Reproducir">
@@ -586,6 +629,40 @@ export function renderContinueWatching(continueItems) {
       </div>
     </section>
   `;
+}
+
+export async function refreshContinueWatching() {
+  const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
+  if (!hasProfile) return;
+  try {
+    const histRes = await fetch(`/api/history/continue?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!histRes.ok) return;
+    const continueItems = await histRes.json();
+    if (!Array.isArray(continueItems)) return;
+    const parent = document.getElementById('dashboard-sections');
+    if (parent) {
+      const existingSection = parent.querySelector('.continue-watching-section');
+      if (continueItems.length > 0) {
+        const newHtml = renderContinueWatching(continueItems);
+        if (existingSection) {
+          existingSection.outerHTML = newHtml;
+        } else {
+          parent.insertAdjacentHTML('afterbegin', newHtml);
+        }
+      } else if (existingSection) {
+        existingSection.remove();
+      }
+      continueItems.forEach(item => {
+        const key = String(item.show_id || '');
+        if (key && !catalogHistoryMap.has(key)) catalogHistoryMap.set(key, item);
+      });
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+  } catch (err) {
+    console.warn('Could not refresh continue watching:', err);
+  }
 }
 
 export function createShowCardHTML(show, historyMap = new Map()) {
@@ -642,10 +719,10 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
     return;
   }
 
+  const isSpoilerMode = typeof AuthManager !== 'undefined' && typeof AuthManager.isSpoilerFree === 'function' ? AuthManager.isSpoilerFree() : false;
+
   targetContainer.innerHTML = epList.map(ep => {
     const durationMin = Math.round((ep.duration || 0) / 60);
-    const thumb = ep.thumbnail_path || fallbackPoster || '';
-    const thumbSrc = catalogueImageUrl(thumb) || '/assets/illustrations/backdrop_placeholder.svg';
 
     const prog = (showProgressMap && showProgressMap[ep.id]) || {};
     const watchedSec = prog.progress_seconds ?? prog.progress ?? 0;
@@ -653,6 +730,18 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
     const progressPercent = durSec > 0 ? Math.min(100, Math.max(0, (watchedSec / durSec) * 100)) : 0;
     const isCompleted = Boolean(prog.completed) || progressPercent >= 85;
     const isInProgress = !isCompleted && progressPercent >= 3;
+    const isRevealed = typeof revealedEpisodeIds !== 'undefined' && revealedEpisodeIds.has(String(ep.id));
+    const hideSpoilers = isSpoilerMode && !isCompleted && !isRevealed;
+
+    const thumb = (hideSpoilers ? '' : ep.thumbnail_path) || fallbackPoster || '';
+    const thumbSrc = hideSpoilers
+      ? '/assets/illustrations/backdrop_placeholder.svg'
+      : (catalogueImageUrl(thumb) || '/assets/illustrations/backdrop_placeholder.svg');
+
+    const epNumLabel = ep.episode_number ? `Episodio ${ep.episode_number}` : 'Episodio';
+    const epDisplayTitle = hideSpoilers ? '' : (ep.title || `Capítulo ${ep.episode_number || 1}`);
+    const imgAlt = hideSpoilers ? escapeHtmlAttribute(epNumLabel) : escapeHtmlAttribute(ep.title || 'Episodio');
+    const cardAria = hideSpoilers ? escapeHtmlAttribute(epNumLabel) : escapeHtmlAttribute(ep.title ? `${epNumLabel}: ${ep.title}` : epNumLabel);
 
     const completedBadgeHTML = isCompleted ? `
       <div class="badge-visto">
@@ -666,10 +755,26 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
       </div>
     ` : '';
 
+    const revealBtnHTML = hideSpoilers ? `
+      <div class="episode-reveal-wrap mt-8">
+        <button type="button" class="btn btn-secondary btn-sm btn-reveal-spoiler" data-reveal-episode-id="${escapeHtmlAttribute(ep.id)}" aria-label="Mostrar detalles de ${escapeHtmlAttribute(epNumLabel)}">
+          <i data-lucide="eye"></i> Mostrar detalles
+        </button>
+      </div>
+    ` : '';
+
+    const titleHTML = hideSpoilers ? '' : `
+      <h4 class="episode-title">${escapeHtml(epDisplayTitle)}</h4>
+    `;
+
+    const synopsisHTML = hideSpoilers ? '' : `
+      <p class="episode-synopsis">${escapeHtml(ep.synopsis || 'Sin descripción disponible.')}</p>
+    `;
+
     return `
-      <div class="episode-item" role="button" tabindex="0" data-episode-id="${escapeHtmlAttribute(ep.id)}">
+      <div class="episode-item" role="button" tabindex="0" data-episode-id="${escapeHtmlAttribute(ep.id)}" aria-label="${cardAria}">
         <div class="episode-thumbnail-container">
-          <img class="episode-thumb" src="${escapeHtmlAttribute(thumbSrc)}" alt="${escapeHtmlAttribute(ep.title || 'Episodio')}" loading="lazy">
+          <img class="episode-thumb" src="${escapeHtmlAttribute(thumbSrc)}" alt="${imgAlt}" loading="lazy">
           ${durationMin > 0 ? `<div class="episode-duration-pill">${durationMin}m</div>` : ''}
           ${completedBadgeHTML}
           ${progressBarHTML}
@@ -679,10 +784,11 @@ export function renderEpisodeList(epList, targetContainer, fallbackPoster = '', 
         </div>
         <div class="episode-info">
           <div class="episode-title-row">
-            <span class="episode-number">${ep.episode_number ? `Ep. ${escapeHtml(ep.episode_number)}` : 'Episodio'}</span>
-            <h4 class="episode-title">${escapeHtml(ep.title || `Capítulo ${ep.episode_number || 1}`)}</h4>
+            <span class="episode-number">${escapeHtml(epNumLabel)}</span>
+            ${titleHTML}
           </div>
-          <p class="episode-synopsis">${escapeHtml(ep.synopsis || 'Sin descripción disponible.')}</p>
+          ${synopsisHTML}
+          ${revealBtnHTML}
         </div>
       </div>
     `;
@@ -708,11 +814,51 @@ export function showEpisodeDetails(episodeId) {
   const closeBtn = document.getElementById('ep-detail-close');
   const modal = document.getElementById('episode-detail-modal');
 
-  if (numberEl) {
-    numberEl.textContent = ep.season_number ? `Temporada ${ep.season_number} • Capítulo ${ep.episode_number}` : `Capítulo ${ep.episode_number}`;
-  }
-  if (titleEl) titleEl.textContent = ep.title || `Capítulo ${ep.episode_number}`;
-  if (synopsisEl) synopsisEl.textContent = ep.synopsis || 'Sin descripción disponible para este capítulo.';
+  const revealBtn = document.getElementById('ep-detail-reveal-btn');
+  const progMap = (typeof currentShowProgressMap !== 'undefined' && currentShowProgressMap) ? currentShowProgressMap : {};
+  const prog = progMap[ep.id] || {};
+  const watchedSec = prog.progress_seconds ?? prog.progress ?? 0;
+  const durSec = prog.duration || ep.duration || 0;
+  let isCompleted = Boolean(prog.completed) || (durSec > 0 && watchedSec / durSec >= 0.85);
+
+  const isSpoilerMode = typeof AuthManager !== 'undefined' && typeof AuthManager.isSpoilerFree === 'function' ? AuthManager.isSpoilerFree() : false;
+  let isRevealed = typeof revealedEpisodeIds !== 'undefined' && revealedEpisodeIds.has(String(ep.id));
+
+  const applyModalTexts = () => {
+    const hideSpoilers = isSpoilerMode && !isCompleted && !isRevealed;
+    if (numberEl) {
+      numberEl.textContent = ep.season_number ? `Temporada ${ep.season_number} • Episodio ${ep.episode_number}` : `Episodio ${ep.episode_number}`;
+    }
+    if (titleEl) {
+      titleEl.textContent = hideSpoilers ? `Episodio ${ep.episode_number || 1}` : (ep.title || `Capítulo ${ep.episode_number}`);
+      if (typeof titleEl.removeAttribute === 'function') {
+        titleEl.removeAttribute('title');
+        titleEl.removeAttribute('aria-label');
+      }
+    }
+    if (synopsisEl) {
+      synopsisEl.textContent = hideSpoilers ? 'Detalles y descripción ocultos por el modo sin spoilers.' : (ep.synopsis || 'Sin descripción disponible para este capítulo.');
+      if (typeof synopsisEl.removeAttribute === 'function') {
+        synopsisEl.removeAttribute('title');
+        synopsisEl.removeAttribute('aria-label');
+      }
+    }
+    if (revealBtn) {
+      revealBtn.style.display = hideSpoilers ? 'block' : 'none';
+      revealBtn.onclick = () => {
+        isRevealed = true;
+        if (typeof revealedEpisodeIds !== 'undefined') {
+          revealedEpisodeIds.add(String(ep.id));
+        }
+        applyModalTexts();
+        if (typeof refreshCurrentEpisodeList === 'function') {
+          refreshCurrentEpisodeList();
+        }
+      };
+    }
+  };
+
+  applyModalTexts();
   if (durationEl) durationEl.textContent = `${Math.round((ep.duration || 0) / 60)} min`;
   if (resolutionEl) resolutionEl.textContent = ep.resolution || 'N/A';
   if (codecEl) codecEl.textContent = ep.video_codec || 'N/A';
@@ -898,7 +1044,7 @@ export function showEpisodeDetails(episodeId) {
         }
       });
 
-      const savedAudioPref = (typeof localStorage !== 'undefined') ? (localStorage.getItem('kura_pref_audio_lang') || localStorage.getItem('kurastream_preferred_audio_language')) : null;
+      const savedAudioPref = (typeof localStorage !== 'undefined') ? localStorage.getItem(AuthManager.langPrefKey('audio')) : null;
       const userAudioPref = (typeof window !== 'undefined' && window.userPreferences?.preferred_audio_language) || null;
       const prefAudio = savedAudioPref || userAudioPref || 'spa';
 
@@ -948,8 +1094,7 @@ export function showEpisodeDetails(episodeId) {
           selectedAudioTrack = trackNum;
           if (lang && lang !== 'und') {
             if (typeof localStorage !== 'undefined') {
-              localStorage.setItem('kura_pref_audio_lang', lang);
-              localStorage.setItem('kurastream_preferred_audio_language', lang);
+              localStorage.setItem(AuthManager.langPrefKey('audio'), lang);
             }
             if (typeof window !== 'undefined' && window.userPreferences) {
               window.userPreferences.preferred_audio_language = lang;
@@ -962,6 +1107,95 @@ export function showEpisodeDetails(episodeId) {
         };
       });
     }
+  }
+
+  const watchedBtn = document.getElementById('ep-detail-watched-btn');
+  const watchedText = document.getElementById('ep-detail-watched-text');
+  const watchedIcon = document.getElementById('ep-detail-watched-icon');
+
+  const updateWatchedButtonUI = () => {
+    if (watchedText) {
+      watchedText.textContent = isCompleted ? 'Marcar como sin ver' : 'Marcar como visto';
+    }
+    if (watchedBtn) {
+      watchedBtn.title = isCompleted ? 'Marcar como sin ver' : 'Marcar como visto';
+    }
+    if (watchedIcon) {
+      if (typeof watchedIcon.setAttribute === 'function') {
+        watchedIcon.setAttribute('data-lucide', isCompleted ? 'eye-off' : 'check');
+      }
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  };
+
+  updateWatchedButtonUI();
+
+  if (watchedBtn) {
+    watchedBtn.onclick = async () => {
+      const userSession = (typeof getUserAndProfile === 'function') ? getUserAndProfile() : { token: '', hasProfile: false };
+      const { token, hasProfile } = userSession;
+      if (!hasProfile) {
+        if (typeof showToast === 'function') showToast('Elige un perfil para guardar el progreso', 'warning');
+        return;
+      }
+      const targetCompleted = !isCompleted;
+      watchedBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/progress/${encodeURIComponent(ep.id)}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ completed: targetCompleted })
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        isCompleted = targetCompleted;
+        if (targetCompleted) {
+          isRevealed = true;
+          if (typeof revealedEpisodeIds !== 'undefined') {
+            revealedEpisodeIds.add(String(ep.id));
+          }
+        }
+        applyModalTexts();
+        if (typeof currentShowProgressMap !== 'undefined' && currentShowProgressMap) {
+          if (targetCompleted) {
+            currentShowProgressMap[ep.id] = {
+              progress_seconds: ep.duration || 0,
+              duration: ep.duration || 0,
+              completed: true
+            };
+          } else {
+            delete currentShowProgressMap[ep.id];
+          }
+        }
+        if (typeof profileHistoryShowIds !== 'undefined') profileHistoryShowIds = null;
+        if (typeof profileHistoryLoadedKey !== 'undefined') profileHistoryLoadedKey = null;
+        updateWatchedButtonUI();
+        if (typeof showToast === 'function') {
+          showToast(targetCompleted ? 'Episodio marcado como visto' : 'Episodio marcado como sin ver', 'success');
+        }
+
+        const episodesList = document.getElementById('episodes-list');
+        const seasons = (typeof currentShowSeasons !== 'undefined') ? currentShowSeasons : null;
+        const selectedSeason = (typeof currentSelectedSeason !== 'undefined') ? currentSelectedSeason : null;
+        const showObj = (typeof currentShowObj !== 'undefined') ? currentShowObj : null;
+        const allEpisodes = (typeof currentShowEpisodes !== 'undefined') ? currentShowEpisodes : [];
+        if (episodesList && seasons) {
+          const currentList = seasons[selectedSeason] || allEpisodes;
+          renderEpisodeList(currentList, episodesList, showObj?.poster_path || '', progMap);
+        }
+        if (typeof refreshContinueWatching === 'function') {
+          refreshContinueWatching();
+        }
+      } catch {
+        if (typeof showToast === 'function') showToast('No se pudo actualizar el episodio', 'error');
+      } finally {
+        watchedBtn.disabled = false;
+      }
+    };
   }
 
   if (playBtn) {
@@ -1023,6 +1257,7 @@ export async function loadShowDetails(id) {
     const show = data.show || data;
     const episodes = Array.isArray(data.episodes) ? data.episodes : (show.episodes || []);
     currentShowEpisodes = episodes;
+    currentShowObj = show;
     // Per-season poster/banner/synopsis (the show's own art is its latest season's).
     const seasonInfoList = Array.isArray(data.season_info) ? data.season_info : (Array.isArray(show.season_info) ? show.season_info : []);
     const seasonInfo = new Map(seasonInfoList.map(info => [String(info.season_number), info]));
@@ -1047,7 +1282,9 @@ export async function loadShowDetails(id) {
         ? ambientBg.querySelector('video.ambient-loop-video')
         : (typeof ambientBg.querySelectorAll === 'function' ? (ambientBg.querySelectorAll('video.ambient-loop-video')[0] || null) : null);
 
-      if (loops && loops.length > 0 && loops[0]) {
+      const backdropUrl = catalogueImageUrl(show.backdrop_path || show.poster_path || '') || '/assets/illustrations/backdrop_placeholder.svg';
+      // Old PCs (lite mode) skip the looping video; elsewhere the still image stays until the loop really plays.
+      if (loops && loops.length > 0 && loops[0] && !document.documentElement.classList.contains('perf-lite')) {
         const loopSrc = loops[0].startsWith('/') ? loops[0] : `/library/${loops[0]}`;
         if (!ambientVideo) {
           ambientVideo = document.createElement('video');
@@ -1073,18 +1310,23 @@ export async function loadShowDetails(id) {
             ambientBg.appendChild(ambientVideo);
           }
         }
-        ambientVideo.src = loopSrc;
-        ambientVideo.play().catch(() => {});
-        ambientBg.style.backgroundImage = 'none';
+        ambientBg.style.backgroundImage = `url("${backdropUrl}")`;
         // The loop is the show's art: season changes must not paint a banner under it.
         if (ambientBg.dataset) delete ambientBg.dataset.seasonArt;
+        const loopVideo = ambientVideo;
+        loopVideo.onplaying = () => { ambientBg.style.backgroundImage = 'none'; };
+        loopVideo.onerror = () => {
+          loopVideo.remove();
+          ambientBg.style.backgroundImage = `url("${backdropUrl}")`;
+        };
+        loopVideo.src = loopSrc;
+        loopVideo.play().catch(() => {});
       } else {
         if (ambientVideo) {
           ambientVideo.pause();
           ambientVideo.src = '';
           ambientVideo.remove();
         }
-        const backdropUrl = catalogueImageUrl(show.backdrop_path || show.poster_path || '') || '/assets/illustrations/backdrop_placeholder.svg';
         ambientBg.style.backgroundImage = `url("${backdropUrl}")`;
         if (ambientBg.dataset) ambientBg.dataset.seasonArt = '1';
       }
@@ -1343,6 +1585,9 @@ export async function loadShowDetails(id) {
         }).join('');
       }
 
+      currentShowProgressMap = showProgressMap;
+      currentShowSeasons = seasons;
+      currentSelectedSeason = defaultSeason;
       applySeason(defaultSeason);
       renderEpisodeList(seasons[defaultSeason] || episodes, episodesList, show.poster_path, showProgressMap);
 
@@ -1356,6 +1601,7 @@ export async function loadShowDetails(id) {
           tab.classList.add('active');
           if (tab.setAttribute) tab.setAttribute('aria-selected', 'true');
           const sNum = tab.getAttribute('data-season');
+          currentSelectedSeason = sNum;
           applySeason(sNum);
           renderEpisodeList(seasons[sNum] || [], episodesList, show.poster_path, showProgressMap);
         };
@@ -1484,8 +1730,8 @@ export async function loadShowDetails(id) {
       if (hasAudioChoice || hasSubChoice) {
         trackPrefContainer.style.display = 'flex';
 
-        let currentAudioPref = localStorage.getItem('kura_pref_audio_lang') || 'jpn';
-        let currentSubPref = localStorage.getItem('kura_pref_sub_lang') || 'spa';
+        let currentAudioPref = localStorage.getItem(AuthManager.langPrefKey('audio')) || window.userPreferences?.preferred_audio_language || 'jpn';
+        let currentSubPref = localStorage.getItem(AuthManager.langPrefKey('sub')) || window.userPreferences?.preferred_subtitle_language || 'spa';
 
         // Render Audio Pills
         if (audioTracksMap.size > 0) {
@@ -1504,8 +1750,7 @@ export async function loadShowDetails(id) {
               audioPillsContainer.querySelectorAll('.detail-pref-pill').forEach(p => p.classList.remove('active'));
               pill.classList.add('active');
               const lang = pill.getAttribute('data-lang');
-              localStorage.setItem('kura_pref_audio_lang', lang);
-              localStorage.setItem('kurastream_preferred_audio_language', lang);
+              localStorage.setItem(AuthManager.langPrefKey('audio'), lang);
               if (window.userPreferences) {
                 window.userPreferences.preferred_audio_language = lang;
               }
@@ -1538,8 +1783,7 @@ export async function loadShowDetails(id) {
               subPillsContainer.querySelectorAll('.detail-pref-pill').forEach(p => p.classList.remove('active'));
               pill.classList.add('active');
               const lang = pill.getAttribute('data-lang');
-              localStorage.setItem('kura_pref_sub_lang', lang);
-              localStorage.setItem('kurastream_preferred_subtitle_language', lang);
+              localStorage.setItem(AuthManager.langPrefKey('sub'), lang);
               if (window.userPreferences) {
                 window.userPreferences.preferred_subtitle_language = lang;
               }
@@ -1908,6 +2152,8 @@ export async function renderHistoryView() {
       btn.disabled = true;
       try {
         await deleteHistory(`episode_id=${encodeURIComponent(btn.dataset.removeEpisode)}`);
+        profileHistoryShowIds = null;
+        profileHistoryLoadedKey = null;
         renderHistoryView();
       } catch {
         btn.disabled = false;
@@ -1921,6 +2167,8 @@ export async function renderHistoryView() {
       clearBtn.disabled = true;
       try {
         await deleteHistory('clear=all');
+        profileHistoryShowIds = null;
+        profileHistoryLoadedKey = null;
         showToast('Historial borrado', 'success');
         renderHistoryView();
       } catch {
@@ -2914,13 +3162,58 @@ function showGenreList(show) {
 
 // Home toolbar state (status chips, sort chips, genre pills). The markup shipped without any
 // handlers, so the filters looked clickable but did nothing.
-const catalogFilters = { status: '', sort: 'popular', genre: 'all' };
+const catalogFilters = { status: '', sort: 'popular', genre: 'all', unstarted: false };
 let catalogShows = [];
 let catalogHistoryMap = new Map();
 let catalogToolbarBound = false;
 
+async function ensureCatalogHistoryLoaded(force = false) {
+  const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
+  const key = hasProfile ? `${activeUser}:${profileName}` : 'guest';
+  if (!force && profileHistoryLoadedKey === key && profileHistoryShowIds !== null) {
+    return true;
+  }
+  if (!hasProfile) {
+    profileHistoryShowIds = new Set();
+    profileHistoryLoadedKey = key;
+    return true;
+  }
+  try {
+    const res = await fetch(`/api/history?username=${encodeURIComponent(activeUser)}&profile_name=${encodeURIComponent(profileName)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      showToast('Historial no disponible', 'error');
+      return false;
+    }
+    const data = await res.json();
+    const started = new Set();
+    if (Array.isArray(data)) {
+      data.forEach(item => {
+        const prog = Number(item.progress_seconds || item.progress || 0);
+        const comp = Boolean(item.completed);
+        if ((prog > 0 || comp) && item.show_id) {
+          started.add(String(item.show_id));
+        }
+      });
+    }
+    profileHistoryShowIds = started;
+    profileHistoryLoadedKey = key;
+    return true;
+  } catch {
+    showToast('Historial no disponible', 'error');
+    return false;
+  }
+}
+
 function syncCatalogToolbar() {
   document.querySelectorAll('.catalog-toolbar .filter-chip').forEach(chip => {
+    if (chip.dataset.filter === 'unstarted') {
+      const on = Boolean(catalogFilters.unstarted);
+      chip.classList.toggle('active', on);
+      chip.setAttribute('aria-pressed', String(on));
+      return;
+    }
     const on = (chip.dataset.status || '') === catalogFilters.status;
     chip.classList.toggle('active', on);
     chip.setAttribute('aria-pressed', String(on));
@@ -2960,6 +3253,7 @@ function filteredCatalogShows() {
     if (catalogFilters.status === 'airing' && show.status !== 'airing') return false;
     if (catalogFilters.status === 'completed' && show.status !== 'finished' && show.status !== 'completed') return false;
     if (catalogFilters.genre !== 'all' && !showGenreList(show).includes(catalogFilters.genre)) return false;
+    if (catalogFilters.unstarted && profileHistoryShowIds && profileHistoryShowIds.has(String(show.id))) return false;
     return true;
   });
   if (catalogFilters.sort === 'rating') {
@@ -3010,9 +3304,20 @@ function bindCatalogToolbar() {
   const toolbar = document.querySelector('.catalog-toolbar');
   if (!toolbar) return;
   catalogToolbarBound = true;
-  toolbar.addEventListener('click', (e) => {
+  toolbar.addEventListener('click', async (e) => {
     const chip = e.target.closest('.filter-chip, .sort-chip, .genre-pill');
     if (!chip) return;
+    if (chip.dataset.filter === 'unstarted') {
+      if (!catalogFilters.unstarted) {
+        const ok = await ensureCatalogHistoryLoaded(true);
+        if (!ok) return;
+        catalogFilters.unstarted = true;
+      } else {
+        catalogFilters.unstarted = false;
+      }
+      renderCatalogGrid();
+      return;
+    }
     if (chip.classList.contains('filter-chip')) catalogFilters.status = chip.dataset.status || '';
     else if (chip.classList.contains('sort-chip')) catalogFilters.sort = chip.dataset.sort || 'popular';
     else catalogFilters.genre = chip.dataset.genre || 'all';
@@ -3022,6 +3327,7 @@ function bindCatalogToolbar() {
     if (!e.target.closest('#btn-clear-catalog-filters')) return;
     catalogFilters.status = '';
     catalogFilters.genre = 'all';
+    catalogFilters.unstarted = false;
     renderCatalogGrid();
   });
 }
@@ -3054,6 +3360,7 @@ async function initCatalogView(filterType = 'all') {
     catalogFilters.status = filterType === 'airing' ? 'airing' : '';
     catalogFilters.genre = 'all';
     catalogFilters.sort = 'popular';
+    catalogFilters.unstarted = false;
 
     // Continue Watching (history is per profile, so guests have none server-side)
     const { activeUser, profileName, token, hasProfile } = getUserAndProfile();
@@ -3247,6 +3554,7 @@ async function loadSettingsView() {
   const presetSelect = document.getElementById('pref-audio-preset');
   const skipIntroToggle = document.getElementById('autoSkipIntroToggle');
   const autoPlayNextToggle = document.getElementById('autoPlayNextToggle');
+  const spoilerFreeToggle = document.getElementById('spoilerFreeToggle');
   const notifToggle = document.getElementById('notificationsToggle');
   const saveSuccessToast = document.getElementById('settings-save-success');
 
@@ -3258,8 +3566,8 @@ async function loadSettingsView() {
       })
       : null;
     const localPrefs = {
-      preferred_audio_language: localStorage.getItem('kurastream_preferred_audio_language') || undefined,
-      preferred_subtitle_language: localStorage.getItem('kurastream_preferred_subtitle_language') || undefined,
+      preferred_audio_language: localStorage.getItem(AuthManager.langPrefKey('audio')) || undefined,
+      preferred_subtitle_language: localStorage.getItem(AuthManager.langPrefKey('sub')) || undefined,
       audio_boost: localStorage.getItem('kura_audio_boost') || undefined,
       audio_preset: localStorage.getItem('kura_audio_preset') || undefined,
       auto_skip_intro: localStorage.getItem('kurastream_auto_skip_intro') === 'true',
@@ -3288,8 +3596,8 @@ async function loadSettingsView() {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const existingAudio = (window.userPreferences && window.userPreferences.preferred_audio_language) || localStorage.getItem('kura_pref_audio_lang') || 'default';
-    const existingSub = (window.userPreferences && window.userPreferences.preferred_subtitle_language) || localStorage.getItem('kura_pref_sub_lang') || 'default';
+    const existingAudio = (window.userPreferences && window.userPreferences.preferred_audio_language) || localStorage.getItem(AuthManager.langPrefKey('audio')) || 'default';
+    const existingSub = (window.userPreferences && window.userPreferences.preferred_subtitle_language) || localStorage.getItem(AuthManager.langPrefKey('sub')) || 'default';
 
     const payload = {
       username: activeUser,
@@ -3317,12 +3625,10 @@ async function loadSettingsView() {
         localStorage.setItem('kurastream_auto_skip_intro', String(skipIntroToggle ? skipIntroToggle.checked : false));
         localStorage.setItem('kurastream_auto_play_next', String(autoPlayNextToggle ? autoPlayNextToggle.checked : true));
         if (audioLangSelect) {
-          localStorage.setItem('kurastream_preferred_audio_language', audioLangSelect.value);
-          localStorage.setItem('kura_pref_audio_lang', audioLangSelect.value);
+          localStorage.setItem(AuthManager.langPrefKey('audio'), audioLangSelect.value);
         }
         if (subLangSelect) {
-          localStorage.setItem('kurastream_preferred_subtitle_language', subLangSelect.value);
-          localStorage.setItem('kura_pref_sub_lang', subLangSelect.value);
+          localStorage.setItem(AuthManager.langPrefKey('sub'), subLangSelect.value);
         }
         localStorage.setItem('kura_audio_boost', String(boostSelect ? boostSelect.value : 100));
         localStorage.setItem('kura_audio_preset', presetSelect ? presetSelect.value : 'flat');
@@ -3345,6 +3651,11 @@ async function loadSettingsView() {
   if (presetSelect) presetSelect.onchange = savePreferences;
   if (skipIntroToggle) skipIntroToggle.onchange = savePreferences;
   if (autoPlayNextToggle) autoPlayNextToggle.onchange = savePreferences;
+  // Spoiler-free mode is a per-profile setting stored on this device only: it must not depend on the API.
+  if (spoilerFreeToggle) {
+    spoilerFreeToggle.checked = AuthManager.isSpoilerFree();
+    spoilerFreeToggle.onchange = () => AuthManager.setSpoilerFree(spoilerFreeToggle.checked);
+  }
 
   // Visual performance mode is a per-device choice (an old PC and a phone differ), so it lives
   // in localStorage rather than in the synced profile preferences.
@@ -3988,6 +4299,7 @@ if (typeof window !== 'undefined') {
   window.setupCatalogueActions = setupCatalogueActions;
   window.renderBillboardHero = renderBillboardHero;
   window.renderContinueWatching = renderContinueWatching;
+  window.refreshContinueWatching = refreshContinueWatching;
   window.createShowCardHTML = createShowCardHTML;
   window.renderEpisodeList = renderEpisodeList;
   window.showEpisodeDetails = showEpisodeDetails;

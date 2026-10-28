@@ -36,14 +36,14 @@ data class Progress(
 
 @Serializable
 data class UserPreferences(
-    val autoSkipIntro: Boolean = false,
-    val autoSkipOutro: Boolean = false,
-    val autoPlayNext: Boolean = true,
-    val preferredAudioLanguage: String = "jpn",
-    val preferredSubtitleLanguage: String = "spa",
-    val audioBoost: Int = 100,
-    val audioPreset: String = "flat",
-    val doubleTapSeekSeconds: Int = 10
+    val autoSkipIntro: Boolean? = null,
+    val autoSkipOutro: Boolean? = null,
+    val autoPlayNext: Boolean? = null,
+    val preferredAudioLanguage: String? = null,
+    val preferredSubtitleLanguage: String? = null,
+    val audioBoost: Int? = null,
+    val audioPreset: String? = null,
+    val doubleTapSeekSeconds: Int? = null
 )
 
 @Serializable

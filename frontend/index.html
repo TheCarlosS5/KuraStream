@@ -64,7 +64,7 @@
   <link rel="preload" href="/css/player.css" as="style">
   <link rel="preload" href="/css/admin.css" as="style">
   <link rel="preload" href="/css/responsive.css" as="style">
-  <link rel="stylesheet" href="style.css?v=2026.10.04-outros">
+  <link rel="stylesheet" href="style.css?v=2026.10.07-ronda4">
 </head>
 <body>
   <!-- Offline Status Banner -->
@@ -189,6 +189,7 @@
             <button type="button" class="filter-chip active" data-status="">Todos</button>
             <button type="button" class="filter-chip" data-status="airing">En Emisión</button>
             <button type="button" class="filter-chip" data-status="completed">Finalizados</button>
+            <button type="button" class="filter-chip" id="filter-unstarted" data-filter="unstarted">Sin empezar</button>
           </div>
           <div class="filter-sort-group">
             <button type="button" class="sort-chip active" data-sort="popular">Más Populares</button>
@@ -620,6 +621,7 @@
         </aside>
 
         <button type="button" class="skip-intro-btn" id="skip-intro-btn" hidden><i data-lucide="skip-forward"></i> <span id="skip-intro-label">Omitir intro</span></button>
+        <button type="button" class="skip-intro-btn" id="skip-undo-btn" hidden><i data-lucide="rotate-ccw"></i> <span>Volver</span></button>
 
         <!-- Up next: appears with the credits (or the last 20 s) -->
         <div class="up-next-card" id="up-next-card" hidden>
@@ -632,6 +634,7 @@
             <strong class="up-next-title" id="up-next-title"></strong>
             <span class="up-next-meta" id="up-next-meta"></span>
             <div class="up-next-actions">
+              <button type="button" class="btn btn-secondary btn-sm" id="up-next-reveal" style="display: none;"><i data-lucide="eye"></i> Mostrar detalles</button>
               <button type="button" class="btn btn-primary btn-sm" id="up-next-play"><i data-lucide="play"></i> Ver ahora</button>
               <button type="button" class="btn btn-secondary btn-sm" id="up-next-dismiss">Ver créditos</button>
             </div>
@@ -1290,6 +1293,17 @@
               <span class="slider round"></span>
             </label>
           </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <label for="spoilerFreeToggle" class="setting-label">Modo sin spoilers</label>
+              <p class="setting-desc">Oculta títulos, sinopsis y miniaturas de episodios no vistos para evitar revelar giros o escenas clave.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="spoilerFreeToggle">
+              <span class="slider round"></span>
+            </label>
+          </div>
         </div>
 
         <a href="#/app" class="settings-app-card">
@@ -1427,8 +1441,10 @@
         </div>
       </div>
 
-      <!-- Play Button -->
+      <!-- Play Button & Mark Watched Button -->
+      <button type="button" class="btn btn-secondary btn-block btn-play-large mb-12" id="ep-detail-reveal-btn" style="display: none;"><i data-lucide="eye"></i> Mostrar detalles</button>
       <button class="btn btn-primary btn-block btn-play-large" id="ep-detail-play-btn"><i data-lucide="play"></i> Reproducir Capítulo</button>
+      <button type="button" class="btn btn-secondary btn-block btn-play-large mt-12" id="ep-detail-watched-btn"><i data-lucide="check" id="ep-detail-watched-icon"></i> <span id="ep-detail-watched-text">Marcar como visto</span></button>
     </div>
   </div>
   <!-- PROFILE MODALS -->
@@ -1668,8 +1684,8 @@
   <!-- Lucide Icons Bundle (Local Vendor) -->
   <script src="/vendor/lucide/lucide.min.js"></script>
   <!-- Global scripts -->
-  <script src="/js/main.js?v=2026.10.04-outros" type="module"></script>
-  <script src="player.js?v=2026.10.04-outros" type="module"></script>
+  <script src="/js/main.js?v=2026.10.07-ronda4" type="module"></script>
+  <script src="player.js?v=2026.10.07-ronda4" type="module"></script>
   <!-- Service Worker Registration for PWA -->
   <script>
     if ('serviceWorker' in navigator) {

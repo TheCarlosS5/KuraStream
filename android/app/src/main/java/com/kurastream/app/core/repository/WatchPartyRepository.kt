@@ -9,6 +9,7 @@ import com.kurastream.app.core.network.dto.PartyCreateRequestDto
 import com.kurastream.app.core.network.dto.PartyJoinRequestDto
 import com.kurastream.app.core.network.dto.PartyMessageRequestDto
 import com.kurastream.app.core.network.dto.PartySyncRequestDto
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
 data class ActivePartySession(
@@ -71,7 +72,8 @@ class WatchPartyRepository(
                         isPlaying = it.isPlaying,
                         isPublic = it.isPublic,
                         memberCount = it.memberCount,
-                        allowGuestControls = true
+                        allowGuestControls = it.allowGuestControls,
+                        lastSyncMember = it.lastSyncMember
                     )
                 }
                 val session = ActivePartySession(
@@ -88,6 +90,8 @@ class WatchPartyRepository(
             } else {
                 Result.failure(Exception("Error al crear la sala de Watch Party"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -106,7 +110,8 @@ class WatchPartyRepository(
                     isPlaying = res.room.isPlaying,
                     isPublic = res.room.isPublic,
                     memberCount = res.room.memberCount,
-                    allowGuestControls = res.room.allowGuestControls
+                    allowGuestControls = res.room.allowGuestControls,
+                    lastSyncMember = res.room.lastSyncMember
                 )
                 val session = ActivePartySession(
                     roomId = res.room.id,
@@ -122,6 +127,8 @@ class WatchPartyRepository(
             } else {
                 Result.failure(Exception("Error al unirse a la sala de Watch Party"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -135,6 +142,8 @@ class WatchPartyRepository(
                 roomId = roomId,
                 memberIdQuery = memberId
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {}
         _activeSession.value = null
         watchPartyClient.disconnect()
@@ -147,8 +156,8 @@ class WatchPartyRepository(
         rate: Float = 1.0f,
         action: String? = null,
         episodeId: String? = null
-    ) {
-        try {
+    ): Result<Unit> {
+        return try {
             apiService.syncPartyPlayback(
                 memberId = session.memberId,
                 memberToken = session.memberToken,
@@ -161,7 +170,12 @@ class WatchPartyRepository(
                     episodeId = episodeId
                 )
             )
-        } catch (_: Exception) {}
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e.toUserFacingError())
+        }
     }
 
     suspend fun sendMessage(session: ActivePartySession, text: String, type: String = "chat"): Result<Unit> {
@@ -176,6 +190,8 @@ class WatchPartyRepository(
                 )
             )
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e.toUserFacingError())
         }
@@ -194,4 +210,7 @@ class WatchPartyRepository(
     fun stopListening() {
         watchPartyClient.disconnect()
     }
+
+    /** Latest room state from the live connection (null before the first frame or after leaving). */
+    fun lastRoomSync(): com.kurastream.app.core.model.PartySyncEvent? = watchPartyClient.lastSync
 }

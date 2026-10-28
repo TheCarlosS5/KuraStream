@@ -189,6 +189,7 @@ object ServerUrlResolver {
         }
         if (forceH264) {
             params.add("codec=h264")
+            params.add("transcode=1")
         }
         if (downmixStereo) {
             params.add("downmix=stereo")

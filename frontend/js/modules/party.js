@@ -47,6 +47,9 @@ class PartyManager {
     this.pollInterval = null;
     this.refreshTimer = null;
     this.lastMessageId = 0;
+    this.lastRoomSyncTs = 0;
+    // Chat history of the current room, so a player mounted after join (or on the next episode) can show it.
+    this.messageLog = [];
     this.isApplyingRemoteSync = false;
     this.syncDebounceTimer = null;
     this.listeners = {
@@ -137,6 +140,14 @@ class PartyManager {
         try { cb(data); } catch (e) { console.error(`[WatchParty] Listener error for ${event}:`, e); }
       });
     }
+  }
+
+  deliverMessage(msg) {
+    if (!msg) return;
+    if (msg.id !== undefined && msg.id !== null && this.messageLog.some(m => m.id === msg.id)) return;
+    this.messageLog.push(msg);
+    if (this.messageLog.length > 200) this.messageLog.splice(0, this.messageLog.length - 200);
+    this.emit('message', msg);
   }
 
   isInRoom() {
@@ -235,7 +246,7 @@ class PartyManager {
     this.startCapabilityRefreshTimer();
     if (data.messages && Array.isArray(data.messages)) {
       data.messages.forEach(msg => {
-        this.emit('message', msg);
+        this.deliverMessage(msg);
         if (msg.id > this.lastMessageId) this.lastMessageId = msg.id;
       });
     }
@@ -258,7 +269,13 @@ class PartyManager {
     }
 
     this.disconnectEventStream();
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
     this.activeRoom = null;
+    this.lastRoomSyncTs = 0;
+    this.messageLog = [];
     this.currentUser.isHost = false;
     this.memberId = null;
     this.memberToken = null;
@@ -281,6 +298,9 @@ class PartyManager {
   }
 
   setupRoomState(room, username, isHost) {
+    this.messageLog = [];
+    this.lastMessageId = 0;
+    this.lastRoomSyncTs = Number(room?.last_sync_timestamp) || 0;
     this.noteServerClock(room);
     this.activeRoom = room;
     this.currentUser = {
@@ -324,7 +344,7 @@ class PartyManager {
 
   startCapabilityRefreshTimer() {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
-    // Refresh capability token every 8 minutes (TTL is 15 minutes)
+    // Refresh the capability token every 8 minutes (it lives 4 h; this keeps new requests on a fresh one)
     this.refreshTimer = setInterval(() => {
       this.refreshCapabilityToken();
     }, 480000);
@@ -394,14 +414,22 @@ class PartyManager {
           this.pollInterval = null;
         }
         const data = JSON.parse(e.data);
+        if (!this.activeRoom || (data.room && data.room.id !== this.activeRoom.id)) return;
         if (data.room) {
-          this.noteServerClock(data.room);
-          this.activeRoom = data.room;
-          this.emit('sync', data.room);
+          const roomTs = Number(data.room.last_sync_timestamp) || 0;
+          const epChanged = Boolean(this.activeRoom.episode_id && data.room.episode_id && data.room.episode_id !== this.activeRoom.episode_id);
+          if (!epChanged && roomTs < (this.lastRoomSyncTs || 0)) {
+            // Descartar snapshot obsoleto de la misma sala
+          } else {
+            this.noteServerClock(data.room);
+            this.activeRoom = data.room;
+            this.emit('sync', data.room);
+            this.lastRoomSyncTs = epChanged ? roomTs : Math.max(this.lastRoomSyncTs || 0, roomTs);
+          }
         }
         if (data.messages && Array.isArray(data.messages)) {
           data.messages.forEach(msg => {
-            this.emit('message', msg);
+            this.deliverMessage(msg);
             if (msg.id > this.lastMessageId) this.lastMessageId = msg.id;
           });
         }
@@ -436,7 +464,7 @@ class PartyManager {
               }
             }
             this.renderAvatarStack();
-            this.emit('message', msg);
+            this.deliverMessage(msg);
             if (msg.id > this.lastMessageId) this.lastMessageId = msg.id;
           });
         }
@@ -498,6 +526,7 @@ class PartyManager {
         const res = await fetch(pollUrl, { headers });
         if (!res.ok) return;
         const data = await res.json();
+        if (!this.activeRoom || this.activeRoom.id !== roomId) return;
 
         if (data.room) {
           this.handleRemoteSync(data.room);
@@ -524,7 +553,7 @@ class PartyManager {
               }
             }
             this.renderAvatarStack();
-            this.emit('message', msg);
+            this.deliverMessage(msg);
             if (msg.id > this.lastMessageId) this.lastMessageId = msg.id;
           });
         }
@@ -604,7 +633,12 @@ class PartyManager {
   }
 
   handleRemoteSync(newRoom) {
-    if (!newRoom) return;
+    if (!newRoom || !this.activeRoom || (newRoom.id && newRoom.id !== this.activeRoom.id)) return;
+    const roomTs = Number(newRoom.last_sync_timestamp) || 0;
+    const epChanged = Boolean(this.activeRoom.episode_id && newRoom.episode_id && newRoom.episode_id !== this.activeRoom.episode_id);
+    if (!epChanged && roomTs < (this.lastRoomSyncTs || 0)) {
+      return;
+    }
     this.noteServerClock(newRoom);
     if (this.activeRoom && this.activeRoom.is_playing !== newRoom.is_playing) {
       if (newRoom.is_playing) {
@@ -615,6 +649,7 @@ class PartyManager {
     }
     this.activeRoom = newRoom;
     this.emit('sync', newRoom);
+    this.lastRoomSyncTs = epChanged ? roomTs : Math.max(this.lastRoomSyncTs || 0, roomTs);
   }
 
   // --- PLAYBACK SYNC ENGINE ---
@@ -628,7 +663,7 @@ class PartyManager {
       this.syncDebounceTimer = null;
       if (!this.activeRoom) return;
       try {
-        await fetch('/api/party/sync', {
+        const res = await fetch('/api/party/sync', {
           method: 'POST',
           headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -642,6 +677,9 @@ class PartyManager {
             action
           })
         });
+        const data = await res.json().catch(() => null);
+        const syncedAt = Number(data?.room?.last_sync_timestamp) || 0;
+        if (syncedAt > (this.lastRoomSyncTs || 0)) this.lastRoomSyncTs = syncedAt;
       } catch (err) {
         console.error('[WatchParty] Sync send error:', err);
       }
@@ -657,7 +695,9 @@ class PartyManager {
    * - Remuxed streams can't seek in place: `seekAbsolute` restarts the stream at that time.
    */
   applyRemotePlaybackToVideo(video, { offset = 0, isDirect = true, seekAbsolute = null } = {}) {
-    if (!video || !this.activeRoom || this.isHost()) return;
+    if (!video || !this.activeRoom) return;
+    const asHost = this.isHost();
+    if (asHost && !this.isGuestCommandForHost()) return;
 
     const shouldPlay = Boolean(this.activeRoom.is_playing);
     const targetTime = this.roomPositionNow();
@@ -678,7 +718,7 @@ class PartyManager {
       } else {
         seekAbsolute(targetTime);
       }
-    } else if (timeDiff > 0.4 && shouldPlay) {
+    } else if (timeDiff > 0.4 && shouldPlay && !asHost) {
       if (syncPill) {
         syncPill.innerHTML = `<span class="spinner" style="width: 10px; height: 10px; border-width: 2px; margin-right: 4px;"></span> Alineando...`;
         syncPill.style.color = 'var(--rating-color)';
@@ -710,17 +750,34 @@ class PartyManager {
     }, 400);
   }
 
+  /**
+   * The host is the room clock, except when guests may control playback: a room state newer than the
+   * host's own last sync (and not right after a local action) is a guest's pause/seek. Ignoring it let
+   * the host's next heartbeat undo the guest's command.
+   */
+  isGuestCommandForHost() {
+    const room = this.activeRoom;
+    return Boolean(
+      room &&
+      room.allow_guest_controls &&
+      room.last_sync_member &&
+      room.last_sync_member !== this.memberId &&
+      Number(room.last_sync_timestamp) > (this.lastRoomSyncTs || 0)
+    );
+  }
+
   // --- CHAT & REACTIONS ---
 
   async sendMessage(text) {
     if (!this.isInRoom() || !text.trim()) return;
 
+    const roomId = this.activeRoom?.id;
     const message = text.trim();
     const res = await fetch('/api/party/message', {
       method: 'POST',
       headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        room_id: this.activeRoom.id,
+        room_id: roomId,
         username: this.currentUser.username,
         member_id: this.memberId,
         member_token: this.memberToken,
@@ -729,10 +786,10 @@ class PartyManager {
       })
     });
 
-    const data = await res.json();
-    if (data.success && data.message) {
-      this.emit('message', data.message);
-      if (data.message.id > this.lastMessageId) this.lastMessageId = data.message.id;
+    const data = await res.json().catch(() => null);
+    if (this.activeRoom?.id === roomId && data?.success && data?.message) {
+      // Not advancing lastMessageId here: someone else's message with a lower id may still be pending.
+      this.deliverMessage(data.message);
     }
   }
 

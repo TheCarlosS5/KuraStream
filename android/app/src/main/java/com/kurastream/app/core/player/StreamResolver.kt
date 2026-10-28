@@ -116,6 +116,11 @@ object StreamResolver {
         if (tracks.isEmpty()) return 0
         val targetNorm = normalizeLanguageCode(preferredLanguage)
 
+        if (targetNorm.isNotBlank() && targetNorm != "und") {
+            val exact = tracks.indexOfFirst { trackLanguage(it.language, it.title) == targetNorm }
+            if (exact >= 0) return exact
+        }
+
         val match = tracks.indexOfFirst {
             sameLanguageFamily(trackLanguage(it.language, it.title), targetNorm) ||
                     (preferredLanguage.length > 2 && it.title.contains(preferredLanguage, ignoreCase = true))
@@ -186,15 +191,38 @@ object StreamResolver {
         if (tracks.isEmpty() || pref.isEmpty() || pref == "off") return -1
         val target = if (pref == "default") "spa" else normalizeLanguageCode(pref)
         val text = tracks.withIndex().filter { !it.value.isBitmap }
-        val inTarget = text.filter { sameLanguageFamily(trackLanguage(it.value.language, it.value.title), target) }
-        val match = if (sameLanguageFamily(audioLanguage, target)) {
-            inTarget.firstOrNull { isForcedSubtitle(it.value) }
+        val isDubbed = sameLanguageFamily(audioLanguage, target)
+
+        // First look for exact normalized language match
+        val exactTracks = if (target.isNotBlank() && target != "und") {
+            text.filter { trackLanguage(it.value.language, it.value.title) == target }
         } else {
-            inTarget.firstOrNull { !isForcedSubtitle(it.value) }
-                ?: inTarget.firstOrNull()
-                ?: text.firstOrNull { it.value.isDefault && !isForcedSubtitle(it.value) }
+            emptyList()
         }
-        return match?.index ?: -1
+
+        val exactMatch = if (isDubbed) {
+            exactTracks.firstOrNull { isForcedSubtitle(it.value) }
+        } else {
+            exactTracks.firstOrNull { !isForcedSubtitle(it.value) } ?: exactTracks.firstOrNull()
+        }
+        if (exactMatch != null) return exactMatch.index
+
+        // Fallback to language family (e.g. spa / es-419)
+        val familyTracks = text.filter { sameLanguageFamily(trackLanguage(it.value.language, it.value.title), target) }
+        val familyMatch = if (isDubbed) {
+            familyTracks.firstOrNull { isForcedSubtitle(it.value) }
+        } else {
+            familyTracks.firstOrNull { !isForcedSubtitle(it.value) } ?: familyTracks.firstOrNull()
+        }
+        if (familyMatch != null) return familyMatch.index
+
+        // Foreign audio fallback to default track
+        if (!isDubbed) {
+            val defaultTrack = text.firstOrNull { it.value.isDefault && !isForcedSubtitle(it.value) }
+            if (defaultTrack != null) return defaultTrack.index
+        }
+
+        return -1
     }
 
     /**
@@ -204,7 +232,7 @@ object StreamResolver {
         val clean = raw.lowercase().trim().replace("_", "-")
         return when {
             clean.startsWith("ja") || clean == "jpn" || clean == "jap" -> "jpn"
-            clean.startsWith("es-419") || clean == "lat" || clean.contains("latino") -> "es-419"
+            clean.startsWith("es-419") || clean.startsWith("spa-419") || clean == "lat" || clean.contains("latino") -> "es-419"
             clean.startsWith("es") || clean == "spa" || clean.contains("castellano") -> "spa"
             clean.startsWith("en") || clean == "eng" -> "eng"
             clean.startsWith("fr") || clean == "fra" || clean == "fre" -> "fra"

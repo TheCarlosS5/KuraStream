@@ -7,6 +7,8 @@ class AuthMiddleware {
      */
     public static function createToken(array $payload): string {
         $header = ['alg' => 'HS256', 'typ' => 'JWT'];
+        // Clients compare exp against their own clock; iat lets them measure the skew to this server (no NTP here).
+        $payload['iat'] ??= time();
         $base64Header = self::base64UrlEncode(json_encode($header));
         $base64Payload = self::base64UrlEncode(json_encode($payload));
         $signature = hash_hmac('sha256', "{$base64Header}.{$base64Payload}", JWT_SECRET, true);

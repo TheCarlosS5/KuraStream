@@ -76,7 +76,7 @@ function setSecurityHeaders(): void {
     @header("X-Frame-Options: DENY");
     @header("Referrer-Policy: strict-origin-when-cross-origin");
     @header("Permissions-Policy: camera=(), microphone=(), geolocation=()");
-    @header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://image.tmdb.org https://s4.anilist.co; media-src 'self' blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; frame-ancestors 'none';");
+    @header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://image.tmdb.org https://s4.anilist.co; media-src 'self' blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; frame-ancestors 'none';");
 }
 
 // Set JSON headers and CORS
@@ -95,7 +95,7 @@ function setCorsHeaders() {
         }
     }
 
-    @header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    @header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
     @header('Access-Control-Allow-Headers: Content-Type, Authorization');
     if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
         @http_response_code(200);

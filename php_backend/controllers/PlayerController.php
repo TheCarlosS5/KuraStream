@@ -50,6 +50,46 @@ class TranscodeLimiter {
         }
     }
 
+    /** @var resource|null */
+    private static $encodeLock = null;
+
+    /**
+     * Re-encoding video (HEVC and friends -> H.264) is the one job that can saturate the home server's
+     * two cores; plain remuxes stay under the general limit. Defaults to one encode at a time.
+     */
+    public static function acquireEncodeSlot(int $timeoutSeconds = 2): bool {
+        $max = max(1, (int)(getenv('KURA_MAX_VIDEO_ENCODES') ?: 1));
+        $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
+        if (!is_dir($slotDir)) {
+            @mkdir($slotDir, 0777, true);
+        }
+        $start = time();
+        do {
+            for ($i = 0; $i < $max; $i++) {
+                $fp = @fopen($slotDir . DIRECTORY_SEPARATOR . "encode_{$i}.lock", 'c+');
+                if ($fp && flock($fp, LOCK_EX | LOCK_NB)) {
+                    self::$encodeLock = $fp;
+                    return true;
+                }
+                if ($fp) {
+                    fclose($fp);
+                }
+            }
+            if ($timeoutSeconds > 0) {
+                usleep(100000);
+            }
+        } while (time() - $start < $timeoutSeconds);
+        return false;
+    }
+
+    public static function releaseEncodeSlot(): void {
+        if (self::$encodeLock) {
+            @flock(self::$encodeLock, LOCK_UN);
+            @fclose(self::$encodeLock);
+            self::$encodeLock = null;
+        }
+    }
+
     public static function getActiveWorkerCount(): int {
         $slotDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'kura_transcode_slots';
         if (!is_dir($slotDir)) {
@@ -101,47 +141,50 @@ class PlayerController {
             return;
         }
 
-        // 1. Watch party capability token
+        // 1. Watch party capability token. A stale ticket (room left, episode changed) must not block a
+        // viewer who also sends a valid session: they fall through to the normal account check below.
         $ticket = $_GET['ticket'] ?? ($_GET['capability'] ?? ($_SERVER['HTTP_X_STREAM_CAPABILITY'] ?? null));
         if (!empty($ticket)) {
+            $ticketError = null;
             $cap = AuthMiddleware::verifyToken($ticket);
             if ($cap && ($cap['type'] ?? '') === 'watch_party_stream'
                 && !empty($cap['room_id'])
                 && (!isset($cap['exp']) || $cap['exp'] > time())
             ) {
-                if (empty($cap['member_id'])) {
-                    jsonError('Ticket de sala expirado o miembro inactivo', 403);
-                }
-
-                $member = DbHelper::getPartyMemberById($cap['room_id'], $cap['member_id']);
+                $member = empty($cap['member_id']) ? null : DbHelper::getPartyMemberById($cap['room_id'], $cap['member_id']);
+                $room = null;
                 if (!$member || !DbHelper::isPartyMemberActive($cap['room_id'], $cap['member_id'])) {
-                    jsonError('Ticket de sala expirado o miembro inactivo', 403);
+                    $ticketError = ['Ticket de sala expirado o miembro inactivo', 403];
+                } elseif (!($room = DbHelper::getPartyRoom($cap['room_id'])) || empty($room['episode_id'])) {
+                    $ticketError = ['Sala no encontrada o inactiva', 404];
+                } elseif ($room['episode_id'] !== $episodeId) {
+                    $ticketError = ['El ticket no corresponde al episodio activo de la sala', 403];
                 }
 
-                $room = DbHelper::getPartyRoom($cap['room_id']);
-                if (!$room || empty($room['episode_id'])) {
-                    jsonError('Sala no encontrada o inactiva', 404);
-                }
-                if ($room['episode_id'] !== $episodeId) {
-                    jsonError('El ticket no corresponde al episodio activo de la sala', 403);
-                }
+                if ($ticketError === null) {
+                    $currentProfile = PartyController::validatePartyMemberProfileContext($member);
+                    $isKids = $currentProfile ? !empty($currentProfile['is_kids']) : !empty($member['is_kids']);
 
-                $currentProfile = PartyController::validatePartyMemberProfileContext($member);
-                $isKids = $currentProfile ? !empty($currentProfile['is_kids']) : !empty($member['is_kids']);
-
-                if ($isKids) {
-                    $ep = DbHelper::getEpisode($episodeId);
-                    if ($ep && !empty($ep['show_id'])) {
-                        $show = DbHelper::getShow($ep['show_id']);
-                        if ($show && ShowController::isAdultOrMaturityRestricted($show)) {
-                            jsonError('Contenido restringido por el perfil infantil activo', 403);
+                    if ($isKids) {
+                        $ep = DbHelper::getEpisode($episodeId);
+                        if ($ep && !empty($ep['show_id'])) {
+                            $show = DbHelper::getShow($ep['show_id']);
+                            if ($show && ShowController::isAdultOrMaturityRestricted($show)) {
+                                jsonError('Contenido restringido por el perfil infantil activo', 403);
+                            }
                         }
                     }
-                }
 
-                return;
+                    return;
+                }
+            } else {
+                $ticketError = ['Ticket de reproducción inválido o expirado', 403];
             }
-            jsonError('Ticket de reproducción inválido o expirado', 403);
+
+            $fallbackToken = AuthMiddleware::getBearerToken();
+            if (empty($fallbackToken) || !AuthMiddleware::verifyToken($fallbackToken)) {
+                jsonError($ticketError[0], $ticketError[1]);
+            }
         }
 
         // 2. Authenticated user session
@@ -399,8 +442,9 @@ class PlayerController {
             exit();
         }
 
+        $tmpFile = $cacheFile . '.' . getmypid() . '.' . bin2hex(random_bytes(4)) . '.tmp.ass';
         $mapArg = ($trackIndex !== -1) ? "-map 0:{$trackIndex}" : "-map 0:s:" . (int)$trackNum . "?";
-        $cmd = sprintf('ffmpeg -y -v error -i %s %s -f ass %s', escapeshellarg($filepath), $mapArg, escapeshellarg($cacheFile));
+        $cmd = sprintf('ffmpeg -y -v error -i %s %s -f ass %s', escapeshellarg($filepath), $mapArg, escapeshellarg($tmpFile));
 
         $descriptors = [
             0 => ['pipe', 'r'],
@@ -408,6 +452,8 @@ class PlayerController {
             2 => ['pipe', 'w']
         ];
         $subProc = @proc_open($cmd, $descriptors, $pipes);
+        $exitCode = -1;
+        $timedOut = false;
         if (is_resource($subProc)) {
             @fclose($pipes[0]);
             $subStart = time();
@@ -415,17 +461,33 @@ class PlayerController {
             while (time() - $subStart < $subTimeout) {
                 $status = proc_get_status($subProc);
                 if (!$status['running']) {
+                    $exitCode = $status['exitcode'];
                     break;
                 }
                 usleep(50000);
             }
-            $status = proc_get_status($subProc);
-            if ($status['running']) {
-                @proc_terminate($subProc, 9);
+            if ($exitCode === -1) {
+                $status = proc_get_status($subProc);
+                if ($status['running']) {
+                    $timedOut = true;
+                    @proc_terminate($subProc, 9);
+                } else {
+                    $exitCode = $status['exitcode'];
+                }
             }
             @fclose($pipes[1]);
             @fclose($pipes[2]);
-            @proc_close($subProc);
+            $closeCode = @proc_close($subProc);
+            if ($exitCode === -1 && $closeCode !== -1) {
+                $exitCode = $closeCode;
+            }
+        }
+
+        if (!$timedOut && $exitCode === 0 && file_exists($tmpFile) && filesize($tmpFile) > 0) {
+            @rename($tmpFile, $cacheFile);
+        }
+        if (file_exists($tmpFile)) {
+            @unlink($tmpFile);
         }
 
         if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
@@ -618,6 +680,21 @@ class PlayerController {
                 throw new ExitException("Stream remux success", 200, ['cmd' => $cmd, 'needs_downmix' => $needsDownmix]);
             }
 
+            if ($needTranscodeVideo) {
+                if (!TranscodeLimiter::acquireEncodeSlot(3)) {
+                    TranscodeLimiter::releaseSlot();
+                    @http_response_code(503);
+                    @header('Retry-After: 10');
+                    echo "Otro dispositivo está convirtiendo un video en este momento; intenta en unos segundos.";
+                    exit();
+                }
+                register_shutdown_function([TranscodeLimiter::class, 'releaseEncodeSlot']);
+            }
+            // Keep the API, database and other streams responsive while ffmpeg works (Linux only).
+            if (PHP_OS_FAMILY !== 'Windows') {
+                $cmd = 'nice -n 10 ' . $cmd;
+            }
+
             while (ob_get_level()) {
                 ob_end_clean();
             }
@@ -682,9 +759,11 @@ class PlayerController {
                     }
                     @proc_close($process);
                     TranscodeLimiter::releaseSlot();
+                    TranscodeLimiter::releaseEncodeSlot();
                 }
             } else {
                 TranscodeLimiter::releaseSlot();
+                TranscodeLimiter::releaseEncodeSlot();
             }
             exit();
         }

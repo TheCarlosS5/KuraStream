@@ -1234,6 +1234,10 @@ html.perf-lite .hero-carousel-wrapper > .billboard-hero .billboard-hero-content 
   overflow: hidden;
 }
 
+.episode-reveal-wrap {
+  margin-top: 8px;
+}
+
 .episode-progress-bar {
   position: absolute;
   bottom: 0;

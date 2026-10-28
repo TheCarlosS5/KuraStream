@@ -19,6 +19,7 @@ data class ProfileUiState(
     val selectedProfilePendingPin: Profile? = null,
     val pinInput: String = "",
     val pinError: String? = null,
+    val generalError: String? = null,
     val isSelecting: Boolean = false,
     val mediaBaseUrl: String = ""
 )
@@ -61,11 +62,13 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun onProfileClicked(profile: Profile, onSelected: (Profile) -> Unit) {
+        if (_uiState.value.isSelecting) return
         if (profile.hasPin) {
             _uiState.value = _uiState.value.copy(
                 selectedProfilePendingPin = profile,
                 pinInput = "",
-                pinError = null
+                pinError = null,
+                generalError = null
             )
         } else {
             selectProfileDirectly(profile, null, onSelected)
@@ -79,6 +82,7 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun confirmPin(onSelected: (Profile) -> Unit) {
+        if (_uiState.value.isSelecting) return
         val pending = _uiState.value.selectedProfilePendingPin ?: return
         val pin = _uiState.value.pinInput
         if (pin.isBlank()) {
@@ -93,19 +97,36 @@ class ProfileViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(selectedProfilePendingPin = null, pinInput = "", pinError = null)
     }
 
+    fun dismissGeneralError() {
+        _uiState.value = _uiState.value.copy(generalError = null)
+    }
+
     private fun selectProfileDirectly(profile: Profile, pin: String?, onSelected: (Profile) -> Unit) {
-        _uiState.value = _uiState.value.copy(isSelecting = true)
+        if (_uiState.value.isSelecting) return
+        _uiState.value = _uiState.value.copy(isSelecting = true, generalError = null)
         viewModelScope.launch {
             val result = authRepository.selectProfile(profile.id, pin)
             if (result.isSuccess) {
                 val selected = result.getOrThrow()
-                _uiState.value = _uiState.value.copy(isSelecting = false, selectedProfilePendingPin = null)
-                onSelected(selected)
-            } else {
                 _uiState.value = _uiState.value.copy(
                     isSelecting = false,
-                    pinError = result.exceptionOrNull()?.message ?: "PIN incorrecto"
+                    selectedProfilePendingPin = null,
+                    generalError = null
                 )
+                onSelected(selected)
+            } else {
+                val errorMsg = result.exceptionOrNull()?.message ?: if (pin != null) "PIN incorrecto" else "Error al seleccionar perfil"
+                if (pin != null) {
+                    _uiState.value = _uiState.value.copy(
+                        isSelecting = false,
+                        pinError = errorMsg
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isSelecting = false,
+                        generalError = errorMsg
+                    )
+                }
             }
         }
     }

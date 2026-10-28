@@ -51,7 +51,9 @@ class WatchPartyViewModel @Inject constructor(
                             val updatedRoom = currentRoom?.copy(
                                 currentTime = event.sync.currentTime,
                                 isPlaying = event.sync.isPlaying,
-                                episodeId = event.sync.episodeId ?: currentRoom.episodeId
+                                episodeId = event.sync.episodeId ?: currentRoom.episodeId,
+                                allowGuestControls = event.sync.allowGuestControls,
+                                lastSyncMember = event.sync.lastSyncMember
                             )
                             val updatedSession = current.activeSession?.copy(room = updatedRoom)
                             current.copy(
@@ -89,6 +91,9 @@ class WatchPartyViewModel @Inject constructor(
                     }
                     is PartyRealtimeEvent.RoomClosed -> {
                         partyPlaybackContext.clear()
+                        // Same cleanup as the player: without it the session (and its ticket) outlived the room.
+                        partyRepository.stopListening()
+                        partyRepository.setActiveSession(null)
                         _uiState.update { it.copy(errorMessage = "La sala ha sido cerrada por el anfitrión") }
                     }
                     is PartyRealtimeEvent.ConnectionError -> {

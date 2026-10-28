@@ -18,10 +18,16 @@ class CalendarController {
     /** A stale AniList week is still a better guess than nothing for this long. */
     private static int $staleTtl = 14 * 86400;
     private const ANILIST_MAX_PAGES = 4;
+    /** After AniList was unreachable, serve local data without retrying for this long (the home server is usually offline). */
+    private const OFFLINE_BACKOFF = 900;
 
     // Kept out of the code tree so they can never be served or committed by accident.
     private static function cacheFile(): string {
         return sys_get_temp_dir() . '/kura_calendar_cache.json';
+    }
+
+    private static function offlineMarker(): string {
+        return sys_get_temp_dir() . '/kura_calendar_offline_until';
     }
 
     /** library show id => last weekday/time AniList reported for it (survives offline periods). */
@@ -70,7 +76,12 @@ class CalendarController {
             }
         }
 
-        $week = self::fetchAniListWeek();
+        // Every attempt without internet costs the request several seconds of curl timeouts.
+        $offlineUntil = (int)@file_get_contents(self::offlineMarker());
+        $week = (!$force && $offlineUntil > time()) ? null : self::fetchAniListWeek();
+        if ($week === null && ($force || $offlineUntil <= time())) {
+            @file_put_contents(self::offlineMarker(), (string)(time() + self::OFFLINE_BACKOFF));
+        }
         if ($week !== null && self::countItems($week) > 0) {
             @file_put_contents($cacheFile, json_encode($week));
             $result = self::finalize($week);

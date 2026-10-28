@@ -6,6 +6,13 @@ require_once __DIR__ . '/../middleware/RateLimiter.php';
 require_once __DIR__ . '/ShowController.php';
 
 class PartyController {
+    /**
+     * Stream tickets end up inside <video src> and ExoPlayer URLs, which keep using the first one for every
+     * Range request. Each request re-checks membership, room and episode, so a long lifetime is safe and a
+     * short one broke playback (403) once the viewer seeked after 15 minutes.
+     */
+    private const STREAM_TICKET_TTL = 4 * 3600;
+
 
     private static function resolveUser(array $body = []): string {
         $token = AuthMiddleware::getBearerToken();
@@ -255,7 +262,7 @@ class PartyController {
             'type' => 'watch_party_stream',
             'room_id' => $roomId,
             'member_id' => $memberId,
-            'exp' => time() + 900
+            'exp' => time() + self::STREAM_TICKET_TTL
         ]);
 
         $sseTicket = AuthMiddleware::createToken([
@@ -327,7 +334,7 @@ class PartyController {
         // Add system message if not host joining initial room
         if (!$isHost) {
             DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} se unió al Watch Party", 'system');
-            DbHelper::updatePartyPlayback($roomId, (bool)$room['is_playing'], (float)$room['current_time'], null, $memberCount);
+            DbHelper::updatePartyParticipants($roomId, $memberCount);
             $room = DbHelper::getPartyRoom($roomId);
         }
 
@@ -340,7 +347,7 @@ class PartyController {
             'type' => 'watch_party_stream',
             'room_id' => $roomId,
             'member_id' => $memberId,
-            'exp' => time() + 900
+            'exp' => time() + self::STREAM_TICKET_TTL
         ]);
 
         $sseTicket = AuthMiddleware::createToken([
@@ -399,7 +406,7 @@ class PartyController {
 
         $newCount = DbHelper::getPartyMembersCount($roomId);
         DbHelper::addPartyMessage($roomId, 'Sistema', "{$user} salió de la sala", 'system');
-        DbHelper::updatePartyPlayback($roomId, (bool)$room['is_playing'], (float)$room['current_time'], null, $newCount);
+        DbHelper::updatePartyParticipants($roomId, $newCount);
 
         $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
             || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
@@ -479,7 +486,8 @@ class PartyController {
         $isPlaying = isset($data['is_playing']) ? (bool)$data['is_playing'] : (bool)$room['is_playing'];
         $currentTime = isset($data['current_time']) ? (float)$data['current_time'] : (float)$room['current_time'];
 
-        DbHelper::updatePartyPlayback($roomId, $isPlaying, $currentTime, $episodeId);
+        $memberId = $participant['member_id'] ?? null;
+        DbHelper::updatePartyPlayback($roomId, $isPlaying, $currentTime, $episodeId, null, $memberId);
 
         // Optional system notice for major events (seek / episode switch)
         if ($action === 'seek') {
@@ -746,10 +754,8 @@ class PartyController {
                     DbHelper::removePartyMemberById($roomId, $hostMember['member_id']);
                 }
             }
-            $roomNow = DbHelper::getPartyRoom($roomId);
-            if ($roomNow) {
-                $newCount = DbHelper::getPartyMembersCount($roomId);
-                DbHelper::updatePartyPlayback($roomId, (bool)$roomNow['is_playing'], (float)$roomNow['current_time'], null, $newCount);
+            if (DbHelper::getPartyRoom($roomId)) {
+                DbHelper::updatePartyParticipants($roomId, DbHelper::getPartyMembersCount($roomId));
             }
         }
 
@@ -785,7 +791,7 @@ class PartyController {
             'type' => 'watch_party_stream',
             'room_id' => $roomId,
             'member_id' => $memberId,
-            'exp' => time() + 900
+            'exp' => time() + self::STREAM_TICKET_TTL
         ]);
 
         jsonResponse([

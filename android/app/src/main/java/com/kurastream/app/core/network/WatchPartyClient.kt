@@ -40,10 +40,27 @@ class WatchPartyClient(
 
     private var lastMessageId: Int = 0
 
+    /**
+     * Latest room state received. Events have no replay, and the "init" frame usually arrives while the
+     * party screen is still up, before the player exists: the player starts from this instead.
+     */
+    @Volatile
+    var lastSync: PartySyncEvent? = null
+        private set
+
+    private fun emitSync(sync: PartySyncEvent) {
+        lastSync = sync
+        _events.tryEmit(PartyRealtimeEvent.Sync(sync))
+    }
+
     /** Bumped on every connect/disconnect so callbacks from an old stream are ignored. */
     @Volatile
     private var generation = 0
     private var reconnectJob: Job? = null
+
+    /** The blocking poll in flight; cancelling the coroutine alone does not abort OkHttp's execute(). */
+    @Volatile
+    private var pollCall: Call? = null
 
     fun connect(
         baseUrl: String,
@@ -76,6 +93,7 @@ class WatchPartyClient(
         val request = Request.Builder()
             .url(url)
             .header("Accept", "text/event-stream")
+            .header("X-Absolute-Url", "1")
             .apply {
                 if (!memberId.isNullOrBlank()) header("X-Party-Member-Id", memberId)
                 if (!memberToken.isNullOrBlank()) header("X-Party-Member-Token", memberToken)
@@ -93,6 +111,8 @@ class WatchPartyClient(
                 // Live again: the polling fallback is no longer needed.
                 pollingJob?.cancel()
                 pollingJob = null
+                pollCall?.cancel()
+                pollCall = null
             }
 
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
@@ -107,6 +127,10 @@ class WatchPartyClient(
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 if (gen != generation) return
+                if (response != null && isRoomGone(response.code)) {
+                    closeRoom()
+                    return
+                }
                 _events.tryEmit(PartyRealtimeEvent.ConnectionError(t ?: Exception("SSE desconectado")))
                 // Poll while the stream is down, and keep trying to get the stream back.
                 startPollingFallback(baseUrl, roomId, memberId, memberToken)
@@ -139,7 +163,7 @@ class WatchPartyClient(
                     val obj = element.jsonObject
                     val roomObj = obj["room"]?.jsonObject
                     if (roomObj != null) {
-                        _events.tryEmit(PartyRealtimeEvent.Sync(parseSyncEvent(roomObj)))
+                        emitSync(parseSyncEvent(roomObj))
                     }
                     val membersArr = obj["members"]?.jsonArray
                     if (membersArr != null) {
@@ -160,7 +184,7 @@ class WatchPartyClient(
                 }
                 "sync" -> {
                     // data: currentRoom object
-                    _events.tryEmit(PartyRealtimeEvent.Sync(parseSyncEvent(element.jsonObject)))
+                    emitSync(parseSyncEvent(element.jsonObject))
                 }
                 "messages" -> {
                     // data: [ {...}, {...} ]
@@ -185,6 +209,9 @@ class WatchPartyClient(
     private fun parseSyncEvent(room: JsonObject): PartySyncEvent {
         val isPlaying = room["is_playing"]?.jsonPrimitive?.booleanOrNull
             ?: (room["is_playing"]?.jsonPrimitive?.intOrNull == 1)
+        val allowGuestControls = room["allow_guest_controls"]?.jsonPrimitive?.booleanOrNull
+            ?: (room["allow_guest_controls"]?.jsonPrimitive?.intOrNull == 1)
+            ?: false
         return PartySyncEvent(
             currentTime = room["current_time"]?.jsonPrimitive?.floatOrNull ?: 0f,
             isPlaying = isPlaying,
@@ -193,7 +220,9 @@ class WatchPartyClient(
             episodeId = room["episode_id"]?.jsonPrimitive?.contentOrNull,
             lastSyncTimestampMs = room["last_sync_timestamp"]?.jsonPrimitive?.longOrNull ?: 0L,
             serverTimeMs = room["server_time_ms"]?.jsonPrimitive?.longOrNull ?: 0L,
-            receivedAtMs = System.currentTimeMillis()
+            receivedAtMs = System.currentTimeMillis(),
+            lastSyncMember = room["last_sync_member"]?.jsonPrimitive?.contentOrNull,
+            allowGuestControls = allowGuestControls
         )
     }
 
@@ -222,6 +251,7 @@ class WatchPartyClient(
         memberToken: String?
     ) {
         if (pollingJob?.isActive == true) return
+        val gen = generation
         pollingJob = scope.launch {
             val baseClean = baseUrl.trimEnd('/')
 
@@ -230,20 +260,30 @@ class WatchPartyClient(
                     val url = "$baseClean/api/party/poll?room_id=$roomId&last_msg_id=$lastMessageId"
                     val req = Request.Builder()
                         .url(url)
+                        .header("X-Absolute-Url", "1")
                         .apply {
                             if (!memberId.isNullOrBlank()) header("X-Party-Member-Id", memberId)
                             if (!memberToken.isNullOrBlank()) header("X-Party-Member-Token", memberToken)
                         }
                         .build()
 
-                    okHttpClient.newCall(req).execute().use { resp ->
+                    val call = okHttpClient.newCall(req)
+                    pollCall = call
+                    call.execute().use { resp ->
+                        // A late answer for a cancelled poll or room we already left must not leak.
+                        if (!isActive || gen != generation) return@launch
+                        if (isRoomGone(resp.code)) {
+                            closeRoom()
+                            return@launch
+                        }
                         if (resp.isSuccessful) {
                             val body = resp.body?.string()
                             if (!body.isNullOrBlank()) {
+                                if (!isActive || gen != generation) return@launch
                                 val root = json.parseToJsonElement(body).jsonObject
                                 val room = root["room"]?.jsonObject
                                 if (room != null) {
-                                    _events.tryEmit(PartyRealtimeEvent.Sync(parseSyncEvent(room)))
+                                    emitSync(parseSyncEvent(room))
                                 }
                                 val msgsArray = root["messages"]?.jsonArray
                                 if (msgsArray != null && msgsArray.isNotEmpty()) {
@@ -262,8 +302,18 @@ class WatchPartyClient(
         }
     }
 
+    /** 404/410: the room no longer exists; 401/403: this membership was revoked. Neither recovers by retrying. */
+    private fun isRoomGone(code: Int) = code == 404 || code == 410 || code == 401 || code == 403
+
+    private fun closeRoom() {
+        disconnect()
+        _events.tryEmit(PartyRealtimeEvent.RoomClosed)
+    }
+
     fun disconnect() {
         generation++
+        pollCall?.cancel()
+        pollCall = null
         reconnectJob?.cancel()
         reconnectJob = null
         eventSource?.cancel()
@@ -271,5 +321,6 @@ class WatchPartyClient(
         pollingJob?.cancel()
         pollingJob = null
         lastMessageId = 0
+        lastSync = null
     }
 }

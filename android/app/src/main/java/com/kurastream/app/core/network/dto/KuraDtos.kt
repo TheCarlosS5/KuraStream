@@ -275,12 +275,12 @@ data class UserPreferencesResponseDto(
 
 @Serializable
 data class UserPreferencesDto(
-    @SerialName("auto_skip_intro") val autoSkipIntro: Boolean = false,
-    @SerialName("auto_play_next") val autoPlayNext: Boolean = true,
-    @SerialName("preferred_audio_language") val preferredAudioLanguage: String = "jpn",
-    @SerialName("preferred_subtitle_language") val preferredSubtitleLanguage: String = "spa",
-    @SerialName("audio_boost") val audioBoost: Int = 100,
-    @SerialName("audio_preset") val audioPreset: String = "flat"
+    @SerialName("auto_skip_intro") val autoSkipIntro: Boolean? = null,
+    @SerialName("auto_play_next") val autoPlayNext: Boolean? = null,
+    @SerialName("preferred_audio_language") val preferredAudioLanguage: String? = null,
+    @SerialName("preferred_subtitle_language") val preferredSubtitleLanguage: String? = null,
+    @SerialName("audio_boost") val audioBoost: Int? = null,
+    @SerialName("audio_preset") val audioPreset: String? = null
 )
 
 @Serializable
@@ -393,7 +393,8 @@ data class PartyRoomDto(
     @SerialName("is_public") val isPublic: Boolean = false,
     @SerialName("allow_guest_controls") val allowGuestControls: Boolean = false,
     @SerialName("participants_count") val memberCount: Int = 1,
-    @SerialName("last_sync_timestamp") val lastSyncTimestamp: Long? = 0L
+    @SerialName("last_sync_timestamp") val lastSyncTimestamp: Long? = 0L,
+    @SerialName("last_sync_member") val lastSyncMember: String? = null
 )
 
 @Serializable

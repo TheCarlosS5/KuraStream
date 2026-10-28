@@ -99,4 +99,13 @@
     <string name="finished">Finalizado</string>
     <string name="seasons">Temporadas</string>
     <string name="watched">Visto</string>
+
+    <!-- Recommendations & Player extensions -->
+    <string name="because_you_watched">Porque viste %1$s</string>
+    <string name="sleep_timer">Temporizador para dormir</string>
+    <string name="sleep_timer_15m">15 minutos</string>
+    <string name="sleep_timer_30m">30 minutos</string>
+    <string name="sleep_timer_end_of_episode">Fin del capítulo</string>
+    <string name="sleep_timer_cancel">Cancelar temporizador</string>
+    <string name="sleep_timer_disabled_party">El temporizador para dormir no está disponible en Watch Party</string>
 </resources>

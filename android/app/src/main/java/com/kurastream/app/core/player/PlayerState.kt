@@ -59,7 +59,9 @@ data class PlayerState(
     val endScreenVisible: Boolean = false,
     val doubleTapSeekSeconds: Int = 10,
     val subtitleScale: Float = 0f,
-    val videoFitMode: VideoFitMode = VideoFitMode.FIT
+    val videoFitMode: VideoFitMode = VideoFitMode.FIT,
+    val isSleepTimerActive: Boolean = false,
+    val sleepTimerText: String? = null
 )
 
 enum class VideoFitMode {

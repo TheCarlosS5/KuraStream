@@ -15,8 +15,8 @@ android {
         applicationId = "com.kurastream.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 8
-        versionName = "2.5.1"
+        versionCode = 12
+        versionName = "2.7.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

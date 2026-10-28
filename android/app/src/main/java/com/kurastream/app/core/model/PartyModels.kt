@@ -14,7 +14,8 @@ data class PartyRoom(
     val memberCount: Int = 1,
     val showTitle: String? = null,
     /** Guests may play/pause/seek for everyone (the web lets them when the host allows it). */
-    val allowGuestControls: Boolean = false
+    val allowGuestControls: Boolean = false,
+    val lastSyncMember: String? = null
 )
 
 @Serializable
@@ -47,5 +48,7 @@ data class PartySyncEvent(
     /** Server clock when the frame was built (server_time_ms); 0 on servers that do not send it. */
     val serverTimeMs: Long = 0L,
     /** Device clock when the frame arrived, paired with [serverTimeMs] to avoid clock skew. */
-    val receivedAtMs: Long = 0L
+    val receivedAtMs: Long = 0L,
+    val lastSyncMember: String? = null,
+    val allowGuestControls: Boolean = false
 )

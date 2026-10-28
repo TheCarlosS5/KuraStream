@@ -64,13 +64,7 @@ class SettingsViewModel @Inject constructor(
                 seekSeconds = current.doubleTapSeekSeconds
             )
             historyRepository.saveUserPreferences(
-                UserPreferences(
-                    autoSkipIntro = enabled,
-                    autoSkipOutro = current.autoSkipOutro,
-                    autoPlayNext = current.autoPlayNext,
-                    preferredAudioLanguage = current.preferredAudioLanguage,
-                    preferredSubtitleLanguage = current.preferredSubtitleLanguage
-                )
+                UserPreferences(autoSkipIntro = enabled)
             )
         }
     }
@@ -101,12 +95,7 @@ class SettingsViewModel @Inject constructor(
                 seekSeconds = current.doubleTapSeekSeconds
             )
             historyRepository.saveUserPreferences(
-                UserPreferences(
-                    autoSkipIntro = current.autoSkipIntro,
-                    autoPlayNext = enabled,
-                    preferredAudioLanguage = current.preferredAudioLanguage,
-                    preferredSubtitleLanguage = current.preferredSubtitleLanguage
-                )
+                UserPreferences(autoPlayNext = enabled)
             )
         }
     }
@@ -123,10 +112,7 @@ class SettingsViewModel @Inject constructor(
                 seekSeconds = current.doubleTapSeekSeconds
             )
             historyRepository.saveUserPreferences(
-                UserPreferences(
-                    preferredAudioLanguage = lang,
-                    preferredSubtitleLanguage = current.preferredSubtitleLanguage
-                )
+                UserPreferences(preferredAudioLanguage = lang)
             )
         }
     }
@@ -143,10 +129,7 @@ class SettingsViewModel @Inject constructor(
                 seekSeconds = current.doubleTapSeekSeconds
             )
             historyRepository.saveUserPreferences(
-                UserPreferences(
-                    preferredAudioLanguage = current.preferredAudioLanguage,
-                    preferredSubtitleLanguage = lang
-                )
+                UserPreferences(preferredSubtitleLanguage = lang)
             )
         }
     }

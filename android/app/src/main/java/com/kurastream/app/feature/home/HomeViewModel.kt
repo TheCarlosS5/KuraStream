@@ -19,6 +19,8 @@ data class HomeFeedData(
     /** Up to 5 billboard candidates for the hero carousel (first == heroShow). */
     val heroShows: List<Show> = emptyList(),
     val continueWatching: List<WatchHistoryItem> = emptyList(),
+    val becauseYouWatchedTitle: String? = null,
+    val becauseYouWatchedShows: List<Show> = emptyList(),
     val recentlyAdded: List<Show> = emptyList(),
     val animeList: List<Show> = emptyList(),
     val movieList: List<Show> = emptyList(),
@@ -59,6 +61,8 @@ class HomeViewModel @Inject constructor(
 
     init {
         observePreferencesAndInitialize()
+        // Progress recorded offline (or under this profile before switching away) goes out now.
+        viewModelScope.launch { historyRepository.flushPendingProgress() }
         // The player saves on exit from a detached scope; refresh once that save has landed
         // (a fixed delay raced it and the row looked like nothing had been saved).
         viewModelScope.launch {
@@ -135,10 +139,10 @@ class HomeViewModel @Inject constructor(
             ) { shows, historyItems, fromServer, dismissed ->
                 // Offline (no server answer yet) the cached history stands in, with the same rules.
                 val rows = fromServer ?: ContinueWatchingRules.fromHistory(historyItems)
-                Pair(shows, rows.filterNot { "$profileId|${it.episodeId}" in dismissed })
-            }.collect { (shows, continueItems) ->
+                Triple(shows, rows.filterNot { "$profileId|${it.episodeId}" in dismissed }, historyItems)
+            }.collect { (shows, continueItems, historyItems) ->
                 if (shows.isNotEmpty() || continueItems.isNotEmpty()) {
-                    emitContent(shows, continueItems, serverUrl, isRefreshing = false)
+                    emitContent(shows, continueItems, historyItems, serverUrl, isRefreshing = false)
                 }
             }
         }
@@ -209,10 +213,12 @@ class HomeViewModel @Inject constructor(
             loadNotifications()
             val catalogResult = catalogRepository.refreshCatalog(serverId, username, profileId, isKids)
             var continueItems = emptyList<WatchHistoryItem>()
+            var historyItems = emptyList<WatchHistoryItem>()
             if (username.isNotBlank() && profileId.isNotBlank()) {
                 val histRes = historyRepository.refreshHistory(serverId, username, profileId)
                 loadServerContinue()
-                continueItems = serverContinue.value ?: ContinueWatchingRules.fromHistory(histRes.getOrDefault(emptyList()))
+                historyItems = histRes.getOrDefault(emptyList())
+                continueItems = serverContinue.value ?: ContinueWatchingRules.fromHistory(historyItems)
             }
             val dismissed = preferencesDataSource.dismissedContinueFlow.first()
             continueItems = continueItems.filterNot { "$profileId|${it.episodeId}" in dismissed }
@@ -222,7 +228,7 @@ class HomeViewModel @Inject constructor(
                 if (shows.isEmpty() && continueItems.isEmpty()) {
                     _uiState.value = UiState.Empty("No hay contenido disponible en el catálogo de este servidor")
                 } else {
-                    emitContent(shows, continueItems, currentServerUrl, isRefreshing = false)
+                    emitContent(shows, continueItems, historyItems, currentServerUrl, isRefreshing = false)
                 }
             } else if (_uiState.value !is UiState.Content) {
                 // If network failed and no cached data exists in UI state
@@ -255,6 +261,7 @@ class HomeViewModel @Inject constructor(
     private fun emitContent(
         shows: List<Show>,
         continueWatching: List<WatchHistoryItem>,
+        historyItems: List<WatchHistoryItem> = emptyList(),
         baseUrl: String,
         isRefreshing: Boolean
     ) {
@@ -265,11 +272,20 @@ class HomeViewModel @Inject constructor(
         val movies = shows.filter { it.mediaType.equals("movie", ignoreCase = true) }
         val recent = shows.sortedByDescending { it.year ?: 0 }
 
+        val recHistory = if (historyItems.isNotEmpty()) historyItems else continueWatching
+        val recommendation = BecauseYouWatchedRules.recommend(
+            shows = shows,
+            history = recHistory,
+            isKids = currentIsKids
+        )
+
         _uiState.value = UiState.Content(
             HomeFeedData(
                 heroShow = hero,
                 heroShows = heroes,
                 continueWatching = continueWatching,
+                becauseYouWatchedTitle = recommendation?.sourceShowTitle,
+                becauseYouWatchedShows = recommendation?.recommendations.orEmpty(),
                 recentlyAdded = recent,
                 animeList = anime,
                 movieList = movies,

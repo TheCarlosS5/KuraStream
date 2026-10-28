@@ -42,8 +42,8 @@ class ShowController {
 
         if (!defined('TESTING_MODE')) {
             $shows = array_values(array_filter($shows, function($s) {
+                // Fixture ids only: a real title may well contain "Test" (Baka to Test to Shoukanjuu).
                 $id = strtolower($s['id'] ?? '');
-                $title = strtolower($s['title'] ?? '');
                 return !str_starts_with($id, 'show_pin_test')
                     && !str_starts_with($id, 'test_')
                     && !str_starts_with($id, 'show_party_')
@@ -51,8 +51,7 @@ class ShowController {
                     && !str_starts_with($id, 'show_sec_')
                     && !str_starts_with($id, 'mock_')
                     && !str_ends_with($id, '_test')
-                    && !str_contains($id, '_test_')
-                    && !preg_match('/\btest\b/i', $title);
+                    && !str_contains($id, '_test_');
             }));
         }
 

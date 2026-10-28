@@ -97,6 +97,16 @@ fun ProfileSelectScreen(
                                 )
                             }
                         }
+
+                        if (!uiState.generalError.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(KuraDimens.Space4))
+                            Text(
+                                text = uiState.generalError!!,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = KuraColors.Danger,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 }
             }

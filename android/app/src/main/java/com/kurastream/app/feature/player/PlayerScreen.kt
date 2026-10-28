@@ -83,6 +83,16 @@ import com.kurastream.app.core.player.VideoFitMode
 import com.kurastream.app.core.player.PlayerOrientationManager
 import com.kurastream.app.core.player.TrackLabel
 import com.kurastream.app.core.player.TrackLabels
+import com.kurastream.app.core.player.PlayerDpadKeyHandler
+import com.kurastream.app.core.player.PlayerKeyAction
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -107,9 +117,62 @@ fun PlayerScreen(
     var showEpisodesPanel by remember { mutableStateOf(false) }
     var showPartyChat by remember { mutableStateOf(false) }
     var partyRoomNameInput by remember { mutableStateOf("") }
+    var showSleepTimerSheet by remember { mutableStateOf(false) }
 
-    BackHandler(enabled = showEpisodesPanel) { showEpisodesPanel = false }
-    BackHandler(enabled = showPartyChat && !showEpisodesPanel) { showPartyChat = false }
+    val rootFocusRequester = remember { FocusRequester() }
+    val playPauseFocusRequester = remember { FocusRequester() }
+
+    val hasActiveOverlay = showSleepTimerSheet ||
+        showEpisodesPanel ||
+        showTracksSheet ||
+        showSpeedSheet ||
+        showPartyChat ||
+        showCreatePartyDialog ||
+        showPartyInfoDialog
+
+    fun dismissTopOverlay(): Boolean {
+        return when {
+            showSleepTimerSheet -> { showSleepTimerSheet = false; true }
+            showEpisodesPanel -> { showEpisodesPanel = false; true }
+            showTracksSheet -> { showTracksSheet = false; true }
+            showSpeedSheet -> { showSpeedSheet = false; true }
+            showPartyChat -> { showPartyChat = false; true }
+            showCreatePartyDialog -> { showCreatePartyDialog = false; true }
+            showPartyInfoDialog -> { showPartyInfoDialog = false; true }
+            else -> false
+        }
+    }
+
+    BackHandler(enabled = hasActiveOverlay) {
+        dismissTopOverlay()
+    }
+    BackHandler(enabled = !hasActiveOverlay && state.controlsVisible && !state.controlsLocked) {
+        viewModel.hideControls()
+    }
+
+    LaunchedEffect(state.controlsVisible, hasActiveOverlay) {
+        if (hasActiveOverlay) return@LaunchedEffect
+        if (state.controlsVisible) {
+            delay(50)
+            try {
+                playPauseFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        } else {
+            try {
+                rootFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        try {
+            if (state.controlsVisible) {
+                playPauseFocusRequester.requestFocus()
+            } else {
+                rootFocusRequester.requestFocus()
+            }
+        } catch (_: Exception) {}
+    }
 
     LaunchedEffect(showPartyChat) { viewModel.setPartyChatOpen(showPartyChat) }
     LaunchedEffect(state.isWatchPartyActive) { if (!state.isWatchPartyActive) showPartyChat = false }
@@ -269,6 +332,61 @@ fun PlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .focusRequester(rootFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { keyEvent ->
+                val nativeEvent = keyEvent.nativeKeyEvent
+                val isKeyDown = keyEvent.type == KeyEventType.KeyDown
+                val action = PlayerDpadKeyHandler.mapKeyEvent(
+                    keyCode = nativeEvent.keyCode,
+                    isKeyDown = isKeyDown,
+                    controlsVisible = state.controlsVisible,
+                    hasActiveOverlay = hasActiveOverlay
+                )
+                when (action) {
+                    is PlayerKeyAction.ShowControls -> {
+                        viewModel.showControls()
+                        true
+                    }
+                    is PlayerKeyAction.Seek -> {
+                        viewModel.seekDoubleTap(forward = action.forward)
+                        val sec = state.doubleTapSeekSeconds
+                        val text = if (action.forward) "+${sec}s" else "-${sec}s"
+                        val icon = if (action.forward) Icons.Default.Forward10 else Icons.Default.Replay10
+                        showGestureHud(text, icon)
+                        true
+                    }
+                    is PlayerKeyAction.TogglePlayPause -> {
+                        viewModel.togglePlayPause()
+                        true
+                    }
+                    is PlayerKeyAction.Play -> {
+                        viewModel.play()
+                        true
+                    }
+                    is PlayerKeyAction.Pause -> {
+                        viewModel.pause()
+                        true
+                    }
+                    is PlayerKeyAction.CloseOverlay -> {
+                        dismissTopOverlay()
+                        true
+                    }
+                    is PlayerKeyAction.HideControls -> {
+                        viewModel.hideControls()
+                        try { rootFocusRequester.requestFocus() } catch (_: Exception) {}
+                        true
+                    }
+                    is PlayerKeyAction.ResetAutoHide -> {
+                        viewModel.onUserInteraction()
+                        false
+                    }
+                    is PlayerKeyAction.Exit -> {
+                        false
+                    }
+                    is PlayerKeyAction.None -> false
+                }
+            }
             .pointerInput(state.controlsLocked) {
                 if (state.controlsLocked) {
                     detectTapGestures(
@@ -501,6 +619,48 @@ fun PlayerScreen(
                         }
                     }
 
+                    // Sleep Timer
+                    IconButton(
+                        onClick = {
+                            if (state.isWatchPartyActive) {
+                                showGestureHud(
+                                    context.getString(R.string.sleep_timer_disabled_party),
+                                    Icons.Default.Bedtime
+                                )
+                            } else {
+                                showSleepTimerSheet = true
+                            }
+                        }
+                    ) {
+                        if (state.isSleepTimerActive && !state.sleepTimerText.isNullOrBlank()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .background(KuraColors.Primary.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bedtime,
+                                    contentDescription = stringResource(R.string.sleep_timer),
+                                    tint = KuraColors.Primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = state.sleepTimerText ?: "",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White
+                                )
+                            }
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Bedtime,
+                                contentDescription = stringResource(R.string.sleep_timer),
+                                tint = Color.White
+                            )
+                        }
+                    }
+
                     IconButton(onClick = viewModel::toggleLock) {
                         Icon(
                             imageVector = Icons.Default.LockOpen,
@@ -532,12 +692,24 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.spacedBy(56.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    var isRewindFocused by remember { mutableStateOf(false) }
                     IconButton(
                         onClick = {
                             viewModel.seekRelative(-10f)
                             showGestureHud("-10s", Icons.Default.Replay10)
                         },
-                        modifier = Modifier.size(56.dp)
+                        modifier = Modifier
+                            .size(56.dp)
+                            .onFocusChanged { isRewindFocused = it.isFocused }
+                            .then(
+                                if (isRewindFocused) {
+                                    Modifier
+                                        .background(Color.White.copy(alpha = 0.25f), CircleShape)
+                                        .border(2.dp, KuraColors.Primary, CircleShape)
+                                } else {
+                                    Modifier
+                                }
+                            )
                     ) {
                         Icon(
                             imageVector = Icons.Default.Replay10,
@@ -547,9 +719,22 @@ fun PlayerScreen(
                         )
                     }
 
+                    var isPlayPauseFocused by remember { mutableStateOf(false) }
                     IconButton(
                         onClick = viewModel::togglePlayPause,
-                        modifier = Modifier.size(72.dp)
+                        modifier = Modifier
+                            .size(72.dp)
+                            .focusRequester(playPauseFocusRequester)
+                            .onFocusChanged { isPlayPauseFocused = it.isFocused }
+                            .then(
+                                if (isPlayPauseFocused) {
+                                    Modifier
+                                        .background(Color.White.copy(alpha = 0.25f), CircleShape)
+                                        .border(2.dp, KuraColors.Primary, CircleShape)
+                                } else {
+                                    Modifier
+                                }
+                            )
                     ) {
                         Icon(
                             imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -559,12 +744,24 @@ fun PlayerScreen(
                         )
                     }
 
+                    var isForwardFocused by remember { mutableStateOf(false) }
                     IconButton(
                         onClick = {
                             viewModel.seekRelative(10f)
                             showGestureHud("+10s", Icons.Default.Forward10)
                         },
-                        modifier = Modifier.size(56.dp)
+                        modifier = Modifier
+                            .size(56.dp)
+                            .onFocusChanged { isForwardFocused = it.isFocused }
+                            .then(
+                                if (isForwardFocused) {
+                                    Modifier
+                                        .background(Color.White.copy(alpha = 0.25f), CircleShape)
+                                        .border(2.dp, KuraColors.Primary, CircleShape)
+                                } else {
+                                    Modifier
+                                }
+                            )
                     ) {
                         Icon(
                             imageVector = Icons.Default.Forward10,
@@ -1092,22 +1289,32 @@ fun PlayerScreen(
                     }
 
                     val subtitleLabels = TrackLabels.subtitles(state.availableSubtitleTracks)
-                    state.availableSubtitleTracks.forEachIndexed { index, _ ->
+                    state.availableSubtitleTracks.forEachIndexed { index, subTrack ->
+                        val isBitmap = subTrack.isBitmap
+                        val rawLabel = subtitleLabels[index]
+                        val displayLabel = if (isBitmap) {
+                            rawLabel.copy(label = "${rawLabel.label} (no compatible)")
+                        } else {
+                            rawLabel
+                        }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(KuraShapes.Control)
                                 .clickable {
                                     viewModel.selectSubtitleTrack(index)
-                                    showTracksSheet = false
+                                    if (!isBitmap) {
+                                        showTracksSheet = false
+                                    }
                                 }
                                 .padding(vertical = KuraDimens.Space2, horizontal = KuraDimens.Space3),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             TrackLabelText(
-                                label = subtitleLabels[index],
-                                selected = state.selectedSubtitleTrackIndex == index
+                                label = displayLabel,
+                                selected = state.selectedSubtitleTrackIndex == index,
+                                enabled = !isBitmap
                             )
                             if (state.selectedSubtitleTrackIndex == index) {
                                 Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = KuraColors.Primary)
@@ -1213,6 +1420,112 @@ fun PlayerScreen(
                             if (state.playbackSpeed == speed) {
                                 Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = KuraColors.Primary)
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sleep Timer Bottom Sheet
+        if (showSleepTimerSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showSleepTimerSheet = false },
+                containerColor = KuraColors.Surface,
+                dragHandle = { BottomSheetDefaults.DragHandle(color = KuraColors.Border) }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(KuraDimens.Space5)
+                ) {
+                    Text(
+                        text = stringResource(R.string.sleep_timer),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = KuraColors.TextMain,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(KuraDimens.Space3))
+
+                    // 15 minutos
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(KuraShapes.Control)
+                            .clickable {
+                                viewModel.setSleepTimerMinutes(15)
+                                showSleepTimerSheet = false
+                            }
+                            .padding(vertical = KuraDimens.Space3, horizontal = KuraDimens.Space3),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.sleep_timer_15m),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = KuraColors.TextMain
+                        )
+                    }
+
+                    // 30 minutos
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(KuraShapes.Control)
+                            .clickable {
+                                viewModel.setSleepTimerMinutes(30)
+                                showSleepTimerSheet = false
+                            }
+                            .padding(vertical = KuraDimens.Space3, horizontal = KuraDimens.Space3),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.sleep_timer_30m),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = KuraColors.TextMain
+                        )
+                    }
+
+                    // Fin del capítulo
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(KuraShapes.Control)
+                            .clickable {
+                                viewModel.setSleepTimerEndOfEpisode()
+                                showSleepTimerSheet = false
+                            }
+                            .padding(vertical = KuraDimens.Space3, horizontal = KuraDimens.Space3),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.sleep_timer_end_of_episode),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = KuraColors.TextMain
+                        )
+                    }
+
+                    // Cancelar temporizador
+                    if (state.isSleepTimerActive) {
+                        Spacer(modifier = Modifier.height(KuraDimens.Space2))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(KuraShapes.Control)
+                                .clickable {
+                                    viewModel.cancelSleepTimer()
+                                    showSleepTimerSheet = false
+                                }
+                                .padding(vertical = KuraDimens.Space3, horizontal = KuraDimens.Space3),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.sleep_timer_cancel),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = KuraColors.Danger
+                            )
                         }
                     }
                 }
@@ -1927,10 +2240,22 @@ private fun PlayerTextAction(
     label: String,
     onClick: () -> Unit
 ) {
+    var isFocused by remember { mutableStateOf(false) }
     TextButton(
         onClick = onClick,
         colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
-        contentPadding = PaddingValues(horizontal = KuraDimens.Space2, vertical = KuraDimens.Space1)
+        contentPadding = PaddingValues(horizontal = KuraDimens.Space2, vertical = KuraDimens.Space1),
+        modifier = Modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .then(
+                if (isFocused) {
+                    Modifier
+                        .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                        .border(1.5.dp, KuraColors.Primary, RoundedCornerShape(8.dp))
+                } else {
+                    Modifier
+                }
+            )
     ) {
         Icon(
             imageVector = icon,
@@ -1964,13 +2289,17 @@ private fun formatTime(seconds: Float): String {
 }
 
 @Composable
-private fun TrackLabelText(label: TrackLabel, selected: Boolean) {
+private fun TrackLabelText(label: TrackLabel, selected: Boolean, enabled: Boolean = true) {
     Column {
         Text(
             text = label.label,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) KuraColors.Primary else KuraColors.TextMain
+            color = when {
+                !enabled -> KuraColors.TextMuted
+                selected -> KuraColors.Primary
+                else -> KuraColors.TextMain
+            }
         )
         if (label.detail.isNotBlank()) {
             Text(
